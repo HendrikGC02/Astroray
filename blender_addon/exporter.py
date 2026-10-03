@@ -110,6 +110,9 @@ _LIVE_VIEWPORT_SESSIONS = []
 # threading.Lock permits release by a thread other than the one that acquired it
 # — exactly the main-commits-then-hands-to-worker hand-off (§3.2).
 _GLOBAL_ADMISSION_TOKEN = threading.Lock()
+# #879: longest the synchronous (worker-off) path waits on the main thread for
+# the token a sibling viewport worker holds for one bounded chunk.
+SYNC_ADMISSION_TIMEOUT_S = 0.25
 
 # pkg266 (design §3.5): the F12 process-wide pause gate. While set, NO viewport
 # worker may be admitted (every maybe_submit try-acquire fails and re-queues its
@@ -319,6 +322,15 @@ VIEWPORT_NAV_SETTLE_S = 0.25   # snap back to full res after this quiet window.
 # rendering full res immediately.
 VIEWPORT_START_RES_DIVISOR = 4       # coarse first present on the expensive profile.
 VIEWPORT_INTERACTIVE_BUDGET_MS = 100.0  # pinned edit->present p95 budget (GPU).
+# pkg291: the render is only part of edit->present (commit, texture upload and
+# the draw follow it: ~35 ms at 2100x1221 in the gate (a) lifelines), so the
+# coarse start engages once the full-res render alone would take more than this
+# share of the budget (Cycles starts every viewport reset coarse,
+# RenderScheduler start_resolution, Apache-2.0).
+VIEWPORT_START_RES_RENDER_SHARE = 0.5
+# pkg291: one 60 Hz display frame. A worker edit whose full-res render exceeds it
+# starts at the navigation divisor (see _worker_commit_and_submit).
+VIEWPORT_FRAME_MS = 1000.0 / 60.0
 # #801: refinement-chunk time budget. Cycles targets ~0.1 s per viewport update
 # but renders on its own thread; our default path renders synchronously inside
 # view_draw, so the chunk IS the UI stall. 50 ms keeps the UI at ~15 Hz while
@@ -1288,6 +1300,12 @@ class Exporter:
         # path, so the default behaviour is unchanged. _worker_engine_methods /
         # _worker_redraw_fn cache the main-thread callables the pump needs.
         self._worker = None
+        # #879: the viewport path (worker vs synchronous) latched for this
+        # session; None until the first view_update/view_draw. Re-read from the
+        # env var only at view_update with no worker render in flight
+        # (_resolve_worker_mode), so a live ASTRORAY_VIEWPORT_WORKER flip can
+        # never start a main-thread render while the worker is mid-render.
+        self._worker_mode = None
         self._worker_timer = None
         self._worker_engine_methods = None
         self._worker_redraw_fn = None
@@ -1376,11 +1394,13 @@ class Exporter:
     def _budget_start_divisor(self):
         """pkg241 Phase 1: interactive-resolution budget. Return the coarse
         starting divisor for a fresh edit when the last render's estimated
-        full-resolution wall time exceeds VIEWPORT_INTERACTIVE_BUDGET_MS, else 1
+        full-resolution wall time exceeds VIEWPORT_INTERACTIVE_BUDGET_MS *
+        VIEWPORT_START_RES_RENDER_SHARE (pkg291), else 1
         (full res). The estimate (_viewport_last_full_render_ms) is measured, so
         the coarse profile engages only above the threshold and cheap scenes
         render full res immediately (Cycles start_resolution analogue)."""
-        if self._viewport_last_full_render_ms > VIEWPORT_INTERACTIVE_BUDGET_MS:
+        if (self._viewport_last_full_render_ms
+                > VIEWPORT_INTERACTIVE_BUDGET_MS * VIEWPORT_START_RES_RENDER_SHARE):
             return VIEWPORT_START_RES_DIVISOR
         return 1
 
@@ -1531,6 +1551,27 @@ class Exporter:
 
         instancing_related = any(_related(nm) for nm in xform_names)
 
+        # pkg291 (#875): a transform-only edit of a mesh object whose triangle
+        # range convert_objects recorded moves in place. Capture its live
+        # matrix_world now (the deferred replay runs after depsgraph.updates is
+        # gone); it rides flat_transforms keyed by NAME (a str), which
+        # _dispatch_dirty_domains routes to _move_object_in_place.
+        ranges = getattr(self.engine, '_renderer_object_ranges', None) or {}
+        if xform_names and ranges:
+            moved = set()
+            for upd in updates:
+                uid = getattr(upd, 'id', None)
+                nm = getattr(uid, 'name', None)
+                if (nm in xform_names and nm not in moved and not _related(nm)
+                        and ranges.get(nm) is not None):
+                    try:
+                        m = [float(x) for row in uid.matrix_world for x in row]
+                    except Exception:
+                        continue  # unreadable -> stays a geometry promote
+                    flat_transforms.append((nm, m))
+                    moved.add(nm)
+            xform_names = [nm for nm in xform_names if nm not in moved]
+
         if geometry:
             changes |= Change.GEOMETRY
         if flat_transforms or xform_names:
@@ -1643,6 +1684,10 @@ class Exporter:
             self._viewport_skip_upload_next = True
         elif changes & Change.TRANSFORMS:
             for obj_id, mat16 in flat_transforms:
+                if isinstance(obj_id, str):  # pkg291 (#875): mesh object by name
+                    if not self._move_object_in_place(renderer, obj_id, mat16):
+                        return False  # -> full sync
+                    continue
                 try:
                     renderer.update_object_transform(obj_id, mat16)
                 except (RuntimeError, AttributeError, TypeError):
@@ -1652,6 +1697,33 @@ class Exporter:
 
         # Any image-changing dispatch resets accumulation
         self._reset_viewport_accumulation()
+        return True
+
+    def _move_object_in_place(self, renderer, name, mat16):
+        """pkg291 (#875): move one mesh object in place instead of a full sync
+        (~130 ms on 100k tris). delta = M_new * M_old^-1 (float64) is applied to
+        the object's recorded triangle range; the engine refits the BVH and the
+        GPU patches only those triangles + node bounds. False (caller full-syncs)
+        when the object has no range, the engine lacks the binding, delta is
+        singular, the volume scale changes by more than 10 % (refit quality,
+        spec), or the engine refuses (emissive / motion triangles)."""
+        ranges = getattr(self.engine, '_renderer_object_ranges', None) or {}
+        entry = ranges.get(name)
+        if entry is None or not hasattr(renderer, 'transform_object_range'):
+            return False
+        start, count, old = entry
+        try:
+            delta = (np.asarray(mat16, dtype=np.float64).reshape(4, 4)
+                     @ np.linalg.inv(np.asarray(old, dtype=np.float64).reshape(4, 4)))
+        except np.linalg.LinAlgError:
+            return False
+        scale = abs(float(np.linalg.det(delta[:3, :3]))) ** (1.0 / 3.0)
+        if not 0.9 <= scale <= 1.1:
+            return False
+        if not renderer.transform_object_range(int(start), int(count),
+                                               delta.reshape(16).tolist()):
+            return False
+        ranges[name] = (start, count, list(mat16))
         return True
 
     # -- #849 in-place material / light re-sync ------------------------------
@@ -2108,8 +2180,9 @@ class Exporter:
 
         # pkg241 Phase 2 A2 spike: route material/scene edits through the
         # off-thread worker when the flag is set (§9). Synchronous path unchanged
-        # when unset.
-        if viewport_worker_enabled():
+        # when unset. #879: the path is latched per session (see
+        # _resolve_worker_mode); view_update is the only place it may switch.
+        if self._resolve_worker_mode(at_view_update=True):
             self._worker_view_update(
                 context, depsgraph, configure_backend_fn,
                 effective_integrator_name_fn, viewport_perf_record_fn,
@@ -2127,6 +2200,10 @@ class Exporter:
             settings = resolve_fn(scene, self.engine.report)
         region = context.region
 
+        # #879: the synchronous path renders on the main thread; it must own the
+        # global admission token like every other renderer user.
+        if not self._enter_sync_path(request_viewport_redraw_fn):
+            return
         try:
             renderer = self._get_viewport_renderer()
 
@@ -2189,6 +2266,8 @@ class Exporter:
         except Exception as e:
             print(f"Astroray viewport preview error: {e}")
             traceback.print_exc()
+        finally:
+            self._exit_sync_path()
 
     def view_draw(self, context, depsgraph, raytracer_available,
                  configure_backend_fn, viewport_perf_record_fn,
@@ -2206,7 +2285,8 @@ class Exporter:
         # reduced to: detect a camera edit -> bump generation + request cancel;
         # pump the worker (present the freshest published frame); commit + submit
         # the desired generation when the worker is idle; blit the latest frame.
-        if viewport_worker_enabled():
+        # #879: the path latched by view_update (or the first call) is used.
+        if self._resolve_worker_mode(at_view_update=False):
             self._worker_view_draw(
                 context, depsgraph, configure_backend_fn,
                 effective_integrator_name_fn, viewport_perf_record_fn,
@@ -2214,6 +2294,19 @@ class Exporter:
                 request_viewport_redraw_fn, engine_methods)
             return
 
+        # #879: own the global admission token for the synchronous render; while
+        # another holder renders, keep showing the last frame.
+        if not self._enter_sync_path(request_viewport_redraw_fn):
+            if self._viewport_texture is not None:
+                try:
+                    from gpu_extras.presets import draw_texture_2d
+                    self.engine.bind_display_space_shader(depsgraph.scene)
+                    draw_texture_2d(self._viewport_texture, (0, 0),
+                                    context.region.width, context.region.height)
+                    self.engine.unbind_display_space_shader()
+                except Exception:
+                    pass
+            return
         try:
             region = context.region
             scene = depsgraph.scene
@@ -2390,6 +2483,8 @@ class Exporter:
         except Exception as e:
             print(f"Astroray view_draw error: {e}")
             traceback.print_exc()
+        finally:
+            self._exit_sync_path()
 
     # -----------------------------------------------------------------------
     # pkg241 Phase 2 A2 spike — off-thread worker path (design §3.2-§3.4, §9).
@@ -2622,6 +2717,17 @@ class Exporter:
             # submit (token contended) -- cleared below on success (Luna re-review).
         else:
             res_divisor = self._budget_start_divisor()
+            # pkg291: a fresh edit whose full-res render takes longer than one
+            # display frame starts at least at the navigation divisor, as the
+            # synchronous path does for camera moves (Cycles starts every viewport
+            # reset coarse). Gate (a) table: the 10k grid's full-res render
+            # (~45 ms at 2100x1221) sat under the budget threshold, so its first
+            # unit rendered + uploaded full res (p50 87 ms vs 19 ms on the
+            # coarse-starting 100k grid). Cheap/unmeasured scenes stay full res;
+            # the full-res refinement follows as before.
+            if (res_divisor == 1
+                    and self._viewport_last_full_render_ms > VIEWPORT_FRAME_MS):
+                res_divisor = VIEWPORT_NAV_RES_DIVISOR
 
         def commit_fn(gen):
             renderer = self._get_viewport_renderer()
@@ -2787,6 +2893,12 @@ class Exporter:
                 worker.pump(present=False)
                 request_viewport_redraw_fn()
                 return
+            # pkg291: drain idle/error notifications FIRST so in_flight_generation
+            # is current. A render that already finished (idle queued, not yet
+            # drained) otherwise looked in flight, and request() emitted a
+            # cancel_request for it that no idle_ack could follow (the gate (a)
+            # reducer's "cancel lacks same-generation idle_ack" errors).
+            worker.pump(present=False)
             worker.request()
             # pkg266 (#817 bug 1): a genuine scene/material edit CHANGES the image
             # content, so every frame rendered before it is now stale to present.
@@ -2854,6 +2966,7 @@ class Exporter:
                 # move. present_floor_generation is left untouched — a camera move
                 # does not change image content, so the just-published (one-step
                 # stale) frame stays presentable.
+                worker.pump(present=False)  # pkg291: current in-flight state first
                 cancel_inflight = (self._worker_committed_divisor == 1
                                    and worker.in_flight_generation is not None)
                 worker.request(cancel_inflight=cancel_inflight)
@@ -2862,7 +2975,14 @@ class Exporter:
                     camera_substantive_state_hash_fn(context, region)
 
             # Pump: present the freshest valid published frame + advance state.
+            presents_before = worker.presents
             worker.pump()
+            # pkg291: a frame was uploaded in this draw -> blit it first and
+            # schedule the full-resolution refinement on the next redraw, so its
+            # main-thread commit never delays the frame that is already ready
+            # (gate (a) lifeline: the coarse unit was ready at +34 ms but reached
+            # the screen at +210 ms, behind the refinement commit).
+            just_presented = worker.presents != presents_before
             # Commit + submit the desired generation if the worker is now idle.
             # pkg241 P2.2 item 2: a scene edit deferred while the worker was busy is
             # re-committed here as a full sync (its live depsgraph is gone); an
@@ -2881,7 +3001,7 @@ class Exporter:
             # device; only the film resolution changes). A user edit that arrived
             # meanwhile would have bumped desired_generation and is committed by
             # the block above instead, so a stale state is never refined.
-            if (self._worker_refine_pending
+            if (self._worker_refine_pending and not just_presented
                     and worker.state == _ViewportSpikeWorker.IDLE
                     and worker.submitted_generation == self._worker_refine_gen
                     and worker.desired_generation == worker.submitted_generation):
@@ -2896,8 +3016,10 @@ class Exporter:
                     self._worker_refine_pending = False
                 request_viewport_redraw_fn()
 
-            # Keep the loop alive while a render is in flight or a frame is queued.
-            if worker.state != _ViewportSpikeWorker.IDLE:
+            # Keep the loop alive while a render is in flight or a frame is queued
+            # (or a refinement was deferred behind this draw's present).
+            if (worker.state != _ViewportSpikeWorker.IDLE
+                    or (just_presented and self._worker_refine_pending)):
                 request_viewport_redraw_fn()
 
             # Blit the latest published buffer (pure blit — no render, §3.3).
@@ -2912,6 +3034,54 @@ class Exporter:
         except Exception as e:
             print(f"Astroray worker view_draw error: {e}")
             traceback.print_exc()
+
+    # -- #879: one render thread at a time ---------------------------------
+    def _resolve_worker_mode(self, at_view_update):
+        """#879 root cause: viewport_worker_enabled() was re-read on EVERY
+        view_update/view_draw, so a live ASTRORAY_VIEWPORT_WORKER=0 flip sent the
+        next view_draw down the synchronous path, which called renderer.render()
+        on the main thread while this session's worker thread was still inside
+        renderer.render() (the GPU render releases the GIL) -- two threads in
+        the process-global wavefront WfContext, and Blender died in
+        nvcuda64.dll. The path is now latched per session: read on the first
+        call, changed only at view_update with no worker render in flight, and
+        leaving worker mode stops the worker (cancel -> join -> token released)
+        before the synchronous path renders."""
+        desired = viewport_worker_enabled()
+        if self._worker_mode is None:
+            self._worker_mode = desired
+        elif at_view_update and desired != self._worker_mode:
+            w = self._worker
+            if w is not None:
+                w.pump(present=False)  # refresh in_flight_generation
+            if w is None or w.in_flight_generation is None:
+                self._worker_mode = desired
+        if not self._worker_mode and self._worker is not None:
+            self.stop_worker()
+        return self._worker_mode
+
+    def _enter_sync_path(self, request_viewport_redraw_fn):
+        """#879: the synchronous path renders on the main thread, so it takes the
+        ONE process-global admission token (pkg266 §3.5) like the worker and F12,
+        after reaping orphaned worker sessions of freed engines (they would keep
+        rendering into the shared WfContext). Never waits on F12 (pause gate
+        raised); otherwise waits at most SYNC_ADMISSION_TIMEOUT_S for a sibling
+        viewport worker's chunk. False = skip this frame and retry on a redraw."""
+        _reap_dead_viewport_sessions(keep=self)
+        tok = _GLOBAL_ADMISSION_TOKEN
+        if tok.acquire(blocking=False) or (
+                not _admission_gate_raised()
+                and tok.acquire(timeout=SYNC_ADMISSION_TIMEOUT_S)):
+            return True
+        try:
+            request_viewport_redraw_fn()
+        except Exception:
+            pass
+        return False
+
+    @staticmethod
+    def _exit_sync_path():
+        _GLOBAL_ADMISSION_TOKEN.release()
 
     def pause_worker_for_f12(self, timeout=5.0):
         """§3.5 step 2 (F12 pause handshake): cancel this session's in-flight

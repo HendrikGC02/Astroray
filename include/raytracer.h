@@ -1509,6 +1509,33 @@ public:
 
     bool boundingBox(AABB& box) const override { if (!nodes.empty()) box = nodes[0].bounds; return !nodes.empty(); }
 
+    // pkg291 (#875): refit after primitives moved in place - same topology,
+    // bounds recomputed bottom-up (Cycles BVH2::refit_nodes, bvh/bvh2.cpp,
+    // Apache-2.0). flatten() stores both children after their parent (left at
+    // i+1, right at secondChildOffset > i), so one reverse pass sees updated
+    // children. On an unmoved scene this reproduces the built bounds exactly.
+    void refit() {
+        // Leaves first, then interior nodes in reverse (both children done).
+        // Serial: the viewport edit path is latency-bound on a busy host, where
+        // an OpenMP region costs more than this O(n) pass (pkg291 measurement).
+        const int nn = static_cast<int>(nodes.size());
+        for (int i = 0; i < nn; ++i) {
+            LinearBVHNode& n = nodes[i];
+            if (n.nPrimitives == 0) continue;
+            AABB b;
+            for (int k = 0; k < n.nPrimitives; ++k) {
+                AABB pb;
+                if (primitives[n.primitivesOffset + k]->boundingBox(pb)) b = b.merge(pb);
+            }
+            n.bounds = b;
+        }
+        for (int i = nn - 1; i >= 0; --i) {
+            LinearBVHNode& n = nodes[i];
+            if (n.nPrimitives == 0)
+                n.bounds = nodes[i + 1].bounds.merge(nodes[n.secondChildOffset].bounds);
+        }
+    }
+
     // Accessors for scene_upload.cu â€” read the flat BVH and ordered primitive list
     const std::vector<LinearBVHNode>& getNodes() const { return nodes; }
     const std::vector<std::shared_ptr<Hittable>>& getPrimitives() const { return primitives; }
@@ -2272,7 +2299,8 @@ public:
     std::vector<float> sampleCountBuffer;
     // pkg87a — Cryptomatte ranked histograms (flat arrays of [id0,weight0,id1,weight1,...])
     std::vector<float> cryptoObjectBuffer, cryptoMaterialBuffer;
-    int cryptomatteDepth = 6;  // number of (id, weight) pairs per pixel (default 6 ranks = 3 EXR layers)
+    static constexpr int kDefaultCryptomatteDepth = 6;  // pkg291: named for setupCamera's reuse check
+    int cryptomatteDepth = kDefaultCryptomatteDepth;  // number of (id, weight) pairs per pixel (default 6 ranks = 3 EXR layers)
     std::array<std::vector<Vec3>, PASS_COUNT> renderPassBuffers;
 
     // pkg72: snapshot of previous-frame projection state. Populated by
@@ -2301,7 +2329,39 @@ public:
            float shiftX = 0.0f, float shiftY = 0.0f,
            float clipNear = 0.001f, float clipFar = std::numeric_limits<float>::max(),
            bool orthographic = false, float orthoWidth = 0.0f, float orthoHeight = 0.0f)
-        : width(w), height(h), clipNear(clipNear), clipFar(clipFar) {
+        : width(w), height(h) {
+        setView(lookFrom, lookAt, vup, vfov, aspectRatio, aperture, focusDist,
+                shiftX, shiftY, clipNear, clipFar, orthographic, orthoWidth, orthoHeight);
+        pixels.resize(width * height, Vec3(0));
+        albedoBuffer.resize(width * height, Vec3(0));
+        normalBuffer.resize(width * height, Vec3(0));
+        motionBuffer.resize(static_cast<size_t>(width) * height * 2, 0.0f);
+        alphaBuffer.resize(width * height, 1.0f);
+        depthBuffer.resize(width * height, 0.0f);
+        positionBuffer.resize(width * height, Vec3(0));
+        uvBuffer.resize(width * height, Vec3(0));
+        objectIndexBuffer.resize(width * height, 0.0f);
+        materialIndexBuffer.resize(width * height, 0.0f);
+        bounceCountBuffer.resize(width * height, 0.0f);
+        sampleWeightBuffer.resize(width * height, 0.0f);
+        sampleCountBuffer.resize(width * height, 0.0f);
+        // pkg87a — Cryptomatte buffers: width*height*depth*2 floats (depth pairs of [id, weight])
+        cryptoObjectBuffer.resize(static_cast<size_t>(width) * height * cryptomatteDepth * 2, 0.0f);
+        cryptoMaterialBuffer.resize(static_cast<size_t>(width) * height * cryptomatteDepth * 2, 0.0f);
+        for (auto& passBuffer : renderPassBuffers) {
+            passBuffer.resize(width * height, Vec3(0));
+        }
+    }
+
+    // pkg291: the view/projection part of the constructor, factored out so a
+    // viewport commit can re-aim an existing Camera without reallocating its
+    // per-pixel buffers (PyRenderer::setupCamera). Same arithmetic as before.
+    void setView(Vec3 lookFrom, Vec3 lookAt, Vec3 vup, float vfov, float aspectRatio,
+                 float aperture, float focusDist, float shiftX, float shiftY,
+                 float clipNearIn, float clipFarIn, bool orthographic,
+                 float orthoWidth, float orthoHeight) {
+        clipNear = clipNearIn;
+        clipFar = clipFarIn;
         float vh, vw;
         if (orthographic) {
             vw = orthoWidth;
@@ -2325,25 +2385,6 @@ public:
         lensRadius = aperture / 2;
         vw_ = vw; vh_ = vh; focusDist_ = focusDist;
         shiftX_ = shiftX; shiftY_ = shiftY;
-        pixels.resize(width * height, Vec3(0));
-        albedoBuffer.resize(width * height, Vec3(0));
-        normalBuffer.resize(width * height, Vec3(0));
-        motionBuffer.resize(static_cast<size_t>(width) * height * 2, 0.0f);
-        alphaBuffer.resize(width * height, 1.0f);
-        depthBuffer.resize(width * height, 0.0f);
-        positionBuffer.resize(width * height, Vec3(0));
-        uvBuffer.resize(width * height, Vec3(0));
-        objectIndexBuffer.resize(width * height, 0.0f);
-        materialIndexBuffer.resize(width * height, 0.0f);
-        bounceCountBuffer.resize(width * height, 0.0f);
-        sampleWeightBuffer.resize(width * height, 0.0f);
-        sampleCountBuffer.resize(width * height, 0.0f);
-        // pkg87a — Cryptomatte buffers: width*height*depth*2 floats (depth pairs of [id, weight])
-        cryptoObjectBuffer.resize(static_cast<size_t>(width) * height * cryptomatteDepth * 2, 0.0f);
-        cryptoMaterialBuffer.resize(static_cast<size_t>(width) * height * cryptomatteDepth * 2, 0.0f);
-        for (auto& passBuffer : renderPassBuffers) {
-            passBuffer.resize(width * height, Vec3(0));
-        }
     }
 
     // pkg88-A: getRay now requires explicit time parameter (no default).
@@ -2649,6 +2690,12 @@ class Renderer {
         return ++counter;
     }
     uint64_t sceneVersion_ = nextSceneVersion();
+    // pkg291 (#875): in-place refit steps (see refitAcceleration); a contiguous
+    // version chain, capped at 64 steps.
+public:
+    struct RefitStep { uint64_t before, after; std::vector<const Hittable*> moved; };
+private:
+    std::vector<RefitStep> refitLog_;
     int bvhBuildCount_ = 0;
     double bvhBuildMs_ = 0.0;   // wall time of the most recent build
     // pkg114 — two-level BVH instancing. A registered mesh keeps its prims in
@@ -4994,6 +5041,24 @@ public:
         lights.setSampler(lights.samplerMode());
     }
 
+    // pkg291 (#875): after the primitives in `moved` were moved in place, refit
+    // the cached BVH (bounds only) instead of rebuilding it, bump the scene
+    // version, and log the step so the GPU driver can patch its cached device
+    // scene (positions, normals, node bounds) instead of re-flattening it. The
+    // log is a contiguous version chain; any other mutation in between breaks it
+    // (the driver then re-flattens). False when there is no clean BVH to refit.
+    bool refitAcceleration(std::vector<const Hittable*> moved) {
+        if (!bvh || bvhDirty_) return false;
+        bvh->refit();
+        if (!refitLog_.empty() && refitLog_.back().after != sceneVersion_) refitLog_.clear();
+        if (refitLog_.size() >= 64) refitLog_.erase(refitLog_.begin());
+        const uint64_t before = sceneVersion_;
+        touchScene();
+        refitLog_.push_back({before, sceneVersion_, std::move(moved)});
+        return true;
+    }
+    const std::vector<RefitStep>& getRefitLog() const { return refitLog_; }
+
     // pkg114 — two-level BVH instancing API.
     // Register a mesh's OBJECT-LOCAL primitives once; returns its mesh id. The
     // BLAS is built immediately and reused by every instance of this mesh.
@@ -5289,9 +5354,10 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         // #802 Batch A item 4 - Render Region: clear pixels outside the rect to
         // 0 / alpha 0 (Cycles crop-off semantics) BEFORE the trace loop, which
         // then skips them. Only runs when a region is active, so the default
-        // render path is byte-identical. Not cleared (zero on a fresh Camera,
-        // stale only if a populated Camera is reused for a region render):
-        // bounceCount/sampleWeight/motion/crypto buffers (cpp-abi-guard note).
+        // render path is byte-identical. pkg291: setup_camera now re-aims a
+        // same-size Camera instead of building a fresh (zeroed) one, so EVERY
+        // externally readable per-pixel buffer is cleared here, including the
+        // bounceCount/sampleWeight/motion/crypto buffers (Terra review).
         if (renderRegionActive_) {
             const int rx0 = std::max(0, renderRegionX0_);
             const int ry0 = std::max(0, renderRegionY0_);
@@ -5314,6 +5380,13 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                     cam.sampleCountBuffer[idx] = 0.0f;
                     for (int passIndex = 0; passIndex < PASS_COUNT; ++passIndex)
                         cam.renderPassBuffers[passIndex][idx] = Vec3(0);
+                    cam.bounceCountBuffer[idx] = 0.0f;   // pkg291
+                    cam.sampleWeightBuffer[idx] = 0.0f;
+                    cam.motionBuffer[2 * static_cast<size_t>(idx)] = 0.0f;
+                    cam.motionBuffer[2 * static_cast<size_t>(idx) + 1] = 0.0f;
+                    const size_t cs = static_cast<size_t>(cam.cryptomatteDepth) * 2;
+                    std::fill_n(cam.cryptoObjectBuffer.begin() + idx * cs, cs, 0.0f);
+                    std::fill_n(cam.cryptoMaterialBuffer.begin() + idx * cs, cs, 0.0f);
                 }
             }
         }

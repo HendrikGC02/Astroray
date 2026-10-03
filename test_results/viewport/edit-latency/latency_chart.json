@@ -1,0 +1,58 @@
+{
+ "title": "Viewport edit to first correct present, p95",
+ "xlabel": "scene / edit",
+ "ylabel": "ms",
+ "kind": "bar",
+ "series": [
+  {
+   "label": "worker ON p95",
+   "x": [
+    "10k camera",
+    "10k material",
+    "10k transform",
+    "100k camera",
+    "100k material",
+    "100k transform"
+   ],
+   "y": [
+    99.6527,
+    91.984,
+    93.0114,
+    44.6611,
+    101.3509,
+    46.833
+   ],
+   "role": "gpu"
+  },
+  {
+   "label": "worker OFF p95",
+   "x": [
+    "10k camera",
+    "10k material",
+    "10k transform",
+    "100k camera",
+    "100k material",
+    "100k transform"
+   ],
+   "y": [
+    19.8126,
+    91.6777,
+    63.652,
+    13.7932,
+    137.1538,
+    23.5298
+   ],
+   "role": "cpu"
+  }
+ ],
+ "band": null,
+ "ref": [
+  100,
+  "gate (a) p95 100 ms"
+ ],
+ "meta": {
+  "gpu": "RTX 5070 Ti",
+  "region": "2100x1221",
+  "events_per_cell": 300
+ }
+}

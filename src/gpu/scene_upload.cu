@@ -63,6 +63,33 @@ static GBVHNode convertNode(const LinearBVHNode& n) {
     return g;
 }
 
+// pkg291 (#875): GTriangle geometry fields, shared by appendOnePrim and the
+// wavefront in-place object-move patch (gpu_wavefront_snapshot.cu).
+void fillTriangleGeometry(const Triangle& tri, GTriangle& gt) {
+    Vec3 v0 = tri.getV0(), v1 = tri.getV1(), v2 = tri.getV2();
+    Vec3 n = tri.getFaceNormal();
+    gt.v0 = GVec3(v0.x, v0.y, v0.z);
+    gt.v1 = GVec3(v1.x, v1.y, v1.z);
+    gt.v2 = GVec3(v2.x, v2.y, v2.z);
+    Vec3 n0, n1, n2;
+    if (tri.getVertexNormals(n0, n1, n2)) {
+        gt.n0 = GVec3(n0.x, n0.y, n0.z);
+        gt.n1 = GVec3(n1.x, n1.y, n1.z);
+        gt.n2 = GVec3(n2.x, n2.y, n2.z);
+        gt.flat_shaded = false;
+    } else {
+        gt.n0 = gt.n1 = gt.n2 = GVec3(n.x, n.y, n.z);
+        gt.flat_shaded = true;
+    }
+}
+
+std::vector<GBVHNode> convertBvhNodes(const BVHAccel& bvh) {
+    std::vector<GBVHNode> out;
+    out.reserve(bvh.getNodes().size());
+    for (const auto& n : bvh.getNodes()) out.push_back(convertNode(n));
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Convert a CPU Material shared_ptr → GMaterial flat struct
 // ---------------------------------------------------------------------------
@@ -330,21 +357,7 @@ static void appendOnePrim(
         gp.type  = GPRIM_TRIANGLE;
         gp.index = (int)r.triangles.size();
         GTriangle gt;
-        Vec3 v0 = tri->getV0(), v1 = tri->getV1(), v2 = tri->getV2();
-        Vec3 n = tri->getFaceNormal();
-        gt.v0 = GVec3(v0.x, v0.y, v0.z);
-        gt.v1 = GVec3(v1.x, v1.y, v1.z);
-        gt.v2 = GVec3(v2.x, v2.y, v2.z);
-        Vec3 n0, n1, n2;
-        if (tri->getVertexNormals(n0, n1, n2)) {
-            gt.n0 = GVec3(n0.x, n0.y, n0.z);
-            gt.n1 = GVec3(n1.x, n1.y, n1.z);
-            gt.n2 = GVec3(n2.x, n2.y, n2.z);
-            gt.flat_shaded = false;
-        } else {
-            gt.n0 = gt.n1 = gt.n2 = GVec3(n.x, n.y, n.z);
-            gt.flat_shaded = true;
-        }
+        fillTriangleGeometry(*tri, gt);  // pkg291: shared with the refit patch
         gt.materialId = getOrAddMat(tri->getMaterial());
         // pkg178 Stage-3b PR-4b / pkg186 / pkg242 Phase 0 — upload per-triangle
         // texcoords for every 2D texture-sampling consumer (image / normal /

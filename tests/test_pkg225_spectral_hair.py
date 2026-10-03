@@ -192,11 +192,15 @@ def test_spectral_melanin_distinct_and_red_dominant():
 
     # (a) Pure eumelanin passes red, absorbs blue -> red-dominant in both modes.
     # #1037: the old 1.5 bound was calibrated while ~90 % of the direct light was
-    # self-shadowed by the strand's own tube (R/B 15-17, coloured multi-strand
-    # light only). With the self-hit gone the achromatic R-lobe glint is visible,
-    # so the sum reads 1.2 (rgb 1.217 / spectral 1.205); still > 1 = red-dominant.
-    assert rb_spec > 1.1, (
-        f"spectral eumelanin R/B={rb_spec:.3f} should be red-dominant (>1.1); the "
+    # self-shadowed by the strand's own tube (engine R/B 15-17, coloured multi-strand
+    # light only). Independent reference: Cycles 5.2 CPU, Principled Hair (Chiang,
+    # melanin 0.6, redness 0, roughness/radial 0.3, coat 0), this exact tuft/light/
+    # camera, 384 spp, same covered-pixel R/B: 1.145 (seeds 1,2: 1.145/1.144), and
+    # 1.035 / 1.058 for (0.9, 0.5) / (0.9, 1.0) -- NOT strongly red-dominant, because
+    # the achromatic R-lobe glint is part of the sum. Engine now reads 1.217 (rgb) /
+    # 1.205 (spectral). Bound = ~0.92 x Cycles; > 1 = red-dominant.
+    assert rb_spec > 1.05, (
+        f"spectral eumelanin R/B={rb_spec:.3f} should be red-dominant (>1.05); the "
         f"lambda^-3.33 absorption must pass red and absorb blue. Melanin seam broken?")
     # (a2) The spectral magnitude must track the RGB mode: both parametrizations
     # describe the SAME material, so a large brightness gap means the spectral

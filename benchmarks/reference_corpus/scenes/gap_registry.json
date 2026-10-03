@@ -1039,6 +1039,12 @@
       "bl_idname": "",
       "category": "render_settings",
       "feature": "RenderSettings",
+      "socket_or_prop": "volume_bounces"
+    },
+    {
+      "bl_idname": "",
+      "category": "render_settings",
+      "feature": "RenderSettings",
       "socket_or_prop": "caustics_reflective"
     },
     {

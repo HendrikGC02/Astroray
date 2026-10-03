@@ -101,14 +101,14 @@ scene = "prod_curves_geometry"
 backend = "cpu"
 kind = "parity"
 issue = "#989"
-reason = "Geometry Backfacing now supported, but the chain also reads Pointiness (not implemented, reported) so it still flattens (#992 Curves now evaluate: pkg314): inner_backface R 4.61x"
+reason = "Geometry Backfacing now supported, but the chain also reads Pointiness (not implemented, reported) so it still flattens; also #992 Curves: inner_backface R 4.61x"
 
 [[row]]
 scene = "prod_curves_geometry"
 backend = "gpu"
 kind = "parity"
 issue = "#989"
-reason = "same as CPU (Pointiness): inner_backface R 4.57x"
+reason = "same as CPU (Pointiness, #992): inner_backface R 4.57x"
 
 # ---- silent drops (silent_drop_audit.py) --------------------------------------------------------------------
 [[row]]
@@ -124,6 +124,20 @@ backend = "gpu"
 kind = "silent"
 issue = "#990"
 reason = "ShaderNodeVertexColor output Color dropped with no DegradationReport entry"
+
+[[row]]
+scene = "prod_curves_geometry"
+backend = "cpu"
+kind = "silent"
+issue = "#992"
+reason = "ShaderNodeRGBCurve dropped with no report"
+
+[[row]]
+scene = "prod_curves_geometry"
+backend = "gpu"
+kind = "silent"
+issue = "#992"
+reason = "ShaderNodeRGBCurve dropped with no report"
 
 [[row]]
 scene = "prod_light_path"

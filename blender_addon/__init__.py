@@ -4177,8 +4177,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 noise_w = _nsock('W', 0.0)
                 w_sock = node.inputs.get('W')
                 if noise_dims in (1.0, 4.0) and w_sock is not None and w_sock.is_linked:
+                    # Keyed 'TEX_NOISE.W', not 'TEX_NOISE': the coverage-matrix scanner
+                    # marks every socket of a warned node type APPROXIMATED.
                     self._warn_shader_fallback(
-                        'TEX_NOISE', "linked W input on '%s' not supported; using its "
+                        'TEX_NOISE.W', "linked W input on '%s' not supported; using its "
                         "default value %g" % (getattr(node, 'name', node.type), noise_w))
                 # noise_type: Blender enum FBM/MULTIFRACTAL/RIDGED_MULTIFRACTAL/HYBRID_MULTIFRACTAL/HETERO_TERRAIN
                 # maps to the ENGINE ordering (advanced_features.h noise_select):

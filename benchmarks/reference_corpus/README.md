@@ -569,7 +569,7 @@ registered by the other appears in only one of the two lists below (see the
 - `SHADERTORGB` (`ShaderNodeShaderToRGB`): input:Shader
 - `SUBSURFACE_SCATTERING` (`ShaderNodeSubsurfaceScattering`): input:Color, input:Scale, input:Radius, input:IOR, input:Roughness, input:Anisotropy, input:Normal, input:Weight, prop:falloff
 
-### `textures_mapping` (112 rows)
+### `textures_mapping` (110 rows)
 
 - `AMBIENT_OCCLUSION` (`ShaderNodeAmbientOcclusion`): input:Color, input:Distance, input:Normal, prop:inside, prop:only_local, prop:samples
 - `ATTRIBUTE` (`ShaderNodeAttribute`): prop:attribute_type, output:Color, output:Vector, output:Factor, output:Alpha
@@ -594,7 +594,6 @@ registered by the other appears in only one of the two lists below (see the
 - `TEX_COORD` (`ShaderNodeTexCoord`): prop:from_instancer
 - `TEX_GABOR` (`ShaderNodeTexGabor`): input:Vector, input:Scale, input:Frequency, input:Anisotropy, input:Orientation[Orientation 2D], input:Orientation[Orientation 3D], prop:gabor_type
 - `TEX_IMAGE` (`ShaderNodeTexImage`): prop:extension, prop:interpolation, prop:projection, prop:projection_blend
-- `TEX_NOISE` (`ShaderNodeTexNoise`): input:W, prop:noise_dimensions
 - `TEX_VORONOI` (`ShaderNodeTexVoronoi`): input:W
 - `TEX_WHITE_NOISE` (`ShaderNodeTexWhiteNoise`): input:Vector, input:W, prop:noise_dimensions
 - `UVMAP` (`ShaderNodeUVMap`): prop:from_instancer

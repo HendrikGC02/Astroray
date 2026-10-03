@@ -70,13 +70,6 @@ reason = "same export as CPU: 0.28-0.45x"
 
 [[row]]
 scene = "prod_attributes"
-backend = "cpu"
-kind = "parity"
-issue = "#993"
-reason = "#990 implemented (attribute / Object Info layers; Roughness <- Attribute now per hit); the Base Color chain (Color Attribute -> Hue/Saturation <- Map Range <- Object Info Random) needs 10 op-VM slots (VM_MAX_SLOTS 8): flattened + reported (#993, pkg314 graph programs): instance0 G 2.14x"
-
-[[row]]
-scene = "prod_attributes"
 backend = "gpu"
 kind = "parity"
 issue = "#993"
@@ -124,20 +117,6 @@ backend = "gpu"
 kind = "silent"
 issue = "#1039"
 reason = "#990 handles Color Attribute / Attribute / Object Info; the generated matrix has no output-socket evidence, so ShaderNodeVertexColor Color, Attribute Fac, Object Info Random stay DROPPED-SILENT rows (#1039)"
-
-[[row]]
-scene = "prod_curves_geometry"
-backend = "cpu"
-kind = "silent"
-issue = "#992"
-reason = "ShaderNodeRGBCurve dropped with no report"
-
-[[row]]
-scene = "prod_curves_geometry"
-backend = "gpu"
-kind = "silent"
-issue = "#992"
-reason = "ShaderNodeRGBCurve dropped with no report"
 
 [[row]]
 scene = "prod_light_path"

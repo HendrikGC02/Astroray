@@ -1,5 +1,7 @@
 # disney-sweep-cycles-compared — Disney BSDF grid, Cycles reference
-# Reference rendered by Cycles 5.1 via cycles_bless.py.
+# Reference rendered by Cycles 5.2 LTS via cycles_bless.py (re-blessed from 5.1, owner decision).
+#   2026-10-03: SSIM 0.8643 vs the 5.2 reference, 0.8642 vs the 5.1 one (b282a2c6, CPU).
+#               The two references differ by 0.08/255 mean, 5/255 max.
 # Astroray-vs-Cycles measured progression:
 #   2026-05-27: SSIM 0.48 (mismatched exposures) -> 0.61 (intensity calibration)
 #   2026-05-31: SSIM 0.7611 after the sensor_fit=VERTICAL FOV fix (PR #405) was
@@ -12,7 +14,7 @@
 # separate calibration pass.
 
 [scene]
-description = "Disney 3x3 sphere grid: roughness × metallic. Reference is Cycles 5.1's render of the same scene (rebuild via `cycles_bless.py`). Gate measures Astroray-vs-Cycles SSIM agreement."
+description = "Disney 3x3 sphere grid: roughness × metallic. Reference is Cycles 5.2's render of the same scene (rebuild via `cycles_bless.py`). Gate measures Astroray-vs-Cycles SSIM agreement."
 bless_source = "cycles"
 
 [[gate]]

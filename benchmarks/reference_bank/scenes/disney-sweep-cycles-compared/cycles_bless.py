@@ -1,8 +1,8 @@
 """Render the Cycles reference for `disney-sweep-cycles-compared`.
 
-Run this script via Blender 5.1 (headless) to produce `reference.png`:
+Run this script via Blender 5.2 (headless) to produce `reference.png`:
 
-    "C:/Program Files/Blender Foundation/Blender 5.1/blender.exe" --background \
+    "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" --background \
         --python benchmarks/reference_bank/scenes/disney-sweep-cycles-compared/cycles_bless.py
 
 The script:

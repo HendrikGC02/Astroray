@@ -2,7 +2,7 @@
 
 **Pillar:** 1
 **Track:** A
-**Status:** in-progress — lane at-n2 (branch lane/at-n2)
+**Status:** done — PR #1030, 2026-10-03: shader-graph IR + CPU/GPU graph interpreter + curves (#992); prod_wood CPU 4->7/16, GPU 3->7/16; curves GPU 2->3/16; production 16 pass / 22 xfail / 0 XPASS; corpus v2 604 pass / 94 xfail
 **Estimated effort:** 3–5 sessions; one lead CUDA build per batch
 **Depends on:** pkg219, pkg230, pkg277, pkg310
 

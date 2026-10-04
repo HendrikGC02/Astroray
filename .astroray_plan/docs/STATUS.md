@@ -1,5 +1,13 @@
 # Astroray Status
 
+## 2026-10-05 CURRENT — checkpoint verification pass (Opus 5.5 lead)
+
+**Merged:** #1059 (#1057 GPU patch-cache ABA). **Suite on final main** (f3ef7319 build): CPU 2680 passed, GPU 1634 passed, 0 failures (34 min); corpus with `ASTRORAY_PYD_DIR` 645 passed / 91 xfailed / 0 XPASS. #1015 root cause posted (test scene has no variance in sampler-controlled dims; test-only fix).
+
+**Stage 0 scores** (`stage0-gate-scoring-2026-10-05.md`): (a) RED p95 102.1 ms (by 2.1 ms); (b) unmeasured (population unratified); (c) RED SSIM 0.78 terrace, ROI gaps < 1 %; (d) GREEN CPU+GPU; (e) RED 10 high of 79 (was 21, `gate-e-triage-2026-10-05.md`); (f) unmeasured (no clean host). Committed manifest carries (d)/(e); (a)/(c) evidence is local only (`%LOCALAPPDATA%\astroray-evidence\2026-10-05`).
+
+**README:** six gallery tiles refreshed; black-hole tile held back (regression #1061), prism held back (brighter, clips green; exposure for the owner); Kerr hero not re-rendered (CPU GR run exceeded 90 min; owner had said keep it). **Bench:** parity SSIM red (#1060, unattributed); noise-bench equal-time GPU efficiency 0.10 / 0.29.
+
 ## 2026-10-02 CURRENT — long-haul run closeout (2026-09-29 -> 2026-10-02)
 
 **Merged:** #984 pkg298, #985 (#953), #987 pkg311 P1, #999 pkg310, #1003 pkg305, #1008 pkg299 P0-1, #1009 (#988/#994/#989), #1011 (#1004/#1005), #1013 (#1012), #1014 pkg300 P0-1, #1010 (#1000). Direct to main: 54c54e7e (build script: negative exit codes no longer false-green), 89269a37 / d3beb878 / 1a13d7f0 / fdb7a530 (test tolerance fixes).

@@ -1,6 +1,6 @@
 {
   "schema": "pkg278.issue_snapshot.v2",
-  "captured_at": "2026-10-02T14:53:08.182666+00:00",
+  "captured_at": "2026-10-04T12:49:44.142109+00:00",
   "repo": "HendrikGC02/Astroray",
   "command": [
     "gh",
@@ -17,15 +17,149 @@
   ],
   "capture_limit": 1000,
   "graphql_total_query": "repository.issues(states:OPEN).totalCount",
-  "reported_total": 78,
+  "reported_total": 79,
   "issues": [
     {
-      "body": "Found while fixing #1020/#1021 (branch lane/as-arb). Related: #959 (GPU vs CPU photon caustics disagree).\n\npkg307 arbitration scene `arb_prism_sun` (SF11 prism, 4 deg sun, floor albedo 0.15), Mitsuba 3 spectral reference at physical sun units (16384 spp, ROI rel. SE 1.0 %), Astroray at 256 spp x 5 seeds, ROI `floor_caustic` luminance ratio to Mitsuba:\n\n| | before #1020 fix (anchored ref) | after #1020 fix (physical ref) |\n|---|---|---|\n| Astroray CPU | 1.17 | **0.74 (z -7.4)** |\n| Astroray GPU | 1.11 | 0.92 (z -2.5) |\n\nBefore #1020 the film desaturated every out-of-gamut pixel toward white (added -min(rgb)); sparse spectral caustic hits are strongly out of gamut, so that inflated the CPU caustic by ~30 % and hid a deficit. The film is now the exact linear matrix with a per-channel clip at 0, and clipping can only raise a channel, so the CPU value is an upper bound of the linear estimate: the shortfall is in CPU caustic transport (photon caustic pre-pass / connection), not in colour conversion. Corpus v2 shows the same direction (`v2_dispersion_caustics` CPU `prism_sun_caustic_floor` L 2.03 -> 1.09 at seed 278, gated against an Astroray self-pin because Cycles has no dispersion).\n\nNext step: CPU vs GPU caustic energy on the prism scene at matched settings (photon count, gather radius, caustic boost), against the Mitsuba reference in `benchmarks/reference_corpus/arbitration/refs/`.",
+      "body": "Found by the checkpoint-triage lane on b282a2c6.\n\n**Symptom.** The pkg291 GPU patch tests fail when other GPU tests run before them in the same process, and pass on their own:\n- Full GPU pass (`run_split.py --gpu-only`): `test_gpu_patched_move_100k_faster_than_reflatten` fails at line 214, `last_render_info()[\"gpu_scene_patched\"] is False`.\n- `pytest test_pkg287 test_pkg288 test_pkg289 test_pkg291 -m \"not cpu\"`: `test_gpu_patches_cached_scene_and_matches_fresh_render[software]` fails instead.\n- Alone, and in the file-only run: 3/3 pass each. `pkg287+pkg291` and `pkg288+pkg291` pass.\n\n**Hypothesis (by reading code, not yet confirmed).** `wfPatchRefit` (`src/gpu/wavefront/gpu_wavefront_snapshot.cu`) keeps the `Hittable* -> tri index` map in the process-global `WfContext`. It rebuilds the map only when `C.triIndexBvh != bvh || C.triIndexBuildCount != renderer.getBvhBuildCount()`. `bvhBuildCount_` is per-renderer, so every fresh renderer reads 1 after its first build. If a new renderer's `BVHAccel` lands at a freed renderer's address, the stale map is reused (ABA). Then `triIndexOf.find(h)` misses and the patch is refused, which is the observed symptom. If the triangle addresses are also reused, it could instead scatter geometry into wrong slots silently. That is reachable in Blender, where the viewport and F12 renderers come and go.\n\n**Proposed fix (native, needs a build).** Reset the map key on every full upload, e.g. `C.triIndexBvh = nullptr;` in the `if (!reuse)` block next to `C.refitPatchable = ...`, or key the map on `cachedOwner` as well. A full re-flatten can reorder triangles anyway, so a map built before it is never valid after it.\n\n**Verify:** rerun the full GPU pass, or the 4-file command above, and the pkg291 tests pass.\n",
       "labels": [],
-      "number": 1025,
-      "title": "CPU prism sun caustic reads 0.74 of Mitsuba (GPU 0.92) once the film stops adding white",
-      "updatedAt": "2026-10-02T14:38:09Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/1025"
+      "number": 1057,
+      "title": "pkg291 GPU in-place patch refused in long GPU runs: triIndexOf map keyed on raw BVHAccel* (suspected ABA)",
+      "updatedAt": "2026-10-03T10:36:59Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1057"
+    },
+    {
+      "body": "The `phash <= 16` gate on reference-bank scene `sms-refractive-glass-sphere` (checked by `tests/test_pkg127_reference_gates_poly.py`) sits at the Monte Carlo noise floor. It passes only because `reference.png` is the same seed-17 noise realization the test renders, so any change to the sample stream fails it about half the time. This happened with pkg305 (#1003) and again with #1040.\n\nMeasured on CPU, 2026-10-03 (#1040 diagnosis):\n- Two independent 4096-spp adaptive-off renders differ from each other by phash 14.\n- Independent 1024-spp renders from the same engine differ pairwise by phash 12-22 (old and new adaptive engines alike).\n- Old engine vs its own blessed reference at seeds 11/22/33: phash 18/24/16.\n- Fixed engine vs an independent 4096-spp adaptive-off reference: phash 20/14/18/12 at seeds 17/11/22/33. SSIM, delta-E and bright_coverage pass with wide margins.\n\npHash bits are the 8x8 low-frequency DCT terms compared with their median. On this mostly dark, smooth image many terms sit near the median and flip with noise (camera->glass->light fireflies).\n\nFix direction (pick one, measure flip rates first): a seed-robust metric (e.g. pHash on a downsampled/blurred image, or exclude bits within a noise margin of the median), or a multi-seed reference with the gate judged over N seeds. Do not just raise the threshold.\n\n#1040 re-blessed the reference at seed 17 on the fixed engine as a stopgap (same precedent as pkg305).\n",
+      "labels": [],
+      "number": 1052,
+      "title": "reference-bank phash gate (sms-refractive-glass-sphere) sits at the MC noise floor; needs seed-robust metric or multi-seed reference",
+      "updatedAt": "2026-10-03T04:59:31Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1052"
+    },
+    {
+      "body": "After the #1037 self-skip fix, the principled_hair tuft in corpus v2 matches Cycles in red but is still dim in g/b/L.\n\nCorpus v2 hair_tuft ROI, Astroray CPU / Cycles ratio (3-seed mean, 64 spp), before -> after #1037:\n- v2_camera_geometry: r 0.964->0.998, g 0.885->0.941, b 0.858->0.937, L 0.905->0.956\n- v2_camera_geometry@ortho: r 0.930->0.981, g 0.843->0.914, b 0.809->0.906, L 0.866->0.932\n\nMelanin test tuft (tests/test_pkg225_spectral_hair.py scene) vs Cycles 5.2 CPU Principled Hair (Chiang, melanin 0.6): covered-pixel R/B 1.145 (Cycles) vs 1.217 (Astroray), total covered energy 85.5 vs 66.5 (~22% dimmer; covered-pixel counts may differ, unmeasured for Astroray).\n\nPattern: the engine is too saturated / loses g,b more than r. Suspects to bisect: multiple-scatter chain absorption (Ap path lengths / cos-theta weighting in the Chiang far-field fibre), radius/thick-curve hit geometry, hair NEE/MIS weighting. Not caused by #1037; a separate residual. Provisional rows in benchmarks/reference_corpus/provisional_v2.toml (g/b/L hair_tuft) point here.",
+      "labels": [
+        {
+          "id": "LA_kwDOQvjUZs8AAAACTcg7qQ",
+          "name": "bug",
+          "description": "Something isn't working",
+          "color": "d73a4a"
+        }
+      ],
+      "number": 1051,
+      "title": "Hair: residual g/b/L dimness vs Cycles after #1037 (tuft ROI 0.91-0.96; melanin test scene ~22% dimmer)",
+      "updatedAt": "2026-10-03T04:40:20Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1051"
+    },
+    {
+      "body": "Found by the Terra re-review of PR #1049 (pkg291, viewport gate (a)).\n\nThe worker-OFF (synchronous) gate-a capture derives its \"correct present\" in memory: `benchmarks/viewport_parity/blender_recorder.py` keeps every POST_PIXEL timestamp only in `S[\"presents\"]` (line ~261) and `_sync_correct_present` (~425) picks the first present after the fingerprint-matching `render_viewport_frame`. The reducer (`blender_driver.py:~1403`) trusts `correct_present_ns`, and `tests/test_pkg278_gate_a_recorder.py:~268` permits that shape. The saved capture therefore cannot independently prove the binding.\n\nWork:\n1. Emit retained raw events for the synchronous path (`sync_render` with fingerprint + start/end, `post_pixel_present`), as the worker path already does for publications.\n2. Make the reducer validate: the present is the first POST_PIXEL at/after the render end, the render started after dispatch, and its fingerprint matches within tolerance; tests for forged shapes.\n3. Re-measure the six worker-OFF cells in a quiet window and update `.astroray_plan/docs/viewport-gate-a-table-2026-10.md` and `test_results/viewport/edit-latency/`.\n\nCurrent OFF numbers (PR #1049): p95 19.8 / 91.7 / 63.7 ms (10k camera/material/transform), 13.8 / 137.2 / 23.5 ms (100k).\n",
+      "labels": [],
+      "number": 1050,
+      "title": "gate (a) worker-OFF capture: persist POST_PIXEL raw events and validate the present binding in the reducer",
+      "updatedAt": "2026-10-03T04:34:15Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1050"
+    },
+    {
+      "body": "Follow-ups from the Terra review of lane at-n1 (#991 Light Path, #990 Attributes). None blocked the PR.\n\n1. GPU uploader second triangle pass: `src/gpu/scene_upload.cu` builds per-triangle attribute-layer corner slices during the geometry walk. A layer first read by a Light Path switch child (materialized afterwards, e.g. `Mix Shader(Is Camera Ray, plain A, Color Attribute-driven B)`) has no slices, so Attribute / Color Attribute / Object Info read 0 on GPU when B is selected (CPU is correct). The uploader prints `[#990] DEGRADED`. Fix: after the lpPending loop, a second pass over triangles filling slices for layers added late.\n2. Missing Attribute Alpha default: the addon writes 1.0 for a missing Attribute alpha layer on bulk geometry, but the engine lookup (CPU `AttributeTexture` in `include/advanced_features.h`, GPU `gpu_attrTexel` in `shading_inputs_eval.cu`) returns 0 for any absent layer on non-bulk geometry. Verify the correct value against Cycles' attribute not-found behaviour in `intern/cycles/kernel/svm/attribute.h` (svm_node_attr, ATTR_STD_NOT_FOUND -> alpha 1), then make the engine default match.\n3. Known (already tracked): shadow-ray Mix Shader selection uses only LPF_SHADOW, so Is Singular Ray / Is Reflection Ray choose Fac=0 on shadow rays; Cycles reads them from the parent path_flag.\n4. LOW: GPU packed path counters saturate at 63 (diffuse/glossy/transmission) and 31 (transparent depth); CPU keeps 16-bit counters, so Light Path depth outputs diverge on very long paths.\n",
+      "labels": [],
+      "number": 1047,
+      "title": "Light Path / Attribute follow-ups: GPU late switch-child attribute slices, missing Attribute Alpha default, counter saturation",
+      "updatedAt": "2026-10-03T03:19:45Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1047"
+    },
+    {
+      "body": "Found by the Terra review of the #959 branch. When `renderSeed == 0`, which is the engine's 'random seed' sentinel, the CPU photon-map emission RNG is still seeded deterministically, so the caustic photon pattern is identical across 'random' renders. Expected behaviour: derive the photon seed from the same resolved seed as the camera samples.\n\nSmall C++ fix; it needs a test that renders twice with seed 0 and checks that the photon maps differ.",
+      "labels": [],
+      "number": 1046,
+      "title": "CPU photon-map seeding is fixed when renderSeed == 0 (random sentinel)",
+      "updatedAt": "2026-10-03T03:13:54Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1046"
+    },
+    {
+      "body": "Found by the Terra review of the #959 branch (lane/au-caustic). The pattern predates that branch: it has been here since pkg111.\n\nThe photon-map gather evaluates the caustic at any non-emissive first hit as `albedo/\u00cf\u20ac \u00c3\u2014 density`. A glossy, metallic or coated receiver therefore gets a diffuse estimate, which is biased: it is too bright on rough metal and lacks view dependence.\n\nFix direction: evaluate the receiver BSDF for the photon's incoming direction (as Mitsuba's photon mapper does), or restrict the gather to the diffuse lobe and leave the glossy lobes to path tracing / MNEE. Needs a corpus scene with a caustic landing on a rough metal floor, plus a Mitsuba reference.\n\nRelated: #959, #1044.",
+      "labels": [
+        {
+          "id": "LA_kwDOQvjUZs8AAAACfPzqOQ",
+          "name": "cycles-parity",
+          "description": "Cycles feature parity",
+          "color": "0E8A16"
+        }
+      ],
+      "number": 1045,
+      "title": "Photon caustic gather assumes a Lambertian receiver (albedo/pi) on glossy/metal surfaces",
+      "updatedAt": "2026-10-03T03:13:52Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1045"
+    },
+    {
+      "body": "Found in the #959 lane (au-caustic). Since #959 the CPU path tracer builds the photon map whenever `usePhotonCaustics` is set (the addon sets it when a caster is flagged), matching the GPU estimator. ROI means agree with the GPU and an independent oracle (arb_prism_sun beams 0.998-1.002), but the CPU traces ONE 3M-photon map per render() call while the GPU (#909) traces a fresh 4M map every 16 spp (<= 256 maps). In sparse regions (photons scattered off the v2_dispersion_caustics ball lens / prism) the CPU gather shows coloured disc speckle of radius r_max that does not fall with spp (frozen); at 256 spp the GPU has ~64x more photons and averages it away.\n\nFix direction (stochastic PPM rounds, Hachisuka & Jensen 2009 / Knaus & Zwicker 2011, as on the GPU): render the CPU sample loop in rounds of N spp with a freshly seeded map per round (needs the per-pixel accumulators in raytracer.h's tile loop to persist across rounds; an Integrator::beginRound hook). Lead decision 2026-10-03: separate from the #959 PR.\n\nEvidence: v2_dispersion_caustics CPU 256 spp vs GPU 1024 spp sheets in the #959 PR.",
+      "labels": [],
+      "number": 1044,
+      "title": "CPU photon caustics: one 3M-photon map per render freezes gather speckle (GPU traces a fresh map every 16 spp)",
+      "updatedAt": "2026-10-03T01:49:11Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1044"
+    },
+    {
+      "body": "Found by Terra review of the #963 fix. `src/gpu/wavefront/stage_restir.cu` calls `intersectPathSlot` without the curve-segment array (selects `HasCurves=false`), and its shadow walk (`gpu_tlas_occluded`, ~line 541) omits curves, so GPU ReSTIR DI renders and shadows no hair/curves at all, instanced or not. Pre-existing and independent of #963 (which fixed the path-tracer TLAS walk). Fix: thread `d_curveSegments` + the `HasCurves` axis through the ReSTIR primary and shadow stages; add a curves case to the ReSTIR GPU tests.",
+      "labels": [],
+      "number": 1042,
+      "title": "GPU ReSTIR integrator ignores curves (primary + shadow)",
+      "updatedAt": "2026-10-03T00:36:32Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1042"
+    },
+    {
+      "body": "Follow-up to #996 / #1028, found closing #991 / #990 (lane N1).\n\n`scripts/generate_blender_parity_matrix.py` credits only INPUT sockets (`_VMReadCollector`: `_get_input` / `inputs[i]` reads). The `input_node` rows (pkg260: outputs of Light Path, Attribute, Color Attribute, Object Info, Geometry, ...) therefore stay DROPPED-SILENT whatever the compiler handles, and the `MIX_SHADER` rows stay DROPPED-SILENT because the addon's Mix Shader branch (`_shader_spec_from_node`) is not in the scanned dispatch.\n\nAfter #991 / #990 (PR from lane/at-n1) the silent-drop audit on the production corpus lists exactly those rows, all of them handled by the export:\n\n* prod_light_path: `ShaderNodeLightPath` output:Is Camera Ray / Is Shadow Ray / Ray Length; `ShaderNodeMixShader` input:Fac / Shader / Shader_001 (x2, the Light Path closure switch).\n* prod_attributes: `ShaderNodeAttribute` output:Fac, `ShaderNodeVertexColor` output:Color, `ShaderNodeObjectInfo` output:Random.\n\nProposed evidence (mechanical, same discipline as #1028): in a compiler dispatch branch, an output name is credited when the branch compares `out_name` with a literal or tests membership in a module-level tuple of literals (`LIGHT_PATH_OUTPUTS`, `OBJECT_INFO_OUTPUTS`, the `{'Color': ..., 'Factor': ...}` map in `_attribute_input`); scan the Mix Shader branch of `_shader_spec_from_node` (the `_light_path_mix_output` helper reads `inputs.get('Fac')`).\n\nObservable: `silent_drop_audit.py audit` reports 0 silent pairs for prod_light_path and prod_attributes; the two `silent` rows in provisional_production.toml for those scenes are deleted.\n",
+      "labels": [],
+      "number": 1039,
+      "title": "Coverage-matrix generator: no output-socket evidence (Light Path / Attribute / Object Info rows) and the Mix Shader branch is unscanned",
+      "updatedAt": "2026-10-02T20:14:04Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1039"
+    },
+    {
+      "body": "Found while closing #991 (lane N1). Independent of Light Path: measured on `prod_light_path` with the glass sphere's Mix Shader replaced by its plain Glass BSDF (roughness 0.02, IOR 1.45, colour (0.9, 1.0, 0.95)), Cycles 5.2 vs Astroray CPU, 512 spp, seed 278, build b4e15d06:\n\n| ROI | Astroray CPU / Cycles (r, g, b) |\n|---|---|\n| `glass_ball_centre` (camera view through the sphere) | 1.087, 1.012, 1.057 |\n| `glass_sun_shadow_floor` (the sphere's sun shadow) | 2.133, 2.083, 2.043 |\n| floor ROIs away from the glass | 0.98 - 1.005 |\n\nGPU matches CPU at the sphere centre (GPU/CPU 1.000 at 256 spp); in the shadow region GPU is a further ~2.6x above CPU with plain glass (the pkg310 baseline already recorded 0.54 CPU / 2.48 GPU there).\n\nTwo separate questions:\n1. Sphere centre: red/blue +6-9 % on both backends (green within 1 %), so likely the coloured transmission (tint applied per crossing vs Cycles' Glass colour once?) or the rough-glass lobe at roughness 0.02; needs a Glass-only A/B.\n2. Glass sun shadow: Astroray fills the delta-sun shadow of a glass sphere with ~2x Cycles' light (CPU) and more on GPU: refractive caustic of the sun (BSDF-sampled paths through the sphere to the sun disc / photon caustics) vs Cycles, which renders almost none.\n\nObservable: `glass_ball_centre` within 1 +- 0.03 on CPU and GPU with plain Glass; shadow region within the MC band. Blocks `prod_light_path` parity rows (provisional_production.toml) after #991.\n",
+      "labels": [],
+      "number": 1038,
+      "title": "Glass BSDF sphere: centre 6-9 % brighter than Cycles (R/B) and its sun shadow ~2x filled, CPU + GPU",
+      "updatedAt": "2026-10-02T20:08:30Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1038"
+    },
+    {
+      "body": "Gate (d) (PR #1029) measures the adaptive sample-count AOV flat-ROI / detail-ROI mean-sample ratio at 0.844 (CPU) and 0.778 (GPU) on the 256-spp budget, passing the provisional `SAMPLE_RATIO_MAX = 0.9`. The reference-derived ideal ratio (brightness-relative variance of the off leg vs the 1024-spp reference, flat/detail) is ~0.081 (CPU) / ~0.093 (GPU). Adaptive therefore saves far less in the converged flat region than it could (min-sample floor ~88/256, Dammertz metric on scalar X+Y+Z luminance, dilation of the retired mask on GPU). Follow-up: decide a tighter bound from data (e.g. a fraction of the ideal), and investigate whether the floor/dilation/colour-blind stop metric (see pkg237) is what limits savings. Evidence: docs/blender_parity/evidence/d/. Test: tests/test_gate_native_panels.py (SAMPLE_RATIO_MAX).",
+      "labels": [],
+      "number": 1035,
+      "title": "gate (d): tighten adaptive allocation bound (flat/detail sample ratio 0.9 vs reference-ideal ~0.08-0.09)",
+      "updatedAt": "2026-10-02T19:47:28Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1035"
+    },
+    {
+      "body": "Found by Terra review of lane au-coords (#1006). Object (#1006) and Generated (#847) coordinates are per-vertex attributes baked at the shutter-open pose; CPU `Triangle::interpolateAt` (include/astroray/shapes.h) and GPU `gpu_objectCoord` / `gpu_generatedCoord` (src/gpu/wavefront/stage_advance_device.cuh) recompute barycentrics from the hit point against the STATIC (shutter-open) vertices. For a motion-blurred object (add_triangles_bulk_motion) the hit at time t lies on the interpolated triangle, so the barycentrics and hence the pattern slide with the motion instead of staying attached (Cycles: object_inverse_position_transform with the motion-interpolated object transform, svm/tex_coord.h). Fix: barycentrics from the motion-interpolated vertices at the ray time (or carry the hit barycentrics), CPU + GPU. Currently reported as an APPROXIMATED degradation by the addon for Object coordinates. Test: a translating object with Object-coordinate noise renders the same pattern as the static object at shutter centre.",
+      "labels": [],
+      "number": 1034,
+      "title": "Object / Generated texture coordinates slide under motion blur (shutter-open barycentrics)",
+      "updatedAt": "2026-10-02T19:43:51Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1034"
+    },
+    {
+      "body": "Split out of #884 (u842 comment, 2026-09-25) so #884 can close on its clamp metric. CPU (principled Transparent lobe) and GPU (stage_advance.cu transparent continuation) increment `bounce` on an alpha/transparent pass-through. Cycles path_state_next early-returns for transparent and counts it in transparent_bounce (kernel/integrator/path_state.h, Apache-2.0). Effects: NEE at a surface seen through alpha is clamped with sample_clamp_indirect, emission hits after a pass-through use the indirect limit, and alpha spends the max_bounces budget. Needs a separate transparent-bounce counter ignored by the clamp sites and the depth limit (raytracer.h notes transparent limits are unwired, pkg201 S3). Gate: alpha-plane-over-lit-floor scene, clamp_indirect 10 vs 0 identical (as Cycles), transparent_max_bounces honoured.",
+      "labels": [],
+      "number": 1033,
+      "title": "Transparent pass-throughs count as bounces (clamp class, max_bounces budget) unlike Cycles transparent_bounce",
+      "updatedAt": "2026-10-02T16:29:24Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1033"
+    },
+    {
+      "body": "Found in lane au-media (#961/#1019 fix, branch lane/au-media). After the light-tree segment pick fix, v2_media converges as 1/N (CPU N x relVar 34.9 / 33.1 / 30.5 at 16 / 64 / 256 spp; was 69 / 461 / 115), but the smoke_plume ROI still has N x relVar ~80-96 vs Cycles 1.2 (power sampler 31x, so not the light pick).\n\nCause (by reading, not yet ablated): the #925/#929 segment direct light draws its distance strategy from a lane mixture of truncated exponentials at the media hull's GLOBAL majorant (sum of per-medium maxDensity x extinction). For a sparse dense VDB (density 10) the samples pile up at the AABB entry or land in empty space, and the equiangular strategy about a far lamp is near-uniform over the hull, so the lit skin of the plume is rarely sampled. Cycles' distance strategy is the null-scattering tracked scatter collision with octree local majorants, MIS'd with equiangular via the null-scattering path pdf (Miller et al. 2019; kernel/integrator/shade_volume.h volume_direct_scatter_mis / volume_integrate_step_scattering, Apache-2.0). The pkg267 DDA majorant grid (include/astroray/volume/majorant_grid.h) exists but is not wired into tracking or the segment NEE.\n\nScope: CPU boundedSegmentDirect + GPU gpu_volumeSegmentDirect (kind 0); first an ablation (vb0, NEE-only, equiangular-only/distance-only) to confirm the owner, then a local-majorant (or tracked-collision) distance strategy with its exact pdf for MIS. Gate: smoke_plume per-sample relVar within 3x Cycles, means in band. Related: pkg306, #1019.",
+      "labels": [],
+      "number": 1032,
+      "title": "Media: heterogeneous segment-NEE distance strategy uses the hull's global majorant (smoke VDB per-sample variance ~75x Cycles)",
+      "updatedAt": "2026-10-02T16:29:10Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1032"
+    },
+    {
+      "body": "Found by pkg314 (lane at-n2). The <HasProgram=true> lambertian base-colour block in src/gpu/wavefront/stage_advance_device.cuh runs the op-VM only when matTexId >= 0, so a Diffuse BSDF whose Color is a chain over per-hit inputs only (Layer Weight / Fresnel / Backfacing -> ... , no texture, #989) renders the constant colour on GPU while the CPU evaluates it per hit. The Principled base-colour path (gpu_principledBaseTexel) handles texId -1. Repro: tests/test_pkg314_shader_graph_ir.py::test_shading_context_normal_ignores_bump[True-opvm] compared to the CPU leg. The pkg314 graph-program path does not have the gap (graph base colour is read from the graph kernel output). Fix: either route such programs through graph programs or let the lambertian block evaluate a program with texId -1.",
+      "labels": [],
+      "number": 1031,
+      "title": "GPU skips a texture-less (per-hit only) op-VM program on a lambertian base colour (Diffuse + Layer Weight renders the constant)",
+      "updatedAt": "2026-10-02T16:14:19Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1031"
     },
     {
       "body": "Follow-up from #1020 (fix branch lane/as-arb).\n\nAfter #1020 the film converts XYZ to linear sRGB with the exact IEC 61966-2-1 matrix, then clips negative channels to 0 per channel (beauty and each light-path pass separately). Out-of-gamut colours (narrow-band lamps, dispersion caustics) therefore lose their negative channel: a sodium lamp renders B = 0 where Mitsuba writes -0.096 (pkg307 narrow-band wall).\n\nConsequences:\n- Sum-to-beauty for light-path passes holds exactly only when no pass has a negative channel: clipping is nonlinear, so sum(max(pass, 0)) != max(sum(pass), 0) in the clipped channel. Before #1020 the desaturation made it worse (mismatch in all channels). Codex Terra review of the #1020 fix.\n- Per-pixel clipping of noisy out-of-gamut estimates biases those channels upward at low spp.\n\nDecision needed: should beauty/passes keep negative scene-linear values (Cycles and Mitsuba write them to EXR), and where should clipping happen instead (display transform, PNG/8-bit outputs, denoiser input)? Touches every film site listed in include/astroray/spectral.h xyzToLinearSRGBExact callers plus downstream consumers (addon result passes, OIDN, tests that assume >= 0).",
@@ -36,22 +170,6 @@
       "url": "https://github.com/HendrikGC02/Astroray/issues/1024"
     },
     {
-      "body": "From pkg307 arbitration (PR #1018): at the sun-lit anchor ROI `floor_far` Astroray reads 12-16 % above Cycles AND Mitsuba (which agree with each other), so this is not a Cycles look difference. Not isolated. Check sun irradiance normalisation (angular diameter / solid angle, the #903/#905 disc+glow changes, pkg307's own 'sun irradiance' Terra fix) and whether the sky dome and sun are double-counted. Numbers in `.astroray_plan/docs/noise-per-time-findings-2026-10-02.md`.",
-      "labels": [],
-      "number": 1021,
-      "title": "Sun-lit floor ROI (floor_far) 12-16 % brighter than both Cycles and Mitsuba",
-      "updatedAt": "2026-10-02T08:46:40Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/1021"
-    },
-    {
-      "body": "From pkg307 Mitsuba arbitration (PR #1018). On the narrow-band arbitration scene luminance agrees with Mitsuba, but Astroray's R/G is ~14 % below the CIE-1931 integral of the SPD Astroray itself stores for the lamp; CMF tables are identical between Astroray and Mitsuba. Root cause not isolated: candidates are SPD resampling/normalisation on upload, hero-\u00ce\u00bb PDF for a narrow SPD (wavelength sampling not matched to the emitter), or XYZ->RGB path. Repro + numbers in `.astroray_plan/docs/noise-per-time-findings-2026-10-02.md` and `benchmarks/reference_corpus/arbitration/`. Physically correct always: this is a colour-accuracy bug if confirmed.",
-      "labels": [],
-      "number": 1020,
-      "title": "Narrow-band lamp: rendered R/G 14 % below the CIE integral of the lamp's own stored SPD",
-      "updatedAt": "2026-10-02T08:46:39Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/1020"
-    },
-    {
       "body": "From pkg307 (PR #1018, findings `.astroray_plan/docs/noise-per-time-findings-2026-10-02.md`, sheet `test_results/integrator/noise-per-time/equal_time_media_sheet.png`). v2_media: at equal time Astroray GPU and Cycles OptiX run the same spp (256 @ 10 s), but Astroray's equal-spp variance is ~10x and the gap GROWS with budget (efficiency 0.052 @2 s -> 0.027 @10 s -> 0.006 @60 s): sparse bright speckles persist in the smoke_plume / shaft region at 1024 spp. Variance falling slower than 1/N = an infinite/heavy-variance estimator path (likely volume NEE / phase-sampling MIS, ratio/delta-tracking weights, or emitter-in-medium paths), not just slow convergence. Attribute with per-path-type variance (pkg307 tooling has tail-share), compare to Cycles' volume MIS (equiangular + distance sampling, `kernel/integrator/shade_volume.h`). Related #983 (seed-278 smoke firefly), pkg306.",
       "labels": [],
       "number": 1019,
@@ -60,36 +178,12 @@
       "url": "https://github.com/HendrikGC02/Astroray/issues/1019"
     },
     {
-      "body": "Found by the #1007 lane. `ProgramTexture` evaluates each op-VM input at the parent program's coordinate, so a Mapping node that feeds only that input is never applied. prod_wood's rotate-90\u00c2\u00b0 / scale-z-3 Mapping on its ring input is lost on CPU; the old GPU bake (#994) applied it, the new per-hit GPU path (#1007) follows the CPU oracle, so wood differs from Cycles on both backends until this is fixed.\n\nFix: give each program input its own coordinate transform (compile the input's Mapping chain into the program, or evaluate input sub-programs with their own coord op), on CPU and GPU together. Gate: prod_wood ROI channels vs Cycles; un-xfail the matching `provisional_production.toml` rows.\n\nRefs #1007, #881, pkg310 burn-down.",
-      "labels": [],
-      "number": 1017,
-      "title": "CPU op-VM: an input's own Mapping node is dropped (ProgramTexture evaluates inputs at the parent program's point)",
-      "updatedAt": "2026-10-02T06:12:13Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/1017"
-    },
-    {
       "body": "Found by the pkg300 lane's `-m gpu` sweep. It fails identically on main's build (and on pkg300's reference kernel): the progressive-Sobol and white-noise GPU renders are equal to ~1 ulp, so the test's 'progressive lowers noise' assertion can't hold. Likely the progressive Sobol path is no longer engaged on GPU (pkg305's stratified camera group, #1003, replaced the camera draws), or the test drives a path that now ignores the sampler toggle. Check which, then either re-wire the toggle or re-target the test at the pkg305 sampler.\n\nRefs pkg224, pkg305, #1014.",
       "labels": [],
       "number": 1015,
       "title": "test_pkg224_progressive_sobol_gpu::test_progressive_lowers_noise fails on main: progressive and white-noise GPU renders agree to 1 ulp",
-      "updatedAt": "2026-10-02T02:03:16Z",
+      "updatedAt": "2026-10-03T10:37:06Z",
       "url": "https://github.com/HendrikGC02/Astroray/issues/1015"
-    },
-    {
-      "body": "Follow-up to #994 (lane aq-nodes). The GPU now bakes OBJECT-coordinate procedurals (and op-VM procedural inputs / pkg277 coordinate programs) into a 64^3 nearest-voxel grid over the material's world bbox (scene_upload.cu bakeProceduralTexId); the export records it as approximated. Measured, sphere region, 8 px blocks, CPU exact vs GPU: prod_marble |gpu-cpu| 6.7 % (CPU seed-to-seed 3.7 %), prod_wood 16.4 % (5.5 %); wood rings (period ~0.07 world units, ~2.6 voxels) alias away. Same limit applies to Generated-coordinate bakes. Fix: HD ports of the procedural evaluators (Cycles svm/noise.h, wave.h, voronoi.h, ... Apache-2.0) evaluated per hit in the <HasProgram> path (__noinline__, no new per-hit state: the hit point is already live), with the bake kept as a fallback.\n\nObservable: marble/wood GPU vs CPU pixel difference at the CPU noise floor.",
-      "labels": [],
-      "number": 1007,
-      "title": "GPU: evaluate procedural textures per hit instead of the 64^3 voxel bake (Object-coordinate marble/wood alias)",
-      "updatedAt": "2026-09-30T02:00:34Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/1007"
-    },
-    {
-      "body": "Found by lane aq-nodes (#994). The addon bakes world transforms into vertices and CoordMode::Object (include/advanced_features.h) returns rec.objectPoint == rec.point (world). Blender's Texture Coordinate > Object is object-local (Cycles svm/tex_coord.h: object_inverse_position_transform). Any object not at the identity transform gets its Object-coordinate procedural shifted/rotated/scaled vs Cycles (prod_marble sphere at z=0.9, prod_wood). ROI means hide it; the pattern differs. Fix needs a per-object inverse transform on the CPU record and in the GPU bake/eval. Physically meaningful: the pattern should be attached to the object.",
-      "labels": [],
-      "number": 1006,
-      "title": "Object texture coordinates ignore the object transform (world point used, Blender uses object-local)",
-      "updatedAt": "2026-09-30T02:00:33Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/1006"
     },
     {
       "body": "Found by lane aq-nodes (#989 verification). `get_normal_inputs` (blender_addon/__init__.py, BUMP branch) only resolves an Image Texture Height (`get_image_from_socket`); a procedural Height (prod_car_paint: Voronoi F1 Distance, Object coords -> Bump strength 0.35) yields bump_image=None with no DegradationReport entry. The CPU NormalMapped bump accepts any Texture (valueOffset), so CPU could be exact; the GPU bump path is image-only (scene_upload.cu matBumpTexId) and would need a report or a bake. Visible as missing flake sparkle / broader sun highlight on prod_car_paint.\n\nObservable: car_paint upper_flake / limb_grazing within band after the bump is honoured; no silent pair for Bump.Height.",
@@ -128,7 +222,7 @@
       "labels": [],
       "number": 998,
       "title": "pkg287 sun photon caustic reads 1.07-1.10x the path-traced reference on main (gate 0.10)",
-      "updatedAt": "2026-09-29T23:03:59Z",
+      "updatedAt": "2026-10-03T10:37:07Z",
       "url": "https://github.com/HendrikGC02/Astroray/issues/998"
     },
     {
@@ -138,27 +232,6 @@
       "title": "test_spatial_reduces_mse is a coin flip: spatial/no-reuse MSE ratio 0.98-1.02 across seeds on main",
       "updatedAt": "2026-09-29T22:56:26Z",
       "url": "https://github.com/HendrikGC02/Astroray/issues/997"
-    },
-    {
-      "body": "Found by the pkg310 silent-drop audit (`benchmarks/reference_corpus/silent_drop_audit.py`).\n\n`docs/blender_parity/coverage_matrix.json` (pkg229, frozen by pkg278) classifies many sockets that the op-VM compiler handles as DROPPED-SILENT: Mapping Vector/Scale/Rotation, Noise/Wave/Voronoi Vector, Math and Vector Math `operation`, Mix `data_type`, Color Ramp Fac, Combine XYZ X/Y/Z. The renders report \"CPU exact\" for those chains and the ROIs are near band (e.g. `prod_marble` CPU 0.97-1.09 outside the highlight; 1.00 with the specular lobes disabled), so the audit lists them as silent drops although they render. Of the 39 unique (material, node, socket) silent pairs the strict audit finds over the eight production materials, only about 7 are real drops (Add Shader, Mix Shader Fac from Light Path, Color Attribute, RGB Curves); the other ~32 are matrix rows for handled sockets. Also every `ShaderNodeBsdfPrincipled` socket is APPROXIMATED although constants render exactly, which is why the audit keeps an \"approximated, no report\" bucket separate from the scored silent list.\n\n**Category:** tooling (matrix classification, not a renderer gap). Related: #872 (generator drift). Not fixed in pkg310: gate (b) scoring and the pkg278 frozen manifest are non-goals.\n**Observable:** after the matrix is regenerated from the compiler-aware scanner, `python benchmarks/reference_corpus/silent_drop_audit.py audit --work-dir <dir>` lists no silent pair for `prod_marble`, `prod_wood`, `prod_pbr_group`, `prod_car_paint` (their remaining rows are the matrix-stale ones).\nPhase (plan section 1): P0 (measurement hygiene).\n",
-      "labels": [
-        {
-          "id": "LA_kwDOQvjUZs8AAAACfPzqOQ",
-          "name": "cycles-parity",
-          "description": "Cycles feature parity",
-          "color": "0E8A16"
-        },
-        {
-          "id": "LA_kwDOQvjUZs8AAAAC0E0a4A",
-          "name": "addon-bug",
-          "description": "Blender addon defect: wrong image, crash, or native setting silently ignored",
-          "color": "d73a4a"
-        }
-      ],
-      "number": 996,
-      "title": "coverage_matrix classifies op-VM-compiled sockets DROPPED-SILENT; pkg310 audit counts ~32 of 39 silent pairs from stale rows",
-      "updatedAt": "2026-09-29T22:52:28Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/996"
     },
     {
       "body": "Found by the pkg310 production corpus (burn-down: `.astroray_plan/docs/pkg310-production-corpus-burndown.md`).\n\n**Root cause.** A Mix Shader whose Fac is a per-texel texture applies the texture only to Roughness/Metallic/IOR/Transmission; \"base colour use the constant mix\" (`approximated MIX_SHADER: textured Fac is per-texel only for Roughness/Metallic/IOR/Transmission`). A nested stack `Add(Mix(Mix(Principled metal, Principled paint, Noise), Glass, Noise -> Ramp), Emission)` therefore collapses to one constant-mixed opaque Principled. Add Shader keeps the first BSDF (#955) and the Glass branch of a Mix with a non-constant Fac is lost. Fixing it needs closure composition that keeps each lobe with a per-hit weight (the texel-dependent Fac) instead of blending parameters.\n\n**Evidence** (Astroray / Cycles, seed 278): `prod_shader_stack` all four ROIs 0.28-0.45 of Cycles (CPU and GPU identical); the glass and the emission are absent.\n\n**Category:** closure composition. **Backends:** CPU and GPU.\n**Materials unblocked:** prod_shader_stack (with #955 and the op-VM slot-bound issue).\n**Observable:** `prod_shader_stack` `lit_front` and `right` L within 1 +- 0.05 (now 0.43, 0.39).\nRelated: #955 (Add Shader), #954 (GPU single-texture programs).\nPhase (plan section 1): P2 (closure composition; feeds the P4 fork note).\n",
@@ -269,33 +342,6 @@
       "url": "https://github.com/HendrikGC02/Astroray/issues/992"
     },
     {
-      "body": "Found by the pkg310 production corpus (burn-down: `.astroray_plan/docs/pkg310-production-corpus-burndown.md`).\n\n**Root cause.** The Light Path node has no handler (`LIGHT_PATH` is \"unsupported node type in op-VM chain\" for the Ray Length -> Ramp floor tint), and a **Mix Shader whose Fac is Is Camera Ray / Is Shadow Ray is dropped silently** (no degradation entry): the emitter that should be hidden from the camera renders as a visible ring, and glass that should be shadow-transparent casts a full glass shadow. Needs path state (ray type, ray length) in the shading context on both backends and a Mix Shader Fac that can depend on the ray.\n\n**Evidence** (Astroray / Cycles, seed 278): `prod_light_path`: `emitter_hidden_region` L = 0.07 (Cycles 2.2: the post lit by the hidden emitter), `floor_far` R = 4.38 on CPU and GPU (Ray Length tint), `glass_sun_shadow_floor` L = 0.54 CPU / 2.48 GPU.\n\n**Category:** per-hit input (path state), plus a silent drop. **Backends:** CPU and GPU.\n**Materials unblocked:** prod_light_path.\n**Observable:** `prod_light_path` `emitter_hidden_region` L within 1 +- 0.08 (now 0.07) and silent-drop list empty (`ShaderNodeMixShader|input:Fac` reported or handled).\nPhase (plan section 1): P3.\n",
-      "labels": [
-        {
-          "id": "LA_kwDOQvjUZs8AAAACfPzqOQ",
-          "name": "cycles-parity",
-          "description": "Cycles feature parity",
-          "color": "0E8A16"
-        },
-        {
-          "id": "LA_kwDOQvjUZs8AAAACfPzrOQ",
-          "name": "textures",
-          "description": "Texture/image nodes",
-          "color": "F9D0C4"
-        },
-        {
-          "id": "LA_kwDOQvjUZs8AAAAC0E0bGQ",
-          "name": "addon-gap",
-          "description": "Blender addon feature gap: native Blender control not yet honoured",
-          "color": "fbca04"
-        }
-      ],
-      "number": 991,
-      "title": "Light Path node unsupported: Mix Shader with Is Camera Ray / Is Shadow Ray Fac is a silent drop; Ray Length flat",
-      "updatedAt": "2026-09-29T22:52:18Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/991"
-    },
-    {
       "body": "Found by the pkg310 production corpus (burn-down: `.astroray_plan/docs/pkg310-production-corpus-burndown.md`).\n\n**Root cause.** Object Info (Random), Attribute (geometry attribute) and Color Attribute (Vertex Color) have no export path: the chain is flattened to grey (\"unsupported node type in op-VM chain: OBJECT_INFO / ATTRIBUTE\"). Color Attribute (`ShaderNodeVertexColor`) is dropped with **no** report of its own when it feeds a chain that another unsupported node already flattened (silent drop). Needs a per-object constant (Random / index / colour) and per-vertex attribute buffers uploaded with the mesh and interpolated at the hit (CPU and GPU).\n\n**Evidence** (Astroray / Cycles, seed 278): `prod_attributes` (3 linked-mesh spheres: Color Attribute -> Hue/Saturation <- Object Info Random, float Attribute -> Roughness): every instance is white/grey in Astroray and coloured in Cycles: `instance0` G = 2.20, `instance2` B = 2.27.\n\n**Category:** per-hit input / addon export. **Backends:** CPU and GPU.\n**Materials unblocked:** prod_attributes.\n**Observable:** `prod_attributes` `instance0/1/2` every channel within 1 +- 0.05 on CPU and GPU (now up to 2.27); silent-drop list empty (`ShaderNodeVertexColor|output:Color` reported or handled).\nPhase (plan section 1): P3.\n",
       "labels": [
         {
@@ -348,33 +394,6 @@
       "title": "op-VM has no per-hit shading inputs: Layer Weight, Fresnel, Geometry (Backfacing, Pointiness) flatten the chain to grey",
       "updatedAt": "2026-09-29T22:52:14Z",
       "url": "https://github.com/HendrikGC02/Astroray/issues/989"
-    },
-    {
-      "body": "Found by the pkg310 production corpus (`benchmarks/reference_corpus/production/`; burn-down: `.astroray_plan/docs/pkg310-production-corpus-burndown.md`).\n\n**Root cause.** `blender_addon/__init__.py` (`# Textured base colour -> textured-lambertian`, ~L4868): a Principled BSDF whose Base Color is a per-texel texture is exported as a *textured Lambertian*. Specular, coat, metallic, roughness and per-texel scalar programs are all dropped (\"textured Base Color routes through lambertian ... per-texel metallic_program, roughness_program dropped (both backends)\"). The warning is emitted, so this is a reported approximation, but it is the dominant error for any textured Principled material.\n\n**Evidence** (Astroray / Cycles ROI-mean ratio, seed 278, 64 spp, 5-seed MC bands):\n- `prod_marble` (Principled roughness 0.12, coat 0.3, Wave/Noise-driven Base Color): sun-highlight ROI `right` L = 0.58 CPU / 0.38 GPU. Setting Specular IOR Level = 0 and Coat = 0 in **both** engines brings CPU to 0.95-1.04 in all four ROIs, so the missing lobes are the whole deficit.\n- `prod_pbr_group` (4 images, metal tiles): chrome tiles render as diffuse grey; `centre` blue channel 0.26, `right` blue 0.51.\n- `prod_wood`: no gloss on the varnished grain (also #881 pattern, and the roughness chain hits the op-VM slot bound).\n\n**Category:** closure composition / addon export. **Backends:** CPU and GPU.\n**Materials unblocked:** prod_marble, prod_wood, prod_pbr_group (each also needs the issues listed in the burn-down).\n**Observable:** every ROI channel of `prod_marble` inside its band on CPU, in particular `right` L within 1 +- 0.155 (now 0.58); `prod_pbr_group` `centre` b within 1 +- 0.04 (now 0.26). Test: `tests/test_production_corpus.py` (strict xfail rows to remove).\nPhase (plan section 1): P2 (closure composition).\n",
-      "labels": [
-        {
-          "id": "LA_kwDOQvjUZs8AAAACfPzqOQ",
-          "name": "cycles-parity",
-          "description": "Cycles feature parity",
-          "color": "0E8A16"
-        },
-        {
-          "id": "LA_kwDOQvjUZs8AAAACfPzq4Q",
-          "name": "material",
-          "description": "Material/BSDF/shader nodes",
-          "color": "D4C5F9"
-        },
-        {
-          "id": "LA_kwDOQvjUZs8AAAACfPzrgA",
-          "name": "blender-export",
-          "description": "Blender scene export/conversion",
-          "color": "FEF2C0"
-        }
-      ],
-      "number": 988,
-      "title": "Principled with a per-texel Base Color exports as textured Lambertian: specular, coat, metallic and roughness lobes are lost (marble highlight 0.58x, pbr chrome tiles diffuse)",
-      "updatedAt": "2026-09-29T22:52:12Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/988"
     },
     {
       "body": "The pkg284 corpus v2 bands (`gates_v2.toml`, `mc_tolerance.py`) take the Astroray CPU sigma from seeds 278-282. The CPU tile loop seeds its white-noise stream as `mt19937(seed + tileIndex)`, so seed s+1 replays seed s shifted by one tile. The five renders are correlated and the per-ROI CPU sigma is underestimated.\n\nMeasured (CPU, 64 spp, main 775a5d6b, `astra_run/AP/ap-305/renders`), relative sigma of the ROI mean:\n\n| ROI | seeds 278-282 (= toml `cpu_sigma`) | 15 independent seeds (278 + 10000 k) |\n|---|---|---|\n| v2_camera_geometry mesh_volume g | 0.0068 | 0.0105 |\n| v2_camera_geometry mesh_volume L | 0.0072 | 0.0107 |\n| v2_dispersion_caustics beam_through_prism L | 0.0156 | 0.0257 |\n\nEffect: single-seed (278) rows whose Astroray mean sits a little off Cycles fail whenever the random stream changes. pkg305 (stratified camera group) changes it: `mesh_volume` g/b/L (0.974 vs tol 0.022) and `beam_through_prism` L (0.941 vs pin tol 0.0585) fail at seed 278, although their 15-seed means equal the baseline (mesh_volume L 0.9855 vs 0.9849; beam new/base 0.996).\n\nFix: re-derive the bands with independent seeds (e.g. `--seeds 278 10278 20278 30278 40278`) for the Cycles, CPU and GPU legs, then remove the provisional rows that cite this issue.\n",
@@ -498,50 +517,12 @@
       "url": "https://github.com/HendrikGC02/Astroray/issues/965"
     },
     {
-      "body": "Corpus v2 `v2_camera_geometry` (pkg284 Phase 2, 2026-09-29, CUDA build = main 7b658bb8 + #958): Cycles and Astroray CPU render the spiky hair tuft; Astroray GPU renders only the emitter sphere (scalp), no strands at all (perspective and ortho). #853 covers an ~11 % GPU brightness difference on hair that renders, so this is a separate, bigger failure: likely the curve export form used by this scene (particle hair vs Curves object, strand shape/radius) not reaching the GPU curve BVH, or instanced/particle curves unsupported on GPU (cf. pkg114: CPU cannot traverse instances; GPU crypto only in path_trace). Evidence: astra_run/AK/ak-284b/sheet2_v2_camera_geometry_cycles_cpu_gpu.png.",
-      "labels": [
-        {
-          "id": "LA_kwDOQvjUZs8AAAACTcg7qQ",
-          "name": "bug",
-          "description": "Something isn't working",
-          "color": "d73a4a"
-        }
-      ],
-      "number": 963,
-      "title": "GPU renders the hair tuft in corpus v2_camera_geometry as a bare scalp: no strands",
-      "updatedAt": "2026-09-29T04:48:42Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/963"
-    },
-    {
-      "body": "Corpus v2 (pkg284 Phase 2, 2026-09-29, main 7b658bb8): the spot-lamp shaft ROI in `v2_media` reads luminance 0.70 of Cycles on CPU (r/g/b 0.68/0.71/0.68, 5-seed sigma 0.054) and 0.75 on GPU. Before pkg294 (#951) it read 0.81 but with sigma ~0.39, so the deficit was hidden by noise, not introduced by #951 (which only changes full-spread rectangle lamps). Mean bug: spot (delta) lamp in-scattering through a homogeneous fog box. Candidates: spot cone/blend or smoothstep vs Cycles `spot_attenuation`, the per-segment volume NEE (#925/#929) for delta lights (equiangular pdf), fog-box density/phase export, or clamp_indirect. Evidence: astra_run/AK/ak-284b/sheet2_v2_media_cycles_cpu_gpu.png, rows_all_seed278.json. Provisional rows in benchmarks/reference_corpus/provisional_v2.toml reference this issue.",
-      "labels": [
-        {
-          "id": "LA_kwDOQvjUZs8AAAACTcg7qQ",
-          "name": "bug",
-          "description": "Something isn't working",
-          "color": "d73a4a"
-        }
-      ],
-      "number": 961,
-      "title": "Spot-lamp shaft through fog reads 0.70 (CPU) / 0.75 (GPU) of Cycles (corpus v2_media)",
-      "updatedAt": "2026-09-29T04:48:11Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/961"
-    },
-    {
       "body": "Found by pkg284 Phase 2 (lane ak-284b). After #934/#933 landed, sphere_Ti160 g reads 1.16-1.18 of Cycles (CPU/GPU), sphere_Ti260 r 1.056 (GPU), sphere_Ti380 b 1.054 (CPU); luminance stays within 1.02-1.05 (bands 0.04-0.09). Marginal (0.03-0.04 outside the 3-sigma band), so possibly noise-underestimated bands or a small thin-film chroma bias; needs a higher-spp A/B. Rows strict-xfail in provisional_v2.toml.",
       "labels": [],
       "number": 960,
       "title": "Thin-film titanium spheres: single channels outside the MC band on CPU and GPU (v2_thin_film_metals Ti160 g, Ti260 r, Ti380 b)",
       "updatedAt": "2026-09-29T04:44:04Z",
       "url": "https://github.com/HendrikGC02/Astroray/issues/960"
-    },
-    {
-      "body": "Found by pkg284 Phase 2 (lane ak-284b), corpus scene v2_dispersion_caustics, Astroray GPU vs CPU seed 278 64 spp, build main 7b658bb8 + pkg293 (Astroray-al-293/build_cuda), caustic boost 1.0. gpu_cpu ratio: prism_sun_caustic_floor r/g/b 8.0/6.7/5.1 (band ~0.05-0.2 after re-bless), sphere_spot_caustic_floor g/b/L 1.11/1.20/1.17, sphere_limb r 1.13. Both legs are noisy (frozen-lattice GPU caustic sampling, see memory gpu-caustic-frozen-lattice-and-spd-blind). Rows are strict-xfail in benchmarks/reference_corpus/provisional_v2.toml. Evidence: astra_run/AK/ak-284b/sheet_v2_dispersion_caustics_gpu.png",
-      "labels": [],
-      "number": 959,
-      "title": "GPU vs CPU photon caustics disagree in v2_dispersion_caustics (prism sun floor 6.8x, spot floor 1.17x, sphere limb r 1.13x)",
-      "updatedAt": "2026-09-29T04:43:40Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/959"
     },
     {
       "body": "Found in pkg293 GPU legs (2026-09-29): Principled rough glass (transmission, and transmission lowered from Glass BSDF) reads GPU/CPU 1.03-1.07 with constant parameters; identical on the pre-pkg293 main build, so pre-existing. GPU glass lowers to the closure graph (single-scatter), CPU uses the Heitz multiscatter walk (pkg265) \u00e2\u20ac\u201d likely the same class as the Disney GPU glass 'single-scatter vs walk' note in pkg295. Strict xfails in tests/test_pkg293_gpu_lobe_programs.py reference this issue.",
@@ -769,14 +750,6 @@
       "url": "https://github.com/HendrikGC02/Astroray/issues/869"
     },
     {
-      "body": "`scripts/build/gpu_locked_run.py` uses a fixed 5,400-second stale threshold. `scripts/roadmap_orchestrator/locks.py::lock_status` sets `stale = age >= stale_seconds or not _pid_alive(...)`, allowing another caller to reclaim a live render/build lock after 90 minutes.\n\nFound during pkg278 full-budget capture (its timeout is 7,200 seconds per leg). No actual overlapping job occurred. Terra and parent independently reproduced the flaw using only a temporary synthetic file with the current live PID and a timestamp 5,401 seconds old: `held=True, stale=True`. The real GPU lock was untouched.\n\nReproduce by writing `{pid: os.getpid(), ts: UTC now minus 5401 seconds, meta: {who: synthetic}}` to a temporary path, then calling canonical `lock_status(path, 5400)` in that same process.\n\nAcceptance:\n- A verified live holder cannot expire solely because of elapsed time; dead holders remain recoverable.\n- Distinguish holder identity robustly across PID reuse; release must never remove replacement ownership.\n- Make acquisition and stale recovery atomic between contenders. The current check-then-replace protocol also permits simultaneous successful acquisitions.\n- Tests cover old live holder, dead-holder recovery, replacement ownership surviving old release, and simultaneous contenders yielding exactly one owner.\n\nScope: canonical lock implementation/wrappers and focused tests. Keep this separate from pkg278 instrumentation; no renderer changes.\r\n",
-      "labels": [],
-      "number": 868,
-      "title": "fix(lock): prevent live GPU jobs losing ownership after 90 minutes",
-      "updatedAt": "2026-09-23T18:28:14Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/868"
-    },
-    {
       "body": "The pkg278 native-panel baseline on origin/main 2e058c73 requests `view_layer.cycles.pass_debug_sample_count = True`, but actual CPU and GPU RenderResult inventories contain only Combined. The observer captures the populated Python `write_pixels` result before Blender releases it. This is a missing requested native pass, not a claim that the renderer has no internal sample counts.\n\nBlender 5.2 registers `Debug Sample Count` (`X`, `VALUE`) and documents linear normalization by the maximum sample budget. The gate compares adaptive off/on at the same recorded 64-sample maximum. A normalized log heatmap is not equivalent.\n\nEvidence: `astra_run/batchA-native-panels-v5/legs_cpu.json` and `legs_gpu.json`: requested=true, pass_name=Debug Sample Count, trace_observed=true, valid=true, present=false. Main module build `2e058c7+20260923T134350Z`; module SHA256 `2c4b8db88e219838e79aa4313ee7aa0c639bb8224fa1494da0ab353786f16461`. Parent run: 26 instrument tests pass; gate-(d) remains measured RED. No renderer change in pkg278.\n\nScope: expose the native requested sample-count pass for CPU/GPU F12 with the documented linear normalization and correct pixel orientation; include adaptive and fixed-budget behavior. Register/populate it only when requested. Test final filled pass values and off/on output effects, not just a pass name or property reachability. Native adaptive-toggle routing is separately tracked in #866.\r\n",
       "labels": [
         {
@@ -790,21 +763,6 @@
       "title": "Expose requested native Debug Sample Count pass for CPU/GPU F12",
       "updatedAt": "2026-09-23T16:14:04Z",
       "url": "https://github.com/HendrikGC02/Astroray/issues/867"
-    },
-    {
-      "body": "The pkg278 native-panel baseline capture on origin/main 2e058c73 confirms that setting `scene.cycles.use_adaptive_sampling = False` still resolves to `use_adaptive_sampling = True` on CPU and GPU. Samples and denoise do resolve from the native controls. `settings_map.py` explicitly documents the current adaptive toggle as custom-only; this issue tracks the measured gate-(d) gap, not a new regression claim.\n\nReproduction: run the pkg278 native-panel test with `ASTRORAY_GATE_D_NATIVE=1` and `ASTRORAY_GATE_D_BACKENDS=cpu,gpu`, using the freshly staged 2e058c7 addon. In `legs_cpu.json` and `legs_gpu.json`, adaptive_off, denoise_off, denoise_on and reference record native adaptive=false / resolved adaptive=true. Actual renderer telemetry confirms CPU device=-1 and GPU device=0. Local evidence: `astra_run/batchA-native-panels-v3/`; parent log reports 25 tests passed but both measured gate rows RED.\n\nScope: route the native adaptive on/off switch to the existing sampler on both backends, retaining explicit warnings for unsupported threshold/minimum-sample semantics and documented incompatible GPU combinations. Do not change the sampling algorithm or silently approximate additional native controls.\n\nAcceptance: native false demonstrably disables adaptive sampling; native true reaches the existing supported adaptive path; CPU/GPU F12 tests verify resolved values and output behavior at a declared budget. Preserve native samples/denoise controls and existing incompatible-path warnings. Attribute behavior against the recorded baseline. Per-pixel Sample Count observation is a separate instrument/support question; the v3 observer did not capture that pass, so this issue makes no claim about its absence.\r\n",
-      "labels": [
-        {
-          "id": "LA_kwDOQvjUZs8AAAAC0E0bGQ",
-          "name": "addon-gap",
-          "description": "Blender addon feature gap: native Blender control not yet honoured",
-          "color": "fbca04"
-        }
-      ],
-      "number": 866,
-      "title": "Native adaptive-sampling toggle remains custom-only: gate (d) baseline gap",
-      "updatedAt": "2026-09-23T15:46:53Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/866"
     },
     {
       "body": "During Batch A, two bounded read-only `delegate.py --tier verify --fallback --agent critic --dir <isolated worktree>` calls failed to return a final critique:\n\n- 655 seconds: `no_clean_finish`, finish_reason `length`, 32,000 output tokens, 32 tool calls. The transcript contains repeated reconsideration without a usable final verdict.\n- 600 seconds: timeout, 41 tool calls, no final text, despite an inlined scoped diff and a 500-word output instruction.\n\nBoth Windows Job cleanups confirmed zero active processes. No mutation was attributed to the critic; parent and independent Terra review remain required. Do not change model routing or expand worker permissions as an unreviewed workaround.\n\nScope a separate tooling investigation: reproduce on a small public fixture, distinguish model reasoning loop from read-only tool exposure/configuration, and make bounded failure diagnosable with clear final-summary/stop evidence. If a supported output budget or narrower review chunk can reliably complete, document it in the canonical delegate workflow rather than adding a duplicate wrapper. Test one clean completion and one timeout cleanup case.\n\nOwner-host evidence: `astra_run/batchA-scanner-critic.log`, `batchA-scanner-critic-final.log`; transcripts `20260924-003956-eb93346b7674-verify.jsonl` and `20260924-005850-876379a4db4b-verify.jsonl` under LOCALAPPDATA/astroray/delegate-logs. Renderer code and Batch A instruments are out of scope.\r\n",
@@ -851,21 +809,6 @@
       "title": "Viewport storm row: re-measure after #850 (full re-sync ~125 ms/edit is the floor until #849)",
       "updatedAt": "2026-09-19T23:35:06Z",
       "url": "https://github.com/HendrikGC02/Astroray/issues/855"
-    },
-    {
-      "body": "Found while attributing a `test_gpu_spectral_melanin_matches_cpu` failure in PR #837.\n\nScene: the `tests/test_pkg225_spectral_hair.py` tuft (thick curves, one sphere light, `multiwavelength_path_tracer`, 384 spp, depth 6). Per-channel GPU/CPU sums over lit pixels, same on main (916907b) and #837:\n\n| melanin | lit px | GPU/CPU R / G / B |\n|---|---|---|\n| 0.0 | ~1610 | 1.113 / 1.115 / 1.117 (main), 1.116 / 1.107 / 1.118 (#837) |\n| 0.6 | ~130 | pooled over 6 seeds: 0.963 / 0.944 / 0.865 (main), 0.965 / 0.946 / 0.880 (#837) |\n\nThe GPU is ~11 % brighter than the CPU on unpigmented hair, flat across channels. It is darker on pigmented hair, most in blue. That pattern points at a path-length or lobe-count difference in the GPU hair walk (pkg225 GPU leg), not at colour. The pkg225 gate (\u00c2\u00b115 %) passes only because of its width.\n\nTo do: CPU-vs-GPU per-lobe (R/TT/TRT/residual) comparison on a single fibre; then fix, or document the divergence with a cited reason.\n",
-      "labels": [
-        {
-          "id": "LA_kwDOQvjUZs8AAAACfP9G4A",
-          "name": "P2-medium",
-          "description": "Important but not blocking",
-          "color": "FBCA04"
-        }
-      ],
-      "number": 853,
-      "title": "GPU principled_hair ~11 % brighter than CPU on unpigmented hair, darker in blue when pigmented (pkg225 GPU leg)",
-      "updatedAt": "2026-10-01T17:21:50Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/853"
     },
     {
       "body": "Noted by the pkg265 parity review (PR #778, 2026-09-10). `transmissionWalkScalar` / `glassWalkScalar` call `msdiel::stochasticEvalHashed` with the lobe's single scalar IOR, so the Heitz-2016 walk returns one achromatic scalar for all four sampled wavelengths; the tint is upsampled separately and multiplied in. This is consistent across eval/sample/pdf and matches the pre-pkg265 rough-glass behaviour (dispersion lived only on the smooth-delta Sellmeier path), so it is not a regression \u00e2\u20ac\u201d but rough-glass chromatic dispersion is now definitively unmodelled.\n\n**If wanted:** run the walk per-\u00ce\u00bb with `ior(\u00ce\u00bb)` from the Sellmeier profile (hero-wavelength: one walk at the hero \u00ce\u00bb, the other three \u00ce\u00bb re-weighted or walked with the same height/rng stream so the estimator stays correlated), keep `pdf()` on the hero \u00ce\u00bb; cost \u00e2\u2030\u02c6 4\u00c3\u2014 walk per eval at N = 1. The GPU twin (pkg265 Phase 3) should decide this once so CPU/GPU stay bit-consistent (`kMsEvalWalks`, `kMsScatterMax`).\n\nThe green/purple speckle in the 128-spp harness renders is stochastic-walk variance in the 4-\u00ce\u00bb pipeline, not dispersion (#763 for the noise level).",

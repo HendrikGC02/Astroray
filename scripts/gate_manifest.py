@@ -640,6 +640,8 @@ def _validate_d(records: list[Any], base: Path) -> tuple[list[str], dict[str, An
     if not isinstance(backends, Mapping) or set(backends) != {"cpu", "gpu"}:
         return errors + ["row d aggregate requires exactly CPU and GPU raw legs"], {}, {}
     try:
+        if str(REPO_ROOT / "tests") not in sys.path:  # the reducer imports tests/results_layout
+            sys.path.insert(0, str(REPO_ROOT / "tests"))
         spec = importlib.util.spec_from_file_location("pkg278_native_panel_reducer", REPO_ROOT / "tests" / "test_gate_native_panels.py")
         if spec is None or spec.loader is None: raise ImportError("cannot load native-panel reducer")
         native = importlib.util.module_from_spec(spec); sys.modules[spec.name] = native; spec.loader.exec_module(native)

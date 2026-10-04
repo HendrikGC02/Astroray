@@ -2129,6 +2129,9 @@ std::vector<float> cuda_wavefront_render(
         // pkg291: record patchability before the host arrays are released.
         C.refitPatchable = res.instances.empty() && res.motionVertices.empty();
         C.cachedPrimCount = (int)res.prims.size();
+        // #1057: a full re-flatten invalidates the triangle index map; a new
+        // renderer's BVH can reuse a freed one's address and build count.
+        C.triIndexBvh = nullptr;
         release(res.nodes); release(res.prims); release(res.triangles);
         release(res.spheres); release(res.curveSegments); release(res.tlas);
         release(res.instances); release(res.blas); release(res.motionVertices);

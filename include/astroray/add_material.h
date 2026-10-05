@@ -16,7 +16,7 @@
 // GPU (#1072): the closure-graph evaluator normalises lobe weights (pkg170), so an
 // Add cannot be one merged graph. A summable pair (gpuSummable()) uploads child A at
 // this material's id and child B as a hidden second GMaterial (GMaterial::addPartner
-// holds its index + 1); the wavefront shade kernel (HasPrincipled=true only) then
+// holds its index + 1); the wavefront shade kernel (the HasAdd=true variants only, stage_shade_add.cu) then
 // evaluates f = f_A + f_B, pdf = 0.5 (pdf_A + pdf_B) and samples a child with
 // probability 1/2, exactly the CPU scheme above. Cycles picks closures proportional
 // to sample_weight (surface_shader_bsdf_bssrdf_pick, kernel/integrator/surface_shader.h,

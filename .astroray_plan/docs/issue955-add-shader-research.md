@@ -15,8 +15,9 @@
   plain, opaque, non-emissive, untextured children) uploads child A at the Add's id and
   child B as a hidden material; `GMaterial::addPartner` (+1 index, in existing padding,
   struct stays 640 B) links them and `c_wfAddMaterials` (constant pointer) gives the
-  shade kernel the array. The `HasPrincipled=true` wavefront shade path (selected for
-  any scene with a partner) runs the CPU scheme: pick a child p = 1/2, return the
+  shade kernel the array. A compile-time `HasAdd` shade axis (8 variants in
+  `stage_shade_add.cu`, launched only for scenes with a partner; an out-of-line call
+  alone still raised every Principled kernel's stack +4 KB) runs the CPU scheme: pick a child p = 1/2, return the
   summed f and 0.5 (pdf_A + pdf_B) (`gpu_add_*` in `stage_advance_device.cuh`, bodies
   `ASTRORAY_SHADE_NOINLINE`; the `<false>` fleet compiles none of it). Cycles picks a
   closure proportional to sample_weight (`surface_shader_bsdf_bssrdf_pick`,

@@ -173,6 +173,7 @@ def test_validate_cli_returns_not_green_for_rehearsal(tmp_path, capsys):
     assert "REHEARSAL" in capsys.readouterr().out
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows path semantics (the rehearsal is Windows-only)")
 def test_rehearsal_env_whitelists_and_scrubs_path(tmp_path):
     blender = tmp_path / "Blender" / "blender.exe"
     blender.parent.mkdir()

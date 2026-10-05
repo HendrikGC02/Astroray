@@ -2825,12 +2825,20 @@ private:
     // cuda_wavefront_render (GPU) so both backends honour them identically. A
     // limit of N allows N bounces of that lobe type; the (N+1)-th terminates the
     // path (Cycles kernel/integrator/path_state.h path_state_next semantics).
-    // Transparent (alpha-passthrough) and volume bounces are NOT here — see the
-    // pkg201 Stage 3 park notes (transparent needs a BSDF lobe label; volume is a
-    // pkg199 transport cross-ref).
+    // Volume bounces are NOT here (pkg271 below); transparent pass-throughs are
+    // counted separately (#1033 below), never as one of these bounce types.
     int maxDiffuseBounces = -1;
     int maxGlossyBounces = -1;
     int maxTransmissionBounces = -1;
+    // #1033 — Cycles transparent_max_bounces (-1 = unlimited). A transparent
+    // pass-through (Principled Alpha < 1, a straight-through delta sample) is not a
+    // regular bounce (Cycles path_state_next, kernel/integrator/path_state.h,
+    // Apache-2.0: LABEL_TRANSPARENT counts in transparent_bounce only, spends no
+    // max_bounces / per-type budget and keeps the clamp class). After the T-th
+    // pass the NEXT surface hit contributes its emission only (Cycles
+    // PATH_RAY_TERMINATE_ON_NEXT_SURFACE). Read by pathTraceSpectral and
+    // cuda_wavefront_render (both backends).
+    int maxTransparentBounces = -1;
     // pkg271 — Cycles volume_bounces (-1 = unlimited). The k-th volume scatter
     // (bounded grid/homogeneous medium or world fog) with k > limit continues
     // "terminate-after" (Cycles PATH_RAY_TERMINATE_AFTER_TRANSPARENT): media
@@ -3496,6 +3504,8 @@ public:
     int getMaxTransmissionBounces() const { return maxTransmissionBounces; }
     void setVolumeBounces(int n) { maxVolumeBounces = (n < 0) ? -1 : n; }
     int getMaxVolumeBounces() const { return maxVolumeBounces; }
+    void setTransparentBounces(int n) { maxTransparentBounces = (n < 0) ? -1 : n; }  // #1033
+    int getMaxTransparentBounces() const { return maxTransparentBounces; }
     // pkg268 — register bounded object media. Clear before a re-export.
     void clearGridMedia() {
         gridMedia_.clear(); gridStore_.clear(); boundaryStore_.clear(); hasBoundaryMedia_ = false;
@@ -4358,6 +4368,11 @@ public:
             }
             // pkg271: a terminate-after path ends at a non-emissive surface.
             if (volTerminateAfter) break;
+            // #1033: transparent_max_bounces exhausted (Cycles transparent_bounce >=
+            // transparent_max_bounce sets TERMINATE_ON_NEXT_SURFACE): this surface
+            // took its emission above and the path ends (no NEE / continuation).
+            if (maxTransparentBounces >= 0 && lpc.transparentDepth > 0 &&
+                (int)lpc.transparentDepth >= maxTransparentBounces) break;
 
             Vec3 wo = -ray.direction.normalized();
 
@@ -4621,10 +4636,13 @@ public:
                         : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
             }
             if (firstCat < 0) firstCat = lobeCat;
+            // #1033: a transparent pass-through (Cycles LABEL_TRANSPARENT) keeps the
+            // path state, counts in transparent depth only and is skipped by the
+            // per-type counters, the caustic cull and the bounce counter below.
+            const bool transparentPass = astroray::lightpath::is_transparent_pass(
+                bss.isDelta, wo.dot(bss.wi), rec.material->shadowAlpha(rec) < 1.0f);
             lpc = astroray::lightpath::next_surface(  // #991
-                lpc, lobeCat, bss.isDelta,
-                astroray::lightpath::is_transparent_pass(bss.isDelta, wo.dot(bss.wi),
-                    rec.material->shadowAlpha(rec) < 1.0f));
+                lpc, lobeCat, bss.isDelta, transparentPass);
 
             // pkg201 Stage 3 (Finding E) — native caustic toggle cull. Reuses the
             // per-bounce lobeCat (item A): a delta reflection is lobeCat==1
@@ -4633,7 +4651,7 @@ public:
             // is off, terminate here (the closest equivalent to Cycles suppressing
             // the specular/refractive closure at setup — the caustic never reaches
             // the light). Direct lighting at earlier vertices is untouched.
-            if (causticGateActive) {
+            if (causticGateActive && !transparentPass) {
                 if (hadDiffuseAncestor && bss.isDelta &&
                     ((lobeCat == 2 && !useRefractiveCaustics) ||
                      (lobeCat == 1 && !useReflectiveCaustics))) {
@@ -4682,7 +4700,7 @@ public:
             // type allows N such bounces, so the (N+1)-th terminates the path
             // (no continuation ray). -1 = unlimited (the loop then ends only on
             // the total maxDepth, RR, or pdf<=0 — byte-identical to pre-pkg201).
-            {
+            if (!transparentPass) {
                 int typeLimit, typeCount;
                 if (lobeCat == 0)      { typeLimit = maxDiffuseBounces;      typeCount = diffuseBounceCount; }
                 else if (lobeCat == 1) { typeLimit = maxGlossyBounces;       typeCount = glossyBounceCount; }
@@ -4701,6 +4719,10 @@ public:
             next.cameraV = ray.cameraV;
             next.cameraW = ray.cameraW;
             ray = next;
+            // #1033: a transparent pass spends no max_bounces / clamp-class budget
+            // (the loop's ++bounce nets to zero); its own budget is the
+            // transparent_max_bounces check above.
+            if (transparentPass) --bounce;
 
             weightSum += throughput.maxValue();
             float maxC = throughput.maxValue();
@@ -4870,6 +4892,9 @@ public:
                     color += clampContribSpectral(throughput * Le_spec, lambdas, bounce);
                 break;
             }
+            // #1033: transparent_max_bounces exhausted (see pathTraceSpectral).
+            if (maxTransparentBounces >= 0 && lpc.transparentDepth > 0 &&
+                (int)lpc.transparentDepth >= maxTransparentBounces) break;
 
             Vec3 wo = -ray.direction.normalized();
 
@@ -5023,14 +5048,14 @@ public:
 
             wasSpecular = bss.isDelta;
             throughput = nextThroughput;
+            bool transparentPass;  // #1033 (see pathTraceSpectral)
             {   // #991 — same bounce class as pathTraceSpectral's lobeCat.
                 const bool transmitted = wo.dot(rec.normal) * bss.wi.dot(rec.normal) < 0.0f;
                 const int cat = transmitted ? 2
                               : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
-                lpc = astroray::lightpath::next_surface(
-                    lpc, cat, bss.isDelta,
-                    astroray::lightpath::is_transparent_pass(bss.isDelta, wo.dot(bss.wi),
-                    rec.material->shadowAlpha(rec) < 1.0f));
+                transparentPass = astroray::lightpath::is_transparent_pass(
+                    bss.isDelta, wo.dot(bss.wi), rec.material->shadowAlpha(rec) < 1.0f);
+                lpc = astroray::lightpath::next_surface(lpc, cat, bss.isDelta, transparentPass);
             }
 
             Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
@@ -5041,6 +5066,7 @@ public:
             next.cameraV = ray.cameraV;
             next.cameraW = ray.cameraW;
             ray = next;
+            if (transparentPass) --bounce;  // #1033: no max_bounces / clamp-class spend
 
             weightSum += throughput.maxValue();
             float maxC = throughput.maxValue();
@@ -5253,12 +5279,10 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
             int argVolumeBounces, int argTransparentBounces) {
         // pkg201 Stage 3 (Finding A) — honour the Cycles per-type bounce limits
         // (previously discarded). Stored on the Renderer so pathTraceSpectral
-        // reads them per bounce. Volume/transparent remain unwired here (pkg199
-        // cross-ref / BSDF-label follow-up); accept+ignore so the signature and
-        // every caller are unchanged.
+        // reads them per bounce.
         setPerTypeBounces(argDiffuseBounces, argGlossyBounces, argTransmissionBounces);
         setVolumeBounces(argVolumeBounces);  // pkg271
-        (void)argTransparentBounces;
+        setTransparentBounces(argTransparentBounces);  // #1033
         // pkg274 (#724/#36): copy the camera clip planes and cache the holdout
         // presence once per render, before the integrator / trace loops read them.
         // Defaults (0.001f / FLT_MAX / no holdout) keep the default render path

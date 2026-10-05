@@ -84,10 +84,24 @@ public:
     // cone weight down-weights far photons to reduce edge blur (a far photon in a
     // dispersive band is a different wavelength, so this also sharpens the colour).
     // kf >= 1 is the filter constant. Returns zero if no photon is within maxRadius.
-    // The receiver's Lambertian BRDF (albedo/pi) is applied by the caller (matches
-    // the prior grid semantics, where the caller did `Lo += albedo * E`).
+    // The receiver BSDF is applied by the caller (estimateWeightedIrradiance for a
+    // per-photon BSDF; a constant albedo/pi for a Lambertian receiver).
     astroray::XYZ estimateIrradiance(const Vec3& q, int k, float maxRadius,
                                      float kf = 1.1f) const {
+        return estimateWeightedIrradiance(q, k, maxRadius,
+                                          [](const Photon&) { return 1.0f; }, kf);
+    }
+
+    // #1045: the same estimate with a per-photon receiver weight, i.e. the
+    // reflected-radiance form of Jensen 2000 Eq. 8 / Jensen 2001 sec. 7.1:
+    //   L_r(x, w_o) = [ sum_p rho_p * Phi_p * cone_p ] / [ (1 - 2/(3 kf)) pi r^2 ]
+    // where rho_p = pi * f_r(x, w_p, w_o) is the receiver BSDF (without the cosine,
+    // which the photon hit density already carries) evaluated for photon p's own
+    // incoming direction. weight(photon) -> rho_p. weight == 1 is estimateIrradiance;
+    // a Lambertian receiver has rho_p = albedo for every photon.
+    template <class WeightFn>
+    astroray::XYZ estimateWeightedIrradiance(const Vec3& q, int k, float maxRadius,
+                                             WeightFn&& weight, float kf = 1.1f) const {
         if (photons_.empty() || k <= 0) return {};
         std::vector<std::pair<float, int>> heap;
         heap.reserve(static_cast<std::size_t>(k));
@@ -106,7 +120,8 @@ public:
         for (const auto& e : heap) {
             const float w = 1.0f - std::sqrt(e.first) / (kf * r);  // cone weight, >= 0
             const Photon& p = photons_[e.second];
-            sum.X += p.power.X * w; sum.Y += p.power.Y * w; sum.Z += p.power.Z * w;
+            const float c = w * weight(p);
+            sum.X += p.power.X * c; sum.Y += p.power.Y * c; sum.Z += p.power.Z * c;
         }
         const float norm = (1.0f - 2.0f / (3.0f * kf)) * 3.14159265358979323846f * r2;
         if (norm <= 0.0f) return {};

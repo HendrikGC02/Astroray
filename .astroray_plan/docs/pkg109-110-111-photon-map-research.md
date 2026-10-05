@@ -104,3 +104,14 @@ brute force (0 mismatch / 300 queries, radius err 0); density estimate converges
 to the true areal density (1.6% rel-err at 40k photons). The C++ kd-tree is
 validated against the same brute-force oracle in `tests/test_photon_map.py` via a
 pybind test binding.
+
+## #1045 - receiver BSDF in the gather (2026-10)
+
+The gather evaluates reflected radiance with the receiver BSDF per photon:
+L_r(x, w_o) = sum_p f_r(x, w_p, w_o) dPhi_p / (pi r^2) (Jensen 2001 Eq. 8, SIGGRAPH 2000
+Course 8 Sec. 3.1; pbrt-v3 SPPM `bsdf.f(wo, wi)`, BSD-2). rho_p = pi f_r is evaluated with the
+material's `evalSpectral` at the photon's own wavelength, incoming direction and the view
+direction (CPU `PhotonMap::estimateWeightedIrradiance`; GPU `photonGridGatherKnnWeighted`);
+a Lambertian receiver gives rho_p = albedo. Delta-only receivers (mirror, smooth conductor,
+`Material::isDeltaOnly`) are not visible points in SPPM: they are neither gathered nor a
+split-chain root, so camera -> mirror -> glass -> lamp stays path traced.

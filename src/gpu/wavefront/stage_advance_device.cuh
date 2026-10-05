@@ -288,6 +288,21 @@ __device__ inline bool wf_isPhotonCaster(const ::GMaterial& m) {
     return false;
 }
 
+// #1045: delta-only (smooth) conductor receiver, twin of Material::isDeltaOnly:
+// plain metal below its near-delta threshold (metal.cpp kNearDeltaThreshold) and a
+// smooth metallic Principled. Not a photon receiver (pbrt-v3 SPPM), not a split chain root.
+__device__ inline bool wf_isDeltaOnlyReceiver(const ::GMaterial& m) {
+    if (m.type == GMAT_METAL) return m.roughness <= 0.1f;
+    if (m.type == GMAT_CLOSURE_GRAPH && m.closureCount >= 1) {
+        if (m.closures[0].type == GCLOSURE_PRINCIPLED)
+            return m.principled.metallic >= 0.999f && m.principled.transmission <= 0.0f &&
+                   m.principled.roughness <= 0.0038f;
+        return m.closureCount == 1 && m.closures[0].type == GCLOSURE_GGX_CONDUCTOR &&
+               !m.disneyMetalConductor && m.closures[0].roughness <= 0.1f;
+    }
+    return false;
+}
+
 // Splat a spectral contribution into slot `idx`'s pass `passIdx` accumulator.
 // Per-slot (mirrors the color SoA — accumulate-at-death like beauty), so no atomics:
 // one path owns one slot for the duration of a bounce, exactly like the color_/
@@ -910,7 +925,8 @@ __device__ int intersectPathSlotT(
     if (c_wfPhotonSplit.chain != nullptr) {
         unsigned char c;
         if (bounce == 0) {
-            c = (mat.emissionIntensity <= 0.f && !wf_isPhotonCaster(mat)) ? 1 : 0;
+            c = (mat.emissionIntensity <= 0.f && !wf_isPhotonCaster(mat) &&
+                 !wf_isDeltaOnlyReceiver(mat)) ? 1 : 0;
         } else {
             c = c_wfPhotonSplit.chain[idx];
             if (c & 1) c = wf_isPhotonCaster(mat) ? 3 : 0;
@@ -2257,14 +2273,29 @@ __device__ __forceinline__ bool shadePathSlotImpl(
             // rec is already the primary hit from intersectPathSlot; check non-emissive.
             // #959: receivers only (a caster holds no photons; the split chain
             // starts only at a non-caster receiver) -- CPU sampleFull twin.
-            if (mat.emissionIntensity <= 0.0f && !wf_isPhotonCaster(mat)) {
+            if (mat.emissionIntensity <= 0.0f && !wf_isPhotonCaster(mat) &&
+                !wf_isDeltaOnlyReceiver(mat)) {
                 int found = 0;
-                GVec3 E = astroray::photon::gpu::photonGridGatherKnn(
-                    photonGrid, rec.point, 50, 1.1f, found);
+                // #1045: reflected radiance L_r = sum_p f_r(x, w_p, w_o) dPhi_p / (pi r^2)
+                // (CPU twin: spectral_path_tracer.cpp sampleFull): each photon is
+                // weighted by the receiver BSDF at ITS wavelength, incoming direction
+                // and the view direction, rho_p = pi * f_r (a Lambertian receiver gives
+                // rho_p = albedo(lambda_p), the former albedo * E). eval includes the
+                // cosine; the photon hit density already carries it.
+                auto receiverWeight = [&](const astroray::photon::gpu::GPhoton& ph) -> float {
+                    const GVec3 wi = ph.incidentDir * -1.0f;   // toward the light
+                    const float cosI = wi.dot(rec.normal);
+                    if (cosI <= 1e-3f) return 0.0f;
+                    GSampledWavelengths one;
+                    for (int li = 0; li < G_SPECTRUM_SAMPLES; ++li) { one.lambda[li] = ph.lambda; }
+                    const float f = gpu_material_eval_spectral<HasPrincipled>(
+                        mat, rec, wo, wi, one).v[0] / cosI;
+                    return f > 0.0f ? f * M_PI_F : 0.0f;
+                };
+                GVec3 E = astroray::photon::gpu::photonGridGatherKnnWeighted(
+                    photonGrid, rec.point, 50, 1.1f, found, receiverWeight);
                 if (found > 0) {
-                    GVec3 alb = mat.baseColor;
-                    GVec3 photonContrib = GVec3(alb.x * E.x, alb.y * E.y, alb.z * E.z)
-                                          * photonScale;
+                    GVec3 photonContrib = E * photonScale;
                     // Store in photon_xyz SoA; will be added to accum_xyz during regen.
                     state.photon_xyz_x[idx] = photonContrib.x;
                     state.photon_xyz_y[idx] = photonContrib.y;

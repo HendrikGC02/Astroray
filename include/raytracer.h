@@ -575,6 +575,10 @@ public:
     virtual bool isEmissive() const { return false; }
     virtual bool isTransmissive() const { return false; }
     virtual bool isGlossy() const { return false; }
+    // #1045: true when every reflective lobe is a delta (smooth mirror / metal). Such a
+    // surface is never a photon-map receiver (pbrt-v3 SPPM: specular surfaces are not
+    // visible points) and is excluded from the photon split chain.
+    virtual bool isDeltaOnly() const { return false; }
     // pkg253 G1 — shadow-ray opacity. 1.0 (default, every existing material)
     // means fully opaque: an NEE shadow ray hitting this surface is blocked,
     // unchanged from every render before this package. A Principled material
@@ -4084,7 +4088,7 @@ public:
                 const bool glass = didHit && rec.material && rec.material->isTransmissive();
                 if (bounce == 0) {
                     photonChain = (didHit && rec.material && !rec.material->isEmissive() &&
-                                   !glass) ? 1u : 0u;
+                                   !glass && !rec.material->isDeltaOnly()) ? 1u : 0u;
                 } else if (photonChain & 1u) {
                     photonChain = glass ? 3u : 0u;
                 }

@@ -17,6 +17,7 @@
 #include "astroray/nishita_sky.h"  // Batch J (#799 Phase 2): engine-side Nishita sky
 #include "astroray/shapes.h"
 #include "astroray/light_path_mix.h"  // #991 Mix Shader with a Light Path Fac
+#include "astroray/add_material.h"    // #955 Add Shader (closure sum)
 #include "astroray/curves.h"  // pkg225 Stage 1 — CurveSegment / CurveStrip
 #include "astroray/black_hole.h"
 #include "astroray/register.h"
@@ -928,6 +929,17 @@ public:
         int id = nextMaterialId++;
         materials[id] = std::make_shared<astroray::LightPathMixMaterial>(
             ia->second, ib->second, (unsigned char)output);
+        return id;
+    }
+
+    // #955 -- Add Shader(A, B): closures add (include/astroray/add_material.h).
+    // Both children are already-created material ids.
+    int createAddMaterial(int materialA, int materialB) {
+        auto ia = materials.find(materialA), ib = materials.find(materialB);
+        if (ia == materials.end() || ib == materials.end())
+            throw std::runtime_error("create_add_material: unknown material id");
+        int id = nextMaterialId++;
+        materials[id] = std::make_shared<astroray::AddMaterial>(ia->second, ib->second);
         return id;
     }
 
@@ -1850,6 +1862,13 @@ public:
         renderer.addObject(bh);
     }
 
+    // #895: instantiate a ShapeRegistry plugin by name (the path scenes built
+    // from the plugin registry take) and add it to the scene.
+    void addShape(const std::string& name, py::dict params) {
+        renderer.addObject(astroray::ShapeRegistry::instance().create(
+            name, paramDictFromPyDict(params)));
+    }
+
     void addVolume(const std::vector<float>& center, float radius, float density,
                   const std::vector<float>& color, float anisotropy = 0,
                   float emissionStrength = 0.0f,
@@ -1995,6 +2014,7 @@ public:
         out["gpu_spectral"] = caps.gpuSpectral;
         out["gpu_approximate"] = caps.gpuApproximate;
         out["closure_graph"] = caps.closureGraph;
+        out["delta_only"] = it->second->isDeltaOnly();  // #1045
         out["closure_count"] = it->second->closureGraph().count();
         out["gpu_type"] = caps.gpuType;
         out["notes"] = caps.notes;
@@ -4112,6 +4132,10 @@ PYBIND11_MODULE(astroray, m) {
              "#991: Mix Shader(A, B) with a boolean Light Path Fac (0 Is Camera, 1 Is Shadow, "
              "2 Is Diffuse, 3 Is Glossy, 4 Is Singular, 5 Is Reflection, 6 Is Transmission, "
              "7 Is Volume Scatter); every ray shades with exactly one child.")
+        .def("create_add_material", &PyRenderer::createAddMaterial,
+             "material_a"_a, "material_b"_a,
+             "#955: Add Shader(A, B): BSDF = A + B (closure weights add, not normalised). "
+             "CPU sums both; the GPU backend renders child A only.")
         .def("eval_material", &PyRenderer::evalMaterial,
              "material_id"_a, "wo"_a, "wi"_a,
              "normal"_a = std::vector<float>{0.0f, 1.0f, 0.0f})
@@ -4237,6 +4261,8 @@ PYBIND11_MODULE(astroray, m) {
              "center"_a, "radius"_a, "density"_a, "color"_a,
              "anisotropy"_a = 0.0f, "emission_strength"_a = 0.0f,
              "emission_color"_a = std::vector<float>{1.0f, 1.0f, 1.0f})
+        .def("add_shape", &PyRenderer::addShape, "name"_a, "params"_a = py::dict(),
+             "#895: add a ShapeRegistry plugin shape (e.g. \"black_hole\") by name.")
         .def("add_black_hole", &PyRenderer::addBlackHole,
              "position"_a, "mass"_a, "influence_radius"_a, "params"_a = py::dict())
         .def("setup_camera", &PyRenderer::setupCamera, "look_from"_a, "look_at"_a, "vup"_a, "vfov"_a,

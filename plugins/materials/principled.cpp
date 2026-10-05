@@ -1931,6 +1931,11 @@ public:
     bool isDispersive() const override { return dispersive_; }
     Vec3 getCauchyAB() const override { return Vec3(cauchyA_, cauchyB_, 0.0f); }
     bool isGlossy() const override { return true; }
+    // #1045: smooth conductor (metallic, no transmission, roughness_is_almost_specular
+    // alpha^2 <= 2e-10, the threshold the glass lobes use above) = no diffuse lobe.
+    bool isDeltaOnly() const override {
+        return metallic_ >= 0.999f && transmission_ <= 0.0f && roughness_ <= 0.0038f;
+    }
 
     // pkg178 Stage 3 — emission inside the node (retires the addon promote-to-light
     // heuristic for the flagged path; the closure side lives here, the addon switch

@@ -12,6 +12,8 @@ public:
         return astroray::SampledSpectrum(0.0f);
     }
 
+    bool isDeltaOnly() const override { return true; }  // #1045
+
     MaterialBackendCapabilities backendCapabilities() const override {
         MaterialBackendCapabilities caps;
         caps.notes = "mirror has no dedicated GPU material lowering yet";

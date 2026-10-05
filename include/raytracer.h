@@ -920,8 +920,9 @@ public:
         HitRecord rec;
         Ray ray;
         // Gravitational shift g = nu_obs/nu_emit of a static emitter at the hit,
-        // referenced to a static observer at the region edge (r_max), so the
-        // boundary has no brightness seam. Applied to the hit's own emission only.
+        // referenced to a static observer at infinity (the disk's convention;
+        // owner 2026-10-06), so the r_max boundary has a brightness step.
+        // Applied to the hit's own emission only.
         float redshift = 1.0f;
         // Volumetric (ADAF/jet) transmittance in front of the hit.
         astroray::SampledSpectrum transmittance = astroray::SampledSpectrum(1.0f);

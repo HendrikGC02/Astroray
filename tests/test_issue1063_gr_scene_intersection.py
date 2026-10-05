@@ -33,7 +33,7 @@ INFLUENCE = 5.5
 R_MAX = 1.05 * INFLUENCE
 
 
-def _render(spheres, black_hole=True, spp=8):
+def _render(spheres, black_hole=True, spp=8, channel=None):
     r = astroray.Renderer()
     r.set_integrator("path_tracer")
     r.set_background_color([0.0, 0.0, 0.0])
@@ -48,7 +48,8 @@ def _render(spheres, black_hole=True, spp=8):
         r.add_black_hole([0.0, 0.0, 0.0], 4.0e6, INFLUENCE, {
             "spin": 0.0, "disk_outer": 0.0, "accretion_rate": 0.0,
             "inclination": 0.0, "enable_adaf": False, "r_obs_M": 20.0})
-    return np.asarray(r.render(spp, 5, None, False), dtype=np.float32).mean(2)
+    img = np.asarray(r.render(spp, 5, None, False), dtype=np.float32)
+    return img.mean(2) if channel is None else img[..., channel]
 
 
 def _blobs(lum, min_px=20):
@@ -114,14 +115,19 @@ def _interior_mean(lum):
     return float(lum[core].mean())
 
 
-def test_scene_hit_emission_is_gravitationally_redshifted():
+@pytest.mark.parametrize("r_M", [9.0, 18.0])
+def test_scene_hit_emission_is_gravitationally_redshifted(r_M):
     # Surface brightness obeys I_obs = g^4 I_emit (I_lambda * lambda^5 invariant,
-    # Liouville). A small emissive sphere at r = 9 M, referenced to a static
-    # observer at the region edge r_max = 21 M: g = sqrt((1-2/9)/(1-2/21)).
-    sphere = ([9.0 * INFLUENCE / 20.0, 0.0, 0.0], 0.3)
-    ratio = _interior_mean(_render([sphere])) / _interior_mean(_render([sphere], black_hole=False))
-    g = np.sqrt((1.0 - 2.0 / 9.0) / (1.0 - 2.0 / 21.0))
-    assert abs(ratio / g**4 - 1.0) < 0.12, (ratio, g**4)
+    # Liouville). A small emissive sphere at r = r_M M, observer static at
+    # infinity (owner 2026-10-06; the disk's convention): g = sqrt(1 - 2/r_M).
+    # The old r_max reference gave g^4 / (1-2/21)^2, i.e. +22% at any r_M.
+    # Green channel only: the shifted white illuminant spectrum also changes
+    # colour (R up, B down), so RGB-mean brightness is not a clean g^4 probe.
+    sphere = ([r_M * INFLUENCE / 20.0, 0.0, 0.0], 0.3)
+    ratio = (_interior_mean(_render([sphere], channel=1))
+             / _interior_mean(_render([sphere], black_hole=False, channel=1)))
+    g = np.sqrt(1.0 - 2.0 / r_M)
+    assert abs(ratio / g**4 - 1.0) < 0.05, (ratio, g**4)
 
 
 def _adaf_render(spheres):

@@ -224,11 +224,13 @@ private:
         return true;
     }
 
-    // #1063: g = nu_obs/nu_emit of a static emitter at world point p: sqrt(-g_tt)
-    // (Schwarzschild 1-2M/r; Kerr 1-2Mr/Sigma, Sigma = r^2 + a^2 cos^2 theta),
-    // divided by the same factor at the region edge r_max, the reference observer
-    // for the flat scene outside, so the r_max boundary has no brightness seam.
-    // 0 where no static emitter exists (inside the ergosphere/horizon).
+    // #1063: g = nu_obs/nu_emit of a static emitter at world point p, observer
+    // static at INFINITY (owner 2026-10-06; same reference as the disk,
+    // NovikovThorneDisk::redshiftFactor, g = (k.u)_obs/(k.u)_em with u_obs = d_t):
+    // g = sqrt(-g_tt) (Schwarzschild 1-2M/r; Kerr 1-2Mr/Sigma, Sigma = r^2 +
+    // a^2 cos^2 theta). This leaves a brightness step at r_max, where the flat
+    // scene outside is unshifted (owner-accepted). 0 where no static emitter
+    // exists (inside the ergosphere/horizon).
     float staticRedshift(const Vec3& p) const {
         const Vec3 rel = p - position;
         const double r = double(rel.length()) * worldToGR;
@@ -237,10 +239,8 @@ private:
         const double a2c2 = spin * spin * c * c;
         const double M = metric->M;
         const double gt2 = 1.0 - 2.0 * M * r / (r * r + a2c2);
-        const double rr = r_obs_M * 1.05;
-        const double gr2 = 1.0 - 2.0 * M * rr / (rr * rr + a2c2);
-        if (!(gt2 > 0.0) || !(gr2 > 0.0)) return 0.0f;
-        return float(std::sqrt(gt2 / gr2));
+        if (!(gt2 > 0.0)) return 0.0f;
+        return float(std::sqrt(gt2));
     }
 
     // `scene` (nullable): when set, the geodesic is intersected against it as a

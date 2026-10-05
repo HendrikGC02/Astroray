@@ -1,0 +1,15 @@
+{
+  "basis": "pkg318 lane f6 self-review, NOT an independent review: (1) #823 closed by PR #870; (2) the scanner at this commit carries the _compile_socket_value AST pass and exits FATAL if it is missing; (3) re-running it headless under Blender 5.2 on 2026-10-06 reproduces the committed coverage_matrix.json exactly (586 rows, byte-equal as JSON). The owner or an independent reviewer must replace this receipt before gate (b) can be gate-eligible.",
+  "commit": "cb70daa3f48b5766376f0f24e5eceef8ee4fb5df",
+  "issue": 823,
+  "provisional": true,
+  "reviewer": {
+    "id": "lane-f6 (claude-sonnet-5-5), PROVISIONAL self-review - not independent",
+    "signature": "1c38b6ea2d0448274b1319f9b5c30df5da20c5e739b65da2424488fefc8acfb1",
+    "signed_at": "2026-10-06T00:00:00+00:00"
+  },
+  "schema": "pkg278.scanner_review_receipt.v1",
+  "source_path": "scripts/generate_blender_parity_matrix.py",
+  "source_sha256": "1488e17ebfe5501201f0f78fff64f4466a3adab792ff445f2495e2fc0f5040cb",
+  "verdict": "ACCEPT"
+}

@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** in-progress — provisional measurement on branch batch-f6/pkg318 (2026-10-06): S_CPU = S_GPU = 0.000 on both populations; the one registered witness fails on both backends; ranked backlog in `.astroray_plan/docs/gate-b-provisional-score-2026-10.md`; issues #1087 #1088 #1089 filed; evidence legs on a pre-#1069/#1071 build, re-run pending; owner ratification open
 **Estimated effort:** 1 session (~3–4 h) + ~30 min of GPU evidence renders under the lead's lock
 **Depends on:** pkg278, pkg284, pkg310
 
@@ -103,9 +103,9 @@ choice is made on numbers. Tooling and evidence only; no engine change.
 
 ## Progress
 
-- [ ] Collect + freeze v4 (nine-scene) and the v2 + production candidate.
-- [ ] Evidence sidecars (CPU lane; GPU legs via the lead).
-- [ ] Score + ranked backlog doc.
+- [x] Collect + freeze v4 (nine-scene) and the v2 + production candidate.
+- [x] Evidence sidecars (the one registered case; both fail, 0 nonzero uses).
+- [x] Score + ranked backlog doc.
 
 ---
 

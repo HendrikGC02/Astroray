@@ -1,0 +1,293 @@
+{
+  "results": [
+    {
+      "artifacts": {
+        "astroray_control_feature_mask": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/astroray_control_mask.npy",
+          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+        },
+        "astroray_control_linear_npy": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/astroray_control.npy",
+          "sha256": "4d0527a3de3285b31c014cc123a483f27400ab4ebe68056a134466aa33ba559c"
+        },
+        "astroray_control_report": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/astroray_control_raw.json",
+          "sha256": "b4d99d3f5b7401f935f254b254f6296f0c5b6d8c860230b9eb5cab0b36fde571"
+        },
+        "astroray_feature_mask": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/astroray_mask.npy",
+          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+        },
+        "astroray_linear_npy": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/astroray.npy",
+          "sha256": "2988bf0e659bb52de8a8e00b6bcbe6e76a6454937e2e1f796024297cb69404cd"
+        },
+        "cycles_control_feature_mask": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/cycles_control_mask.npy",
+          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+        },
+        "cycles_control_linear_npy": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/cycles_control.npy",
+          "sha256": "65c7409c24db018995a4f5e3b4ad08f69a4f7e1707bc1388bed2efcae76fbcfc"
+        },
+        "cycles_control_report": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/cycles_control_raw.json",
+          "sha256": "682b5d66925450ddd7dd0a5becd64c73b81d123ae84b1123d608cfeeddfcfa57"
+        },
+        "cycles_feature_mask": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/cycles_mask.npy",
+          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+        },
+        "cycles_linear_npy": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/cycles.npy",
+          "sha256": "28302acc1e906123a953927912a17e490008a6a7d4a75d0dd7c9c863ab7cb6e0"
+        },
+        "cycles_report": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/cycles_raw.json",
+          "sha256": "9f37cc1ea3ddd04b580f824c2c3cb79b196c19d331cb093cc98990dbec2797c2"
+        },
+        "report": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/astroray_raw.json",
+          "sha256": "5e7867717a24f67cedde2e95bca73498b59457c52e48d40498bd69aa27b768d3"
+        }
+      },
+      "backend": "GPU",
+      "build_id": "132c974+20261004T124622Z",
+      "case_id": "0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3",
+      "effect": {
+        "delta_e": 6.59410383913575,
+        "effects": {
+          "astroray": {
+            "coverage": 0.8880697050938338,
+            "coverage_threshold": 0.02,
+            "kind": "checker",
+            "negative_coverage": 0.4383378016085791,
+            "ok": true,
+            "positive_coverage": 0.44839142091152817,
+            "signal": 0.7054775953292847,
+            "threshold": 0.05,
+            "value": 0.4504743218421936
+          },
+          "cycles": {
+            "coverage": 0.8880697050938338,
+            "coverage_threshold": 0.02,
+            "kind": "checker",
+            "negative_coverage": 0.4436997319034853,
+            "ok": true,
+            "positive_coverage": 0.44436997319034854,
+            "signal": 0.7047613263130188,
+            "threshold": 0.05,
+            "value": 0.45093291997909546
+          }
+        },
+        "pass": true,
+        "roi": [
+          0.2912,
+          0.3603,
+          0.4079,
+          0.4804
+        ],
+        "ssim": 0.8393824100494385
+      },
+      "identity": "ShaderNodeTexChecker|input:Color1",
+      "metrics": {
+        "delta_e": 6.59410383913575,
+        "ssim": 0.8393824100494385
+      },
+      "observed": {
+        "addon_sha256": "002c7c43a1a547d7c157dffc9b9d6d7ef8e9470d53c38b8d60075fe14fdc736e",
+        "backend": "GPU",
+        "build_id": "132c974+20261004T124622Z",
+        "device": "gpu",
+        "engine_id": "CUSTOM_RAYTRACER",
+        "identity": "ShaderNodeTexChecker|input:Color1",
+        "module_sha256": "93cc14f028f20d64ab315873e8a04f6d6cc80cb13f76d5a4e943f1c850915aac",
+        "scene_id": "textures_mapping",
+        "variant_digest": "35ff18873b07e2120a2556a973fe831021dd6c1e1714c8fce90208e5d37f83c2"
+      },
+      "scene_id": "textures_mapping",
+      "schema": "pkg278.gate_b.runner_result.v1",
+      "settings": {
+        "adaptive": false,
+        "denoise": false,
+        "film_transparent": false,
+        "res_x": 960,
+        "res_y": 540,
+        "resolution_percentage": 100,
+        "samples": 192,
+        "seed": 7,
+        "view_transform": "Standard"
+      },
+      "status": "fail",
+      "variant_digest": "35ff18873b07e2120a2556a973fe831021dd6c1e1714c8fce90208e5d37f83c2",
+      "witness": {
+        "control": {
+          "kind": "checker_flat",
+          "mask": {
+            "inset": 0.16,
+            "kind": "object_polygon"
+          },
+          "material": "TexCheckerMat",
+          "node": "GateCWorkshopChecker",
+          "object": "TexChecker"
+        },
+        "effect": {
+          "min_coverage": 0.02,
+          "min_delta": 0.05,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2912,
+          0.3603,
+          0.4079,
+          0.4804
+        ]
+      }
+    },
+    {
+      "artifacts": {
+        "astroray_control_feature_mask": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/astroray_control_mask.npy",
+          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+        },
+        "astroray_control_linear_npy": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/astroray_control.npy",
+          "sha256": "db7aa0e5bb8d155606d96a75f96e9ab562b4f72f18dcd5c22d80a2fd3dcf7f1b"
+        },
+        "astroray_control_report": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/astroray_control_raw.json",
+          "sha256": "718b0b9ddaa34142c135c9767cbef537d05ea0351860a6cf4883f41ee9812d9f"
+        },
+        "astroray_feature_mask": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/astroray_mask.npy",
+          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+        },
+        "astroray_linear_npy": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/astroray.npy",
+          "sha256": "74676f5785edceeb9aa0a0f0b2decac25bdec6b2897a9fb8cea94489f53a00aa"
+        },
+        "cycles_control_feature_mask": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/cycles_control_mask.npy",
+          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+        },
+        "cycles_control_linear_npy": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/cycles_control.npy",
+          "sha256": "65c7409c24db018995a4f5e3b4ad08f69a4f7e1707bc1388bed2efcae76fbcfc"
+        },
+        "cycles_control_report": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/cycles_control_raw.json",
+          "sha256": "00d412513b6cbfc98961893c90080588c7bd305a09534983aefa6fcbb1a47a4e"
+        },
+        "cycles_feature_mask": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/cycles_mask.npy",
+          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+        },
+        "cycles_linear_npy": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/cycles.npy",
+          "sha256": "28302acc1e906123a953927912a17e490008a6a7d4a75d0dd7c9c863ab7cb6e0"
+        },
+        "cycles_report": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/cycles_raw.json",
+          "sha256": "c90218c288f108aaa5eeeb3931b4071c662cff10c731eb4dd101513755f4bc36"
+        },
+        "report": {
+          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/astroray_raw.json",
+          "sha256": "8365ed7494f8fe377fc0cb4a7e7769c7c4862bedce253de8a697b8e3b46ecc83"
+        }
+      },
+      "backend": "CPU",
+      "build_id": "132c974+20261004T124622Z",
+      "case_id": "56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67",
+      "effect": {
+        "delta_e": 6.332463757181816,
+        "effects": {
+          "astroray": {
+            "coverage": 0.8880697050938338,
+            "coverage_threshold": 0.02,
+            "kind": "checker",
+            "negative_coverage": 0.4383378016085791,
+            "ok": true,
+            "positive_coverage": 0.44839142091152817,
+            "signal": 0.7054976224899292,
+            "threshold": 0.05,
+            "value": 0.4504360854625702
+          },
+          "cycles": {
+            "coverage": 0.8880697050938338,
+            "coverage_threshold": 0.02,
+            "kind": "checker",
+            "negative_coverage": 0.4436997319034853,
+            "ok": true,
+            "positive_coverage": 0.44436997319034854,
+            "signal": 0.7047613263130188,
+            "threshold": 0.05,
+            "value": 0.45093291997909546
+          }
+        },
+        "pass": true,
+        "roi": [
+          0.2912,
+          0.3603,
+          0.4079,
+          0.4804
+        ],
+        "ssim": 0.8463902473449707
+      },
+      "identity": "ShaderNodeTexChecker|input:Color1",
+      "metrics": {
+        "delta_e": 6.332463757181816,
+        "ssim": 0.8463902473449707
+      },
+      "observed": {
+        "addon_sha256": "002c7c43a1a547d7c157dffc9b9d6d7ef8e9470d53c38b8d60075fe14fdc736e",
+        "backend": "CPU",
+        "build_id": "132c974+20261004T124622Z",
+        "device": "cpu",
+        "engine_id": "CUSTOM_RAYTRACER",
+        "identity": "ShaderNodeTexChecker|input:Color1",
+        "module_sha256": "93cc14f028f20d64ab315873e8a04f6d6cc80cb13f76d5a4e943f1c850915aac",
+        "scene_id": "textures_mapping",
+        "variant_digest": "35ff18873b07e2120a2556a973fe831021dd6c1e1714c8fce90208e5d37f83c2"
+      },
+      "scene_id": "textures_mapping",
+      "schema": "pkg278.gate_b.runner_result.v1",
+      "settings": {
+        "adaptive": false,
+        "denoise": false,
+        "film_transparent": false,
+        "res_x": 960,
+        "res_y": 540,
+        "resolution_percentage": 100,
+        "samples": 192,
+        "seed": 7,
+        "view_transform": "Standard"
+      },
+      "status": "fail",
+      "variant_digest": "35ff18873b07e2120a2556a973fe831021dd6c1e1714c8fce90208e5d37f83c2",
+      "witness": {
+        "control": {
+          "kind": "checker_flat",
+          "mask": {
+            "inset": 0.16,
+            "kind": "object_polygon"
+          },
+          "material": "TexCheckerMat",
+          "node": "GateCWorkshopChecker",
+          "object": "TexChecker"
+        },
+        "effect": {
+          "min_coverage": 0.02,
+          "min_delta": 0.05,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2912,
+          0.3603,
+          0.4079,
+          0.4804
+        ]
+      }
+    }
+  ],
+  "schema": "pkg278.gate_b.runner_result.v1"
+}

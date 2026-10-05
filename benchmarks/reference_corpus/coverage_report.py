@@ -173,6 +173,47 @@ _OUTPUT_ACTIVE_SOCKETS: dict[str, tuple[str, ...]] = {
 # Identity + evidence helpers (pure)
 # --------------------------------------------------------------------------- #
 
+# --------------------------------------------------------------------------- #
+# Candidate populations (pkg318). A population is a subset of the committed
+# corpus manifests; ``--population`` writes it as one derived manifest (full
+# scene entries copied verbatim, so every hash is the source manifest's) and
+# the freeze records that path as ``corpus.manifest_path``. Provisional: the
+# owner has not ratified either population.
+# --------------------------------------------------------------------------- #
+POPULATIONS_DIR = "benchmarks/reference_corpus/populations"
+_SCENES_MANIFEST = "benchmarks/reference_corpus/scenes/manifest.json"
+_PRODUCTION_MANIFEST = "benchmarks/reference_corpus/production/manifest.json"
+POPULATIONS: dict[str, tuple[tuple[str, tuple[str, ...] | None], ...]] = {
+    # The nine legacy scenes the v1-v3 inputs froze.
+    "nine_scene": ((_SCENES_MANIFEST, ("camera_lens", "geometry_zoo", "lighting_studio",
+                                       "materials_hall", "render_settings", "textures_mapping",
+                                       "volumes_smoke", "world_sky_hdri", "world_sky_sky")),),
+    # Corpus v2 (reference_corpus/README.md: the eight v2_* scenes) + the production corpus.
+    "candidate_v2": ((_SCENES_MANIFEST, ("v2_camera_geometry", "v2_dispersion_caustics",
+                                         "v2_light_tree", "v2_media", "v2_sky_sun",
+                                         "v2_textures_opvm", "v2_thin_film_metals", "v2_viewport")),
+                     (_PRODUCTION_MANIFEST, None)),
+}
+
+
+def write_population_manifest(name: str, repo_root: Path) -> Path:
+    """Write the derived corpus manifest for population ``name``; return its path."""
+    if name not in POPULATIONS:
+        raise ValueError(f"unknown population {name!r}; choose from {sorted(POPULATIONS)}")
+    scenes: dict[str, Any] = {}
+    for source, ids in POPULATIONS[name]:
+        source_scenes = json.loads((Path(repo_root) / source).read_text(encoding="utf-8"))["scenes"]
+        for scene_id in (ids if ids is not None else sorted(source_scenes)):
+            if scene_id not in source_scenes:
+                raise ValueError(f"population {name!r}: scene {scene_id!r} not in {source}")
+            scenes[scene_id] = source_scenes[scene_id]
+    out = Path(repo_root) / POPULATIONS_DIR / f"{name}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"scenes": scenes}, indent=2, sort_keys=True) + "\n",
+                   encoding="utf-8", newline="\n")
+    return out
+
+
 def canonical_identity(bl_idname: str, socket_or_prop: str) -> str:
     """The frozen canonical socket identity: ``bl_idname`` + socket identifier."""
     return f"{bl_idname}|{socket_or_prop}"
@@ -1207,7 +1248,8 @@ def freeze_coverage_input(corpus_manifest: Mapping[str, Any],
                           scanner_reason: str = "#823 not on origin/main",
                           scanner_integration: Mapping[str, Any] | None = None,
                           input_path: str = "docs/blender_parity/coverage_input_v2.json",
-                          sidecar_dir: str = "docs/blender_parity/evidence/gate_b/sidecars"
+                          sidecar_dir: str = "docs/blender_parity/evidence/gate_b/sidecars",
+                          manifest_path: str = _SCENES_MANIFEST
                           ) -> tuple[dict[str, Any], list[str]]:
     """Build the versioned, committed coverage-input manifest (v2).
 
@@ -1273,7 +1315,7 @@ def freeze_coverage_input(corpus_manifest: Mapping[str, Any],
             "original_population_status": "undefined",
         },
         "corpus": {
-            "manifest_path": "benchmarks/reference_corpus/scenes/manifest.json",
+            "manifest_path": manifest_path,
             "scenes": scene_manifest,
         },
         "matrix": {"path": str(matrix_path), "sha256": matrix_sha},
@@ -1291,7 +1333,8 @@ def freeze_coverage_input_v3(corpus_manifest: Mapping[str, Any], matrix_path: Pa
                              case_features: Mapping[str, str] | None = None,
                              scanner_integration: Mapping[str, Any] | None = None,
                              input_path: str = "docs/blender_parity/coverage_input_v3.json",
-                             sidecar_dir: str = "docs/blender_parity/evidence/gate_b/sidecars"
+                             sidecar_dir: str = "docs/blender_parity/evidence/gate_b/sidecars",
+                             manifest_path: str = _SCENES_MANIFEST
                              ) -> tuple[dict[str, Any], list[str]]:
     """Freeze v3 with the exact runner-case/build map, or a provisional empty map.
 
@@ -1301,7 +1344,8 @@ def freeze_coverage_input_v3(corpus_manifest: Mapping[str, Any], matrix_path: Pa
     """
     frozen, errors = freeze_coverage_input(corpus_manifest, matrix_path, snapshot,
                                             scanner_integration=scanner_integration,
-                                            input_path=input_path, sidecar_dir=sidecar_dir)
+                                            input_path=input_path, sidecar_dir=sidecar_dir,
+                                            manifest_path=manifest_path)
     frozen["schema"] = INPUT_MANIFEST_SCHEMA_V3
     frozen["version"] = 3
     frozen["input_path"] = input_path
@@ -1346,7 +1390,8 @@ def freeze_coverage_input_v4(corpus_manifest: Mapping[str, Any], matrix_path: Pa
                              candidate_build: Mapping[str, str] | None = None,
                              scanner_integration: Mapping[str, Any] | None = None,
                              input_path: str = "docs/blender_parity/coverage_input_v4.json",
-                             sidecar_dir: str = "docs/blender_parity/evidence/gate_b/sidecars"
+                             sidecar_dir: str = "docs/blender_parity/evidence/gate_b/sidecars",
+                             manifest_path: str = _SCENES_MANIFEST
                              ) -> tuple[dict[str, Any], list[str]]:
     """Freeze only explicitly registered, locally measurable Gate-B cases.
 
@@ -1356,7 +1401,8 @@ def freeze_coverage_input_v4(corpus_manifest: Mapping[str, Any], matrix_path: Pa
     """
     frozen, errors = freeze_coverage_input(corpus_manifest, matrix_path, snapshot,
                                             scanner_integration=scanner_integration,
-                                            input_path=input_path, sidecar_dir=sidecar_dir)
+                                            input_path=input_path, sidecar_dir=sidecar_dir,
+                                            manifest_path=manifest_path)
     frozen["schema"] = INPUT_MANIFEST_SCHEMA_V4
     frozen["version"] = 4
     frozen["input_path"] = input_path
@@ -1536,7 +1582,11 @@ def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
         if _sha256_bytes(_canonical_json(cases)) != case_map.get("sha256"):
             errors.append("runner case map hash does not match frozen input")
         if frozen.get("schema") == INPUT_MANIFEST_SCHEMA_V4:
-            if case_map.get("status") != "ready":
+            # A provisional map with no cases (a population with no registered
+            # witness) is allowed: with no allowed case no evidence can validate,
+            # so it can only score 0, never raise a score.
+            status = case_map.get("status")
+            if not (status == "ready" or (status == "provisional" and not cases)):
                 errors.append("v4 runner case map is not ready")
             for case in cases:
                 if (not isinstance(case, Mapping) or not isinstance(case.get("witness"), Mapping)
@@ -1926,6 +1976,9 @@ def main(argv: list[str] | None = None) -> int:
                    default=Path("docs/blender_parity/coverage_matrix.json"))
     p.add_argument("--input-manifest", type=Path, default=None,
                    help="frozen scoring input manifest (population, evidence, #823 status)")
+    p.add_argument("--population", choices=sorted(POPULATIONS), default=None,
+                   help="pkg318: write the derived corpus manifest for a candidate population "
+                        f"under {POPULATIONS_DIR}/ and use it as --manifest")
     p.add_argument("--sidecar-dir", type=Path, default=Path("docs/blender_parity/evidence/gate_b/sidecars"),
                    help="repository-relative Gate-B render-evidence sidecar directory frozen into v4 input")
     p.add_argument("--node-uses", type=Path, default=None,
@@ -1934,6 +1987,9 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     repo_root = Path(__file__).resolve().parents[2]
+
+    if args.population is not None:
+        args.manifest = write_population_manifest(args.population, repo_root)
 
     if args.self_test:
         return 0 if run_self_test() else 1
@@ -1973,6 +2029,12 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         input_relative = input_file.relative_to(repo_root.resolve()).as_posix()
         sidecar_relative = sidecar_path.relative_to(repo_root.resolve()).as_posix()
+        manifest_relative = _SCENES_MANIFEST
+        if Path(args.manifest).is_absolute():
+            try:
+                manifest_relative = Path(args.manifest).resolve().relative_to(repo_root.resolve()).as_posix()
+            except ValueError:
+                pass
         corpus_manifest = _load_json(args.manifest)
         snapshot = _load_json(args.node_uses)
         if args.freeze_v4:
@@ -1981,17 +2043,20 @@ def main(argv: list[str] | None = None) -> int:
                                                        candidate_build=candidate,
                                                        scanner_integration=scanner_proof,
                                                        input_path=input_relative,
-                                                       sidecar_dir=sidecar_relative)
+                                                       sidecar_dir=sidecar_relative,
+                                                       manifest_path=manifest_relative)
         elif args.freeze_v3:
             candidate = _load_json(args.candidate_build) if args.candidate_build else None
             frozen, errors = freeze_coverage_input_v3(corpus_manifest, args.matrix, snapshot,
                                                        candidate_build=candidate,
                                                        input_path=input_relative,
-                                                       sidecar_dir=sidecar_relative)
+                                                       sidecar_dir=sidecar_relative,
+                                                       manifest_path=manifest_relative)
         else:
             frozen, errors = freeze_coverage_input(corpus_manifest, args.matrix, snapshot,
                                                     input_path=input_relative,
-                                                    sidecar_dir=sidecar_relative)
+                                                    sidecar_dir=sidecar_relative,
+                                                    manifest_path=manifest_relative)
         input_file.parent.mkdir(parents=True, exist_ok=True)
         input_file.write_text(json.dumps(frozen, indent=2, sort_keys=True), encoding="utf-8", newline="\n")
         for err in errors:

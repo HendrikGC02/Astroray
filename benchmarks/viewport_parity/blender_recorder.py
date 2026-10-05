@@ -174,10 +174,11 @@ def _install():
     exporter_mod = addon.exporter
     old_sink = getattr(exporter_mod, "_spike_event_sink", None)
 
-    def raw(name, generation=None, epoch=None, extra=None):
+    def raw(name, generation=None, epoch=None, extra=None, t_ns=None):
         S["raw_events"].append({
             "name": name, "generation": generation, "epoch": epoch,
-            "t_ns": time.perf_counter_ns(), "extra": dict(extra or {}),
+            "t_ns": time.perf_counter_ns() if t_ns is None else t_ns,
+            "extra": dict(extra or {}),
         })
 
     def sink(name, generation, ts, epoch, extra):
@@ -252,7 +253,13 @@ def _install():
             # at (self is the Exporter instance) so the driver can report the
             # effective interactive-resolution divisor engaged per event class.
             div = getattr(self, "_viewport_render_divisor", None)
-            S["renders"].append((e, time.perf_counter(), div, fp))
+            x = time.perf_counter()
+            S["renders"].append((e, x, div, fp))
+            if GATE_A and getattr(self, "_worker", None) is None:
+                # #1050: worker OFF retains the raw render so the reducer can
+                # re-derive the present binding. t_ns is the render START.
+                raw("sync_render", None, None, {"end_ns": int(x * 1e9), "fingerprint": fp},
+                    t_ns=int(e * 1e9))
 
     eng_cls.view_draw = w_draw
     eng_cls.view_update = w_update
@@ -272,6 +279,11 @@ def _install():
                 raw("post_pixel_present", ident[0], ident[2],
                     {"pub_id": ident[1], "input_floor": pending.get("input_floor"),
                      "event_id": pending.get("event_id")})
+            elif _sync_path():
+                # #1050: worker OFF has no publication; every POST_PIXEL is
+                # retained (generation/epoch None) so the reducer picks the
+                # first one at/after the matching render end itself.
+                raw("post_pixel_present", None, None, {"sync": True}, t_ns=int(now * 1e9))
 
     S["handler"] = bpy.types.SpaceView3D.draw_handler_add(
         present_cb, (), "WINDOW", "POST_PIXEL")
@@ -420,14 +432,17 @@ def _install():
         renders the edited state inside view_update/view_draw, so the first
         correct frame is the first POST_PIXEL present at/after the end of a
         render_viewport_frame that STARTED after dispatch."""
-        d = pending["dispatch_ns"] / 1e9
+        # Integer-ns comparisons mirror reduce_gate_a_sync_capture exactly.
+        d = pending["dispatch_ns"]
         want = pending.get("input_fingerprint")
-        rnd = next((r for r in S["renders"] if r[0] >= d and _fp_match(r[3], want)), None)
+        rnd = next((r for r in S["renders"]
+                    if int(r[0] * 1e9) >= d and _fp_match(r[3], want)), None)
         if rnd is None:
             return None
+        end_ns = int(rnd[1] * 1e9)
         pending["sync_render_fingerprint"] = rnd[3]
-        pending["sync_render_end_ns"] = int(rnd[1] * 1e9)
-        return next((p for p in S["presents"] if p >= rnd[1]), None)
+        pending["sync_render_end_ns"] = end_ns
+        return next((p for p in S["presents"] if int(p * 1e9) >= end_ns), None)
 
     def _correct_presented(pending):
         """Gate-A's serialized dispatch barrier, using the recorded producer path."""

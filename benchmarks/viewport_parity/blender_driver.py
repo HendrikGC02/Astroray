@@ -1401,19 +1401,23 @@ def _fingerprints_match(a, b, tol=1e-4):
             and len(a) == len(b) and all(abs(x - y) <= tol for x, y in zip(a, b)))
 
 
-def _pixel_evidence_ok(raw_events, event_id, present_ns, artifact_root=None):
-    """pre/post framebuffer captures exist for this edit, are real PNGs whose
-    SHA-256 matches the recorded digest, pre precedes the edit's present and post
-    follows it."""
+def _pixel_evidence_ok(raw_events, event_id, dispatch_ns, present_ns, artifact_root=None):
+    """pre/post framebuffer captures exist for this edit; pre precedes dispatch,
+    post follows the present. Each frame is a real PNG whose SHA-256 matches the
+    recorded digest, or was hash-verified by the producer before pruning."""
     pix = {}
     for raw in raw_events:
         name, _gen, ts, _epoch, extra = _gate_a_event(raw)
         if name == "viewport_pixels" and extra.get("event_id") == event_id:
             pix[extra.get("label")] = (ts, extra)
-    if set(pix) != {"pre", "post"} or pix["post"][0] < present_ns or pix["pre"][0] > present_ns:
+    if (set(pix) != {"pre", "post"} or not isinstance(pix["post"][0], int)
+            or not isinstance(pix["pre"][0], int)
+            or pix["post"][0] < present_ns or pix["pre"][0] > dispatch_ns):
         return False
     for _ts, extra in pix.values():
         path, digest = extra.get("path"), extra.get("sha256")
+        if extra.get("pruned") is True and isinstance(digest, str):
+            continue  # hash-verified by the producer before deletion
         target = Path(path) if isinstance(path, str) else None
         if target is not None and not target.is_absolute() and artifact_root is not None:
             target = Path(artifact_root) / target
@@ -1425,28 +1429,61 @@ def _pixel_evidence_ok(raw_events, event_id, present_ns, artifact_root=None):
     return True
 
 
+_WORKER_ONLY_EVENTS = ("request", "edit_bound", "mailbox_enqueue", "mailbox_dequeue",
+                       "texture_upload_end")
+
+
 def reduce_gate_a_sync_capture(edits, raw_events=(), *, truncated=False, artifact_root=None):
-    """pkg291: worker OFF has no generation stream. The recorder binds an edit's
-    `correct_present_ns` to the first POST_PIXEL present after a
-    render_viewport_frame that STARTED after dispatch AND saw the edited input
-    (`sync_render_fingerprint` == the edit's `input_fingerprint`); the reducer
-    re-checks that binding and the pre/post framebuffer evidence. There is no
+    """pkg291/#1050: worker OFF has no generation stream, so the binding is
+    re-derived here from the retained raw events, never trusted from the edit
+    record. For each edit: `input_applied` (same event_id, same fingerprint, at
+    or after dispatch); the first `sync_render` that STARTED at/after dispatch and
+    saw the edited input (fingerprint within 1e-4, `end_ns` >= start); the
+    present is the first generation-less `post_pixel_present` at/after that
+    render's end. The edit's own `correct_present_ns` (and, if given,
+    `sync_render_end_ns` / `sync_render_fingerprint`) must agree with the derived
+    values, and the pre/post framebuffer evidence is re-checked. There is no
     in-flight render to cancel and no stale publication, so the cancel / stale
     columns are N/A."""
     errors, rows = [], []
     if truncated:
         errors.append("capture truncated")
+    events = []
+    for index, raw in enumerate(raw_events):
+        name, gen, ts, epoch, extra = _gate_a_event(raw)
+        if not isinstance(name, str) or not isinstance(ts, int) or ts < 0 or not isinstance(extra, dict):
+            errors.append(f"raw event {index} is malformed"); continue
+        events.append((name, gen, ts, epoch, extra))
+    events.sort(key=lambda x: x[2])
+    if any(e[0] in _WORKER_ONLY_EVENTS for e in events):
+        errors.append("synchronous capture contains worker generation events")
+    renders = [e for e in events if e[0] == "sync_render"]
+    presents = [e for e in events if e[0] == "post_pixel_present"
+                and e[1] is None and e[3] is None and e[4].get("sync") is True]
     for e in edits:
-        d, present = e.get("dispatch_ns"), e.get("correct_present_ns")
-        if (not e.get("sync") or not isinstance(d, int) or not isinstance(present, int)
-                or present < d or "input_fingerprint" not in e
+        eid, d, claimed = e.get("event_id"), e.get("dispatch_ns"), e.get("correct_present_ns")
+        want = e.get("input_fingerprint")
+        bad = f"edit {eid!r} has no correct synchronous present"
+        if (not e.get("sync") or not isinstance(eid, int) or not isinstance(d, int)
+                or not isinstance(claimed, int) or claimed < d or want is None):
+            errors.append(bad); continue
+        applied = next((a for a in events if a[0] == "input_applied" and a[2] >= d
+                        and a[4].get("event_id") == eid), None)
+        if applied is None or not _fingerprints_match(applied[4].get("fingerprint"), want, 1e-9):
+            errors.append(bad); continue
+        rnd = next((r for r in renders if r[2] >= d
+                    and _fingerprints_match(r[4].get("fingerprint"), want)), None)
+        end_ns = rnd[4].get("end_ns") if rnd else None
+        if not isinstance(end_ns, int) or end_ns < rnd[2]:
+            errors.append(bad); continue
+        present = next((p for p in presents if p[2] >= end_ns), None)
+        if (present is None or present[2] != claimed
+                or e.get("sync_render_end_ns", end_ns) != end_ns
                 or not _fingerprints_match(e.get("sync_render_fingerprint"),
-                                           e.get("input_fingerprint"))
-                or not _pixel_evidence_ok(raw_events, e.get("event_id"), present,
-                                          artifact_root)):
-            errors.append(f"edit {e.get('event_id')!r} has no correct synchronous present")
-            continue
-        rows.append({"event_id": e.get("event_id"), "event_ns": d, "present_ns": present,
+                                           rnd[4].get("fingerprint"), 1e-9)
+                or not _pixel_evidence_ok(raw_events, eid, d, present[2], artifact_root)):
+            errors.append(bad); continue
+        rows.append({"event_id": eid, "event_ns": d, "present_ns": present[2],
                      "correct_present": True})
     return {"rows": rows, "cancels": [], "errors": errors,
             "complete": not errors and bool(rows)}
@@ -1540,10 +1577,10 @@ def run_gate_a_table(args):
                     devices = None if sync else _actual_gpu_devices(res["raw_events"])
                     reds.append(red)
                     # Frames were hash-verified by the reducer; keep event 1's
-                    # pre/post per capture (hashes stay in the raw JSON).
-                    for png in ([] if args.keep_frames else ev.glob("*.png")):
-                        if not png.name.startswith("0001-"):
-                            png.unlink()
+                    # pre/post per capture and mark the rest `pruned` so the
+                    # saved raw JSON still re-validates (hashes stay in it).
+                    if not args.keep_frames:
+                        _prune_gate_a_frames(res["raw_events"], 1, ev)
                     stem = f"{wl['name']}-{worker}-{kind}-{rep_i}"
                     with gzip.open(raw_dir / f"{stem}.json.gz", "wt", encoding="utf-8") as fh:
                         json.dump({"workload": wl, "worker": worker, "kind": kind, "rep": rep_i,

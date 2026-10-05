@@ -38,6 +38,7 @@ from native_settings import resolve_native_settings, report_unsupported_native_c
 from degradation import DegradationReport
 from _bulk_geometry import mesh_to_bulk_arrays  # pkg112 batched geometry upload
 from _bulk_geometry import mesh_world_positions  # pkg88-B object motion blur bake
+from _bulk_geometry import mesh_world_corner_normals  # #947 motion-blur shading normals
 from _bulk_geometry import extract_curves_bulk   # pkg225 Stage 6 hair/curves export
 from _bulk_geometry import mesh_attribute_layers  # #990 Attribute / Object Info layers
 
@@ -54,6 +55,14 @@ def _matrices_differ(m1, m2, eps=1e-6):
             if abs(m1[r][c] - m2[r][c]) > eps:
                 return True
     return False
+
+def _pose_normal_matrix(matrix):
+    """3x3 inverse-transpose of a pose's model matrix (the `normal_matrix`
+    convert_objects builds for the current frame), for #947 motion normals."""
+    try:
+        return matrix.to_3x3().inverted_safe().transposed()
+    except Exception:
+        return matrix.to_3x3()
 
 # pkg116: scene exporter and per-domain caches. Defensive import handles both
 # package-relative (Blender loads us as bl_ext.user_default.astroray) and
@@ -6798,13 +6807,24 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     positions_start = mesh_world_positions(mesh, motion_start_matrix)
                     positions_end = mesh_world_positions(mesh, motion_end_matrix)
                     gen_matrix = motion_start_matrix  # #847: stored verts' pose
+                    # #947: shading normals follow the pose. `normals` (built from the
+                    # current-frame matrix above) is replaced by the shutter-open pose and
+                    # the shutter-close pose is passed as normals_end; the engine
+                    # interpolates them by ray time (Cycles motion_triangle_smooth_normal).
+                    normals_end = np.zeros((0,), dtype=np.float32)
+                    if len(normals):
+                        normals = mesh_world_corner_normals(
+                            mesh, _pose_normal_matrix(motion_start_matrix))
+                        normals_end = mesh_world_corner_normals(
+                            mesh, _pose_normal_matrix(motion_end_matrix))
                     if attr_kw:
                         self._warn_shader_fallback(
                             'ATTRIBUTE', "attribute / Object Info layers on the "
                             "motion-blurred '%s' are unsupported: read 0" % obj.name)
                     renderer.add_triangles_bulk_motion(
                         positions_start, positions_end, material_ids, mat_pass,
-                        int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals)
+                        int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals,
+                        normals_end)
                 else:
                     renderer.add_triangles_bulk(
                         positions, material_ids, mat_pass,

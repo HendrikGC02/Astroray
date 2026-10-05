@@ -76,19 +76,26 @@ __device__ inline bool gpu_triangle_hit_motion(
 {
     // Interpolate vertices at ray.time if motion data exists
     GVec3 p0 = tri.v0, p1 = tri.v1, p2 = tri.v2;
+    GVec3 nm0 = tri.n0, nm1 = tri.n1, nm2 = tri.n2;  // #947: shading normals at ray time
     if (tri.motionOffset >= 0 && tri.motionSteps > 1) {
         float time = ray.time;  // Phase A already samples and carries time in GRay
         int maxStep = tri.motionSteps - 1;
         int step = min(static_cast<int>(time * maxStep), maxStep - 1);
         float t = time * maxStep - step;
         // Center step (step=0) uses tri.v0/v1/v2; additional steps read d_motionVertices.
-        // Buffer layout: [v0_step1, v1_step1, v2_step1, v0_step2, ...]
+        // Buffer layout (#947, motionSteps == 2 only): per triangle
+        // [v0_end, v1_end, v2_end, n0_end, n1_end, n2_end]; n_end only for smooth triangles.
         if (step == 0) {
             // Blend between center and first motion step
             const GVec3* nextVerts = d_motionVertices + tri.motionOffset;
             p0 = tri.v0 * (1.0f - t) + nextVerts[0] * t;
             p1 = tri.v1 * (1.0f - t) + nextVerts[1] * t;
             p2 = tri.v2 * (1.0f - t) + nextVerts[2] * t;
+            if (!tri.flat_shaded) {  // Cycles motion_triangle_smooth_normal (Apache-2.0)
+                nm0 = tri.n0 * (1.0f - t) + nextVerts[3] * t;
+                nm1 = tri.n1 * (1.0f - t) + nextVerts[4] * t;
+                nm2 = tri.n2 * (1.0f - t) + nextVerts[5] * t;
+            }
         } else {
             // Blend between two motion steps
             const GVec3* currVerts = d_motionVertices + tri.motionOffset + (step - 1) * 3;
@@ -107,10 +114,13 @@ __device__ inline bool gpu_triangle_hit_motion(
     // pkg55-followup: skip redundant interpolation for flat-shaded triangles
     GVec3 outwardNormal;
     if (tri.flat_shaded) {
-        outwardNormal = tri.n0;
+        // #947: a moving flat triangle's facet normal follows the interpolated vertices
+        // (CPU Triangle::hit twin; Cycles motion_triangle_normal, Apache-2.0).
+        outwardNormal = (tri.motionOffset >= 0 && tri.motionSteps > 1)
+            ? (p1 - p0).cross(p2 - p0).normalized() : tri.n0;
     } else {
         float w = 1.f - u - v;
-        outwardNormal = (tri.n0 * w + tri.n1 * u + tri.n2 * v).normalized();
+        outwardNormal = (nm0 * w + nm1 * u + nm2 * v).normalized();
     }
 
     rec.frontFace = ray.direction.dot(outwardNormal) < 0.f;

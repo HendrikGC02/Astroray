@@ -13,7 +13,6 @@ through alpha was clamped with clamp_indirect, alpha ate the max_bounces budget,
 and transparent_bounces was accepted and ignored.
 """
 import pytest
-
 from test_issue991_light_path import BACKENDS, _quad, _renderer, _roi
 
 SUN_W = 3.0

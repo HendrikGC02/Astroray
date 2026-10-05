@@ -40,8 +40,8 @@ the exact half angle (`GDedicatedLight::discHalfAngle`; `acosf(cosOuter)` lost ~
 profile is RGB-emission-mode only on both backends.
 
 ## Findings left open
-- `chrome_reflection` ROI is a stone pillar base (r 0.81 / g 0.91 of Cycles, unchanged at 512 spp)
-  plus a chrome rim (0.99); the sun disc is not in it. Residual warm-light transport gap (#1070).
+- `chrome_reflection` ROI (stone pillar base + chrome rim): RESOLVED in #1070. The r 0.81 / g 0.91 was one caustic
+  firefly in the 1024 spp Cycles reference (row 136, col 127), not a transport gap; the ROI is trimmed by that row.
 - Cycles hides the part of the disc below the horizon (`dir_elevation > earth_intersection_angle`,
   SKY_earth_intersection_angle in Blender's GPL sky_nishita.cpp). Not modelled: the function is
   only available as GPL source (CLAUDE.md section 6), and it only matters when the sun centre is

@@ -570,7 +570,10 @@ def _v2_sky_sun(bpy, sc, sl, addon_dir):
     r.add("sun_glow", (0.0, 60.0, 9.0), 0.05)
     r.add("sky_upper", (0.0, 60.0, 17.0), 0.06)
     r.add_rect("ground_foreground", [0.25, 0.80, 0.75, 0.97])  # spans several shadow stripes
-    r.add("chrome_reflection", (-1.0, 2.55, 0.7), 0.02)
+    # Pillar-base/chrome-rim ROI. Fixed rect = the old projected ROI (-1.0, 2.55, 0.7 +/- 0.02) minus
+    # its last pixel row: the 1024 spp Cycles reference holds one caustic firefly there (row 136,
+    # col 127: r 1.62 vs 0.08 neighbours) worth +6 % r / +3 % g of the 169-pixel mean (#1070).
+    r.add_rect("chrome_reflection", [0.378, 0.6891, 0.418, 0.756])
     # Sky-lit stone face (a white-sphere ROI was dropped: sun -> chrome -> white is a
     # reflective caustic whose 64 spp Cycles scatter exceeded 70 %).
     r.add_rect("stone_sky_lit_face", [0.345, 0.52, 0.39, 0.80])

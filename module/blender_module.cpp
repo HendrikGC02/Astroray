@@ -2011,6 +2011,7 @@ public:
         out["gpu_spectral"] = caps.gpuSpectral;
         out["gpu_approximate"] = caps.gpuApproximate;
         out["closure_graph"] = caps.closureGraph;
+        out["delta_only"] = it->second->isDeltaOnly();  // #1045
         out["closure_count"] = it->second->closureGraph().count();
         out["gpu_type"] = caps.gpuType;
         out["notes"] = caps.notes;

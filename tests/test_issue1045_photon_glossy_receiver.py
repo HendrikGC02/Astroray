@@ -40,6 +40,10 @@ REGIONS = {"tir_beam": (58, 72, 0, 40), "rainbow": (0, 45, 66, 92), "whole": (0,
 FLOORS = {
     "lambertian": ("lambertian", [0.5] * 3, {}),
     "rough_metal": ("principled", [0.8, 0.8, 0.8], {"metallic": 1.0, "roughness": 0.5}),
+    # Delta-only receivers: never a photon receiver and not a split-chain root, so the
+    # path-traced camera -> mirror -> glass -> lamp chain must stay in the beauty.
+    "mirror": ("mirror", [1.0, 1.0, 1.0], {}),
+    "smooth_metal": ("principled", [0.8, 0.8, 0.8], {"metallic": 1.0, "roughness": 0.0}),
 }
 
 
@@ -71,7 +75,8 @@ def _scene(floor_key, photons, cam_from=(-0.75, 9.0, -0.75), gpu=False):
     r.set_adaptive_sampling(False)
     r.set_use_gpu(gpu)
     r.set_use_photon_caustics(photons)
-    r.setup_camera(list(cam_from), [-0.75, 0.0, -0.75], [0.0, 0.0, -1.0],
+    vup = [0.0, 1.0, 0.0] if cam_from[1] < 4.0 else [0.0, 0.0, -1.0]
+    r.setup_camera(list(cam_from), [-0.75, 0.0, -0.75], vup,
                    28.0, 1.0, 0.0, 9.0, W, H)
     return r
 
@@ -91,7 +96,7 @@ def _ratios(floor_key, spp_pt, seeds_pt, cam_from=(-0.75, 9.0, -0.75), gpu=False
     on = np.mean([_lum(floor_key, True, 64, s, cam_from, gpu) for s in (1, 2)], axis=0)
     off = np.mean([_lum(floor_key, False, spp_pt, s, cam_from, gpu) for s in seeds_pt], axis=0)
     a, b = _regions(on), _regions(off)
-    ratios = {k: a[k] / b[k] for k in REGIONS}
+    ratios = {k: a[k] / max(b[k], 1e-12) for k in REGIONS}
     print(f"\n[#1045] {floor_key}: photons ON / path traced: "
           + ", ".join(f"{k} {v:.3f}" for k, v in ratios.items()))
     return ratios
@@ -108,6 +113,18 @@ def test_rough_metal_floor_photons_match_path_tracing():
     # The Lambertian gather read albedo/pi * E on the metal floor: far from 1.
     for k, v in _ratios("rough_metal", 1024, (1, 2)).items():
         assert abs(v - 1.0) <= 0.08, (k, v)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("floor_key,cam", [("mirror", (3.4, 3.0, 4.6)),
+                                           ("smooth_metal", (3.4, 3.0, 4.6)),
+                                           ("smooth_metal", (-0.75, 9.0, -0.75))])
+def test_delta_only_floor_keeps_path_traced_caustic_chain(floor_key, cam):
+    # Before: the floor was still a split-chain root, so camera -> floor -> prism -> sun
+    # was culled from the path tracer while the gather returned 0 for it (energy lost).
+    # The mirror reflects the (lit) prism only at an oblique view; whole-frame mean.
+    ratios = _ratios(floor_key, 1024, (1, 2), cam_from=cam)
+    assert abs(ratios["whole"] - 1.0) <= 0.08, ratios
 
 
 @pytest.mark.slow
@@ -136,3 +153,24 @@ def test_cpu_and_gpu_agree_on_rough_metal_floor():
     gpu = _regions(np.mean([_lum("rough_metal", True, 64, s, gpu=True) for s in (1, 2)], axis=0))
     for k in REGIONS:
         assert abs(cpu[k] / gpu[k] - 1.0) <= 0.04, (k, cpu[k], gpu[k])
+
+
+def test_delta_only_receiver_classification():
+    r = astroray.Renderer()
+
+    def delta(kind, color, params):
+        m = r.create_material(kind, color, params)
+        return m, r.get_material_backend_capabilities(m)["delta_only"]
+
+    mirror, d_mirror = delta("mirror", [1, 1, 1], {})
+    smooth, d_smooth = delta("principled", [0.8] * 3, {"metallic": 1.0, "roughness": 0.0})
+    metal, d_metal = delta("metal", [0.8] * 3, {"roughness": 0.05})
+    assert d_mirror and d_smooth and d_metal
+    for kind, params in (("lambertian", {}), ("principled", {"metallic": 1.0, "roughness": 0.5}),
+                         ("principled", {"metallic": 0.0, "roughness": 0.0}),
+                         ("metal", {"roughness": 0.4})):
+        assert not delta(kind, [0.8] * 3, params)[1], (kind, params)
+    diffuse = r.create_material("lambertian", [0.5] * 3, {})
+    caps = lambda m: r.get_material_backend_capabilities(m)["delta_only"]  # noqa: E731
+    assert caps(r.create_add_material(mirror, smooth))
+    assert not caps(r.create_add_material(diffuse, mirror))

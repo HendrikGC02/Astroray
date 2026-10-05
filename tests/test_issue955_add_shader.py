@@ -141,6 +141,16 @@ def test_spec_add_emission_onto_emissive_principled_sums_radiance():
     np.testing.assert_allclose(e, [3.0, 2.0, 0.0], rtol=1e-6)
 
 
+def test_spec_add_textured_emission_is_not_folded_into_principled():
+    # The Principled emission term has no texture slot: keep the textured Emission child.
+    tex = {"kind": "emission", "base_color": [1, 1, 1], "emission_strength": 2.0,
+           "emission_color_texture": "chk"}
+    for a, b in ((_diffuse([0.5] * 3), tex), (tex, _diffuse([0.5] * 3))):
+        out = sb.add_shader_specs(a, b)
+        assert out["kind"] == "add"
+        assert any(c.get("emission_color_texture") == "chk" for c in (out["a"], out["b"]))
+
+
 def test_spec_add_diffuse_sum_above_one_is_not_folded():
     # Albedo > 1 would be clamped by the spectral upsampler; keep two closures.
     out = sb.add_shader_specs(_diffuse([0.8, 0.8, 0.8]), _diffuse([0.8, 0.8, 0.8]))
@@ -211,3 +221,43 @@ def test_addon_mix_shader_unsupported_pair_is_reported(monkeypatch):
     eng._shader_spec_from_node(mix, _Recorder(astroray.Renderer()), None)
     lines = eng._degradation_report().messages()
     assert any("MIX_SHADER" in m and "dominant shader" in m for m in lines), lines
+
+
+# ---- transparent shadows: Cycles sums the closure weights ------------------------
+def _shadowed_floor(make_blocker, spp=64):
+    """Top-down view of a lit floor; a 2x2 blocker 5 above sits outside the frame but its
+    sun shadow (45 deg) lands on the view centre."""
+    r = astroray.Renderer()
+    r.set_integrator("path_tracer")
+    r.set_background_color([0.0, 0.0, 0.0])
+    r.set_seed(3)
+    r.set_adaptive_sampling(False)
+    r.setup_camera([0, 10, 0], [0, 0, 0], [0, 0, -1], 10.0, 1.0, 0.0, 10.0, N, N)
+    floor = r.create_material("principled", [0.8] * 3, DIFFUSE)
+    e = 30.0
+    r.add_triangle([-e, 0, -e], [e, 0, e], [e, 0, -e], floor)
+    r.add_triangle([-e, 0, -e], [-e, 0, e], [e, 0, e], floor)
+    r.add_sun_light_dedicated([0.7071, -0.7071, 0.0], 0.01, {"mode": "rgb", "color": [1, 1, 1]}, 5.0)
+    if make_blocker is not None:
+        m = make_blocker(r)
+        a, b, c, d = [-6, 5, -1], [-4, 5, -1], [-4, 5, 1], [-6, 5, 1]
+        r.add_triangle(a, b, c, m)
+        r.add_triangle(a, c, d, m)
+    img = np.asarray(r.render(spp, 4, None, False), dtype=np.float32)
+    c0 = N // 2
+    return float(img[c0 - 4:c0 + 4, c0 - 4:c0 + 4].mean())
+
+
+def test_add_shader_transparent_shadow_sums_alpha():
+    lit = _shadowed_floor(None)
+    assert lit > 0.05
+    opaque = _shadowed_floor(lambda r: r.create_material("principled", [0.5] * 3, DIFFUSE))
+    assert opaque < 0.1 * lit, "geometry check: an opaque blocker must shadow the view centre"
+
+    def add_clear_plus_emission(r):
+        clear = r.create_material("principled", [0.5] * 3, dict(DIFFUSE, alpha=0.0))
+        glow = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 0.0})
+        return r.create_add_material(clear, glow)
+
+    # alpha_A + alpha_B - 1 = 0: fully transparent; the old max(alpha) = 1 blocked the sun.
+    assert _shadowed_floor(add_clear_plus_emission) > 0.9 * lit

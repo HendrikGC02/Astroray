@@ -55,6 +55,7 @@ public:
           albedo_spec_({albedo_.x, albedo_.y, albedo_.z}) {}
 
     bool isGlossy() const override { return true; }
+    bool isDeltaOnly() const override { return roughness_ <= kNearDeltaThreshold; }  // #1045
     Vec3 getAlbedo() const override { return albedo_; }
     astroray::MaterialClosureGraph closureGraph() const override {
         astroray::MaterialClosureGraph graph;

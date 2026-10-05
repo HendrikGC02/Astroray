@@ -154,12 +154,15 @@ def add_shader_specs(a, b):
     ka = a.get("kind")
     kb = b.get("kind")
 
-    if ka == "principled" and kb == "emission":
+    # A textured Emission cannot fold into the Principled emission term (it has no
+    # texture slot); it falls through to the closure-sum node below.
+    textured = "emission_color_texture" in a or "emission_color_texture" in b
+    if ka == "principled" and kb == "emission" and not textured:
         return _add_emission(a, b.get("base_color", [1, 1, 1]), b.get("emission_strength", 1.0))
-    if ka == "emission" and kb == "principled":
+    if ka == "emission" and kb == "principled" and not textured:
         return _add_emission(b, a.get("base_color", [1, 1, 1]), a.get("emission_strength", 1.0))
 
-    if ka == "emission" and kb == "emission":
+    if ka == "emission" and kb == "emission" and not textured:
         strength_a = float(a.get("emission_strength", 1.0))
         strength_b = float(b.get("emission_strength", 1.0))
         total = max(1e-8, strength_a + strength_b)

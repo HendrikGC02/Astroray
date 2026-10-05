@@ -288,6 +288,21 @@ __device__ inline bool wf_isPhotonCaster(const ::GMaterial& m) {
     return false;
 }
 
+// #1045: delta-only (smooth) conductor receiver, twin of Material::isDeltaOnly:
+// plain metal below its near-delta threshold (metal.cpp kNearDeltaThreshold) and a
+// smooth metallic Principled. Not a photon receiver (pbrt-v3 SPPM), not a split chain root.
+__device__ inline bool wf_isDeltaOnlyReceiver(const ::GMaterial& m) {
+    if (m.type == GMAT_METAL) return m.roughness <= 0.1f;
+    if (m.type == GMAT_CLOSURE_GRAPH && m.closureCount >= 1) {
+        if (m.closures[0].type == GCLOSURE_PRINCIPLED)
+            return m.principled.metallic >= 0.999f && m.principled.transmission <= 0.0f &&
+                   m.principled.roughness <= 0.0038f;
+        return m.closureCount == 1 && m.closures[0].type == GCLOSURE_GGX_CONDUCTOR &&
+               !m.disneyMetalConductor && m.closures[0].roughness <= 0.1f;
+    }
+    return false;
+}
+
 // Splat a spectral contribution into slot `idx`'s pass `passIdx` accumulator.
 // Per-slot (mirrors the color SoA — accumulate-at-death like beauty), so no atomics:
 // one path owns one slot for the duration of a bounce, exactly like the color_/
@@ -910,7 +925,8 @@ __device__ int intersectPathSlotT(
     if (c_wfPhotonSplit.chain != nullptr) {
         unsigned char c;
         if (bounce == 0) {
-            c = (mat.emissionIntensity <= 0.f && !wf_isPhotonCaster(mat)) ? 1 : 0;
+            c = (mat.emissionIntensity <= 0.f && !wf_isPhotonCaster(mat) &&
+                 !wf_isDeltaOnlyReceiver(mat)) ? 1 : 0;
         } else {
             c = c_wfPhotonSplit.chain[idx];
             if (c & 1) c = wf_isPhotonCaster(mat) ? 3 : 0;
@@ -2257,7 +2273,8 @@ __device__ __forceinline__ bool shadePathSlotImpl(
             // rec is already the primary hit from intersectPathSlot; check non-emissive.
             // #959: receivers only (a caster holds no photons; the split chain
             // starts only at a non-caster receiver) -- CPU sampleFull twin.
-            if (mat.emissionIntensity <= 0.0f && !wf_isPhotonCaster(mat)) {
+            if (mat.emissionIntensity <= 0.0f && !wf_isPhotonCaster(mat) &&
+                !wf_isDeltaOnlyReceiver(mat)) {
                 int found = 0;
                 // #1045: reflected radiance L_r = sum_p f_r(x, w_p, w_o) dPhi_p / (pi r^2)
                 // (CPU twin: spectral_path_tracer.cpp sampleFull): each photon is

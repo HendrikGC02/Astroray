@@ -82,9 +82,17 @@ public:
 
     bool isTransmissive() const override { return a_->isTransmissive() || b_->isTransmissive(); }
     bool isGlossy() const override { return a_->isGlossy() || b_->isGlossy(); }
-    // The more opaque child decides the shadow-ray attenuation.
+    // Cycles sums the closure weights: each child's transparent weight is (1 - alpha_i),
+    // so the summed transparency is (1-aA)+(1-aB) and the opacity max(0, aA + aB - 1).
     float shadowAlpha(const HitRecord& r) const override {
-        return std::max(a_->shadowAlpha(r), b_->shadowAlpha(r));
+        return std::max(0.0f, a_->shadowAlpha(r) + b_->shadowAlpha(r) - 1.0f);
+    }
+    // #1045: a smooth conductor + smooth conductor stays delta-only; anything else has a lobe.
+    bool isDeltaOnly() const override { return a_->isDeltaOnly() && b_->isDeltaOnly(); }
+    // Forwarded to A (a Light Path switch nested under Add keeps child A's branch; the
+    // addon reports it).
+    std::shared_ptr<Material> lightPathSelect(const lightpath::PathContext& c) const override {
+        return a_->lightPathSelect(c);
     }
     // ---- GPU upload / parameter queries: child A (see header comment) -------
     Vec3 getAlbedo() const override { return a_->getAlbedo(); }  // scene_upload reads it for the GMaterial
@@ -106,13 +114,15 @@ public:
     }
     float getRoughness() const override { return a_->getRoughness(); }
     float getMetallic() const override { return a_->getMetallic(); }
-    float getIOR() const override { return a_->getIOR(); }
-    float iorAt(float l) const override { return a_->iorAt(l); }
-    bool isDispersive() const override { return a_->isDispersive(); }
-    Vec3 getSellmeierB() const override { return a_->getSellmeierB(); }
-    Vec3 getSellmeierC() const override { return a_->getSellmeierC(); }
-    Vec3 getCauchyAB() const override { return a_->getCauchyAB(); }
-    float getTransmission() const override { return a_->getTransmission(); }
+    // Refraction parameters come from the transmissive child (isTransmissive ORs both).
+    const Material& refractive() const { return (!a_->isTransmissive() && b_->isTransmissive()) ? *b_ : *a_; }
+    float getIOR() const override { return refractive().getIOR(); }
+    float iorAt(float l) const override { return refractive().iorAt(l); }
+    bool isDispersive() const override { return refractive().isDispersive(); }
+    Vec3 getSellmeierB() const override { return refractive().getSellmeierB(); }
+    Vec3 getSellmeierC() const override { return refractive().getSellmeierC(); }
+    Vec3 getCauchyAB() const override { return refractive().getCauchyAB(); }
+    float getTransmission() const override { return refractive().getTransmission(); }
     float getClearcoat() const override { return a_->getClearcoat(); }
     float getClearcoatGloss() const override { return a_->getClearcoatGloss(); }
     float getSpecular() const override { return a_->getSpecular(); }

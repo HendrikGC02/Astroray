@@ -308,7 +308,7 @@ public:
             // split chain (pathTraceSpectral) starts only at a non-caster receiver.
             if (bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec) &&
                 rec.material && !rec.material->isEmissive() &&
-                !rec.material->isTransmissive()) {
+                !rec.material->isTransmissive() && !rec.material->isDeltaOnly()) {
                 // k-NN density estimate (Jensen 1996 Eq. 8) at the first receiver hit.
                 // #1045: reflected radiance L_r = sum_p f_r(x, w_p, w_o) dPhi_p / (pi r^2)
                 // (Jensen 2001 §7.1 / pbrt-v3 SPPM bsdf.f(wo, wi)): each photon is weighted

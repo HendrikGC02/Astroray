@@ -861,6 +861,137 @@ def _bundle_oidn_dlls(module_path: Path) -> None:
     print("warning: OIDN DLLs not found — addon will rely on system PATH for OpenImageDenoise.dll")
 
 
+# --------------------------------------------------------------------------- #
+# pkg319: release-ZIP DLL import-closure audit (gate (f) without a clean host)
+# --------------------------------------------------------------------------- #
+
+# System32 holds non-OS redistributables on a dev host (VC++ runtime, NVIDIA
+# driver/CUDA DLLs). A clean host lacks them, so they never count as "system".
+_NON_OS_DLL_PREFIXES = ("vcruntime", "msvcp", "vcomp", "concrt", "vccorlib",
+                        "msvcr", "nv", "cud", "cublas", "cufft", "amd", "ze_",
+                        "libgomp", "libgcc", "libstdc", "libwinpthread", "libmcfgthread")
+_API_SET_PREFIXES = ("api-ms-win-", "ext-ms-")
+# OIDN loads its device modules, and TBB its tbbbind NUMA helpers, with
+# LoadLibrary on demand and skips one that fails to load (a missing GPU driver,
+# hwloc, ...), so their unresolved imports are advisory, not a broken install.
+_OPTIONAL_PLUGIN_PREFIXES = ("openimagedenoise_device_", "tbbbind")
+
+
+def _pe_imports(path: Path) -> tuple[list[str], list[str]]:
+    """Return (static, delay-load) imported DLL names (lower-case) of a PE file.
+
+    Reads only the headers (the CUDA .pyd is ~200 MB), so it needs neither
+    binutils nor pefile. Layout per Microsoft's PE/COFF specification: import
+    directory = data directory 1 (20-byte descriptors, Name at +12), delay-load
+    import directory = data directory 13 (32-byte descriptors, DllNameRVA at +4).
+    """
+    import struct
+    with open(path, "rb") as f:
+        head = f.read(4096)
+        if head[:2] != b"MZ":
+            return [], []
+        f.seek(struct.unpack_from("<I", head, 0x3C)[0])
+        hdr = f.read(24 + 240 + 40 * 96)
+        if hdr[:4] != b"PE\0\0":
+            return [], []
+        nsec, = struct.unpack_from("<H", hdr, 6)
+        opt_size, = struct.unpack_from("<H", hdr, 20)
+        magic, = struct.unpack_from("<H", hdr, 24)
+        dd = 24 + (112 if magic == 0x20B else 96)
+        sec_off = 24 + opt_size
+        secs = [struct.unpack_from("<8sIIII", hdr, sec_off + 40 * i)[1:] for i in range(nsec)]
+
+        def to_off(rva: int) -> int | None:
+            for vsize, va, rawsize, rawptr in secs:
+                if va <= rva < va + max(vsize, rawsize):
+                    return rawptr + rva - va
+            return None
+
+        def cstr(rva: int) -> str:
+            off = to_off(rva)
+            if off is None:
+                return ""
+            f.seek(off)
+            return f.read(256).split(b"\0")[0].decode("ascii", "replace").lower()
+
+        def table(index: int, stride: int, name_at: int) -> list[str]:
+            rva, size = struct.unpack_from("<II", hdr, dd + 8 * index)
+            off = to_off(rva) if rva else None
+            if off is None:
+                return []
+            f.seek(off)
+            raw = f.read(min(size or 0x10000, 0x10000))
+            names = []
+            for i in range(0, len(raw) - stride + 1, stride):
+                if not any(raw[i:i + stride]):
+                    break
+                name_rva, = struct.unpack_from("<I", raw, i + name_at)
+                names.append(cstr(name_rva))
+            return [n for n in names if n]
+
+        return table(1, 20, 12), table(13, 32, 4)
+
+
+def _is_non_os(name: str) -> bool:
+    return name.startswith(_NON_OS_DLL_PREFIXES)
+
+
+def check_dll_closure(stage: Path, blender_exe: Path | None,
+                      system32: Path | None = None) -> dict[str, list[tuple[str, str]]]:
+    """Audit the transitive DLL import closure of every .pyd/.dll under ``stage``.
+
+    A name is satisfied by: the stage root or its ``oidn/`` dir (the addon's
+    ``add_dll_directory`` set, ``__init__.py``), the Blender install dirs
+    (``blender.exe`` dir, ``blender.crt``, ``blender.shared``), an API-set name,
+    or a System32 DLL that is an OS component (see ``_NON_OS_DLL_PREFIXES``).
+    PATH is deliberately not searched: Python loads extension modules with
+    LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, which excludes PATH (Microsoft,
+    "Dynamic-link library search order"). Returns {"missing": [(binary, dll)],
+    "advisory": [...]}; delay-load imports and optional-plugin DLLs
+    (``_OPTIONAL_PLUGIN_PREFIXES``) are advisory only.
+    """
+    if system32 is None:
+        system32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+    sys32 = {p.name.lower() for p in system32.glob("*.dll") if not _is_non_os(p.name.lower())}
+    avail = {p.name.lower() for d in (stage, stage / "oidn") if d.is_dir() for p in d.glob("*.dll")}
+    if blender_exe is not None:
+        bdir = blender_exe.parent
+        avail |= {p.name.lower() for d in (bdir, bdir / "blender.crt", bdir / "blender.shared")
+                  if d.is_dir() for p in d.glob("*.dll")}
+
+    def satisfied(name: str) -> bool:
+        return name in avail or name.startswith(_API_SET_PREFIXES) or name in sys32
+
+    out: dict[str, list[tuple[str, str]]] = {"missing": [], "advisory": []}
+    binaries = [p for ext in ("*.pyd", "*.dll") for p in stage.rglob(ext)]
+    for b in sorted(binaries):
+        static, delay = _pe_imports(b)
+        rel = b.relative_to(stage).as_posix()
+        optional = b.name.lower().startswith(_OPTIONAL_PLUGIN_PREFIXES)
+        out["advisory" if optional else "missing"] += [(rel, n) for n in static if not satisfied(n)]
+        out["advisory"] += [(rel, n) for n in delay if not satisfied(n)]
+    return out
+
+
+def audit_dll_closure(stage: Path, blender_exe: Path | None) -> bool:
+    """Print the closure audit; return True when no static import is unresolved."""
+    if platform.system() != "Windows":
+        return True
+    if blender_exe is None:
+        print("warning: no Blender found - DLL closure check skipped (pass --blender)")
+        return True
+    res = check_dll_closure(stage, blender_exe)
+    for binary, dll in res["advisory"]:
+        print(f"note: {binary} -> {dll} (optional/delay-load; not in ZIP / Blender / system)")
+    if res["missing"]:
+        print("error: staged addon is not self-contained; unresolved DLL imports:")
+        for binary, dll in res["missing"]:
+            print(f"  {binary} -> {dll}")
+        return False
+    print(f"DLL closure OK ({blender_exe.parent.name} + ZIP + system)")
+    return True
+
+
 def _compute_build_id() -> str:
     """Return build-ID string: <git-short-sha>+<UTC-timestamp>.
 
@@ -879,7 +1010,8 @@ def _compute_build_id() -> str:
     return f"{git_sha}+{utc_ts}"
 
 
-def stage_and_zip(module_path: Path, backend: str = "cpu", build_id: str | None = None) -> Path:
+def stage_and_zip(module_path: Path, backend: str = "cpu", build_id: str | None = None,
+                  blender_exe: Path | None = None, check_closure: bool = True) -> Path:
     import json, datetime
     if build_id is None:
         build_id = _compute_build_id()
@@ -954,6 +1086,11 @@ def stage_and_zip(module_path: Path, backend: str = "cpu", build_id: str | None 
         _bundle_oidn_dlls(module_path)
         if backend in ("cuda", "tcnn"):
             _bundle_cuda_runtime_dlls(module_path)
+
+    # pkg319: the ZIP must carry every non-system DLL the .pyd chain imports.
+    if check_closure and not audit_dll_closure(STAGE_DIR, blender_exe):
+        sys.exit("error: DLL closure check failed (see above); bundle the missing "
+                 "DLLs or pass --no-check-closure to override")
 
     # Optional: include the LICENSE so the extension carries it
     license_src = REPO_ROOT / "LICENSE"
@@ -1233,6 +1370,11 @@ def main():
                     help="Also copy the staged addon into Blender's user_default extensions dir")
     ap.add_argument("-j", "--jobs", type=int, default=os.cpu_count() or 4,
                     help="Parallel build jobs (default: %(default)s)")
+    ap.add_argument("--no-check-closure", action="store_true",
+                    help="Skip the DLL import-closure audit of the staged addon (pkg319)")
+    ap.add_argument("--closure-only", nargs="?", const=str(STAGE_DIR), metavar="STAGE_DIR",
+                    help="Only audit the DLL import closure of an already-staged addon "
+                         "(default dist/astroray) and exit; no build")
     args = ap.parse_args()
 
     # 1. Find Blender (for probing Python version and for install step)
@@ -1241,6 +1383,8 @@ def main():
         sys.exit("error: --install requires Blender on PATH or --blender")
     if blender:
         print(f"Blender: {blender}")
+    if args.closure_only:
+        sys.exit(0 if audit_dll_closure(Path(args.closure_only), blender) else 1)
 
     # 2. Decide which Python to build against
     want_minor: int | None = None
@@ -1265,7 +1409,8 @@ def main():
     module_path = find_built_module()
     print(f"Built module: {module_path.name}")
     probe_built_module(module_path, args.backend)
-    zip_path = stage_and_zip(module_path, backend=args.backend, build_id=build_id)
+    zip_path = stage_and_zip(module_path, backend=args.backend, build_id=build_id,
+                             blender_exe=blender, check_closure=not args.no_check_closure)
     print(f"\nAddon package: {zip_path}")
     print(f"Staged dir:    {STAGE_DIR}")
 

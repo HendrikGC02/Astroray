@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done — lane f4 batch-f 2026-10-06: closure OK on dist/astroray; CPU + no-GPU rehearsal F12 exit 0; validator returns `rehearsal`; PR pending
 **Estimated effort:** 1 session (~3 h), CPU only
 **Depends on:** pkg278
 
@@ -76,12 +76,12 @@ MinGW runtime, CUDA libs, OIDN) from `objdump` output; nothing checks the closur
 
 ## Acceptance criteria
 
-- [ ] Closure check passes on the current `dist/astroray` (or lists real missing DLLs, which are then bundled).
-- [ ] Fixture test: deleting one bundled DLL from a fixture stage makes the check fail naming it.
-- [ ] Rehearsal: fresh-profile install via `blender --command extension install-file` and F12 exit 0 on CPU;
+- [x] Closure check passes on the current `dist/astroray` (or lists real missing DLLs, which are then bundled).
+- [x] Fixture test: deleting one bundled DLL from a fixture stage makes the check fail naming it.
+- [x] Rehearsal: fresh-profile install via `blender --command extension install-file` and F12 exit 0 on CPU;
       the no-GPU leg either renders on CPU or fails with a clear message (recorded).
-- [ ] `validate_clean_install.py --validate` on rehearsal evidence returns not-green with reason `rehearsal`.
-- [ ] Committed gate (f) evidence untouched; row (f) stays unmeasured.
+- [x] `validate_clean_install.py --validate` on rehearsal evidence returns not-green with reason `rehearsal`.
+- [x] Committed gate (f) evidence untouched; row (f) stays unmeasured.
 
 ---
 
@@ -95,9 +95,9 @@ MinGW runtime, CUDA libs, OIDN) from `objdump` output; nothing checks the closur
 
 ## Progress
 
-- [ ] Closure check + fixture test.
-- [ ] Rehearsal mode + validator rejection test.
-- [ ] Rehearsal run log and findings in the PR body.
+- [x] Closure check + fixture test.
+- [x] Rehearsal mode + validator rejection test.
+- [x] Rehearsal run log and findings in the PR body.
 
 ---
 

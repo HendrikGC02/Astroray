@@ -276,7 +276,9 @@ def test_profile_breakdown():
     host:optixIasRebuild; host:optixAccelBuild is recorded for the first render only."""
     if os.environ.get("ASTRORAY_GPU_TRAVERSAL") != "optix":
         pytest.skip("IAS rebuild is an OptiX-path stage")
-    here = os.path.dirname(os.path.abspath(__file__))
+    if not astroray.Renderer().gpu_available:  # the child's _scene() skip would read as a failure
+        pytest.skip("CUDA device not available")
+    here =os.path.dirname(os.path.abspath(__file__))
     with tempfile.TemporaryDirectory() as d:
         out = os.path.join(d, "prof.json")
         env = dict(os.environ, ASTRORAY_PROFILE="1", ASTRORAY_PROFILE_OUT=out,

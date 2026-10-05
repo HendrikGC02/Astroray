@@ -26,6 +26,11 @@ struct SceneUploadResult {
     // The wavefront launchers pick the stageShade*<true/false> instantiation off
     // this flag so non-principled scenes never compile in gpu_principled_* code.
     bool hasPrincipled = false;
+    // #1072: true when ANY uploaded material carries an Add Shader partner
+    // (GMaterial::addPartner != 0). The driver then publishes the device material
+    // base pointer so the HasPrincipled=true shade kernels can fetch the partner;
+    // linking a partner also sets hasPrincipled so those kernels are selected.
+    bool hasAddPartner = false;
 
     // pkg253 — true if ANY uploaded material casts a partially-transparent
     // shadow (a Principled material with alpha < 1). The driver publishes it so

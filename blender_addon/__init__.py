@@ -5586,15 +5586,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
             a = self._shader_spec_from_node(self._shader_input_node(node, 'Shader'), renderer, node_tree, depth + 1)
             b = self._shader_spec_from_node(self._shader_input_node(node, 'Shader_001'), renderer, node_tree, depth + 1)
             self._warn_light_path_mix_nested(a, b)
-            out = add_shader_specs(a, b)
-            if out is not None and out.get('kind') == 'add':
-                # #955: the CPU sums both closures (AddMaterial); the GPU
-                # closure-graph evaluator averages lobes and has no additive
-                # composition, so it renders only the first shader.
-                self._warn_shader_fallback(
-                    'ADD_SHADER', 'Add Shader of %s + %s is summed on the CPU; the GPU '
-                    'backend renders only the first shader' % (a.get('kind'), b.get('kind')))
-            return out
+            # #955/#1072: the CPU and the GPU wavefront both sum the closures
+            # (AddMaterial). A pair the GPU cannot sum (textured / emissive /
+            # transparent child) is reported where the material is created
+            # (_create_material_from_shader_spec), from the engine's own capability.
+            return add_shader_specs(a, b)
 
         return None
 
@@ -5705,7 +5701,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     if bump_key in spec and bump_key not in child:
                         child[bump_key] = spec[bump_key]
                 children.append(self._create_material_from_shader_spec(child, renderer))
-            return renderer.create_add_material(children[0], children[1])
+            add_id = renderer.create_add_material(children[0], children[1])
+            try:
+                gpu_approx = renderer.get_material_backend_capabilities(add_id).get('gpu_approximate')
+            except Exception:
+                gpu_approx = False
+            if gpu_approx:
+                self._warn_shader_fallback(
+                    'ADD_SHADER', 'Add Shader of %s + %s is summed on the CPU; the GPU '
+                    'backend renders only the first shader (the pair has a textured, '
+                    'emissive or transparent child)' % (spec['a'].get('kind'), spec['b'].get('kind')))
+            return add_id
         if kind == 'emission':
             params = {'intensity': float(spec.get('emission_strength', 1.0))}
             color_tex = spec.get('emission_color_texture')

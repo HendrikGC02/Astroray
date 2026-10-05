@@ -69,6 +69,7 @@ __constant__ GWavefrontPhotonSplit c_wfPhotonSplit = { nullptr, 0u };
 __constant__ GWavefrontTextureBinding c_wfTexBinding;
 __constant__ GWavefrontProgramBinding c_wfProgBinding;
 __constant__ GWavefrontLightPathBinding c_wfLightPath = { nullptr, 0 };  // #991
+__constant__ const ::GMaterial* c_wfAddMaterials = nullptr;  // #1072 Add Shader partners
 
 // pkg199 Stage 2 — non-template `intersectPathSlot` symbol. Forwards to the
 // <false> (Stage-1, no medium scatter) specialization. This is the symbol the
@@ -900,6 +901,14 @@ void setWavefrontTextureBinding(const GWavefrontTextureBinding& binding)
 void setWavefrontGuideBinding(const GWavefrontGuideBinding& binding)
 {
     cudaMemcpyToSymbol(c_wfGuideBinding, &binding, sizeof(GWavefrontGuideBinding));
+}
+
+// #1072 — publish the device material array base the Add Shader partners index into
+// (GMaterial::addPartner - 1). Called ONCE per frame by the wavefront drivers; nullptr
+// (no Add in the scene) leaves every gpu_addPartner() lookup returning nullptr.
+void setWavefrontAddMaterials(const ::GMaterial* base)
+{
+    cudaMemcpyToSymbol(c_wfAddMaterials, &base, sizeof(base));
 }
 
 // pkg199 Stage 1 — publish the frame's homogeneous world-volume medium into the

@@ -619,6 +619,15 @@ struct alignas(64) GMaterial {
     // lobe to the correct model per origin.
     bool        disneyMetalConductor;
 
+    // #1072 -- Add Shader: 1 + the index (into the device material array) of the
+    // SECOND child whose closures are summed with this material's own (Cycles
+    // svm_node_add_closure: weights add, are not normalised); 0 = a plain material.
+    // Lives in the 2 bytes of existing struct padding (offset 102): GMaterial stays
+    // exactly 640 B, so the by-value copies on the register-saturated shade path do
+    // not grow. Read only by the HasPrincipled=true wavefront shade kernels
+    // (stage_advance_device.cuh gpu_shade_*), so the fleet <false> kernel is untouched.
+    uint16_t    addPartner;
+
     GMaterialClosure closures[G_MAX_MATERIAL_CLOSURES];
 
     // pkg178 Stage-3b perf: the single native-Principled parameter block for a
@@ -629,6 +638,8 @@ struct alignas(64) GMaterial {
     // emissionStrength also by gpu_principled_emitted on the shared path (#835).
     GPrincipledClosure principled;
 };
+
+static_assert(sizeof(GMaterial) == 640, "GMaterial is pinned at 640 B (shade-kernel by-value copies; see GPrincipledClosure)");
 
 // ---------------------------------------------------------------------------
 // pkg186 — GPU image texture (baked buffer + nearest fetch).

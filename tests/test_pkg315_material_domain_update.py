@@ -9,8 +9,8 @@ depend on (slot order, per-slot UV gate / name hash / SMS class / hair routing /
 emissive status, Object-coordinate bakes, a scene version bump) falls back to the
 full re-flatten.
 
-Gates (GPU): the material path renders BYTE-IDENTICAL to a forced full re-flatten
-(same seed) for colour / texture swap / program-bearing / normal-map / texture-mapping
+Gates (GPU): the material path renders identical (to the GPU accumulation jitter floor,
+see _ATOL) to a forced full re-flatten (same seed) for colour / texture swap / program-bearing / normal-map / texture-mapping
 edits; each reachable guard takes the full path (asserted through
 last_render_info()["gpu_material_domain_update"], not timing); the 100k edit costs
 < 10 ms (rebind + next render, min of 5). CPU legs cover the rebind holder index.
@@ -26,6 +26,12 @@ import astroray
 
 W = H = 24
 SPP, DEPTH, SEED = 4, 4, 11
+# GPU wavefront accumulation uses float atomics, so two renders of the SAME scene and seed
+# differ by ~1-3 ULP (max |diff| 3.0e-7 over 576 px x 3 ch, up to ~50% of pixels, measured
+# 2026-10-06 RTX 5070 Ti: cold-vs-cold, cached-repeat, forced re-flatten, optix + software).
+# _ATOL is ~7x that floor and ~50x below the smallest visible edit (_differs: 1e-4), so a
+# wrong material upload (any real colour/texture difference) still fails.
+_ATOL = 2e-6
 MOVE = [1, 0, 0, 0.3, 0, 1, 0, 0.2, 0, 0, 1, 0, 0, 0, 0, 1]
 
 # op-VM opcodes (mirror include/astroray/shader_vm.h; see test_issue825_826_opvm_gpu_inputs)
@@ -131,6 +137,10 @@ def _info(r):
     return bool(i["gpu_scene_reused"]), bool(i["gpu_scene_patched"]), bool(i["gpu_material_domain_update"])
 
 
+def _same(a, b):
+    return bool(np.allclose(a, b, rtol=0.0, atol=_ATOL, equal_nan=True))
+
+
 def _differs(a, b):
     assert float(np.max(np.abs(a - b))) > 1e-4, "edit not visible in the image"
 
@@ -174,7 +184,7 @@ MATERIAL_EDITS = [_colour, _texture_swap, _program_edit, _normal_map_edit, _text
 
 @pytest.mark.gpu
 @pytest.mark.parametrize("mutate", MATERIAL_EDITS, ids=[e.__name__ for e in MATERIAL_EDITS])
-def test_material_edit_is_byte_identical_to_full_reflatten(traversal, mutate):
+def test_material_edit_matches_full_reflatten(traversal, mutate):
     r, m = _scene()
     before = _render(r)
     _render(r)
@@ -187,12 +197,12 @@ def test_material_edit_is_byte_identical_to_full_reflatten(traversal, mutate):
     _differs(after, before)
     again = _render(r)                      # the cache re-arms after the material rebuild
     assert _info(r)[0] and not _info(r)[2]
-    assert np.array_equal(after, again, equal_nan=True)
+    assert _same(after, again)
     r.upload_lights()                       # scene-domain invalidation: forced full re-flatten
     full = _render(r)
     reused, patched, mat_update = _info(r)
     assert not reused and not patched and not mat_update, "reference did not re-flatten"
-    assert np.array_equal(after, full, equal_nan=True), (
+    assert _same(after, full), (
         f"{mutate.__name__}: material path differs from the full re-flatten, "
         f"max |diff| {float(np.nanmax(np.abs(after - full))):.3g}")
 
@@ -211,7 +221,7 @@ def test_repeated_material_edits_stay_on_material_path(traversal):
         img = _render(r)
         assert _info(r)[2], f"edit {k} left the material domain"
     r.upload_lights()
-    assert np.array_equal(img, _render(r), equal_nan=True)
+    assert _same(img, _render(r))
 
 
 # ---- guards: the full path ---------------------------------------------------------------
@@ -279,7 +289,7 @@ def test_guard_takes_the_full_path_and_matches_fresh(traversal, mutate):
     assert not reused
     fresh, fm = _scene()
     mutate(fresh, fm)
-    assert np.array_equal(after, _render(fresh), equal_nan=True), (
+    assert _same(after, _render(fresh)), (
         f"{mutate.__name__}: cached full path differs from a cold render of the final scene")
 
 
@@ -318,6 +328,7 @@ def _grid_scene(n):
                          np.zeros((0, cnt, 3, 2), np.float32), [], np.zeros((0, 3, 3), np.float32))
     wd, ht = 2100 // 4, 1221 // 4
     r.setup_camera([0, -3, 3], [0, 0, 0], [0, 0, 1], 45.0, wd / ht, 0.0, 4.0, wd, ht)
+    r.set_use_gpu(True)                             # without it the render is CPU and never touches the device cache
     return r, mat
 
 

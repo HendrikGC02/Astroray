@@ -214,7 +214,8 @@ def test_gpu_patched_move_100k_faster_than_reflatten():
         assert a.last_render_info()["gpu_scene_patched"] is True
     for _ in range(3):
         t0 = time.perf_counter()
-        a.upload_materials()               # invalidates: full re-flatten path
+        a.upload_lights()                  # invalidates the scene domain: full re-flatten path
+        # (pkg315: upload_materials() is material-domain only and no longer re-flattens)
         a.render(1, 3, None, False)
         full.append((time.perf_counter() - t0) * 1e3)
     print(f"[pkg291] 100k move+render ms patched={sorted(patched)} full={sorted(full)}")

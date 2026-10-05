@@ -910,6 +910,12 @@ public:
     struct GRSceneHit {
         HitRecord rec;
         Ray ray;
+        // Gravitational shift g = nu_obs/nu_emit of a static emitter at the hit,
+        // referenced to a static observer at the region edge (r_max), so the
+        // boundary has no brightness seam. Applied to the hit's own emission only.
+        float redshift = 1.0f;
+        // Volumetric (ADAF/jet) transmittance in front of the hit.
+        astroray::SampledSpectrum transmittance = astroray::SampledSpectrum(1.0f);
     };
 
     struct GRSpectralResult {
@@ -2675,6 +2681,22 @@ inline void resolveLightPathMaterial(HitRecord& rec) {
 //
 // An infinite/distant light hit is never an occluder (unchanged semantics):
 // the ray "reaches" the light, so we return the transmittance so far.
+// #1063: emission of a surface hit inside a GR region seen through the shift
+// g = nu_obs/nu_emit. I_lambda * lambda^5 is invariant along a null geodesic
+// (Liouville; the same invariant as the disk transfer,
+// thinDiskInvariantTransferWavelength), so
+// L_obs(lambda) = g^5 * L_emit(g * lambda); bolometrically g^4. Emission only:
+// reflected light would need the inverse shift on the way in (follow-up).
+inline astroray::SampledSpectrum grHitEmission(
+        const HitRecord& rec, const astroray::SampledWavelengths& lambdas, float g) {
+    if (g == 1.0f) return rec.material->emittedSpectral(rec, lambdas);
+    if (!(g > 0.0f)) return astroray::SampledSpectrum(0.0f);
+    astroray::SampledWavelengths emitted = lambdas;
+    emitted.redshift(1.0f / g);  // lambda_emit = g * lambda_obs
+    const float g2 = g * g;
+    return rec.material->emittedSpectral(rec, emitted) * (g2 * g2 * g);
+}
+
 inline float shadowTransmittance(const Hittable& bvh, const Ray& shadowRay,
                                  float maxDist, int maxHops = 8) {
     float Tr = 1.0f;
@@ -2717,6 +2739,9 @@ class Renderer {
     // getSceneMutable() (the one door to in-place geometry edits). Materials,
     // lights, instances (pkg114 TLAS, not in `bvh`) and the camera never dirty it.
     bool bvhDirty_ = true;
+    // #1063: per GR object, a BVH over only the non-GR primitives whose bounds
+    // meet its r_max ball (null: none do, so no geodesic scene test is needed).
+    std::unordered_map<const Hittable*, std::shared_ptr<BVHAccel>> grScenes_;
     // #981 - scene version for the GPU device-scene cache. Process-unique and
     // monotonic (a fresh or re-assigned Renderer never repeats a version), bumped
     // by every mutation of what buildSceneArrays reads: geometry, lights, the
@@ -4272,8 +4297,9 @@ public:
             if (hasWorldVolume && worldVolumeDensity > 0.0f && !fogScatter) {
                 throughput *= worldTransmittanceSpectral(rec.t, lambdas);
             }
+            float grHitG = 1.0f;  // #1063: shift of a scene hit found on the geodesic
             if (rec.hitObject && rec.hitObject->isGRObject()) {
-                auto grResult = rec.hitObject->traceGRSpectral(ray, lambdas, gen, bvh.get());
+                auto grResult = rec.hitObject->traceGRSpectral(ray, lambdas, gen, grSceneFor(rec.hitObject));
 
                 if (grResult.hasEmission) {
                     astroray::SampledSpectrum grEmission(0.0f);
@@ -4299,6 +4325,8 @@ public:
                     // an NEE-sampled one, so MIS weights take the post-specular branch.
                     rec = grResult.sceneHit->rec;
                     ray = grResult.sceneHit->ray;
+                    grHitG = grResult.sceneHit->redshift;
+                    throughput *= grResult.sceneHit->transmittance;
                     wasSpecular = true;
                     envNeeSampledPrev = false;
                 } else {
@@ -4335,7 +4363,7 @@ public:
 
             // Emission (gated on camera ray or post-specular bounce).
             astroray::SampledSpectrum Le_spec =
-                rec.material->emittedSpectral(rec, lambdas);
+                grHitEmission(rec, lambdas, grHitG);
             if (!Le_spec.isZero()) {
                 // pkg198: directly-visible surface emission → PASS_EMISSION; emission
                 // reached after a non-specular bounce → <firstCat>_INDIRECT (Cycles
@@ -4851,8 +4879,9 @@ public:
                 }
                 break;
             }
+            float grHitG = 1.0f;  // #1063
             if (rec.hitObject && rec.hitObject->isGRObject()) {
-                auto grResult = rec.hitObject->traceGRSpectral(ray, lambdas, gen, bvh.get());
+                auto grResult = rec.hitObject->traceGRSpectral(ray, lambdas, gen, grSceneFor(rec.hitObject));
                 if (grResult.hasEmission) {
                     astroray::SampledSpectrum grEmission(0.0f);
                     for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
@@ -4865,6 +4894,8 @@ public:
                     // #1063: see pathTraceSpectral; shade the geodesic's scene hit.
                     rec = grResult.sceneHit->rec;
                     ray = grResult.sceneHit->ray;
+                    grHitG = grResult.sceneHit->redshift;
+                    throughput *= grResult.sceneHit->transmittance;
                     wasSpecular = true;
                 } else {
                 Vec3 exitDir = grResult.exitDirection;
@@ -4892,7 +4923,7 @@ public:
             rec.lightPath.rayLength = (bounce == 0) ? rec.t - clipNear_ * clipZInv : rec.t;
             resolveLightPathMaterial(rec);
 
-            astroray::SampledSpectrum Le_spec = rec.material->emittedSpectral(rec, lambdas);
+            astroray::SampledSpectrum Le_spec = grHitEmission(rec, lambdas, grHitG);
             if (!Le_spec.isZero()) {
                 if (bounce == 0 || wasSpecular)
                     color += clampContribSpectral(throughput * Le_spec, lambdas, bounce);
@@ -5106,6 +5137,35 @@ public:
         lights.removeDedicated(start, count);
     }
 
+    // #1063: see grScenes_. r_max = 1.05 x the influence radius; the GR object's
+    // bounding box is the influence cube, so the r_max ball sits in its 1.05x box.
+    void rebuildGrScenes() {
+        grScenes_.clear();
+        for (const auto& o : scene) {
+            AABB gb;
+            if (!o->isGRObject() || !o->boundingBox(gb)) continue;
+            const Vec3 c = (gb.min + gb.max) * 0.5f;
+            const Vec3 h = (gb.max - gb.min) * (0.5f * 1.05f);
+            std::vector<std::shared_ptr<Hittable>> nearby;
+            for (const auto& p : scene) {
+                if (p->isGRObject()) continue;
+                AABB pb;
+                if (p->boundingBox(pb)) {
+                    if (pb.max.x < c.x - h.x || pb.min.x > c.x + h.x ||
+                        pb.max.y < c.y - h.y || pb.min.y > c.y + h.y ||
+                        pb.max.z < c.z - h.z || pb.min.z > c.z + h.z) continue;
+                }
+                nearby.push_back(p);
+            }
+            grScenes_[o.get()] = nearby.empty() ? nullptr : std::make_shared<BVHAccel>(nearby);
+        }
+    }
+
+    // #1063: scene the geodesic of GR object `bh` is intersected against.
+    const Hittable* grSceneFor(const Hittable* bh) const {
+        auto it = grScenes_.find(bh);
+        return it != grScenes_.end() ? it->second.get() : bvh.get();
+    }
     // pkg298: reuses the BVH while the scene geometry is unchanged (bvhDirty_).
     void buildAcceleration() {
         if (bvhDirty_ || !bvh) {
@@ -5115,6 +5175,7 @@ public:
                 std::chrono::steady_clock::now() - t0).count();
             ++bvhBuildCount_;
             bvhDirty_ = false;
+            rebuildGrScenes();
         }
         // The Tree light sampler builds and CACHES its light tree in
         // TreeLightSampler's constructor, over whatever lights exist when
@@ -5139,6 +5200,7 @@ public:
     bool refitAcceleration(std::vector<const Hittable*> moved) {
         if (!bvh || bvhDirty_) return false;
         bvh->refit();
+        rebuildGrScenes();
         if (!refitLog_.empty() && refitLog_.back().after != sceneVersion_) refitLog_.clear();
         if (refitLog_.size() >= 64) refitLog_.erase(refitLog_.begin());
         const uint64_t before = sceneVersion_;

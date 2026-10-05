@@ -224,6 +224,25 @@ private:
         return true;
     }
 
+    // #1063: g = nu_obs/nu_emit of a static emitter at world point p: sqrt(-g_tt)
+    // (Schwarzschild 1-2M/r; Kerr 1-2Mr/Sigma, Sigma = r^2 + a^2 cos^2 theta),
+    // divided by the same factor at the region edge r_max, the reference observer
+    // for the flat scene outside, so the r_max boundary has no brightness seam.
+    // 0 where no static emitter exists (inside the ergosphere/horizon).
+    float staticRedshift(const Vec3& p) const {
+        const Vec3 rel = p - position;
+        const double r = double(rel.length()) * worldToGR;
+        if (!gr_isfinite(r) || r <= 0.0) return 1.0f;
+        const double c = double(rel.y) * worldToGR / r;
+        const double a2c2 = spin * spin * c * c;
+        const double M = metric->M;
+        const double gt2 = 1.0 - 2.0 * M * r / (r * r + a2c2);
+        const double rr = r_obs_M * 1.05;
+        const double gr2 = 1.0 - 2.0 * M * rr / (rr * rr + a2c2);
+        if (!(gt2 > 0.0) || !(gr2 > 0.0)) return 0.0f;
+        return float(std::sqrt(gt2 / gr2));
+    }
+
     // `scene` (nullable): when set, the geodesic is intersected against it as a
     // piecewise-linear path (#1063, Groeller 1995): each accepted RK45 step is
     // a straight chord, and the first non-GR surface along the path ends the
@@ -249,7 +268,7 @@ private:
         if (scene) {
             segmentFn = [&](const GeodesicState& a, const GeodesicState& b) {
                 Vec3 A, B;
-                if (!blToWorld(a, A)) return false;
+                if (!blToWorld(a, A)) return -1.0;
                 if (b.r > r_max) {
                     // Escaping step: end the chord where the continuation ray will
                     // start (#1061 exit point), so the path stays connected and the
@@ -258,13 +277,13 @@ private:
                     esc.escaped = true;
                     esc.finalState = b;
                     esc.exitDirection = blToCartesianDir(b, metric->geodesic_rhs(b));
-                    if (!exitPointWorld(esc, B)) return false;
+                    if (!exitPointWorld(esc, B)) return -1.0;
                 } else if (!blToWorld(b, B)) {
-                    return false;
+                    return -1.0;
                 }
                 const Vec3 d = B - A;
                 const float len = d.length();
-                if (!(len > 1e-7f)) return false;
+                if (!(len > 1e-7f)) return -1.0;
                 Ray seg(A, d / len, incomingRay.time, incomingRay.screenU, incomingRay.screenV);
                 seg.hasCameraFrame = incomingRay.hasCameraFrame;
                 seg.cameraOrigin = incomingRay.cameraOrigin;
@@ -276,7 +295,7 @@ private:
                 float tMin = 0.0f;
                 for (int k = 0; k < 4; ++k) {
                     HitRecord rec;
-                    if (!scene->hit(seg, tMin, len, rec)) return false;
+                    if (!scene->hit(seg, tMin, len, rec)) return -1.0;
                     if (rec.hitObject && rec.hitObject->isGRObject()) {
                         tMin = rec.t + 1e-4f;
                         continue;
@@ -284,9 +303,10 @@ private:
                     state.sceneHit = std::make_shared<GRSceneHit>();
                     state.sceneHit->rec = std::move(rec);
                     state.sceneHit->ray = seg;
-                    return true;
+                    state.sceneHit->redshift = staticRedshift(state.sceneHit->rec.point);
+                    return double(state.sceneHit->rec.t) / double(len);
                 }
-                return false;
+                return -1.0;
             };
         }
         state.integration = integrateGeodesic(
@@ -364,10 +384,16 @@ private:
         return emission;
     }
 
+    // `tCut`: stop the straight-line march at this distance along the incoming
+    // ray (#1063: a scene hit ends it); `transmittanceOut` receives the
+    // transmittance accumulated up to there.
     astroray::SampledSpectrum volumetricEmissionSpectral(
             const Ray& incomingRay,
-            const astroray::SampledWavelengths& lambdas) const {
+            const astroray::SampledWavelengths& lambdas,
+            float tCut = std::numeric_limits<float>::infinity(),
+            astroray::SampledSpectrum* transmittanceOut = nullptr) const {
         astroray::SampledSpectrum emission(0.0f);
+        if (transmittanceOut) *transmittanceOut = astroray::SampledSpectrum(1.0f);
         if (emissions.empty()) return emission;
 
         Vec3 oc = incomingRay.origin - position;
@@ -381,6 +407,7 @@ private:
         float t1 = (-half_b + sqrtd) / a;
         if (t1 < 0.001f) return emission;
         t0 = std::max(t0, 0.001f);
+        t1 = std::min(t1, tCut);
         if (t1 <= t0) return emission;
 
         constexpr int kSteps = 96;
@@ -408,6 +435,7 @@ private:
             }
             astroray::invariant_transfer::accumulateSegment(emission, transmittance, segment, tau);
         }
+        if (transmittanceOut) *transmittanceOut = transmittance;
         return emission;
     }
 
@@ -617,13 +645,23 @@ public:
         // 5e-14 here made ADAF effectively invisible (ON==OFF) and forced jet
         // scenes to use intensity_scale ~1e28 as empirical compensation. Scene
         // files updated separately to use physically-meaningful scale values.
+        // #1063: a scene hit ends the straight-line volumetric march at the hit's
+        // depth along the incoming ray; the transmittance in front of it goes to
+        // the caller (applied to throughput).
+        float tCut = std::numeric_limits<float>::infinity();
+        if (trace.sceneHit) {
+            tCut = (trace.sceneHit->rec.point - incomingRay.origin).dot(incomingRay.direction)
+                 / incomingRay.direction.length2();
+        }
+        astroray::SampledSpectrum volTransmittance(1.0f);
         result.emission = diskEmissionSpectral(ir, lambdas)
-                        + volumetricEmissionSpectral(incomingRay, lambdas);
+                        + volumetricEmissionSpectral(incomingRay, lambdas, tCut, &volTransmittance);
         result.hasEmission = !result.emission.isZero();
         if (trace.sceneHit) {
             // #1063: the geodesic struck scene geometry; disk crossings above are
             // those met before it. No exit ray exists. (The straight-line
             // volumetric integral above is not truncated at the hit.)
+            trace.sceneHit->transmittance = volTransmittance;
             result.sceneHit = std::move(trace.sceneHit);
             return result;
         }

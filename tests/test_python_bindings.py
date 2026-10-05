@@ -1755,7 +1755,7 @@ def test_black_hole_renderer_uses_native_spectral_gr_dispatch():
         os.path.join(os.path.dirname(__file__), '..', 'include', 'raytracer.h'),
         encoding='utf-8',
     ).read()
-    gr_block = source.split('traceGRSpectral(ray, lambdas, gen, bvh.get())', 1)[1].split(
+    gr_block = source.split('traceGRSpectral(ray, lambdas, gen, grSceneFor(rec.hitObject))', 1)[1].split(
         'if (!rec.material) break;', 1
     )[0]
 

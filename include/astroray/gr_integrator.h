@@ -29,11 +29,12 @@ struct IntegrationResult {
 
 // #1063: per-accepted-step hook. Called with the BL states at the start and end
 // of each accepted RK45 step (KS-chart steps are converted back to BL first);
-// the end state may lie beyond r_max on the escaping step. Return true to stop
-// the march (the first scene hit); the result then has `stopped` set and
-// finalState = the step's end state. Disk crossings recorded so far are exactly
-// those before the stop (to step granularity).
-using GeodesicSegmentFn = std::function<bool(const GeodesicState&, const GeodesicState&)>;
+// the end state may lie beyond r_max on the escaping step. Return the hit
+// fraction in [0,1] along the chord to stop the march (the first scene hit), or
+// a negative value for no hit; the result then has `stopped` set and
+// finalState = the step's end state. A disk crossing recorded in the same step
+// at a larger fraction lies past the hit and is dropped.
+using GeodesicSegmentFn = std::function<double(const GeodesicState&, const GeodesicState&)>;
 
 // Dormand-Prince Butcher tableau — identical to the Python version
 static constexpr double DP_A[6][5] = {
@@ -305,6 +306,7 @@ inline ASTRORAY_NOINLINE IntegrationResult integrateGeodesic(
     double prev_theta = s.theta;
     GeodesicState seg_start = s_init;  // #1063: BL state at the previous accepted step
     for (int step = 0; step < maxSteps; ++step) {
+        double stepCrossFrac = -1.0;  // #1063: this step's disk crossing (-1: none)
         // Enter KS near the axis, including an initial state on it.
         if (!in_ks && ks_ok && std::abs(std::sin(s.theta)) < grks::kEnter) {
             h = std::min(h, grks::kMaxStepFrac * s.r);
@@ -395,7 +397,7 @@ inline ASTRORAY_NOINLINE IntegrationResult integrateGeodesic(
             const GeodesicState bl = grks::toBL(ks_M, ks_a, s_new);
             if (std::abs(std::sin(bl.theta)) < grks::kExit && bl.r <= r_max &&
                 !metric.is_captured(bl)) {
-                if (onSegment && (*onSegment)(seg_start, bl)) {
+                if (onSegment && (*onSegment)(seg_start, bl) >= 0.0) {
                     result.stopped = true;
                     result.finalState = bl;
                     return result;
@@ -429,6 +431,7 @@ inline ASTRORAY_NOINLINE IntegrationResult integrateGeodesic(
                     dc_rec.phi   = phi_cross;
                     dc_rec.g     = disk->redshiftFactor(r_cross, lambda);
                     dc_rec.valid = true;
+                    stepCrossFrac = frac;
                 }
             }
         }
@@ -445,10 +448,15 @@ inline ASTRORAY_NOINLINE IntegrationResult integrateGeodesic(
         // #1063: piecewise-linear geodesic (Groeller 1995): the scene is tested
         // against the chord of every accepted step. s is BL here (a KS leg that
         // stays in KS `continue`d above after its own callback).
-        if (onSegment && (*onSegment)(seg_start, s)) {
-            result.stopped = true;
-            result.finalState = s;
-            return result;
+        if (onSegment) {
+            const double hitFrac = (*onSegment)(seg_start, s);
+            if (hitFrac >= 0.0) {
+                // A crossing later in this step than the hit lies past the surface.
+                if (stepCrossFrac > hitFrac) --result.nCrossings;
+                result.stopped = true;
+                result.finalState = s;
+                return result;
+            }
         }
         seg_start = s;
 

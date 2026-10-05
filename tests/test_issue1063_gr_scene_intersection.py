@@ -3,8 +3,9 @@ along the geodesic (piecewise-linear chords, Groeller 1995).
 
 Before the fix the march never tested the scene, so anything inside
 r_max = 1.05 x influence radius was invisible (a straddling sphere was bitten
-in two; a sphere fully inside vanished). Emissive spheres only (the straight
-shadow rays of an NEE-lit diffuse surface are outside this fix's scope).
+in two; a sphere fully inside vanished). Emissive spheres only: lit surfaces
+inside the region render dark because straight NEE rays hit the BH sphere
+(#1081), and reflected light carries no gravitational shift (#1082).
 Schwarzschild, no disk, r_obs_M = 20 over influence radius 5.5 (shadow radius
 ~1.4 world units).
 """
@@ -103,3 +104,60 @@ def test_capture_beats_scene_hit_behind_the_horizon():
     lum = _render([([0.0, 0.0, -1.0], 0.3)])
     cy, cx = H // 2, W // 2
     assert float(lum[cy - 2:cy + 3, cx - 2:cx + 3].max()) < 0.05
+
+
+def _interior_mean(lum):
+    mask, labels, keep = _blobs(lum, min_px=10)
+    primary = max(keep, key=lambda lab: int((labels == lab).sum()))
+    core = ndimage.binary_erosion(labels == primary, iterations=2)
+    assert core.sum() > 5
+    return float(lum[core].mean())
+
+
+def test_scene_hit_emission_is_gravitationally_redshifted():
+    # Surface brightness obeys I_obs = g^4 I_emit (I_lambda * lambda^5 invariant,
+    # Liouville). A small emissive sphere at r = 9 M, referenced to a static
+    # observer at the region edge r_max = 21 M: g = sqrt((1-2/9)/(1-2/21)).
+    sphere = ([9.0 * INFLUENCE / 20.0, 0.0, 0.0], 0.3)
+    ratio = _interior_mean(_render([sphere])) / _interior_mean(_render([sphere], black_hole=False))
+    g = np.sqrt((1.0 - 2.0 / 9.0) / (1.0 - 2.0 / 21.0))
+    assert abs(ratio / g**4 - 1.0) < 0.12, (ratio, g**4)
+
+
+def _adaf_render(spheres):
+    r = astroray.Renderer()
+    r.set_integrator("path_tracer")
+    r.set_background_color([0.0, 0.0, 0.0])
+    r.set_seed(17)
+    r.set_adaptive_sampling(False)
+    for pos, rad in spheres:
+        r.add_sphere(pos, rad, r.create_material("lambertian", [0.0, 0.0, 0.0], {}))
+    r.setup_camera([0.0, 0.0, 12.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
+                   42.0, W / H, 0.0, 12.0, W, H)
+    r.add_black_hole([0.0, 0.0, 0.0], 4.0e6, INFLUENCE, {
+        "spin": 0.0, "disk_outer": 0.0, "accretion_rate": 0.0, "inclination": 0.0,
+        "enable_adaf": True, "adaf_mdot_eddington": 1.0e-4, "adaf_electron_temp": 1.0e10,
+        "adaf_beta_mag": 0.1, "adaf_r_inner": 1.5, "adaf_r_outer": 100.0,
+        "adaf_flattening": 0.0, "adaf_alpha": 0.1, "adaf_s": 0.3,
+        "adaf_intensity_scale": 1.0e30, "r_obs_M": 20.0})
+    return np.asarray(r.render(8, 5, None, False), dtype=np.float32).mean(2)
+
+
+def test_volumetric_emission_is_cut_at_the_scene_hit():
+    # A black sphere in front of the hole hides the glow behind it: the march
+    # ends at the hit, so the straight-line ADAF integral must too.
+    bare = _adaf_render([])
+    covered = _adaf_render([([0.0, 0.0, 3.0], 2.0)])
+    yy, xx = np.mgrid[0:H, 0:W]
+    ring = (np.hypot(yy - H // 2, xx - W // 2) >= 24) & (np.hypot(yy - H // 2, xx - W // 2) < 36)
+    assert bare[ring].mean() > 1e6, "ADAF scene too dim to test"
+    assert covered[ring].mean() < 0.1 * bare[ring].mean(), (covered[ring].mean(), bare[ring].mean())
+
+
+def test_disk_crossing_past_the_scene_hit_in_the_same_step_is_dropped():
+    helpers = pytest.importorskip("astroray_test_helpers")
+    n0, n_late, stopped_late = helpers.gr_segment_hit_crossings_probe(1.0)
+    _, n_early, stopped_early = helpers.gr_segment_hit_crossings_probe(0.0)
+    assert n0 >= 1 and stopped_late == 1 and stopped_early == 1
+    assert n_late == 1      # hit after the crossing: the crossing stays
+    assert n_early == 0     # hit before the crossing in the same step: dropped

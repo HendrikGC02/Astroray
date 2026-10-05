@@ -36,3 +36,20 @@ scene, so geometry inside r_max = 1.05 x influence radius was invisible.
   short; measured step angles are in the PR.
 - Straight shadow rays from a surface hit inside the region ignore the bending.
 - The volumetric (ADAF/jet) straight-line integral is not truncated at a hit.
+
+## Review fixes (PR #1080)
+
+- Redshift of the hit's emission: I_lambda * lambda^5 is invariant along a null
+  geodesic (Liouville; the invariant the disk transfer already uses), so
+  L_obs(lambda) = g^5 L_emit(g lambda), bolometric g^4. g = sqrt(-g_tt) of a
+  static emitter (Schwarzschild 1-2M/r, Kerr 1-2Mr/Sigma), divided by the same
+  factor at r_max: the flat scene outside is the reference observer, so the
+  region boundary has no brightness seam (a plain infinity reference would dim
+  a sphere straddling r_max by ~23% at r_obs_M = 20 just inside the edge).
+  Emission only; reflected light is #1082, straight NEE rays #1081.
+- Volumetric straight-line march ends at the hit depth along the incoming ray;
+  its transmittance multiplies path throughput.
+- A disk crossing past the hit within the same step is dropped (hit fraction
+  from the chord vs the crossing's theta-linear fraction).
+- Per GR object the Renderer caches a BVH over the non-GR primitives meeting
+  the r_max ball (none: no geodesic scene test, no overhead).

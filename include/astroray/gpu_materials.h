@@ -2294,7 +2294,12 @@ __device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, con
             float geom = D * G / (4.f * cosO * cosI + 1e-8f) * cosI;
             return L.weight * F * geom;
         }
-        float F = gpu_pr_fresnelDielectric(HdotO, 1.f, L.ior);
+        // #1111: side-aware Fresnel, as the pdf (gpu_pr_transmissionPdf) and the
+        // sampler use (Walter 2007 §5.2 / pbrt-v4 DielectricBxDF::f: F at the
+        // relative eta of the incident side). (1, ior) evaluated an INTERNAL
+        // reflection as air->glass, so f/pdf = F(1,n)/F(n,1) < 1 (TIR: F=1)
+        // dropped internally reflected energy (furnace rim 0.81 at r=0.3).
+        float F = gpu_pr_fresnelDielectric(HdotO, etaI, etaT);
         float fr = D * G * F / (4.f * cosO * cosI + 1e-8f) * cosI;
         if (outColour) { *outColour = L.weight * c.specularTint; *outScalar = fr; }
         return L.weight * c.specularTint * fr;

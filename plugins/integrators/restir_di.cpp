@@ -154,8 +154,10 @@ public:
             }
 
             // GR object: delegate entirely to the object's own spectral trace.
+            float grHitG = 1.0f;  // #1063
             if (rec.hitObject && rec.hitObject->isGRObject()) {
-                auto grResult = rec.hitObject->traceGRSpectral(pathRay, lambdas, gen);
+                auto grResult = rec.hitObject->traceGRSpectral(pathRay, lambdas, gen,
+                                                           renderer_->grSceneFor(rec.hitObject));
                 if (grResult.hasEmission) {
                     astroray::SampledSpectrum grEm(0.0f);
                     for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
@@ -166,6 +168,14 @@ public:
                 }
                 if (grResult.captured) break;
 
+                if (grResult.sceneHit) {
+                    // #1063: shade the scene surface the geodesic struck inside the GR region.
+                    rec         = grResult.sceneHit->rec;
+                    pathRay     = grResult.sceneHit->ray;
+                    grHitG      = grResult.sceneHit->redshift;
+                    throughput *= grResult.sceneHit->transmittance;
+                    wasSpecular = true;
+                } else {
                 Vec3 exitDir  = grResult.exitDirection;
                 float len2    = exitDir.length2();
                 if (!std::isfinite(exitDir.x) || !std::isfinite(exitDir.y) ||
@@ -183,12 +193,13 @@ public:
                 pathRay             = next;
                 wasSpecular         = true;
                 continue;
+                }
             }
 
             if (!rec.material) break;
 
             // Emission (camera ray or post-specular bounce only).
-            astroray::SampledSpectrum Le = rec.material->emittedSpectral(rec, lambdas);
+            astroray::SampledSpectrum Le = grHitEmission(rec, lambdas, grHitG);
             if (!Le.isZero()) {
                 if (bounce == 0 || wasSpecular) color += throughput * Le;
                 break;

@@ -62,7 +62,8 @@ public:
     bool isLight() const override { return true; }
 
     GRSpectralResult traceGRSpectral(
-            const Ray&, const astroray::SampledWavelengths&, std::mt19937&) const override {
+            const Ray&, const astroray::SampledWavelengths&, std::mt19937&,
+            const Hittable*) const override {
         ++*trace_calls_;
         GRSpectralResult result;
         result.emission = astroray::SampledSpectrum(emission_);
@@ -311,9 +312,32 @@ std::vector<float> volumetricChord(const std::string& model, const py::dict& par
     return spectrumValues(I);
 }
 
+// #1063: a scene hit at chord fraction `hit_frac` on the RK45 step that crosses
+// the equatorial plane. Returns {disk crossings without a hit, crossings with
+// the hit, stopped}. A crossing past the hit (hit_frac < crossing fraction) must
+// be dropped; one before it kept.
+std::array<int, 3> probeGrSegmentHitCrossings(double hit_frac) {
+    SchwarzschildMetric metric(1.0);
+    NovikovThorneDisk disk(&metric, 30.0, 1.0, 0.0);
+    GeodesicState s0{};
+    s0.r = 20.0; s0.theta = 1.2; s0.phi = 0.0;
+    s0.p_r = -0.5; s0.p_theta = 8.0; s0.p_phi = 0.0;
+    const double f = 1.0 - 2.0 / s0.r;
+    s0.p_t = std::sqrt(f * f * s0.p_r * s0.p_r + f * s0.p_theta * s0.p_theta / (s0.r * s0.r));
+    const double half_pi = 1.5707963267948966;
+    const IntegrationResult none = integrateGeodesic(metric, &disk, s0, 5000, 0.5, 1e-8, 1e-6, 100.0);
+    const GeodesicSegmentFn hit = [&](const GeodesicState& a, const GeodesicState& b) {
+        return (a.theta - half_pi) * (b.theta - half_pi) < 0.0 ? hit_frac : -1.0;
+    };
+    const IntegrationResult with = integrateGeodesic(metric, &disk, s0, 5000, 0.5, 1e-8, 1e-6, 100.0, &hit);
+    return {none.nCrossings, with.nCrossings, with.stopped ? 1 : 0};
+}
+
 } // namespace
 
 PYBIND11_MODULE(astroray_test_helpers, m) {
+    m.def("gr_segment_hit_crossings_probe", &probeGrSegmentHitCrossings, "hit_frac"_a,
+          "#1063: {crossings w/o hit, crossings w/ hit at the plane-crossing step, stopped}.");
     m.def("camera_pixel_roundtrip", &cameraPixelRoundtrip, "width"_a, "height"_a,
           "x"_a, "y"_a, "jitter_u"_a, "jitter_v"_a, "orthographic"_a = false,
           "#845: pixel -> film (u,v) -> Camera::getRay -> screenToPixel.");

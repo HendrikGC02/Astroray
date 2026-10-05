@@ -330,7 +330,8 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
             // shadowTransmittance in raytracer.h). This kernel claims per-channel
             // parity with production pathTraceSpectral, so it mirrors the exact
             // same shadow-ray treatment. Tr==0 for opaque scenes.
-            float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi), ls.distance);
+            float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi), ls.distance,
+                                             renderer.shadowTransparentHits(0));  // #1073
             if (shadowTr > 0.0f) {
                 SampledSpectrum f_spec = rec.material->evalSpectral(rec, wo, wi, ps.lambdas);
                 SampledSpectrum L_spec = ls.emission_spec;
@@ -403,7 +404,8 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
                 float bsdfPdf = rec.material->pdf(rec, wo, wi);
                 if (bsdfPdf > 0.0f) {
                     float shadowTr = shadowTransmittance(
-                        *bvh, spawnRay(rec, wi), std::numeric_limits<float>::max());
+                        *bvh, spawnRay(rec, wi), std::numeric_limits<float>::max(),
+                        renderer.shadowTransparentHits(0));  // #1073
                     if (shadowTr > 0.0f) {
                         SampledSpectrum f_spec = rec.material->evalSpectral(rec, wo, wi, ps.lambdas);
                         SampledSpectrum L_spec = envMap->evalSpectral(wi, ps.lambdas);

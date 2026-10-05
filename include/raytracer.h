@@ -2681,9 +2681,14 @@ inline void resolveLightPathMaterial(HitRecord& rec) {
 // shadow kernel, so this cites upstream Cycles directly.) A surface with
 // shadowAlpha<1 does NOT fully block the shadow ray: it lets (1-alpha) of the
 // light through and the trace continues PAST it to any opaque occluder behind.
-// Cycles caps the recorded transparent hits (INTEGRATOR_SHADOW_ISECT_SIZE);
-// we cap at maxHops (default 8, Cycles' default transparent max bounces) and
-// also stop once the accumulated transmittance falls below 1e-3 (opaque).
+// #1073: the shadow ray shares the path's transparent budget. Cycles
+// (integrate_shadow_max_transparent_hits in integrator/intersect_shadow.h and the
+// num_transparent_hits > max_transparent_hits test in bvh_shadow_all_anyhit_filter,
+// bvh/intersect_filter.h; Apache-2.0) lets a shadow ray cross
+// max(transparent_max_bounce - path.transparent_bounce, 0) transparent surfaces and
+// BLOCKS it at the next one. `maxTransparentHits` is that remaining budget (-1 =
+// unlimited; see Renderer::shadowTransparentHits). We also stop once the accumulated
+// transmittance falls below 1e-3 (opaque).
 //
 // Every non-Principled material returns the default shadowAlpha()==1.0, and a
 // Principled material at alpha==1 also returns 1.0, so the FIRST hit of an
@@ -2709,13 +2714,15 @@ inline astroray::SampledSpectrum grHitEmission(
 }
 
 inline float shadowTransmittance(const Hittable& bvh, const Ray& shadowRay,
-                                 float maxDist, int maxHops = 8) {
+                                 float maxDist, int maxTransparentHits) {
+    constexpr int kHopCap = 1024;  // Cycles' transparent_max_bounce ceiling (unlimited walk)
+    int transparentHits = 0;
     float Tr = 1.0f;
     Vec3 origin = shadowRay.origin;
     const Vec3 dir = shadowRay.direction;  // Ray ctor already normalized it
     float remaining = maxDist;
     const Hittable* selfPrim = shadowRay.self;  // #1037: primitive the hop leaves
-    for (int hop = 0; hop < maxHops; ++hop) {
+    for (int hop = 0; hop < kHopCap; ++hop) {
         HitRecord shadow;
         Ray hop_ray(origin, dir, shadowRay.time);
         hop_ray.self = selfPrim;
@@ -2726,6 +2733,8 @@ inline float shadowTransmittance(const Hittable& bvh, const Ray& shadowRay,
         float alpha = shadow.material ? shadow.material->shadowAlpha(shadow) : 1.0f;
         Tr *= (1.0f - alpha);
         if (Tr < 1e-3f) return 0.0f;  // opaque enough to fully block
+        // #1073: one transparent hit more than the budget allows blocks the ray.
+        if (maxTransparentHits >= 0 && ++transparentHits > maxTransparentHits) return 0.0f;
         // Advance just past this hit and continue toward the light.
         float advance = shadow.t + 1e-3f;
         origin = origin + dir * advance;
@@ -2733,7 +2742,7 @@ inline float shadowTransmittance(const Hittable& bvh, const Ray& shadowRay,
         selfPrim = shadow.hitObject;  // #1037: Cycles shadow walk skips the last transparent hit
         if (remaining <= 0.001f) return Tr;
     }
-    return Tr;  // exhausted transparent-shadow bounce budget
+    return 0.0f;  // hop cap exhausted: blocked, like Cycles past its max transparent hits
 }
 
 // ============================================================================
@@ -3180,7 +3189,8 @@ private:
                                                  float segT,
                                                  const astroray::SampledSpectrum& rate,
                                                  const astroray::SampledWavelengths& lambdas,
-                                                 std::mt19937& gen, MediumAt&& mediumAt) const {
+                                                 std::mt19937& gen, int shadowHits,
+                                                 MediumAt&& mediumAt) const {
         namespace av = astroray::volume;
         const astroray::SampledSpectrum zero(0.0f);
         const Vec3& o = ray.origin;
@@ -3227,7 +3237,7 @@ private:
         if (!lights.resample(ls, picked, P, Vec3(0.0f), lambdas, gen)) return zero;
         if (!(ls.pdf > 1e-8f)) return zero;
         const Vec3 wi = (ls.position - P).normalized();
-        const float shadowTr = shadowTransmittance(*bvh, Ray(P, wi, ray.time), ls.distance);
+        const float shadowTr = shadowTransmittance(*bvh, Ray(P, wi, ray.time), ls.distance, shadowHits);
         if (shadowTr <= 0.0f) return zero;
         astroray::SampledSpectrum sum(0.0f);
         for (int k = 0; k < n; ++k) {
@@ -3251,7 +3261,7 @@ private:
                                                    float tStart, float surfaceT,
                                                    const astroray::volume::SegmentCrossings& sc,
                                                    const astroray::SampledWavelengths& lambdas,
-                                                   std::mt19937& gen) const {
+                                                   std::mt19937& gen, int shadowHits) const {
         namespace av = astroray::volume;
         float a = std::numeric_limits<float>::max(), b = 0.0f;
         astroray::SampledSpectrum rate(0.0f);
@@ -3266,7 +3276,7 @@ private:
             rate += (sU + aU) * (m.densityScale * m.maxDensity);
         }
         if (!(b > a)) return astroray::SampledSpectrum(0.0f);
-        return segmentDirectLight(ray, dUnit, a, b, surfaceT, rate, lambdas, gen,
+        return segmentDirectLight(ray, dUnit, a, b, surfaceT, rate, lambdas, gen, shadowHits,
             [&](const Vec3& P, float t, astroray::SampledSpectrum* sigS, float* g,
                 astroray::SampledSpectrum& Tr) {
                 int n = 0;
@@ -3564,6 +3574,13 @@ public:
     int getMaxVolumeBounces() const { return maxVolumeBounces; }
     void setTransparentBounces(int n) { maxTransparentBounces = (n < 0) ? -1 : n; }  // #1033
     int getMaxTransparentBounces() const { return maxTransparentBounces; }
+    // #1073: remaining transparent-hit budget of a shadow ray leaving a vertex whose path
+    // has passed `pathTransparentDepth` transparent surfaces (Cycles
+    // integrate_shadow_max_transparent_hits); -1 = unlimited.
+    int shadowTransparentHits(int pathTransparentDepth) const {
+        return maxTransparentBounces < 0 ? -1
+                                         : std::max(maxTransparentBounces - pathTransparentDepth, 0);
+    }
     // pkg268 — register bounded object media. Clear before a re-export.
     void clearGridMedia() {
         gridMedia_.clear(); gridStore_.clear(); boundaryStore_.clear(); hasBoundaryMedia_ = false;
@@ -4089,7 +4106,8 @@ public:
                 // one-sample MIS), NEE there weighted by Tr(0,t)·σ_s(t).
                 if (lightNeeEnabled && !lights.empty() && !volTerminateAfter) {
                     astroray::SampledSpectrum c =
-                        boundedSegmentDirect(ray, dUnit, mediaT0, surfaceT, segX, lambdas, gen);
+                        boundedSegmentDirect(ray, dUnit, mediaT0, surfaceT, segX, lambdas, gen,
+                                             shadowTransparentHits((int)lpc.transparentDepth));
                     if (!c.isZero()) {
                         c = clampContribSpectral(throughput * c, lambdas, bounce);
                         color += c;
@@ -4197,6 +4215,7 @@ public:
                     Vec3 dU = ray.direction.normalized();
                     const float b = didHit ? rec.t : std::numeric_limits<float>::infinity();
                     astroray::SampledSpectrum c = segmentDirectLight(ray, dU, 0.0f, b, b, sigmaT, lambdas, gen,
+                        shadowTransparentHits((int)lpc.transparentDepth),
                         [&](const Vec3&, float t, astroray::SampledSpectrum* sigS, float* g,
                             astroray::SampledSpectrum& Tr) {
                             sigS[0] = sigmaT * worldVolumeScatter;
@@ -4488,7 +4507,8 @@ public:
                     // shadowAlpha<1 occluder in FRONT of an opaque one still shadows
                     // — the trace continues past it. Tr==0 for an all-opaque scene in
                     // one hop, so every pre-pkg253 render is byte-identical.
-                    float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi, ray.time), ls.distance);
+                    float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi, ray.time), ls.distance,
+                                                     shadowTransparentHits((int)lpc.transparentDepth));
                     if (shadowTr > 0.0f) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
@@ -4602,7 +4622,8 @@ public:
                     // infinite distance. Unobstructed (Tr=1) when nothing occludes.
                     float shadowTr = shadowTransmittance(
                         *bvh, spawnRay(rec, wi, ray.time),
-                        std::numeric_limits<float>::max());
+                        std::numeric_limits<float>::max(),
+                        shadowTransparentHits((int)lpc.transparentDepth));
                     if (shadowTr > 0.0f) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
@@ -5033,7 +5054,8 @@ public:
                     // shadowAlpha<1 occluder in FRONT of an opaque one still shadows
                     // — the trace continues past it. Tr==0 for an all-opaque scene in
                     // one hop, so every pre-pkg253 render is byte-identical.
-                    float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi, ray.time), ls.distance);
+                    float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi, ray.time), ls.distance,
+                                                     shadowTransparentHits((int)lpc.transparentDepth));
                     if (shadowTr > 0.0f) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);

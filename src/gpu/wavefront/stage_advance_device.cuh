@@ -693,7 +693,7 @@ __device__ int intersectPathSlotT(
                                     GSampledSpectrum(0.f), throughput, lambdas, 0.f, 0.f,
                                     prims, tris, spheres, lights, numLights, totalLightPower,
                                     dedLights, numDed, lightTree, state.rng_pixel[idx],
-                                    state.rng_sample[idx], state.rng_seed[idx]);
+                                    state.rng_sample[idx], state.rng_seed[idx], tcount);
         // r_u lanes live in the side table (not GPUWavefrontState). A path starts
         // at bounce 0 with r_u = 1: reset there (no regen-kernel change needed).
         const int ruCap = c_wfGridVolume.capacity;
@@ -832,8 +832,8 @@ __device__ int intersectPathSlotT(
                                     sigmaT, throughput, lambdas, c_worldVolume.scatter,
                                     c_worldVolume.anisotropy, prims, tris, spheres, lights,
                                     numLights, totalLightPower, dedLights, numDed, lightTree,
-                                    rpix, rsmp, rsd);
-        int ch = (int)(gpu_freeflightUniform(rpix, rsmp, rsd, salt) * G_SPECTRUM_SAMPLES);
+                                    rpix, rsmp, rsd, tcount);
+        int ch =(int)(gpu_freeflightUniform(rpix, rsmp, rsd, salt) * G_SPECTRUM_SAMPLES);
         if (ch >= G_SPECTRUM_SAMPLES) ch = G_SPECTRUM_SAMPLES - 1;
         float sigTc = sigmaT.v[ch];
         float xi = gpu_freeflightUniform(rpix, rsmp, rsd, salt + 1u);
@@ -2291,6 +2291,10 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                         // after state.bounce[idx] may already have advanced (see
                         // the G_WF_NEE_I_LANES comment, gpu_wavefront_state.h).
                         nee_i[ 3 * nee_capacity + idx] = bounce;
+                        // #1073: the path's transparent-pass count, pre-advance (the
+                        // continuation sample below may add one), for the shadow ray's
+                        // transparent-hit budget. One load + store, no live range.
+                        nee_i[ 6 * nee_capacity + idx] = (int)(state.lp_state[idx] >> 27);
                         int qslot = atomicAdd(shadow_count, 1);
                         shadow_queue[qslot] = idx;
                     }

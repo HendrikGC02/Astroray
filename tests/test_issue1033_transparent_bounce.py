@@ -76,13 +76,17 @@ def test_alpha_pass_spends_no_max_bounces(use_gpu):
 @pytest.mark.parametrize("use_gpu", BACKENDS)
 def test_transparent_max_bounces_is_honoured(use_gpu):
     """Three Alpha-0 sheets: after the T-th pass the next surface terminates, so the
-    wall is black for T <= 3 and lit for T >= 4 (Blender 5.2 Cycles, see module
-    docstring); -1 (unlimited) lights it."""
+    wall is black for T <= 3 (Blender 5.2 Cycles, see module docstring). For T = 4, 5
+    the camera reaches the wall but its sun shadow ray (which crosses the same three
+    sheets) has only T - 3 transparent hits left, so it stays black until T >= 6
+    (#1073, Blender 5.2: black T = 3..5, lit T = 6, 8); -1 (unlimited) lights it. The
+    original expectation (lit from T = 4) was calibrated on small sheets that the
+    shadow ray bypassed, and on the engine's own 8-hop shadow cap."""
     ref = _wall_value(use_gpu, 0)
     for t in (1, 3):
         v = _wall_value(use_gpu, 3, transparent=t)
         assert v < 0.02, (t, v)
-    for t in (4, 8, -1):
+    for t in (6, 8, -1):
         v = _wall_value(use_gpu, 3, transparent=t)
         assert v == pytest.approx(ref, rel=0.05), (t, v, ref)
 

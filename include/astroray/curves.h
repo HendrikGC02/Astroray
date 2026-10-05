@@ -99,7 +99,14 @@ public:
         }
 
         float maxRadius = std::max(radius0_, radius1_);
-        if (!boundsOverlapRay(cp, maxRadius, tMin, tMax)) return false;
+        // #1051 review: a thick hit moves from the axis depth (the leaf's pc.z) to
+        // the tube entry up to one radius nearer, so the leaf culls against
+        // tMax + radius and the entry is tested against the caller's tMax below.
+        // Culling the axis depth against tMax let a grazing strand tested first
+        // reject a central strand whose surface is nearer.
+        const bool thick = thickMode_ && *thickMode_;
+        const float cullMax = thick ? tMax + maxRadius : tMax;
+        if (!boundsOverlapRay(cp, maxRadius, tMin, cullMax)) return false;
 
         // Adaptive max recursion depth (pbrt's L0/eps flatness heuristic).
         float L0 = 0.0f;
@@ -118,9 +125,15 @@ public:
             }
         }
 
-        if (!recursiveIntersect(r, tMin, tMax, cp, xAxis, yAxis, zAxis, 0.0f, 1.0f, maxDepth, rec))
+        if (!thick)
+            return recursiveIntersect(r, tMin, tMax, cp, xAxis, yAxis, zAxis, 0.0f, 1.0f, maxDepth, rec);
+        // Local record: a rejected thick hit must not clobber a nearer hit already in `rec`.
+        HitRecord h;
+        if (!recursiveIntersect(r, tMin, cullMax, cp, xAxis, yAxis, zAxis, 0.0f, 1.0f, maxDepth, h))
             return false;
-        if (thickMode_ && *thickMode_) moveToThickSurface(r, tMin, rec);
+        moveToThickSurface(r, tMin, h);
+        if (h.t > tMax) return false;  // entry (or kept axis depth) beyond the caller's tMax
+        rec = h;
         return true;
     }
 
@@ -319,7 +332,9 @@ private:
         // the Stage-2 hair BSDF for its longitudinal/azimuthal frame.
         rec.uvTangent = dpdu.normalized();
         rec.uvBitangentSign = 1.0f;
-        rec.uv = Vec2(u, v);
+        // #1051 review: the BSDF-facing v (hair_v) was flipped; the texture coordinate
+        // keeps its pre-pkg316 orientation (1 - v), so textured curves do not mirror.
+        rec.uv = Vec2(u, 1.0f - v);
         rec.hair_u = u;
         rec.hair_v = v;
         rec.material = material_;

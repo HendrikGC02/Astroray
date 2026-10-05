@@ -244,7 +244,7 @@ def _fibre_reference():
 
 
 def _render_fibre(gpu, material="hair", strand=((-3.0, 0.0, 0.0), (3.0, 0.0, 0.0)), sun_to=SUN_TO,
-                  spp=256):
+                  spp=256, thick=True):
     r = astroray.Renderer()
     r.set_background_color([0.0, 0.0, 0.0])
     if material == "hair":
@@ -255,7 +255,7 @@ def _render_fibre(gpu, material="hair", strand=((-3.0, 0.0, 0.0), (3.0, 0.0, 0.0
         m = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
     pts = np.asarray(strand, np.float32)
     r.add_curves_bulk(pts, np.full(len(pts), RAD, np.float32), [len(pts)], m)
-    r.set_curve_thick_mode(True)
+    r.set_curve_thick_mode(thick)
     r.add_sun_light_dedicated(list(-np.asarray(sun_to)), 0.0, {"mode": "rgb", "color": [1, 1, 1]}, E_SUN)
     r.setup_camera([0, 0, 5], [0, 0, 0], [0, 1, 0], 40.0, 1.0, 0.0, 5.0, RES, RES,
                    orthographic=True, ortho_width=1.0, ortho_height=1.0)
@@ -282,6 +282,26 @@ def test_single_fibre_matches_reference(gpu):
     assert np.all(np.abs(ratio - 1) < 0.015), f"single-fibre radiance / reference = {ratio}"
     # The sun is on the +y side (image top, row < 32): the R-lobe glint must be there.
     assert rows.argmax() < RES // 2, f"specular glint on the unlit side (row {rows.argmax()})"
+
+
+# Cycles 5.2 CPU, RIBBONS (scene.cycles_curves.shape), same fibre/sun/ortho camera, 256 spp
+# (script: astra_run/batch-f/f3/f3b/cy_fibre_shape.py). Ribbon h = -v, thick h = -d/r: the
+# h-average is shape independent (THICK render identical to 2e-6).
+CYCLES_RIBBON_BAND = np.array([0.0278637, 0.0249148, 0.0217203])
+CYCLES_RIBBON_TOP_OVER_BOTTOM = 0.18378599 / 0.13407555   # rows 0-31 / 32-63, sun on +y (top)
+
+
+@pytest.mark.parametrize("gpu", BACKENDS, ids=lambda g: "gpu" if g else "cpu")
+def test_ribbon_single_fibre_asymmetric_light_matches_cycles(gpu):
+    img = _render_fibre(gpu, thick=False)
+    cols = img[:, 8:56, :]
+    band = (cols.sum(axis=0) / (2 * RAD * RES)).mean(axis=0)
+    rows = cols.mean(axis=(1, 2))
+    top_over_bottom = rows[:RES // 2].sum() / rows[RES // 2:].sum()
+    print(f"\n[pkg316] ribbon fibre {'gpu' if gpu else 'cpu'}: band/Cycles {np.round(band / CYCLES_RIBBON_BAND, 4)} "
+          f"top/bottom {top_over_bottom:.4f} (Cycles {CYCLES_RIBBON_TOP_OVER_BOTTOM:.4f})")
+    assert np.all(np.abs(band / CYCLES_RIBBON_BAND - 1) < 0.015), f"ribbon fibre / Cycles = {band / CYCLES_RIBBON_BAND}"
+    assert abs(top_over_bottom / CYCLES_RIBBON_TOP_OVER_BOTTOM - 1) < 0.03,         f"ribbon lit-side asymmetry {top_over_bottom:.4f} vs Cycles {CYCLES_RIBBON_TOP_OVER_BOTTOM:.4f}"
 
 
 @pytest.mark.parametrize("gpu", BACKENDS, ids=lambda g: "gpu" if g else "cpu")
@@ -357,3 +377,79 @@ def test_neighbour_strand_shadowing_matches_cycles(gpu):
     keep = pair / alone
     print(f"\n[pkg316] strands 5+6 keep {keep:.3f} of their separate radiance (Cycles 0.959)")
     assert keep > 0.93, f"neighbouring thick strands over-shadow: {keep:.3f} (Cycles 0.959)"
+
+
+# --------------------------------------------------------------------------
+# 5. Nearest strand independent of traversal order (thick mode)
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("b_side", [+1.0, -1.0], ids=["B+z", "B-z"])
+@pytest.mark.parametrize("order", ["AB", "BA"])
+@pytest.mark.parametrize("thick", [True, False], ids=["thick", "ribbon"])
+def test_nearest_strand_independent_of_traversal_order(thick, order, b_side):
+    """Strand A is centred under the ray (axis y = -0.02, entry y = 0.08); strand B
+    grazes it (axis y = 0, |dz| = 0.9 r, entry y = 0.0436). A's surface is nearer, but
+    its AXIS depth is farther than B's ENTRY depth, so culling the leaf against the
+    axis depth let whichever strand was tested first reject the other. The thick hit
+    must be A's entry for any order; a ribbon shades on the axis plane: B (y = 0)
+    is the nearer axis, A is at -0.02."""
+    r = astroray.Renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    m = r.create_material("lambertian", [0.5, 0.5, 0.5], {})
+    rad = 0.1
+    A = [(-3.0, -0.02, 0.0), (3.0, -0.02, 0.0)]
+    B = [(-3.0, 0.0, b_side * 0.9 * rad), (3.0, 0.0, b_side * 0.9 * rad)]
+    strands = [A, B] if order == "AB" else [B, A]
+    pts = np.asarray([p for s in strands for p in s], np.float32)
+    r.add_curves_bulk(pts, np.full(4, rad, np.float32), [2, 2], m)
+    r.set_curve_thick_mode(thick)
+    r.setup_camera([0.0, 5.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 40.0, 1.0, 0.0, 5.0, 3, 3,
+                   orthographic=True, ortho_width=0.003, ortho_height=0.003)
+    r.set_integrator("path_tracer")
+    r.set_seed(7)
+    r.render(1, 1, None, False)
+    y = float(np.asarray(r.get_position_buffer())[1, 1][1])
+    want = -0.02 + rad if thick else 0.0
+    assert abs(y - want) < 2e-3, f"{'thick' if thick else 'ribbon'} {order} hit y={y:.4f}, want {want:.4f}"
+
+
+# --------------------------------------------------------------------------
+# 6. Texture v across the strand keeps its pre-pkg316 orientation (rec.uv.v)
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("dz,lo,hi", [(0.05, 0.52, 0.60), (-0.05, 0.40, 0.48)])
+def test_curve_uv_v_orientation_unchanged(dz, lo, hi):
+    """Furnace render of a Lambertian with a diagonal gradient texture t = (u + v) / 2
+    (UV coord mode). Ray at z = +0.05 on a radius-0.2 strand: pre-pkg316 v = 0.625
+    (t = 0.5625); flipping hair_v must not mirror the texture coordinate."""
+    r = astroray.Renderer()
+    r.set_background_color([1.0, 1.0, 1.0])
+    r.create_procedural_texture("g316", "gradient", [3, 1.0, 0, 0, 0, 1, 1, 1])
+    m = r.create_material("lambertian", [0.5, 0.5, 0.5], {"texture": "g316"})
+    r.add_curves_bulk(np.asarray([(-3.0, 0.0, 0.0), (3.0, 0.0, 0.0)], np.float32),
+                      np.full(2, 0.2, np.float32), [2], m)
+    r.set_curve_thick_mode(True)
+    r.setup_camera([0.0, 5.0, dz], [0.0, 0.0, dz], [0.0, 0.0, 1.0], 40.0, 1.0, 0.0, 5.0, 3, 3,
+                   orthographic=True, ortho_width=0.003, ortho_height=0.003)
+    r.set_integrator("path_tracer")
+    r.set_seed(7)
+    val = float(np.asarray(r.render(256, 2, None, False)).reshape(3, 3, 3).mean())
+    assert lo < val < hi, f"uv.v mirrored: dz={dz} gradient radiance {val:.4f} not in ({lo}, {hi})"
+
+
+# --------------------------------------------------------------------------
+# 7. A registry curve_segment honours the scene thick mode (like add_curves_bulk)
+# --------------------------------------------------------------------------
+def test_registry_curve_segment_shades_at_tube_entry_in_thick_mode():
+    r = astroray.Renderer()
+    r.set_background_color([0.0, 0.0, 0.0])
+    r.add_shape("curve_segment", {"p0": [-4.0, 0.0, 0.0], "p1": [-3.0, 0.0, 0.0],
+                                   "p2": [3.0, 0.0, 0.0], "p3": [4.0, 0.0, 0.0],
+                                   "radius0": 0.2, "radius1": 0.2})
+    r.set_curve_thick_mode(True)
+    r.setup_camera([0.0, 5.0, 0.05], [0.0, 0.0, 0.05], [0.0, 0.0, 1.0], 40.0, 1.0, 0.0, 5.0, 3, 3,
+                   orthographic=True, ortho_width=0.003, ortho_height=0.003)
+    r.set_integrator("path_tracer")
+    r.set_seed(7)
+    r.render(1, 1, None, False)
+    y = float(np.asarray(r.get_position_buffer())[1, 1][1])
+    want = math.sqrt(0.2 ** 2 - 0.05 ** 2)
+    assert abs(y - want) < 2e-3, f"registry curve shading point y={y:.4f}, want {want:.4f}"

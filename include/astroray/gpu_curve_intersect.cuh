@@ -173,7 +173,10 @@ __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_curve_intersect(
     sp = 1;
 
     bool  hitAny = false;
-    float bestT = tMax;   // narrows as closer hits are found
+    // #1051 review: thick hits move from the axis depth to the tube entry (up to
+    // one radius nearer), so cull the axis depth against tMax + radius and test
+    // the entry against tMax below (curves.h twin).
+    float bestT = thick ? tMax + maxRadius : tMax;   // narrows as closer hits are found
     float best_u = 0.f, best_v = 0.5f;
 
     while (sp > 0) {
@@ -284,6 +287,7 @@ __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_curve_intersect(
             if (t >= tMin && t < tHit) tHit = t;
         }
     }
+    if (tHit > tMax) return false;
     rec.t = tHit;
     rec.point = ray.at(tHit);
     rec.frontFace = ray.direction.dot(outwardNormal) < 0.f;

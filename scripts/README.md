@@ -28,6 +28,7 @@ new reusable script, register it here in the same commit.
 | Multi-scene SPP convergence sweep (diagnostic) | `scripts/diagnostics/convergence_tracker.py` |
 | Cycles↔Astroray parity table (CI) | `scripts/run_parity.py` + `scripts/summarize_parity.py` |
 | Blender differential parity harness | `benchmarks/blender_parity/harness.py` |
+| Gate (c) noise-aware metric study (pkg317): multi-seed legs via `harness.py --seeds study --gate-c-freeze F --out D` (GPU legs under `gpu_locked_run.py`), then candidates + controls + p-value-map sheet via `python -m benchmarks.blender_parity.mc_compare --legs D/seed_legs --freeze F --out O` | `benchmarks/blender_parity/mc_compare.py` |
 | Visual reference-bank gates | `benchmarks/reference_bank/runner.py` |
 | README gallery / hero renders | `scripts/diagnostics/render_readme_gallery.py`, `render_readme_hero.py` |
 | Blender addon showcase scenes (glass dispersion, volumes, Nishita sky, thin film + metals): build `.blend` + render Cycles/Astroray PNGs | `benchmarks/blender_showcase/showcase.py` (run inside Blender; `build` / `render` subcommands) |

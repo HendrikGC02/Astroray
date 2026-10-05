@@ -788,6 +788,64 @@ def run_gate_c_trio(out_dir: Path, *, manifest_path: Path | None = None,
     return 0 if all((role, backend, "baseline") in arrays for role in frozen for backend in ("CPU", "GPU")) else 1
 
 
+STUDY_SEEDS = (278, 1301, 2711, 4177, 6113, 7919, 9371, 11027)  # pkg317: spread, never adjacent (#986)
+
+
+def run_gate_c_seed_legs(out_dir: Path, freeze_path: Path, seeds: tuple[int, ...] = STUDY_SEEDS, *,
+                         backends: tuple[str, ...] = ("CPU", "GPU"),
+                         controls: tuple[str, ...] = ("hair_off", "hdri_off"),
+                         timeout: int = 1800) -> int:
+    """pkg317 study legs: N independent seeds of each gate-(c) leg, written to
+    ``<out_dir>/seed_legs/<role>_<backend>_<control>/s<seed>.npy`` (+ ``.json``
+    with render seconds), beside - never into - the gate legs.  Reuses an
+    existing ``gate_c.freeze.json`` for roles/controls; the gate path
+    (``run_gate_c_trio``) and its pinned seed are untouched.  Resumable."""
+    freeze_path = Path(freeze_path).resolve()
+    freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
+    freeze_sha = _sha256(freeze_path)
+    manifest_path = Path(freeze["manifest_path"])
+    blender = _find_blender()
+    if blender is None:
+        print("[pkg317] Blender not found (set BLENDER_EXE)", file=sys.stderr)
+        return 2
+    env = os.environ.copy()
+    pyd = _pyd_dir(_REPO_ROOT)
+    if pyd and "ASTRORAY_PYD_DIR" not in env:
+        env["ASTRORAY_PYD_DIR"] = str(pyd)
+    failed = 0
+    for role, item in freeze["roles"].items():
+        kinds = ["baseline"] + [c["kind"] for c in item.get("controls", []) if c["kind"] in controls]
+        for backend in backends:
+            for kind in kinds:
+                leg_dir = Path(out_dir) / "seed_legs" / f"{role.replace(':', '_')}_{backend.lower()}_{kind}"
+                leg_dir.mkdir(parents=True, exist_ok=True)
+                for seed in seeds:
+                    stem = leg_dir / f"s{seed}"
+                    if stem.with_suffix(".npy").is_file() and stem.with_suffix(".json").is_file():
+                        continue
+                    extra = [] if kind == "baseline" else ["--gate-c-control", kind]
+                    code, sentinel, report = _run_gate_leg(blender, [
+                        "--corpus-manifest", str(manifest_path), "--corpus-scene", item["scene_id"],
+                        "--engine", "CUSTOM_RAYTRACER", "--device", backend.lower(),
+                        "--gate-c-freeze", str(freeze_path), "--gate-c-freeze-sha256", freeze_sha,
+                        "--gate-c-build-id", freeze["build_id"], "--seed", str(seed), "--out", str(stem)] + extra,
+                        env, timeout)
+                    stdout = (report.pop("_gate_leg_execution", None) or {}).get("stdout") or ""
+                    info = next((json.loads(line.split("PKG307_INFO ", 1)[1]) for line in stdout.splitlines()
+                                 if "PKG307_INFO " in line), {})
+                    stem.with_suffix(".png").unlink(missing_ok=True)
+                    if code != 0 or not sentinel or not stem.with_suffix(".npy").is_file():
+                        print(f"[pkg317] FAILED {leg_dir.name} seed {seed}: exit {code}", flush=True)
+                        failed += 1
+                        continue
+                    stem.with_suffix(".json").write_text(json.dumps({
+                        "seed": seed, "render_s": info.get("render_s"), "samples": info.get("samples"),
+                        "effective_device": report.get("effective_device"), "module_sha256": report.get("module_sha256"),
+                        "build_id": report.get("build_id"), "resolved_seed": report.get("resolved_seed")}), encoding="utf-8")
+                    print(f"[pkg317] {leg_dir.name} seed {seed} render_s={info.get('render_s')}", flush=True)
+    return 1 if failed else 0
+
+
 def _run_leg(blender: Path, feat: Feature, engine: str, out_stem: Path,
              res: int, samples: int, timeout: int, env: dict) -> tuple[bool, str]:
     """Spawn one headless-Blender leg. Returns (ok, log_tail)."""
@@ -1218,6 +1276,12 @@ def main(argv: list[str] | None = None) -> int:
                         "matrix")
     p.add_argument("--gate-c", action="store_true",
                    help="produce the owner-selected corpus trio CPU/GPU F12 evidence")
+    p.add_argument("--seeds", default="", metavar="S1,S2,..|study",
+                   help="pkg317: render N independent-seed study legs of the gate-(c) trio into "
+                        "<out>/seed_legs (needs --gate-c-freeze; 'study' = the 8 pinned study seeds)")
+    p.add_argument("--gate-c-freeze", type=Path, default=None,
+                   help="existing gate_c.freeze.json whose roles/controls --seeds re-renders")
+    p.add_argument("--seed-backends", default="CPU,GPU", help="with --seeds: backends to render")
     p.add_argument("--corpus-manifest", type=Path, default=None)
     p.add_argument("--build-id", default="", help="pinned addon/build identity for gate-c evidence")
     p.add_argument("--module-sha256", default="", help="expected loaded astroray module SHA-256 for gate-c")
@@ -1228,6 +1292,12 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     if args.export_blend is not None:
         return export_reference_scenes(args.export_blend, timeout=args.timeout)
+    if args.seeds:
+        if args.gate_c_freeze is None:
+            p.error("--seeds requires --gate-c-freeze")
+        seeds = STUDY_SEEDS if args.seeds == "study" else tuple(int(s) for s in args.seeds.split(","))
+        return run_gate_c_seed_legs(args.out, args.gate_c_freeze, seeds,
+                                    backends=tuple(args.seed_backends.upper().split(",")), timeout=args.timeout)
     if args.gate_c:
         return run_gate_c_trio(args.out, manifest_path=args.corpus_manifest,
                                timeout=args.timeout, build_id=args.build_id,

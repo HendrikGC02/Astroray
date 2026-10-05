@@ -36,8 +36,9 @@ LIGHT_PATH_BOOLEAN = LIGHT_PATH_OUTPUTS[:8]
 # Outputs whose Astroray value is approximate (reported by the addon):
 #   Is Diffuse / Is Glossy Ray, Diffuse / Glossy Depth use Astroray's per-MATERIAL
 #   bounce class (the pkg201 bounce-limit classifier: a Principled bounce counts
-#   as glossy), not Cycles' per-closure label; Transparent Depth is always 0
-#   (Astroray counts a Transparent BSDF pass as a transmission bounce).
+#   as glossy), not Cycles' per-closure label. Transparent Depth is exact since
+#   #1033 (PR #1078): a transparent pass-through counts in transparentDepth only
+#   (astroray/light_path.h next_surface), on CPU and GPU.
 LIGHT_PATH_APPROXIMATE = ('Is Diffuse Ray', 'Is Glossy Ray', 'Diffuse Depth', 'Glossy Depth')
 
 # #990 — shading attribute inputs. Each (node, output) is one engine attribute

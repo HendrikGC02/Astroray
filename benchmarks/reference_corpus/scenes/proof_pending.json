@@ -75,7 +75,7 @@
     {
       "bl_idname": "ShaderNodeOutputMaterial",
       "category": "shader_node",
-      "classification": "SUPPORTED",
+      "classification": "APPROXIMATED",
       "feature": "OUTPUT_MATERIAL",
       "socket_or_prop": "input:Displacement"
     },
@@ -525,14 +525,14 @@
     {
       "bl_idname": "ShaderNodeLightPath",
       "category": "input_node",
-      "classification": "SUPPORTED",
+      "classification": "APPROXIMATED",
       "feature": "LIGHT_PATH",
       "socket_or_prop": "output:Is Diffuse Ray"
     },
     {
       "bl_idname": "ShaderNodeLightPath",
       "category": "input_node",
-      "classification": "SUPPORTED",
+      "classification": "APPROXIMATED",
       "feature": "LIGHT_PATH",
       "socket_or_prop": "output:Is Glossy Ray"
     },
@@ -581,14 +581,14 @@
     {
       "bl_idname": "ShaderNodeLightPath",
       "category": "input_node",
-      "classification": "SUPPORTED",
+      "classification": "APPROXIMATED",
       "feature": "LIGHT_PATH",
       "socket_or_prop": "output:Diffuse Depth"
     },
     {
       "bl_idname": "ShaderNodeLightPath",
       "category": "input_node",
-      "classification": "SUPPORTED",
+      "classification": "APPROXIMATED",
       "feature": "LIGHT_PATH",
       "socket_or_prop": "output:Glossy Depth"
     },
@@ -611,7 +611,7 @@
     {
       "bl_idname": "ShaderNodeBackground",
       "category": "shader_node",
-      "classification": "SUPPORTED",
+      "classification": "APPROXIMATED",
       "feature": "BACKGROUND",
       "socket_or_prop": "input:Color"
     },
@@ -625,7 +625,7 @@
     {
       "bl_idname": "ShaderNodeOutputWorld",
       "category": "shader_node",
-      "classification": "SUPPORTED",
+      "classification": "APPROXIMATED",
       "feature": "OUTPUT_WORLD",
       "socket_or_prop": "input:Volume"
     }

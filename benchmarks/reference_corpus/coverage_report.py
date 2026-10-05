@@ -1111,6 +1111,15 @@ def verify_scanner_integration_proof(proof: Any, repo_root: Path | None,
         return False, "#823 commit is not an ancestor of origin/main"
     if _sha256_bytes(shown) != source_sha.lower():
         return False, "#823 pinned scanner source does not match landed commit"
+    # #1101 review finding 7: the review covers ONE scanner source. A scanner changed since (the file the
+    # matrix is regenerated with) is unreviewed, so a stale receipt must not score it. Line endings are
+    # normalised: a Windows checkout may carry CRLF where the committed blob is LF.
+    try:
+        on_disk = (repo_root / SCANNER_SOURCE_PATH).read_bytes()
+    except OSError:
+        return False, "scanner source missing on disk"
+    if source_sha.lower() not in (_sha256_bytes(on_disk), _sha256_bytes(on_disk.replace(b"\r\n", b"\n"))):
+        return False, "scanner source on disk differs from the reviewed source (re-review required)"
     return True, ""
 
 

@@ -10,9 +10,9 @@
 
 ## Summary
 
-- **SUPPORTED**: 301 features
-- **APPROXIMATED**: 107 features
-- **DROPPED-SILENT**: 329 features ⚠️
+- **SUPPORTED**: 292 features
+- **APPROXIMATED**: 110 features
+- **DROPPED-SILENT**: 335 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 737 features
 
@@ -118,7 +118,7 @@ These features are silently ignored by the addon with no warning:
 - **AMBIENT_OCCLUSION**: `prop:only_local` — property BOOLEAN
 - **AMBIENT_OCCLUSION**: `prop:samples` — property INT
 - **ATTRIBUTE**: `prop:attribute_type` — property ENUM
-- **BACKGROUND**: `input:Weight` — root / scene-level node consumed by the render-engine traversal (pkg320)
+- **BACKGROUND**: `input:Weight` — root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **BEVEL**: `input:Radius` — no handler in addon translation layer
 - **BEVEL**: `input:Normal` — no handler in addon translation layer
 - **BEVEL**: `prop:samples` — property INT
@@ -237,9 +237,9 @@ These features are silently ignored by the addon with no warning:
 - **OUTPUT_LINESTYLE**: `prop:target` — property ENUM
 - **OUTPUT_LINESTYLE**: `prop:use_alpha` — property BOOLEAN
 - **OUTPUT_LINESTYLE**: `prop:use_clamp` — property BOOLEAN
-- **OUTPUT_MATERIAL**: `input:Thickness` — root / scene-level node consumed by the render-engine traversal (pkg320)
+- **OUTPUT_MATERIAL**: `input:Thickness` — root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **OUTPUT_MATERIAL**: `prop:target` — property ENUM
-- **OUTPUT_WORLD**: `input:Surface` — root / scene-level node consumed by the render-engine traversal (pkg320)
+- **OUTPUT_WORLD**: `input:Surface` — root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **OUTPUT_WORLD**: `prop:is_active_output` — property BOOLEAN
 - **OUTPUT_WORLD**: `prop:target` — property ENUM
 - **ShaderNodeRadialTiling**: `input:Vector` — no handler in addon translation layer
@@ -272,7 +272,7 @@ These features are silently ignored by the addon with no warning:
 - **TEX_BRICK**: `input:Mortar`
 - **TEX_BRICK**: `prop:offset` — property FLOAT
 - **TEX_COORD**: `prop:from_instancer` — property BOOLEAN
-- **TEX_ENVIRONMENT**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320)
+- **TEX_ENVIRONMENT**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **TEX_ENVIRONMENT**: `prop:interpolation` — property ENUM
 - **TEX_ENVIRONMENT**: `prop:projection` — property ENUM
 - **TEX_GABOR**: `input:Vector` — no handler in addon translation layer
@@ -282,13 +282,13 @@ These features are silently ignored by the addon with no warning:
 - **TEX_GABOR**: `input:Orientation[Orientation 2D]` — no handler in addon translation layer
 - **TEX_GABOR**: `input:Orientation[Orientation 3D]` — no handler in addon translation layer
 - **TEX_GABOR**: `prop:gabor_type` — property ENUM
-- **TEX_IES**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320)
+- **TEX_IES**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320) in _fold_light_scalar; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **TEX_IES**: `prop:mode` — property ENUM
 - **TEX_IMAGE**: `prop:extension` — property ENUM
 - **TEX_IMAGE**: `prop:interpolation` — property ENUM
 - **TEX_IMAGE**: `prop:projection` — property ENUM
 - **TEX_IMAGE**: `prop:projection_blend` — property FLOAT
-- **TEX_SKY**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320)
+- **TEX_SKY**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **TEX_SKY**: `prop:air_density` — Rayleigh axis (more air -> bluer); folding onto Perez turbidity (a haziness axis) would invert its direction, so dropped + named in the runtime degradation warning (pkg256, PR #793 review)
 - **TEX_SKY**: `prop:altitude` — property FLOAT
 - **TEX_SKY**: `prop:ground_albedo` — property FLOAT
@@ -352,7 +352,7 @@ These features are silently ignored by the addon with no warning:
 - **LIGHT_FALLOFF**: `output:Quadratic` — no handler in addon translation layer
 - **LIGHT_FALLOFF**: `output:Linear` — no handler in addon translation layer
 - **LIGHT_FALLOFF**: `output:Constant` — no handler in addon translation layer
-- **MAP_RANGE**: `output:Vector` — output variant of a data_type the compiler never reads
+- **MAP_RANGE**: `output:Vector` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
 - **MIX**: `output:Result[Result_Rotation]` — output variant outside the compiler data-type gate
 - **NORMAL**: `output:Normal` — no handler in addon translation layer
 - **NORMAL**: `output:Dot` — no handler in addon translation layer
@@ -385,10 +385,16 @@ These features are silently ignored by the addon with no warning:
 - **TEX_GABOR**: `output:Value` — no handler in addon translation layer
 - **TEX_GABOR**: `output:Phase` — no handler in addon translation layer
 - **TEX_GABOR**: `output:Intensity` — no handler in addon translation layer
+- **TEX_IMAGE**: `output:Alpha` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
+- **TEX_VORONOI**: `output:Position` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
+- **TEX_VORONOI**: `output:W` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
+- **TEX_VORONOI**: `output:Radius` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
 - **TEX_WHITE_NOISE**: `output:Value` — no handler in addon translation layer
 - **TEX_WHITE_NOISE**: `output:Color` — no handler in addon translation layer
 - **UVALONGSTROKE**: `output:UV` — no handler in addon translation layer
+- **VALTORGB**: `output:Alpha` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
 - **VECTOR_DISPLACEMENT**: `output:Displacement` — no handler in addon translation layer
+- **VECT_MATH**: `output:Value` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
 - **VECT_TRANSFORM**: `output:Vector` — no handler in addon translation layer
 - **VOLUME_COEFFICIENTS**: `output:Volume` — no handler in addon translation layer
 - **VOLUME_INFO**: `output:Color` — no handler in addon translation layer
@@ -468,16 +474,16 @@ These features are silently ignored by the addon with no warning:
 | HAIR_INFO | output:Random | DROPPED-SILENT | no handler in addon translation layer |
 | LIGHT_PATH | output:Is Camera Ray | SUPPORTED | output consumed by the node handler (pkg320) |
 | LIGHT_PATH | output:Is Shadow Ray | SUPPORTED | output consumed by the node handler (pkg320) |
-| LIGHT_PATH | output:Is Diffuse Ray | SUPPORTED | output consumed by the node handler (pkg320) |
-| LIGHT_PATH | output:Is Glossy Ray | SUPPORTED | output consumed by the node handler (pkg320) |
+| LIGHT_PATH | output:Is Diffuse Ray | APPROXIMATED | output the op-VM compiler reports as approximate (_warn_shader_fallback) |
+| LIGHT_PATH | output:Is Glossy Ray | APPROXIMATED | output the op-VM compiler reports as approximate (_warn_shader_fallback) |
 | LIGHT_PATH | output:Is Singular Ray | SUPPORTED | output consumed by the node handler (pkg320) |
 | LIGHT_PATH | output:Is Reflection Ray | SUPPORTED | output consumed by the node handler (pkg320) |
 | LIGHT_PATH | output:Is Transmission Ray | SUPPORTED | output consumed by the node handler (pkg320) |
 | LIGHT_PATH | output:Is Volume Scatter Ray | SUPPORTED | output consumed by the node handler (pkg320) |
 | LIGHT_PATH | output:Ray Length | SUPPORTED | output consumed by the node handler (pkg320) |
 | LIGHT_PATH | output:Ray Depth | SUPPORTED | output consumed by the node handler (pkg320) |
-| LIGHT_PATH | output:Diffuse Depth | SUPPORTED | output consumed by the node handler (pkg320) |
-| LIGHT_PATH | output:Glossy Depth | SUPPORTED | output consumed by the node handler (pkg320) |
+| LIGHT_PATH | output:Diffuse Depth | APPROXIMATED | output the op-VM compiler reports as approximate (_warn_shader_fallback) |
+| LIGHT_PATH | output:Glossy Depth | APPROXIMATED | output the op-VM compiler reports as approximate (_warn_shader_fallback) |
 | LIGHT_PATH | output:Transparent Depth | SUPPORTED | output consumed by the node handler (pkg320) |
 | LIGHT_PATH | output:Transmission Depth | SUPPORTED | output consumed by the node handler (pkg320) |
 | LIGHT_PATH | output:Portal Depth | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
@@ -566,9 +572,9 @@ These features are silently ignored by the addon with no warning:
 | AMBIENT_OCCLUSION | prop:only_local | DROPPED-SILENT | property BOOLEAN |
 | AMBIENT_OCCLUSION | prop:samples | DROPPED-SILENT | property INT |
 | ATTRIBUTE | prop:attribute_type | DROPPED-SILENT | property ENUM |
-| BACKGROUND | input:Color | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) |
-| BACKGROUND | input:Strength | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) |
-| BACKGROUND | input:Weight | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) |
+| BACKGROUND | input:Color | APPROXIMATED | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6); partial: a linked chain _get_socket_color cannot evaluate falls back to white silently (setup_world) (#1101 finding 3) |
+| BACKGROUND | input:Strength | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| BACKGROUND | input:Weight | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6) |
 | BEVEL | input:Radius | DROPPED-SILENT | no handler in addon translation layer |
 | BEVEL | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
 | BEVEL | prop:samples | DROPPED-SILENT | property INT |
@@ -807,7 +813,7 @@ These features are silently ignored by the addon with no warning:
 | NORMAL_MAP | prop:space | DROPPED-SILENT | property ENUM |
 | OUTPUT_AOV | input:Color | DROPPED-SILENT | no handler in addon translation layer |
 | OUTPUT_AOV | input:Value | DROPPED-SILENT | no handler in addon translation layer |
-| OUTPUT_LIGHT | input:Surface | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) |
+| OUTPUT_LIGHT | input:Surface | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) in _resolve_light_shader; context-blind row: credited only where these methods consume it (#1101 finding 6) |
 | OUTPUT_LIGHT | prop:is_active_output | SUPPORTED |  |
 | OUTPUT_LIGHT | prop:target | DROPPED-SILENT | property ENUM |
 | OUTPUT_LINESTYLE | input:Color | DROPPED-SILENT | no handler in addon translation layer |
@@ -819,14 +825,14 @@ These features are silently ignored by the addon with no warning:
 | OUTPUT_LINESTYLE | prop:target | DROPPED-SILENT | property ENUM |
 | OUTPUT_LINESTYLE | prop:use_alpha | DROPPED-SILENT | property BOOLEAN |
 | OUTPUT_LINESTYLE | prop:use_clamp | DROPPED-SILENT | property BOOLEAN |
-| OUTPUT_MATERIAL | input:Surface | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) |
-| OUTPUT_MATERIAL | input:Volume | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) |
-| OUTPUT_MATERIAL | input:Displacement | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) |
-| OUTPUT_MATERIAL | input:Thickness | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) |
+| OUTPUT_MATERIAL | input:Surface | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| OUTPUT_MATERIAL | input:Volume | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| OUTPUT_MATERIAL | input:Displacement | APPROXIMATED | root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6); partial: only a Displacement node is honoured (as bump); any other linked node is ignored silently (get_displacement_bump_inputs: `!= 'DISPLACEMENT'` -> return) (#1101 finding 3) |
+| OUTPUT_MATERIAL | input:Thickness | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6) |
 | OUTPUT_MATERIAL | prop:is_active_output | SUPPORTED |  |
 | OUTPUT_MATERIAL | prop:target | DROPPED-SILENT | property ENUM |
-| OUTPUT_WORLD | input:Surface | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) |
-| OUTPUT_WORLD | input:Volume | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) |
+| OUTPUT_WORLD | input:Surface | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| OUTPUT_WORLD | input:Volume | APPROXIMATED | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6); partial: only Volume Scatter / Principled Volume are honoured; Volume Absorption and others are dropped silently (setup_world `volume_node.type in {...}`) (#1101 finding 3) |
 | OUTPUT_WORLD | prop:is_active_output | DROPPED-SILENT | property BOOLEAN |
 | OUTPUT_WORLD | prop:target | DROPPED-SILENT | property ENUM |
 | CURVE_RGB | input:Factor | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
@@ -881,7 +887,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_CHECKER | input:Color2 | SUPPORTED |  |
 | TEX_CHECKER | input:Scale | SUPPORTED |  |
 | TEX_COORD | prop:from_instancer | DROPPED-SILENT | property BOOLEAN |
-| TEX_ENVIRONMENT | input:Vector | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) |
+| TEX_ENVIRONMENT | input:Vector | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6) |
 | TEX_ENVIRONMENT | prop:interpolation | DROPPED-SILENT | property ENUM |
 | TEX_ENVIRONMENT | prop:projection | DROPPED-SILENT | property ENUM |
 | TEX_GABOR | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
@@ -893,8 +899,8 @@ These features are silently ignored by the addon with no warning:
 | TEX_GABOR | prop:gabor_type | DROPPED-SILENT | property ENUM |
 | TEX_GRADIENT | input:Vector | SUPPORTED |  |
 | TEX_GRADIENT | prop:gradient_type | SUPPORTED |  |
-| TEX_IES | input:Vector | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) |
-| TEX_IES | input:Strength | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) |
+| TEX_IES | input:Vector | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in _fold_light_scalar; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| TEX_IES | input:Strength | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) in _fold_light_scalar; context-blind row: credited only where these methods consume it (#1101 finding 6) |
 | TEX_IES | prop:mode | DROPPED-SILENT | property ENUM |
 | TEX_IMAGE | input:Vector | APPROXIMATED | op-VM / vector-input path (pkg219/pkg223) |
 | TEX_IMAGE | prop:extension | DROPPED-SILENT | property ENUM |
@@ -917,7 +923,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_NOISE | prop:noise_dimensions | SUPPORTED |  |
 | TEX_NOISE | prop:noise_type | SUPPORTED |  |
 | TEX_NOISE | prop:normalize | SUPPORTED |  |
-| TEX_SKY | input:Vector | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) |
+| TEX_SKY | input:Vector | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6) |
 | TEX_SKY | prop:aerosol_density | APPROXIMATED | folded into effective Perez turbidity for the Nishita family (pkg256, approx) |
 | TEX_SKY | prop:air_density | DROPPED-SILENT | Rayleigh axis (more air -> bluer); folding onto Perez turbidity (a haziness axis) would invert its direction, so dropped + named in the runtime degradation warning (pkg256, PR #793 review) |
 | TEX_SKY | prop:altitude | DROPPED-SILENT | property FLOAT |
@@ -1068,7 +1074,7 @@ These features are silently ignored by the addon with no warning:
 | LIGHT_FALLOFF | output:Linear | DROPPED-SILENT | no handler in addon translation layer |
 | LIGHT_FALLOFF | output:Constant | DROPPED-SILENT | no handler in addon translation layer |
 | MAP_RANGE | output:Result | SUPPORTED | output consumed by the node handler (pkg320) |
-| MAP_RANGE | output:Vector | DROPPED-SILENT | output variant of a data_type the compiler never reads |
+| MAP_RANGE | output:Vector | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
 | MAPPING | output:Vector | SUPPORTED | output consumed by the node handler (pkg320) |
 | MATH | output:Value | SUPPORTED | output consumed by the node handler (pkg320) |
 | MIX | output:Result[Result_Float] | SUPPORTED | output consumed by the node handler (pkg320) |
@@ -1134,7 +1140,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_GRADIENT | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
 | TEX_IES | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
 | TEX_IMAGE | output:Color | APPROXIMATED | output consumed by the node handler (pkg320) |
-| TEX_IMAGE | output:Alpha | APPROXIMATED | output consumed by the node handler (pkg320) |
+| TEX_IMAGE | output:Alpha | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
 | TEX_MAGIC | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
 | TEX_MAGIC | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
 | TEX_NOISE | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
@@ -1142,9 +1148,9 @@ These features are silently ignored by the addon with no warning:
 | TEX_SKY | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
 | TEX_VORONOI | output:Distance | APPROXIMATED | output consumed by the node handler (pkg320) |
 | TEX_VORONOI | output:Color | APPROXIMATED | output consumed by the node handler (pkg320) |
-| TEX_VORONOI | output:Position | APPROXIMATED | output consumed by the node handler (pkg320) |
-| TEX_VORONOI | output:W | APPROXIMATED | output consumed by the node handler (pkg320) |
-| TEX_VORONOI | output:Radius | APPROXIMATED | output consumed by the node handler (pkg320) |
+| TEX_VORONOI | output:Position | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
+| TEX_VORONOI | output:W | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
+| TEX_VORONOI | output:Radius | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
 | TEX_WAVE | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
 | TEX_WAVE | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
 | TEX_WHITE_NOISE | output:Value | DROPPED-SILENT | no handler in addon translation layer |
@@ -1152,12 +1158,12 @@ These features are silently ignored by the addon with no warning:
 | UVALONGSTROKE | output:UV | DROPPED-SILENT | no handler in addon translation layer |
 | UVMAP | output:UV | SUPPORTED | output consumed by the node handler (pkg320) |
 | VALTORGB | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
-| VALTORGB | output:Alpha | SUPPORTED | output consumed by the node handler (pkg320) |
+| VALTORGB | output:Alpha | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
 | VALUE | output:Value | SUPPORTED | output consumed by the node handler (pkg320) |
 | CURVE_VEC | output:Vector | SUPPORTED | output consumed by the node handler (pkg320) |
 | VECTOR_DISPLACEMENT | output:Displacement | DROPPED-SILENT | no handler in addon translation layer |
 | VECT_MATH | output:Vector | SUPPORTED | output consumed by the node handler (pkg320) |
-| VECT_MATH | output:Value | SUPPORTED | output consumed by the node handler (pkg320) |
+| VECT_MATH | output:Value | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
 | VECTOR_ROTATE | output:Vector | SUPPORTED | output consumed by the node handler (pkg320) |
 | VECT_TRANSFORM | output:Vector | DROPPED-SILENT | no handler in addon translation layer |
 | VOLUME_ABSORPTION | output:Volume | APPROXIMATED | output consumed by the node handler (pkg320) |
@@ -1175,13 +1181,13 @@ These features are silently ignored by the addon with no warning:
 
 | Feature | Socket/Property | Classification | Notes |
 |---------|-----------------|----------------|-------|
-| GROUP | input:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion |
-| GROUP | output:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion |
-| GROUP | prop:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion |
-| GROUP_INPUT | output:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion |
-| GROUP_INPUT | prop:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion |
-| GROUP_OUTPUT | input:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion |
-| GROUP_OUTPUT | prop:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion |
+| GROUP | input:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6) |
+| GROUP | output:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6) |
+| GROUP | prop:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6) |
+| GROUP_INPUT | output:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6) |
+| GROUP_INPUT | prop:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6) |
+| GROUP_OUTPUT | input:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6) |
+| GROUP_OUTPUT | prop:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6) |
 
 ### world
 

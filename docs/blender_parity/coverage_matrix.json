@@ -108,8 +108,8 @@
     "feature": "BACKGROUND",
     "bl_idname": "ShaderNodeBackground",
     "socket_or_prop": "input:Color",
-    "classification": "SUPPORTED",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320)",
+    "classification": "APPROXIMATED",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6); partial: a linked chain _get_socket_color cannot evaluate falls back to white silently (setup_world) (#1101 finding 3)",
     "socket_id": "Color"
   },
   {
@@ -118,7 +118,7 @@
     "bl_idname": "ShaderNodeBackground",
     "socket_or_prop": "input:Strength",
     "classification": "SUPPORTED",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320)",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6)",
     "socket_id": "Strength"
   },
   {
@@ -127,7 +127,7 @@
     "bl_idname": "ShaderNodeBackground",
     "socket_or_prop": "input:Weight",
     "classification": "DROPPED-SILENT",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320)",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6)",
     "socket_id": "Weight"
   },
   {
@@ -2231,7 +2231,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "output:Vector",
     "classification": "DROPPED-SILENT",
-    "notes": "output variant of a data_type the compiler never reads",
+    "notes": "no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)",
     "socket_id": "Vector"
   },
   {
@@ -2703,7 +2703,7 @@
     "bl_idname": "ShaderNodeOutputLight",
     "socket_or_prop": "input:Surface",
     "classification": "SUPPORTED",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320)",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in _resolve_light_shader; context-blind row: credited only where these methods consume it (#1101 finding 6)",
     "socket_id": "Surface"
   },
   {
@@ -2804,7 +2804,7 @@
     "bl_idname": "ShaderNodeOutputMaterial",
     "socket_or_prop": "input:Surface",
     "classification": "SUPPORTED",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320)",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6)",
     "socket_id": "Surface"
   },
   {
@@ -2813,7 +2813,7 @@
     "bl_idname": "ShaderNodeOutputMaterial",
     "socket_or_prop": "input:Volume",
     "classification": "SUPPORTED",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320)",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6)",
     "socket_id": "Volume"
   },
   {
@@ -2821,8 +2821,8 @@
     "feature": "OUTPUT_MATERIAL",
     "bl_idname": "ShaderNodeOutputMaterial",
     "socket_or_prop": "input:Displacement",
-    "classification": "SUPPORTED",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320)",
+    "classification": "APPROXIMATED",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6); partial: only a Displacement node is honoured (as bump); any other linked node is ignored silently (get_displacement_bump_inputs: `!= 'DISPLACEMENT'` -> return) (#1101 finding 3)",
     "socket_id": "Displacement"
   },
   {
@@ -2831,7 +2831,7 @@
     "bl_idname": "ShaderNodeOutputMaterial",
     "socket_or_prop": "input:Thickness",
     "classification": "DROPPED-SILENT",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320)",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6)",
     "socket_id": "Thickness"
   },
   {
@@ -2856,7 +2856,7 @@
     "bl_idname": "ShaderNodeOutputWorld",
     "socket_or_prop": "input:Surface",
     "classification": "DROPPED-SILENT",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320)",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6)",
     "socket_id": "Surface"
   },
   {
@@ -2864,8 +2864,8 @@
     "feature": "OUTPUT_WORLD",
     "bl_idname": "ShaderNodeOutputWorld",
     "socket_or_prop": "input:Volume",
-    "classification": "SUPPORTED",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320)",
+    "classification": "APPROXIMATED",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6); partial: only Volume Scatter / Principled Volume are honoured; Volume Absorption and others are dropped silently (setup_world `volume_node.type in {...}`) (#1101 finding 3)",
     "socket_id": "Volume"
   },
   {
@@ -3758,7 +3758,7 @@
     "bl_idname": "ShaderNodeTexEnvironment",
     "socket_or_prop": "input:Vector",
     "classification": "DROPPED-SILENT",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320)",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6)",
     "socket_id": "Vector"
   },
   {
@@ -3916,7 +3916,7 @@
     "bl_idname": "ShaderNodeTexIES",
     "socket_or_prop": "input:Vector",
     "classification": "DROPPED-SILENT",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320)",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in _fold_light_scalar; context-blind row: credited only where these methods consume it (#1101 finding 6)",
     "socket_id": "Vector"
   },
   {
@@ -3925,7 +3925,7 @@
     "bl_idname": "ShaderNodeTexIES",
     "socket_or_prop": "input:Strength",
     "classification": "SUPPORTED",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320)",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in _fold_light_scalar; context-blind row: credited only where these methods consume it (#1101 finding 6)",
     "socket_id": "Strength"
   },
   {
@@ -4000,8 +4000,8 @@
     "feature": "TEX_IMAGE",
     "bl_idname": "ShaderNodeTexImage",
     "socket_or_prop": "output:Alpha",
-    "classification": "APPROXIMATED",
-    "notes": "output consumed by the node handler (pkg320)",
+    "classification": "DROPPED-SILENT",
+    "notes": "no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)",
     "socket_id": "Alpha"
   },
   {
@@ -4186,7 +4186,7 @@
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "input:Vector",
     "classification": "DROPPED-SILENT",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320)",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6)",
     "socket_id": "Vector"
   },
   {
@@ -4438,8 +4438,8 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "output:Position",
-    "classification": "APPROXIMATED",
-    "notes": "output consumed by the node handler (pkg320)",
+    "classification": "DROPPED-SILENT",
+    "notes": "no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)",
     "socket_id": "Position"
   },
   {
@@ -4447,8 +4447,8 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "output:W",
-    "classification": "APPROXIMATED",
-    "notes": "output consumed by the node handler (pkg320)",
+    "classification": "DROPPED-SILENT",
+    "notes": "no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)",
     "socket_id": "W"
   },
   {
@@ -4456,8 +4456,8 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "output:Radius",
-    "classification": "APPROXIMATED",
-    "notes": "output consumed by the node handler (pkg320)",
+    "classification": "DROPPED-SILENT",
+    "notes": "no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)",
     "socket_id": "Radius"
   },
   {
@@ -4674,8 +4674,8 @@
     "feature": "VALTORGB",
     "bl_idname": "ShaderNodeValToRGB",
     "socket_or_prop": "output:Alpha",
-    "classification": "SUPPORTED",
-    "notes": "output consumed by the node handler (pkg320)",
+    "classification": "DROPPED-SILENT",
+    "notes": "no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)",
     "socket_id": "Alpha"
   },
   {
@@ -4816,8 +4816,8 @@
     "feature": "VECT_MATH",
     "bl_idname": "ShaderNodeVectorMath",
     "socket_or_prop": "output:Value",
-    "classification": "SUPPORTED",
-    "notes": "output consumed by the node handler (pkg320)",
+    "classification": "DROPPED-SILENT",
+    "notes": "no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)",
     "socket_id": "Value"
   },
   {
@@ -6267,8 +6267,8 @@
     "feature": "LIGHT_PATH",
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Is Diffuse Ray",
-    "classification": "SUPPORTED",
-    "notes": "output consumed by the node handler (pkg320)",
+    "classification": "APPROXIMATED",
+    "notes": "output the op-VM compiler reports as approximate (_warn_shader_fallback)",
     "socket_id": "Is Diffuse Ray"
   },
   {
@@ -6276,8 +6276,8 @@
     "feature": "LIGHT_PATH",
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Is Glossy Ray",
-    "classification": "SUPPORTED",
-    "notes": "output consumed by the node handler (pkg320)",
+    "classification": "APPROXIMATED",
+    "notes": "output the op-VM compiler reports as approximate (_warn_shader_fallback)",
     "socket_id": "Is Glossy Ray"
   },
   {
@@ -6339,8 +6339,8 @@
     "feature": "LIGHT_PATH",
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Diffuse Depth",
-    "classification": "SUPPORTED",
-    "notes": "output consumed by the node handler (pkg320)",
+    "classification": "APPROXIMATED",
+    "notes": "output the op-VM compiler reports as approximate (_warn_shader_fallback)",
     "socket_id": "Diffuse Depth"
   },
   {
@@ -6348,8 +6348,8 @@
     "feature": "LIGHT_PATH",
     "bl_idname": "ShaderNodeLightPath",
     "socket_or_prop": "output:Glossy Depth",
-    "classification": "SUPPORTED",
-    "notes": "output consumed by the node handler (pkg320)",
+    "classification": "APPROXIMATED",
+    "notes": "output the op-VM compiler reports as approximate (_warn_shader_fallback)",
     "socket_id": "Glossy Depth"
   },
   {
@@ -6385,7 +6385,7 @@
     "bl_idname": "ShaderNodeGroup",
     "socket_or_prop": "input:*",
     "classification": "SUPPORTED",
-    "notes": "node groups are inlined by Blender (material.inline_shader_nodes) before conversion",
+    "notes": "node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6)",
     "socket_id": "*"
   },
   {
@@ -6394,7 +6394,7 @@
     "bl_idname": "ShaderNodeGroup",
     "socket_or_prop": "output:*",
     "classification": "SUPPORTED",
-    "notes": "node groups are inlined by Blender (material.inline_shader_nodes) before conversion",
+    "notes": "node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6)",
     "socket_id": "*"
   },
   {
@@ -6403,7 +6403,7 @@
     "bl_idname": "ShaderNodeGroup",
     "socket_or_prop": "prop:*",
     "classification": "SUPPORTED",
-    "notes": "node groups are inlined by Blender (material.inline_shader_nodes) before conversion",
+    "notes": "node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6)",
     "socket_id": "*"
   },
   {
@@ -6412,7 +6412,7 @@
     "bl_idname": "NodeGroupInput",
     "socket_or_prop": "output:*",
     "classification": "SUPPORTED",
-    "notes": "node groups are inlined by Blender (material.inline_shader_nodes) before conversion",
+    "notes": "node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6)",
     "socket_id": "*"
   },
   {
@@ -6421,7 +6421,7 @@
     "bl_idname": "NodeGroupInput",
     "socket_or_prop": "prop:*",
     "classification": "SUPPORTED",
-    "notes": "node groups are inlined by Blender (material.inline_shader_nodes) before conversion",
+    "notes": "node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6)",
     "socket_id": "*"
   },
   {
@@ -6430,7 +6430,7 @@
     "bl_idname": "NodeGroupOutput",
     "socket_or_prop": "input:*",
     "classification": "SUPPORTED",
-    "notes": "node groups are inlined by Blender (material.inline_shader_nodes) before conversion",
+    "notes": "node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6)",
     "socket_id": "*"
   },
   {
@@ -6439,7 +6439,7 @@
     "bl_idname": "NodeGroupOutput",
     "socket_or_prop": "prop:*",
     "classification": "SUPPORTED",
-    "notes": "node groups are inlined by Blender (material.inline_shader_nodes) before conversion",
+    "notes": "node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6)",
     "socket_id": "*"
   }
 ]

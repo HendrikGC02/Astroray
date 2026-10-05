@@ -18,6 +18,7 @@ struct ClosestLaunch {
     const int*   count;      // *count_in (device-side population)
     const int*   alive;      // state.path_alive
     const int*   bounce;     // state.bounce
+    const unsigned* lp;      // state.lp_state (#1033: transparent count in bits 27-31); may be null
     const float* ox; const float* oy; const float* oz;
     const float* dx; const float* dy; const float* dz;
     // #873 primary clip (GWavefrontPrimaryClip copied field by field).

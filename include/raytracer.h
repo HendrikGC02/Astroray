@@ -3899,9 +3899,10 @@ public:
             // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
             // camera clip planes; every secondary ray keeps the unconditional
             // 0.001f/FLT_MAX bounds so it is byte-identical to pre-clip behaviour.
-            const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
-            const float tMin = (bounce == 0) ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
-            const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv : std::numeric_limits<float>::max();
+            const bool primarySeg = (bounce == 0 && lpc.transparentDepth == 0);  // #1033: a pass-through continuation is no longer the camera segment
+            const float clipZInv = primarySeg ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
+            const float tMin = primarySeg ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
+            const float tMax = (primarySeg && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv : std::numeric_limits<float>::max();
             // pkg296: where the bounded media start on this ray (see the media
             // block); the default 0.001 clip keeps the pre-pkg296 0.001 start.
             const float mediaT0 = (bounce == 0 && clipNear_ > 0.001f) ? tMin : 0.001f;
@@ -4319,7 +4320,7 @@ public:
             rec.lightPath.depth = (unsigned short)bounce;
             // Cycles measures a camera ray from its near-clip start (camera.h
             // camera_sample_perspective: P += nearclip * z_inv * D).
-            rec.lightPath.rayLength = (bounce == 0) ? rec.t - clipNear_ * clipZInv : rec.t;
+            rec.lightPath.rayLength = (bounce == 0 && lpc.transparentDepth == 0) ? rec.t - clipNear_ * clipZInv : rec.t;
             resolveLightPathMaterial(rec);
 
             // Emission (gated on camera ray or post-specular bounce).
@@ -4635,12 +4636,13 @@ public:
                 lobeCat = transmitted ? 2
                         : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
             }
-            if (firstCat < 0) firstCat = lobeCat;
             // #1033: a transparent pass-through (Cycles LABEL_TRANSPARENT) keeps the
             // path state, counts in transparent depth only and is skipped by the
-            // per-type counters, the caustic cull and the bounce counter below.
+            // pass-category lock, the per-type counters, the caustic cull and the
+            // bounce counter below.
             const bool transparentPass = astroray::lightpath::is_transparent_pass(
                 bss.isDelta, wo.dot(bss.wi), rec.material->shadowAlpha(rec) < 1.0f);
+            if (firstCat < 0 && !transparentPass) firstCat = lobeCat;
             lpc = astroray::lightpath::next_surface(  // #991
                 lpc, lobeCat, bss.isDelta, transparentPass);
 
@@ -4809,9 +4811,10 @@ public:
             // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
             // camera clip planes; every secondary ray keeps the unconditional
             // 0.001f/FLT_MAX bounds so it is byte-identical to pre-clip behaviour.
-            const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
-            const float tMin = (bounce == 0) ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
-            const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv : std::numeric_limits<float>::max();
+            const bool primarySeg = (bounce == 0 && lpc.transparentDepth == 0);  // #1033: a pass-through continuation is no longer the camera segment
+            const float clipZInv = primarySeg ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
+            const float tMin = primarySeg ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
+            const float tMax = (primarySeg && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv : std::numeric_limits<float>::max();
             bool didHit = bvh->hit(ray, tMin, tMax, rec);
 
             // pkg181: dedicated-lamp visibility (Cycles lights_intersect). This
@@ -4883,7 +4886,7 @@ public:
             if (!rec.material) break;
             rec.lightPath = lpc;  // #991
             rec.lightPath.depth = (unsigned short)bounce;
-            rec.lightPath.rayLength = (bounce == 0) ? rec.t - clipNear_ * clipZInv : rec.t;
+            rec.lightPath.rayLength = (bounce == 0 && lpc.transparentDepth == 0) ? rec.t - clipNear_ * clipZInv : rec.t;
             resolveLightPathMaterial(rec);
 
             astroray::SampledSpectrum Le_spec = rec.material->emittedSpectral(rec, lambdas);

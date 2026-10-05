@@ -196,6 +196,13 @@ extern __constant__ GWavefrontLightPassBinding c_wfLpBinding;
 // symbol, mirroring the c_wfTexBinding side-table pattern (pkg186/pkg223).
 extern __constant__ int c_wfBounceLimit[3];
 
+// #1033 — transparent pass-through budget (setWavefrontTransparentLimit):
+// kWfTransparentOff (default) = legacy, a pass counts as a bounce; otherwise a
+// pass spends no bounce / per-type / caustic budget and the transparent count
+// (lp_state bits 27-31) is compared with this limit (-1 = unlimited). Runtime
+// flag, not a template axis: the detection lives in a __noinline__ helper.
+extern __constant__ int c_wfTransparentLimit;
+
 // pkg201 Stage 3 (Finding E) — native caustic toggles (index 0=reflective,
 // 1=refractive; 1=allow, 0=cull). Published once per frame by
 // cuda_wavefront_render (setWavefrontCausticGate). Both-allow (this static
@@ -253,6 +260,9 @@ __device__ int gpu_lpRemap(int matId, unsigned lpState, int bounce, float t, GVe
 __device__ unsigned gpu_lpAdvance(unsigned lpState, const ::GMaterial* mat,
                                   GVec3 wo, GVec3 n, GVec3 wi, bool isDelta);
 __device__ unsigned gpu_lpVolume(unsigned lpState);
+// #1033 (shading_inputs_eval.cu): transparent pass-through test / count.
+__device__ bool gpu_isTransparentPass(const ::GMaterial* mat, GVec3 wo, GVec3 wi, bool isDelta);
+__device__ unsigned gpu_lpCountTransparent(unsigned lpState);
 
 struct GProgInputTexel { GVec3 c; bool ok; };
 // Defined after c_wfTexBinding below.
@@ -479,7 +489,7 @@ __device__ int intersectPathSlotT(
     // 1e-6). The origin stays at the camera, so media, lamp hits and the depth
     // AOV see the same segment as on the CPU.
     float tNear = 0.001f, tFar = 1e30f;
-    if (bounce == 0 && c_wfPrimaryClip.active) {
+    if (bounce == 0 && c_wfPrimaryClip.active && (state.lp_state[idx] >> 27) == 0u) {  // #1033
         const float zInv = 1.f / fmaxf(1e-6f, ray.direction.dot(GVec3(
             c_wfPrimaryClip.fwdX, c_wfPrimaryClip.fwdY, c_wfPrimaryClip.fwdZ)));
         tNear = fmaxf(0.001f, c_wfPrimaryClip.nearDist * zInv);
@@ -1066,6 +1076,18 @@ __device__ int intersectPathSlotT(
     if constexpr (HasGridVolume || HasWorldScatter) if (volTerm) {
         state.path_alive[idx] = 0;
         return -1;
+    }
+
+    // #1033 — transparent_max_bounces exhausted (Cycles transparent_bounce >=
+    // transparent_max_bounce -> TERMINATE_ON_NEXT_SURFACE): this surface took its
+    // emission above and the path ends here instead of being shaded. The count is
+    // the lp_state transparent field (CPU twin: pathTraceSpectral).
+    if (c_wfTransparentLimit >= 0) {
+        const unsigned tc = state.lp_state[idx] >> 27;
+        if (tc > 0u && (int)tc >= c_wfTransparentLimit) {
+            state.path_alive[idx] = 0;
+            return -1;
+        }
     }
 
     // ---- Park the hit record in SoA for the shade stage.
@@ -2361,6 +2383,13 @@ __device__ __forceinline__ bool shadePathSlotImpl(
         return false;
     }
     wasSpecular = bss.isDelta;
+    // #1033 — a transparent pass-through (Cycles LABEL_TRANSPARENT; CPU twin
+    // pathTraceSpectral transparentPass) is not a bounce: no pass-category lock, no
+    // per-type / caustic accounting, state.bounce not advanced; it counts in the
+    // lp_state transparent field instead. Compiled to a constant-memory compare
+    // when the scene has no Principled alpha < 1 (c_wfTransparentLimit off).
+    const bool tp = (c_wfTransparentLimit != kWfTransparentOff) &&
+                    gpu_isTransparentPass(&mat, wo, bss.wi, bss.isDelta);
     // pkg198 Stage 2: lock the first-bounce light-path category (Cycles locks pass
     // weights at bounce 0). TRANSMISSION if the sampled wi crossed the surface (a
     // geometric sign test on rec.normal — no distance/sentinel per
@@ -2373,7 +2402,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // (PR #620) measured it at zero STACK / no tier change. Compiled OUT of the fleet
     // <…,false> kernel by if constexpr → byte-identical 254/3352/1700.
     if constexpr (HasLightPassAOVs) {
-        if (bounce == 0) {
+        if (bounce == 0 && !tp) {
             float sWo = wo.dot(rec.normal);
             float sWi = bss.wi.dot(rec.normal);
             bool transmitted = (sWo * sWi) < 0.f;
@@ -2490,6 +2519,14 @@ __device__ __forceinline__ bool shadePathSlotImpl(
             state.lp_state[idx] = gpu_lpAdvance(state.lp_state[idx], &mat, wo, rec.normal,
                                                 bss.wi, bss.isDelta);
     }
+    // #1033 — count the pass in lp_state where gpu_lpAdvance (which counts it
+    // itself) is not running; the intersect stage reads the count against
+    // c_wfTransparentLimit (terminate-on-next-surface).
+    if (tp) {
+        bool lpCounted = false;
+        if constexpr (HasProgram) lpCounted = c_wfLightPath.enabled != 0;
+        if (!lpCounted) state.lp_state[idx] = gpu_lpCountTransparent(state.lp_state[idx]);
+    }
 
     // ---- Throughput clamp (CPU: maxC > 10 -> scale to 10).
     float maxC = throughput.maxValue();
@@ -2551,7 +2588,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // default off the SoA counter path: this is the OPTION 2 runtime compare
     // (memory pkg201-s3-runtime-comparison-not-axis), probe-gated — if it moves
     // the fleet <…> REG/STACK it escalates to a compile-time axis.
-    if (c_wfBounceLimit[0] >= 0 || c_wfBounceLimit[1] >= 0 || c_wfBounceLimit[2] >= 0) {
+    if (!tp && (c_wfBounceLimit[0] >= 0 || c_wfBounceLimit[1] >= 0 || c_wfBounceLimit[2] >= 0)) {
         float sWo = wo.dot(rec.normal);
         float sWi = bss.wi.dot(rec.normal);
         int lobeCat = (sWo * sWi < 0.f) ? 2
@@ -2580,7 +2617,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // reflective; a delta transmission ⇒ cat 2 ⇒ refractive). Both-allow (the
     // fleet default) skips this entirely → byte-identical. Runtime-gated like the
     // Finding-A block above (OPTION-2 shape), probe-decided.
-    if (c_wfCausticGate[0] == 0 || c_wfCausticGate[1] == 0) {
+    if (!tp && (c_wfCausticGate[0] == 0 || c_wfCausticGate[1] == 0)) {
         float sWo = wo.dot(rec.normal);
         float sWi = bss.wi.dot(rec.normal);
         int cat = (sWo * sWi < 0.f) ? 2
@@ -2594,7 +2631,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
         if (cat == 0) state.had_diffuse_ancestor[idx] = 1;
     }
 
-    int next_bounce = bounce + 1;
+    int next_bounce = bounce + (tp ? 0 : 1);   // #1033: a pass-through is no bounce
     state.bounce[idx] = next_bounce;
     if (next_bounce >= max_depth) {
         state.path_alive[idx] = 0;

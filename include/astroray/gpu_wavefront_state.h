@@ -599,6 +599,16 @@ void setWavefrontLightNeeOff(bool off);
 // entirely, so the fleet render stays byte-identical (register-probe gate).
 void setWavefrontBounceLimits(int diffuse, int glossy, int transmission);
 
+// #1033 — publish the Cycles transparent_max_bounces into the shade/intersect
+// kernels' __constant__ c_wfTransparentLimit. kWfTransparentOff (the default, and
+// every scene with no Principled alpha < 1) keeps the legacy path: a pass-through
+// counts as an ordinary bounce and the kernels skip the whole #1033 block
+// (byte-identical). -1 = on, unlimited; >= 0 = on, terminate-on-next-surface after
+// that many passes. The count rides lp_state bits 27-31 (light_path.h pack_state,
+// saturating at 31), so a limit above 31 never fires.
+constexpr int kWfTransparentOff = -2;
+void setWavefrontTransparentLimit(int limit);
+
 // pkg201 Stage 3 (Finding E) — publish the native caustic toggles into the shade
 // kernel's __constant__ c_wfCausticGate[2] (index 0=reflective, 1=refractive;
 // 1=allow, 0=cull). Call ONCE per frame in cuda_wavefront_render. Both-allow (the

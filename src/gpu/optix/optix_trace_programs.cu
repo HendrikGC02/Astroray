@@ -44,7 +44,8 @@ extern "C" __global__ void __raygen__closest()
     const float3 d = make_float3(c.dx[idx], c.dy[idx], c.dz[idx]);
     // #873 camera clip, identical expression to intersectPathSlotT.
     float tNear = 0.001f, tFar = 1e30f;
-    if (c.bounce[idx] == 0 && c.clipActive) {
+    // #1033: after a transparent pass-through the ray is no longer the camera segment.
+    if (c.bounce[idx] == 0 && c.clipActive && (c.lp == nullptr || (c.lp[idx] >> 27) == 0u)) {
         const float zInv = 1.f / fmaxf(1e-6f, d.x * c.fwdX + d.y * c.fwdY + d.z * c.fwdZ);
         tNear = fmaxf(0.001f, c.clipNear * zInv);
         if (c.clipHasFar) tFar = c.clipFar * zInv;

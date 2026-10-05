@@ -21,7 +21,7 @@ SUN_W = 3.0
 WALL_Y = 6.0
 
 
-def _scene(use_gpu, sheets, clamp_indirect=0.0):
+def _scene(use_gpu, sheets, clamp_indirect=0.0, wall_y=WALL_Y):
     """Camera at the origin looking +y; `sheets` Alpha-0 quads in front of a lit
     diffuse wall at y=6 (sun travelling +y)."""
     r = _renderer(use_gpu)
@@ -30,7 +30,7 @@ def _scene(use_gpu, sheets, clamp_indirect=0.0):
                               SUN_W, 0, 0)
     wall = r.create_material("principled", [0.8, 0.8, 0.8],
                              {"roughness": 1.0, "specular_ior_level": 0.0})
-    _quad(r, wall, [0, WALL_Y, 0], [4.0, 0, 0], [0, 0, 4.0])
+    _quad(r, wall, [0, wall_y, 0], [4.0, 0, 0], [0, 0, 4.0])
     sheet = r.create_material("principled", [1.0, 1.0, 1.0], {"alpha": 0.0})
     for i in range(sheets):
         _quad(r, sheet, [0, 2.0 + 0.5 * i, 0], [4.0, 0, 0], [0, 0, 4.0])
@@ -38,11 +38,16 @@ def _scene(use_gpu, sheets, clamp_indirect=0.0):
     return r
 
 
-def _wall_value(use_gpu, sheets, depth=4, transparent=-1, clamp_indirect=0.0):
-    from base_helpers import render_image, setup_camera
-    r = _scene(use_gpu, sheets, clamp_indirect)
+def _wall_value(use_gpu, sheets, depth=4, transparent=-1, clamp_indirect=0.0,
+                wall_y=WALL_Y, clip_near=0.001):
+    from base_helpers import setup_camera
+    r = _scene(use_gpu, sheets, clamp_indirect, wall_y)
     setup_camera(r, look_from=[0, 0, 0], look_at=[0, 1, 0], vup=[0, 0, 1], vfov=10,
                  width=32, height=32)
+    if clip_near > 0.001:   # setup_camera() has no clip args: re-issue the camera
+        r.setup_camera(look_from=[0, 0, 0], look_at=[0, 1, 0], vup=[0, 0, 1], vfov=10.0,
+                       aspect_ratio=1.0, aperture=0.0, focus_dist=5.0, width=32, height=32,
+                       clip_near=clip_near)
     img = r.render(48, depth, None, False, -1, -1, -1, -1, transparent)
     return float(_roi(img, 16, 16, 4).mean())
 
@@ -82,3 +87,14 @@ def test_transparent_max_bounces_is_honoured(use_gpu):
     for t in (4, 8, -1):
         v = _wall_value(use_gpu, 3, transparent=t)
         assert v == pytest.approx(ref, rel=0.05), (t, v, ref)
+
+
+@pytest.mark.parametrize("use_gpu", BACKENDS)
+def test_camera_clip_applies_to_the_camera_segment_only(use_gpu):
+    """The near clip bounds the camera ray, not its continuation through an alpha
+    sheet: a wall 0.1 behind the sheet stays visible with clip_start 0.5 (the
+    continuation is a bounce-0 ray now, so the clip must not be re-applied)."""
+    ref = _wall_value(use_gpu, 0, wall_y=2.1)
+    clipped = _wall_value(use_gpu, 1, wall_y=2.1, clip_near=0.5)
+    assert ref > 0.3, ref
+    assert clipped == pytest.approx(ref, rel=0.05), (clipped, ref)

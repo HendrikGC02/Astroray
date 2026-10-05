@@ -1170,8 +1170,7 @@ void launchStageShadeBucketed(
                 warned = true;
                 std::fprintf(stderr, "[#1072] DEGRADED: Add Shader partners are not summed with "
                                      "photon mapping, dispersion or light-path passes active; "
-                                     "GPU renders child A only
-");
+                                     "GPU renders child A only\n");
             }
         }
         const bool useRef = kReference && fleetAxes && !addOk;

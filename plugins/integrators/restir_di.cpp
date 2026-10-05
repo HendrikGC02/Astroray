@@ -155,7 +155,7 @@ public:
 
             // GR object: delegate entirely to the object's own spectral trace.
             if (rec.hitObject && rec.hitObject->isGRObject()) {
-                auto grResult = rec.hitObject->traceGRSpectral(pathRay, lambdas, gen);
+                auto grResult = rec.hitObject->traceGRSpectral(pathRay, lambdas, gen, bvh);
                 if (grResult.hasEmission) {
                     astroray::SampledSpectrum grEm(0.0f);
                     for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
@@ -166,6 +166,12 @@ public:
                 }
                 if (grResult.captured) break;
 
+                if (grResult.sceneHit) {
+                    // #1063: shade the scene surface the geodesic struck inside the GR region.
+                    rec         = grResult.sceneHit->rec;
+                    pathRay     = grResult.sceneHit->ray;
+                    wasSpecular = true;
+                } else {
                 Vec3 exitDir  = grResult.exitDirection;
                 float len2    = exitDir.length2();
                 if (!std::isfinite(exitDir.x) || !std::isfinite(exitDir.y) ||
@@ -183,6 +189,7 @@ public:
                 pathRay             = next;
                 wasSpecular         = true;
                 continue;
+                }
             }
 
             if (!rec.material) break;

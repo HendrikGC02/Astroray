@@ -210,9 +210,25 @@ private:
     struct TraceState {
         bool valid = false;
         IntegrationResult integration{};
+        std::shared_ptr<GRSceneHit> sceneHit;  // #1063: first scene hit on the geodesic
     };
 
-    TraceState integrateIncomingRay(const Ray& incomingRay) const {
+    // World-space point of a BL state (inverse of buildInitialState's mapping).
+    bool blToWorld(const GeodesicState& s, Vec3& out) const {
+        if (!gr_isfinite(s.r) || !gr_isfinite(s.theta) || !gr_isfinite(s.phi)) return false;
+        const double k = s.r / worldToGR;
+        const double st = std::sin(s.theta);
+        out = position + Vec3(float(k * st * std::cos(s.phi)),
+                              float(k * std::cos(s.theta)),
+                              float(k * st * std::sin(s.phi)));
+        return true;
+    }
+
+    // `scene` (nullable): when set, the geodesic is intersected against it as a
+    // piecewise-linear path (#1063, Groeller 1995): each accepted RK45 step is
+    // a straight chord, and the first non-GR surface along the path ends the
+    // march and is returned in TraceState::sceneHit.
+    TraceState integrateIncomingRay(const Ray& incomingRay, const Hittable* scene = nullptr) const {
         TraceState state;
 
         Vec3 oc      = incomingRay.origin - position;
@@ -228,11 +244,57 @@ private:
 
         Vec3 hitPoint = incomingRay.at(entry_t);
         GeodesicState s0 = buildInitialState(hitPoint, incomingRay.direction);
+        const double r_max = r_obs_M * 1.05;
+        GeodesicSegmentFn segmentFn;
+        if (scene) {
+            segmentFn = [&](const GeodesicState& a, const GeodesicState& b) {
+                Vec3 A, B;
+                if (!blToWorld(a, A)) return false;
+                if (b.r > r_max) {
+                    // Escaping step: end the chord where the continuation ray will
+                    // start (#1061 exit point), so the path stays connected and the
+                    // r_max boundary has neither a seam nor an overlap.
+                    IntegrationResult esc;
+                    esc.escaped = true;
+                    esc.finalState = b;
+                    esc.exitDirection = blToCartesianDir(b, metric->geodesic_rhs(b));
+                    if (!exitPointWorld(esc, B)) return false;
+                } else if (!blToWorld(b, B)) {
+                    return false;
+                }
+                const Vec3 d = B - A;
+                const float len = d.length();
+                if (!(len > 1e-7f)) return false;
+                Ray seg(A, d / len, incomingRay.time, incomingRay.screenU, incomingRay.screenV);
+                seg.hasCameraFrame = incomingRay.hasCameraFrame;
+                seg.cameraOrigin = incomingRay.cameraOrigin;
+                seg.cameraU = incomingRay.cameraU;
+                seg.cameraV = incomingRay.cameraV;
+                seg.cameraW = incomingRay.cameraW;
+                // The BVH holds the influence sphere itself (a GR object): step
+                // past it and any other GR hull; only real surfaces count.
+                float tMin = 0.0f;
+                for (int k = 0; k < 4; ++k) {
+                    HitRecord rec;
+                    if (!scene->hit(seg, tMin, len, rec)) return false;
+                    if (rec.hitObject && rec.hitObject->isGRObject()) {
+                        tMin = rec.t + 1e-4f;
+                        continue;
+                    }
+                    state.sceneHit = std::make_shared<GRSceneHit>();
+                    state.sceneHit->rec = std::move(rec);
+                    state.sceneHit->ray = seg;
+                    return true;
+                }
+                return false;
+            };
+        }
         state.integration = integrateGeodesic(
             *metric, disk.get(), s0,
             /*maxSteps=*/5000, /*h_init=*/0.5,
             /*atol=*/1e-8, /*rtol=*/1e-6,
-            /*r_max=*/r_obs_M * 1.05
+            /*r_max=*/r_max,
+            scene ? &segmentFn : nullptr
         );
         state.valid = true;
         return state;
@@ -531,14 +593,15 @@ public:
     GRSpectralResult traceGRSpectral(
             const Ray& incomingRay,
             const astroray::SampledWavelengths& lambdas,
-            std::mt19937& /*gen*/) const override {
+            std::mt19937& /*gen*/,
+            const Hittable* scene = nullptr) const override {
         GRSpectralResult result;
         result.emission = astroray::SampledSpectrum(0.0f);
         result.captured = false;
         result.hasEmission = false;
         result.exitDirection = Vec3(0, 0, 1);
 
-        TraceState trace = integrateIncomingRay(incomingRay);
+        TraceState trace = integrateIncomingRay(incomingRay, scene);
         if (!trace.valid) return result;
         const IntegrationResult& ir = trace.integration;
 
@@ -557,6 +620,13 @@ public:
         result.emission = diskEmissionSpectral(ir, lambdas)
                         + volumetricEmissionSpectral(incomingRay, lambdas);
         result.hasEmission = !result.emission.isZero();
+        if (trace.sceneHit) {
+            // #1063: the geodesic struck scene geometry; disk crossings above are
+            // those met before it. No exit ray exists. (The straight-line
+            // volumetric integral above is not truncated at the hit.)
+            result.sceneHit = std::move(trace.sceneHit);
+            return result;
+        }
         result.exitDirection = sanitizedExitDirection(ir);
         result.hasExitPoint = exitPointWorld(ir, result.exitPoint);
         // pkg67: expose the integrator's frequency-shift factor so the caller

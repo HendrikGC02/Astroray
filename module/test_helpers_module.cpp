@@ -62,7 +62,8 @@ public:
     bool isLight() const override { return true; }
 
     GRSpectralResult traceGRSpectral(
-            const Ray&, const astroray::SampledWavelengths&, std::mt19937&) const override {
+            const Ray&, const astroray::SampledWavelengths&, std::mt19937&,
+            const Hittable*) const override {
         ++*trace_calls_;
         GRSpectralResult result;
         result.emission = astroray::SampledSpectrum(emission_);

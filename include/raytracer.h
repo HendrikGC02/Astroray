@@ -904,6 +904,14 @@ public:
         bool hasExitPoint = false;
     };
 
+    // #1063: first scene surface met along the geodesic inside the GR region.
+    // `ray` is the piecewise-linear segment (chord) that struck it: origin at the
+    // chord start, unit direction = the local tangent, rec.t measured along it.
+    struct GRSceneHit {
+        HitRecord rec;
+        Ray ray;
+    };
+
     struct GRSpectralResult {
         astroray::SampledSpectrum emission;  // disk emission at carried wavelengths
         Vec3 exitDirection;                  // world-space exit direction
@@ -919,6 +927,10 @@ public:
         double frequencyShift = 1.0;
         Vec3 exitPoint{0};          // #896: see GRResult::exitPoint
         bool hasExitPoint = false;
+        // #1063: set when the geodesic struck scene geometry before leaving the
+        // region (or being captured); the caller shades it as an ordinary hit
+        // and exitDirection / exitPoint are then unused.
+        std::shared_ptr<GRSceneHit> sceneHit;
     };
 
     virtual ~Hittable() = default;
@@ -953,10 +965,13 @@ public:
     virtual GRResult traceGR(const Ray& /*r*/, std::mt19937& /*gen*/) const {
         return {Vec3(0), Vec3(0, 0, 1), true, false};
     }
+    // #1063: `scene` (nullable) is the acceleration structure the geodesic is
+    // intersected against inside the GR region; nullptr = no scene test.
     virtual GRSpectralResult traceGRSpectral(
             const Ray& r,
             const astroray::SampledWavelengths& lambdas,
-            std::mt19937& gen) const {
+            std::mt19937& gen,
+            const Hittable* scene = nullptr) const {
         GRResult rgb = traceGR(r, gen);
         astroray::SampledSpectrum emission(0.0f);
         if (rgb.hasEmission) {
@@ -4258,7 +4273,7 @@ public:
                 throughput *= worldTransmittanceSpectral(rec.t, lambdas);
             }
             if (rec.hitObject && rec.hitObject->isGRObject()) {
-                auto grResult = rec.hitObject->traceGRSpectral(ray, lambdas, gen);
+                auto grResult = rec.hitObject->traceGRSpectral(ray, lambdas, gen, bvh.get());
 
                 if (grResult.hasEmission) {
                     astroray::SampledSpectrum grEmission(0.0f);
@@ -4278,6 +4293,15 @@ public:
                     break;
                 }
 
+                if (grResult.sceneHit) {
+                    // #1063: the geodesic struck scene geometry inside the GR region.
+                    // Shade it as an ordinary hit; the bent incoming direction is not
+                    // an NEE-sampled one, so MIS weights take the post-specular branch.
+                    rec = grResult.sceneHit->rec;
+                    ray = grResult.sceneHit->ray;
+                    wasSpecular = true;
+                    envNeeSampledPrev = false;
+                } else {
                 Vec3 exitDir = grResult.exitDirection;
                 float exitLen2 = exitDir.length2();
                 if (!finiteFloat(exitDir.x) || !finiteFloat(exitDir.y) ||
@@ -4297,6 +4321,7 @@ public:
                 wasSpecular = true;
                 envNeeSampledPrev = false;  // pkg258: GR deflection ran no env NEE
                 continue;
+                }
             }
             if (!rec.material) break;
             // #991 — this hit's Light Path context; a Mix Shader with a Light Path
@@ -4827,7 +4852,7 @@ public:
                 break;
             }
             if (rec.hitObject && rec.hitObject->isGRObject()) {
-                auto grResult = rec.hitObject->traceGRSpectral(ray, lambdas, gen);
+                auto grResult = rec.hitObject->traceGRSpectral(ray, lambdas, gen, bvh.get());
                 if (grResult.hasEmission) {
                     astroray::SampledSpectrum grEmission(0.0f);
                     for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
@@ -4836,6 +4861,12 @@ public:
                     color += clampContribSpectral(throughput * grEmission, lambdas, bounce);
                 }
                 if (grResult.captured) break;
+                if (grResult.sceneHit) {
+                    // #1063: see pathTraceSpectral; shade the geodesic's scene hit.
+                    rec = grResult.sceneHit->rec;
+                    ray = grResult.sceneHit->ray;
+                    wasSpecular = true;
+                } else {
                 Vec3 exitDir = grResult.exitDirection;
                 float exitLen2 = exitDir.length2();
                 if (!finiteFloat(exitDir.x) || !finiteFloat(exitDir.y) ||
@@ -4853,6 +4884,7 @@ public:
                 ray = next;
                 wasSpecular = true;
                 continue;
+                }
             }
             if (!rec.material) break;
             rec.lightPath = lpc;  // #991

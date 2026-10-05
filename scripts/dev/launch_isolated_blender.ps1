@@ -5,15 +5,20 @@
 # the user profile: the staged addon is copied to <StateDir>/extensions/user_default/astroray
 # and BLENDER_USER_EXTENSIONS points the isolated instance at that root (Blender >= 4.2;
 # the owner's live 9876 profile is never touched). Writes <StateDir>/blender_<port>.pid.
-#   powershell -File scripts/dev/launch_isolated_blender.ps1 -Worker 1 -Port 9877 -StateDir <dir> [-StagedAddon <dist/astroray>]
+# The throwaway <StateDir>/blender_user_* profile (~1.5 GB with -StagedAddon) is
+# deleted by a hidden watcher once Blender exits; -KeepProfile keeps it (debugging).
+#   powershell -File scripts/dev/launch_isolated_blender.ps1 -Worker 1 -Port 9877 -StateDir <dir> [-StagedAddon <dist/astroray>] [-KeepProfile]
 param([int]$Worker = 0, [int]$Port = 9877, [string]$StateDir = $env:TEMP,
       [string]$StagedAddon = '',
       [switch]$Visible,
+      [switch]$KeepProfile,
       [string]$Blender = 'C:/Program Files/Blender Foundation/Blender 5.2/blender.exe')
 $ErrorActionPreference = 'Stop'
 $stateRoot = (Resolve-Path -LiteralPath $StateDir).Path
+$profileDirs = @()
 foreach ($name in 'BLENDER_USER_CONFIG','BLENDER_USER_SCRIPTS','BLENDER_USER_DATAFILES','BLENDER_USER_EXTENSIONS','BLENDER_USER_RESOURCES') {
     $path = Join-Path $stateRoot ($name.ToLowerInvariant())
+    $profileDirs += $path
     New-Item -ItemType Directory -Force $path | Out-Null
     Set-Item -Path ("Env:{0}" -f $name) -Value $path
 }
@@ -45,6 +50,7 @@ $pidFile = Join-Path $StateDir ("blender_{0}.pid" -f $Port)
 $log = Join-Path $StateDir ("blender_{0}.log" -f $Port)
 $env:ASTRORAY_MCP_PORT = "$Port"
 $env:ASTRORAY_BLENDER_PID_FILE = Join-Path $StateDir ("blender_{0}_inner.pid" -f $Port)
+Remove-Item -LiteralPath $env:ASTRORAY_BLENDER_PID_FILE -ErrorAction SilentlyContinue  # never wait on a stale pid
 if ($Worker -eq 1) { $env:ASTRORAY_VIEWPORT_WORKER = '1' } else { Remove-Item Env:ASTRORAY_VIEWPORT_WORKER -ErrorAction SilentlyContinue }
 $window = if ($Visible) { 'Normal' } else { 'Hidden' }
 # A fresh isolated profile has no persisted Online Access consent; the local
@@ -52,3 +58,16 @@ $window = if ($Visible) { 'Normal' } else { 'Hidden' }
 $proc = Start-Process -FilePath $Blender -ArgumentList @('--online-mode', '--python', ('"{0}"' -f $startup)) -WindowStyle $window -PassThru -RedirectStandardOutput $log -RedirectStandardError ($log + '.err')
 $proc.Id | Out-File -FilePath $pidFile -Encoding ascii
 Write-Host "launched Blender pid $($proc.Id) worker=$Worker port=$Port log=$log"
+if (-not $KeepProfile) {
+    # Owner 2026-10-05: throwaway profiles must not outlive the run. Wait on the
+    # launched pid and the in-Blender pid, then delete only this run's profile dirs.
+    $q = { param($s) "'" + $s.Replace("'", "''") + "'" }
+    $dirs = ($profileDirs | ForEach-Object { & $q $_ }) -join ','
+    $watch = "`$ErrorActionPreference = 'SilentlyContinue'; Wait-Process -Id $($proc.Id); " +
+             "`$inner = Get-Content -LiteralPath $(& $q $env:ASTRORAY_BLENDER_PID_FILE); " +
+             "if (`$inner) { Wait-Process -Id ([int]`$inner) }; Start-Sleep -Seconds 2; " +
+             "foreach (`$d in @($dirs)) { Remove-Item -Recurse -Force -LiteralPath `$d }"
+    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($watch))
+    Start-Process -FilePath powershell -ArgumentList @('-NoProfile', '-EncodedCommand', $enc) -WindowStyle Hidden | Out-Null
+    Write-Host "profile cleanup armed: blender_user_* under $stateRoot removed when Blender exits"
+}

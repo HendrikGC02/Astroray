@@ -51,6 +51,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import statistics
 import sys
 import time
@@ -738,6 +739,8 @@ def reduce_gate_a_capture(raw_events, edits, *, truncated=False, artifact_root=N
             pixel_ok = pre[2] <= dispatch and post[2] >= present[2] and post[1] == gen and post[3] == epoch
             for p in (pre, post):
                 path, digest = p[4].get("path"), p[4].get("sha256")
+                if p[4].get("pruned") is True and isinstance(digest, str):
+                    continue  # hash-verified by the producer before deletion
                 target = Path(path) if isinstance(path, str) else None
                 if target is not None and not target.is_absolute() and artifact_root is not None:
                     target = Path(artifact_root) / target
@@ -1281,6 +1284,32 @@ def _gate_a_evidence_dir(out_dir, workload_name, kind, batch):
     return Path(out_dir).resolve() / "a" / "frames" / str(workload_name) / str(kind) / str(batch)
 
 
+def _prune_gate_a_frames(raw_events, keep_event_id=None, keep_dir=None, keep_prefix=""):
+    """Owner 2026-10-05: frames are bulk stats input, not evidence to keep.
+    Delete each hash-verified pre/post PNG and mark its raw event `pruned`; the
+    pair for `keep_event_id` moves to `keep_dir` for inspection. A frame that
+    fails verification is left unmarked so the reducer still fails closed."""
+    for raw in raw_events:
+        extra = raw.get("extra") if isinstance(raw, dict) else None
+        if not isinstance(extra, dict) or raw.get("name") != "viewport_pixels":
+            continue
+        path, digest = extra.get("path"), extra.get("sha256")
+        target = Path(path) if isinstance(path, str) else None
+        if target is None or not target.is_file():
+            continue
+        blob = target.read_bytes()
+        if not blob.startswith(b"\x89PNG\r\n\x1a\n") or hashlib.sha256(blob).hexdigest() != digest:
+            continue
+        if keep_dir is not None and extra.get("event_id") == keep_event_id:
+            keep_dir.mkdir(parents=True, exist_ok=True)
+            dest = keep_dir / f"{keep_prefix}{target.name}"
+            target.replace(dest)
+            extra["path"] = str(dest)
+        else:
+            target.unlink()
+            extra["pruned"] = True
+
+
 def run_gate_a(args) -> dict:
     """Produce raw, hash-bindable GPU evidence for pkg278 gate (a).
 
@@ -1321,6 +1350,12 @@ def run_gate_a(args) -> dict:
                 capture_observed["actual_gpu_devices"] = _actual_gpu_devices(result["raw_events"])
                 reduced = reduce_gate_a_capture(result["raw_events"], result["events"],
                                                 truncated=result["truncated"])
+                if not args.keep_frames:
+                    # Keep batch 0's first edit (pre/post) per workload x kind.
+                    first = result["events"][0].get("event_id") if result["events"] else None
+                    _prune_gate_a_frames(result["raw_events"], first,
+                                         Path(args.out).resolve() / "a" / "inspection" if batch == 0 else None,
+                                         f"{workload['name']}-{kind}-")
                 captures.append({"scene_sha256": workload["sha256"],
                                  "workload": workload, "edit_kind": kind, "batch": batch,
                                  "backend": "GPU", "denoise_enabled": False,
@@ -1328,6 +1363,8 @@ def run_gate_a(args) -> dict:
                                  "warmup": args.warmup, "truncated": result["truncated"],
                                  "edits": result["events"], "raw_events": result["raw_events"],
                                  "reduced": reduced})
+    if not args.keep_frames:
+        shutil.rmtree(Path(args.out).resolve() / "a" / "frames", ignore_errors=True)
     return {"schema": "pkg278.instrument.v2", "row": "a", "instrument": "viewport_latency",
             "scene_sha256": [w["sha256"] for w in workloads], "build_id": observed_build,
             "backend": ["GPU"],
@@ -1504,7 +1541,7 @@ def run_gate_a_table(args):
                     reds.append(red)
                     # Frames were hash-verified by the reducer; keep event 1's
                     # pre/post per capture (hashes stay in the raw JSON).
-                    for png in ev.glob("*.png"):
+                    for png in ([] if args.keep_frames else ev.glob("*.png")):
                         if not png.name.startswith("0001-"):
                             png.unlink()
                     stem = f"{wl['name']}-{worker}-{kind}-{rep_i}"
@@ -2047,6 +2084,9 @@ def main():
                         "results_layout.results_dir('viewport', 'gate-a-latency'))")
     p.add_argument("--gate-a-build-id", default=None,
                    help="required build identity recorded in the gate-(a) producer")
+    p.add_argument("--keep-frames", dest="keep_frames", action="store_true",
+                   help="gate_a/gate_a_table: keep every pre/post viewport PNG (debugging); "
+                        "default hash-verifies then deletes them, keeping a few for inspection")
     p.add_argument("--cancel", action="store_true",
                    help="also run the F12 cancel full-stop-floor probe")
     p.add_argument("--cancel-samples", dest="cancel_samples", type=int,

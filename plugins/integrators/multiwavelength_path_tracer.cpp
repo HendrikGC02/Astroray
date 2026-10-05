@@ -316,7 +316,8 @@ private:
                     // pkg253 G1: shared transparent-shadow transmittance (see
                     // shadowTransmittance in raytracer.h). Tr==0 for an all-opaque
                     // scene in one hop, so pre-pkg253 MW renders are unchanged.
-                    float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi, ray.time), ls.distance);
+                    float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi, ray.time), ls.distance,
+                                                         renderer_->shadowTransparentHits(0));
                     if (shadowTr > 0.0f) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectralExt(rec, wo, wi, lambdas);
@@ -355,7 +356,8 @@ private:
                     if (bsdfPdf > 0.0f) {
                         float shadowTr = shadowTransmittance(
                             *bvh, spawnRay(rec, wi, ray.time),
-                            std::numeric_limits<float>::max());
+                            std::numeric_limits<float>::max(),
+                            renderer_->shadowTransparentHits(0));  // #1073
                         if (shadowTr > 0.0f) {
                             astroray::SampledSpectrum f_spec =
                                 rec.material->evalSpectralExt(rec, wo, wi, lambdas);

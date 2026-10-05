@@ -138,7 +138,8 @@ class NeuralCacheIntegrator : public Integrator {
         // pkg253 G1: shared transparent-shadow transmittance (see
         // shadowTransmittance in raytracer.h). Tr==0 for an all-opaque scene in
         // one hop, so pre-pkg253 neural-cache renders are unchanged.
-        float shadowTr = shadowTransmittance(*renderer_->getBVH(), spawnRay(rec, wi), ls.distance);
+        float shadowTr = shadowTransmittance(*renderer_->getBVH(), spawnRay(rec, wi), ls.distance,
+                                         renderer_->shadowTransparentHits(0));  // #1073
         if (shadowTr <= 0.0f) {
             return direct;
         }

@@ -848,8 +848,8 @@ __device__ inline float gpu_shadowAlpha(const GMaterial& m) {
 
 // pkg253 — GPU shadow-ray transmittance for Principled `alpha` (Cycles
 // Transparent Shadows). Device twin of CPU shadowTransmittance (raytracer.h),
-// which attenuates the NEE shadow ray for EVERY light type. Walks up to maxHops
-// closest-hit occluders toward the light, accumulating Tr *= (1 -
+// which attenuates the NEE shadow ray for EVERY light type. Walks the closest-hit
+// occluders toward the light (at most maxHits transparent ones, #1073), accumulating Tr *= (1 -
 // shadowAlpha(hit material)), so a fully transparent (alpha==0) surface casts no
 // shadow and a transparent surface in front of an opaque one still ends fully
 // shadowed (the walk continues past it). Returns the fraction of the light that
@@ -884,9 +884,14 @@ __device__ inline float gpu_shadow_transmittance(
     // #991 — Light Path switch side table (null: no Light Path in the scene). A
     // Mix Shader with a Light Path Fac blocks shadow rays as its shadow-context
     // child (Is Shadow Ray -> Transparent: no shadow).
-    const astroray::lightpath::GLightPathSwitch* lpSwitch = nullptr)
+    const astroray::lightpath::GLightPathSwitch* lpSwitch = nullptr,
+    // #1073: remaining transparent-hit budget (Cycles max_transparent_hits). The hit past
+    // it blocks the ray; INT_MAX = unlimited. Device twin of the CPU
+    // shadowTransmittance maxTransparentHits (raytracer.h).
+    int               maxHits = 0x7fffffff)
 {
-    const int maxHops = 8;  // Cycles transparent_max_bounce default (matches CPU)
+    constexpr int kHopCap = 1024;  // Cycles' transparent_max_bounce ceiling (unlimited walk)
+    int transparentHits = 0;
     const bool reachLight = (s.isSphere != 0);  // sphere light = reach its geometry
     float Tr = 1.0f;
     GVec3 origin = s.origin;
@@ -896,7 +901,7 @@ __device__ inline float gpu_shadow_transmittance(
     // (geomDist==0) walk to the 1e30 sentinel and occlude like an env ray.
     float remaining = reachLight ? s.maxDist
                                  : ((s.geomDist > 0.f) ? s.geomDist : s.maxDist);
-    for (int hop = 0; hop < maxHops; ++hop) {
+    for (int hop = 0; hop < kHopCap; ++hop) {
         GHitRecord sh;
         if (!gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris,
                           spheres, GRay(origin, dir, time), 0.001f,
@@ -909,13 +914,14 @@ __device__ inline float gpu_shadow_transmittance(
         const int shMat = lpSwitch ? lpSwitch[sh.materialId].shadowId : sh.materialId;
         Tr *= (1.0f - gpu_shadowAlpha(materials[shMat]));
         if (Tr < 1e-3f) return 0.0f;  // opaque enough to fully block
+        if (++transparentHits > maxHits) return 0.0f;  // #1073: past the budget blocks
         float advance = sh.t + 1e-3f;
         origin = origin + dir * advance;
         remaining -= advance;
         skipPrim = sh.primId;  // #1037: Cycles shadow walk skips the last transparent hit (non-curve ids are inert)
         if (remaining <= 0.001f) return Tr;
     }
-    return Tr;  // exhausted transparent-shadow bounce budget
+    return 0.0f;  // hop cap exhausted: blocked, like Cycles past its max transparent hits
 }
 
 // pkg178 Stage-3b D4: HasPrincipled threads through to the material dispatch so

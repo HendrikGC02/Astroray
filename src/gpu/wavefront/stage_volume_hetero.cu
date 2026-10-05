@@ -582,7 +582,7 @@ __device__ void gpu_volumeSegmentDirect(
     const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres,
     const GLight* lights, int numLights, float totalLightPower,
     const GDedicatedLight* dedLights, int numDed, const GLightTreeView& lightTree,
-    uint32_t rpix, uint32_t rsmp, uint64_t rsd)
+    uint32_t rpix, uint32_t rsmp, uint64_t rsd, unsigned pathTransparent)
 {
     const int cap = c_wfGridVolume.segCapacity;
     if (cap <= 0 || (numLights + numDed) <= 0 || !(totalLightPower > 0.f)) return;
@@ -730,6 +730,7 @@ __device__ void gpu_volumeSegmentDirect(
                           c_wfLpBinding.firstCat[idx] == G_LP_CAT_UNSET;
     q[4 * cap + idx] = unlocked ? (bounce + 1) : -(bounce + 1);
     q[5 * cap + idx] = s.dedEmissionProfileIndex;
+    q[6 * cap + idx] = (int)pathTransparent;   // #1073: shadow-ray transparent-hit budget
     const int slot = atomicAdd(&c_wfGridVolume.segShadowCount[kind], 1);
     c_wfGridVolume.segShadowQueue[kind * cap + slot] = idx;
 }

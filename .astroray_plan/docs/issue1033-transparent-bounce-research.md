@@ -33,8 +33,8 @@ a sun-lit diffuse wall: wall = 0 for `transparent_max_bounces` = 0, 1, 2, 3 and 
   already excludes it).
 
 ## Known gaps
-- Shadow-ray transparent walks keep their own `maxHops = 8` (Cycles counts shadow
-  hits against the same transparent budget).
+- ~~Shadow-ray transparent walks keep their own `maxHops = 8`~~ fixed in #1073
+  (issue1073-shadow-transparent-budget-research.md).
 - GPU count saturates at 31: a limit above 31 never fires (#1047 item 4).
 - Addon viewport/exporter pass `min(transparent_bounces, depth)`; Cycles' limit is
   independent of `max_bounces`.
@@ -68,4 +68,4 @@ keyed on "bounce" or on the ray origin needed a fix (CPU `raytracer.h`, GPU
   else the camera ray passes through (matches the GPU's miss-coverage count).
 - Shadow rays keep their own `maxHops = 8` (CPU `shadowTransmittance`) and the GPU's
   unlimited shadow walk saturates at 31, instead of sharing the transparent budget as in
-  Cycles: tracked in a follow-up issue.
+  Cycles: fixed in #1073.

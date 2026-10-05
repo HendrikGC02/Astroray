@@ -223,10 +223,16 @@ __global__ void stageShadowKernel(
         // (NOT the 1e30 maxDist occlusion sentinel — memory
         // occlusion-sentinel-as-distance-class-of-bug). 0 for distant/infinite.
         s.geomDist = nee_f[14 * nee_capacity + idx];
+        // #1073: the shadow ray shares the path's transparent budget (Cycles
+        // integrate_shadow_max_transparent_hits): transparent_max_bounces minus the
+        // passes the path already took (int lane 6, parked pre-advance). 0x7fffffff =
+        // unlimited (-1); the count saturates at 31, so a limit > 31 over-grants.
+        const int maxHits = (c_wfTransparentLimit >= 0)
+            ? max(c_wfTransparentLimit - nee_i[6 * nee_capacity + idx], 0) : 0x7fffffff;
         shadowTr = gpu_shadow_transmittance<HasCurves>(
             s, tlas, instances, blas, bvhNodes, prims, tris, spheres,
             materials, time, motionVerts, curves, &occ.frontFace, skipPrim,
-            c_wfLightPath.sw);  // #991: Is Shadow Ray Mix Shader
+            c_wfLightPath.sw, maxHits);  // #991: Is Shadow Ray Mix Shader
         if (shadowTr <= 0.0f) return;
     } else if constexpr (HwOcc) {
         // pkg299: __raygen__shadow traced [0.001, maxDist] any-hit, the triangle

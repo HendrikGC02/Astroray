@@ -706,8 +706,14 @@ void setWavefrontPhotonSplit(const GWavefrontPhotonSplit& split);
 // This kernel is explicitly NOT register-critical (lean occlusion + lazy
 // resolve, unlike the REG:254 bucketed shade kernel), so the extra lane read
 // here carries none of the shade-kernel spill risk.
+// #1073: int lane 6 = the path's transparent-pass count (lp_state bits 27-31) at park
+// time, BEFORE the vertex's own continuation sample advances it. stageShadowKernel
+// subtracts it from transparent_max_bounces for the shadow ray's hit budget (Cycles
+// copies path.transparent_bounce into shadow_path). Written by the shade-stage lamp NEE
+// and the intersect-stage volume segment records; read only in the HasAlphaShadow
+// shadow kernel. NOT written for env-NEE records (separate arrays, no transparent walk).
 constexpr int G_WF_NEE_F_LANES = 15;
-constexpr int G_WF_NEE_I_LANES = 6;
+constexpr int G_WF_NEE_I_LANES = 7;
 // pkg258 - env-NEE parked-record lane counts (SEPARATE arrays from the lamp
 // nee_f/nee_i above; see GWavefrontEnvNeeBinding). Float lanes: 0-2 origin,
 // 3-5 wi, 6-9 the pre-folded throughput*f*wt/envPdf (env radiance L_spec is

@@ -1,6 +1,6 @@
 {
   "schema": "pkg278.acceptance_manifest.v1",
-  "generated": "2026-10-02T14:53:44+00:00",
+  "generated": "2026-10-04T13:56:57+00:00",
   "rows": {
     "a": {
       "row": "a",
@@ -17,7 +17,7 @@
       "evidence_sha256": null,
       "dimensions": {},
       "subchecks": {},
-      "date": "2026-10-02"
+      "date": "2026-10-04"
     },
     "b": {
       "row": "b",
@@ -34,7 +34,7 @@
       "evidence_sha256": null,
       "dimensions": {},
       "subchecks": {},
-      "date": "2026-10-02"
+      "date": "2026-10-04"
     },
     "c": {
       "row": "c",
@@ -51,7 +51,7 @@
       "evidence_sha256": null,
       "dimensions": {},
       "subchecks": {},
-      "date": "2026-10-02"
+      "date": "2026-10-04"
     },
     "d": {
       "row": "d",
@@ -60,7 +60,7 @@
       "scene_sha256": [
         "c99f8e8d67a073695d19bd984c9fafd5a674cf2e60261e0378e03c64a2533455"
       ],
-      "build_id": "dev",
+      "build_id": "132c974+20261004T124622Z",
       "backend": [
         "CPU",
         "GPU"
@@ -70,15 +70,15 @@
         "source": "canonical_native_panel_reducer"
       },
       "value": {
-        "mean_rel_error_max": 0.004862958015598719,
-        "detail_preservation_min": 0.999923015750928
+        "mean_rel_error_max": 0.004900093497209896,
+        "detail_preservation_min": 0.9995835134069166
       },
       "threshold": {
         "mean_rel_error_max": 0.02,
         "detail_preservation_min": 0.95
       },
-      "evidence_path": "docs/blender_parity/evidence/d/instrument.json",
-      "evidence_sha256": "f2eba516da6690d64a29b0c755e8b5301afec402d82cc4d5f3ee2c27ad0b2479",
+      "evidence_path": "docs\\blender_parity\\evidence\\d\\instrument.json",
+      "evidence_sha256": "709fdda4bf80471d1c81530e1025effa2924f1e762e0171ca935e690f29d1895",
       "dimensions": {
         "backend": "CPU+GPU",
         "panel": "native Cycles settings"
@@ -89,20 +89,20 @@
         "denoise_lowers_residual_noise": true,
         "reference_comparison": true
       },
-      "date": "2026-10-03",
+      "date": "2026-10-04",
       "schema": "pkg278.instrument.v2",
       "records": [
         {
           "kind": "native_panel_aggregate",
           "artifact": {
             "path": "raw_aggregate.json",
-            "sha256": "37b2ba77f2a9ee48c96af4b349da39ab9358bd3c37ffd50278fd9527f9d85bbc"
+            "sha256": "eb5034a09c30fd77f2465cee29cd942c5aff965968a5ca6511953e2940522d93"
           },
           "expected_identity": {
-            "build_id": "dev",
+            "build_id": "132c974+20261004T124622Z",
             "engine_id": "CUSTOM_RAYTRACER",
-            "module_sha256": "fffbcde791dbc53c3563a9e1a0f8beab11dca059f76397021caba506666fe249",
-            "addon_init_sha256": "53b6facff12df6e0a974f5823d2c4106e7045056736ab96cce547a0da1596f1b"
+            "module_sha256": "93cc14f028f20d64ab315873e8a04f6d6cc80cb13f76d5a4e943f1c850915aac",
+            "addon_init_sha256": "f85da10f7e271fcbbe92142f7671fbbfddca6482966d66787ad874734d8b3bfe"
           }
         }
       ]
@@ -121,13 +121,13 @@
         "name": "independently_rated_high_count"
       },
       "value": {
-        "high_count": 21
+        "high_count": 10
       },
       "threshold": {
         "high_count": 0
       },
-      "evidence_path": "docs/blender_parity/evidence/e/instrument.json",
-      "evidence_sha256": "bbe36204ee294aae54baa652589897aced98ac9e1b199dce2e29489caca3ac99",
+      "evidence_path": "docs\\blender_parity\\evidence\\e\\instrument.json",
+      "evidence_sha256": "5f994883ce5032ee1a077eae7a8485a57af765be2e4f88dd4e1ff9a38c49f243",
       "dimensions": {
         "issue_snapshot": "raw-artifacts",
         "ratings": "independent-review"
@@ -138,7 +138,7 @@
         "all_rated_independently": true,
         "delta_empty": true
       },
-      "date": "2026-10-02",
+      "date": "2026-10-04",
       "schema": "pkg278.instrument.v2",
       "records": [
         {
@@ -146,7 +146,7 @@
           "phase": "baseline",
           "artifact": {
             "path": "issues-baseline.json",
-            "sha256": "e39a237a12d7211cea2acbb7864624cd4850e7141417a40e615f745592253ce9"
+            "sha256": "6a122ac2802ebf7b86029dcd1364a4010d4951e1df48c36859ac0e5ebacd248c"
           }
         },
         {
@@ -154,18 +154,17 @@
           "phase": "recheck",
           "artifact": {
             "path": "issues-recheck.json",
-            "sha256": "6b4d94cbd1eefc4d4c2125747ecb32b0c0027db40fdc5d15a8d54b1492532024"
+            "sha256": "b4065a93bfcefd66d98d76c3491ab9c532ad34d7a8d3d56c93ae04dfe6a41669"
           }
         },
         {
           "kind": "ratings",
           "artifact": {
             "path": "issue-ratings.json",
-            "sha256": "0f4c62f279b6eb5a25cb1dd4e9c18a5be2669b35c4ca4802d0af6043097f4337"
+            "sha256": "94d4e7527f63335e8c8c1655f4c5a931254abf97b65c8081c7e489530de81f40"
           }
         }
-      ],
-      "hand_edit_detected": true
+      ]
     },
     "f": {
       "row": "f",
@@ -182,7 +181,7 @@
       "evidence_sha256": null,
       "dimensions": {},
       "subchecks": {},
-      "date": "2026-10-02"
+      "date": "2026-10-04"
     }
   }
 }

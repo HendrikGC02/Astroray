@@ -160,7 +160,9 @@ _LIGHT_PATHS = [
                  "pkg271: honoured by both engines with Cycles max_volume_bounce semantics "
                  "(grid, mesh and world-fog media; terminate-after continuation past the cap)."),
     MappingEntry("light_paths", "transparent_max_bounces", "scene.cycles.transparent_max_bounces",
-                 "custom_raytracer.transparent_bounces", "render(transparent_bounces=...)", "direct", "DROPPED-SILENT",
+                 "custom_raytracer.transparent_bounces", "render(transparent_bounces=...)", "direct", "SUPPORTED",
+                 "#1033: honoured by both engines with Cycles transparent_bounce semantics (an alpha "
+                 "pass-through spends no max_bounces; the surface after the T-th pass takes emission only). "
                  "NAME MISMATCH: custom prop is 'transparent_bounces', Cycles is 'transparent_max_bounces'."),
     MappingEntry("light_paths", "sample_clamp_direct", "scene.cycles.sample_clamp_direct",
                  "custom_raytracer.clamp_direct", "renderer.set_clamp_direct", "direct", "n/a",

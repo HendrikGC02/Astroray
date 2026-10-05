@@ -24,8 +24,8 @@
 //   emission eval: no visibility bit, EMISSION path flag; Ray Depth = bounce + 1
 // A transparent pass (a straight-through delta sample: Principled Alpha / a
 // Transparent BSDF) keeps the ray's flags, as Cycles' LABEL_TRANSPARENT does, and
-// counts in transparentDepth; Astroray's bounce counter still includes it, so
-// Ray Depth subtracts it.
+// counts in transparentDepth only; the bounce counter excludes it (#1033), so
+// Ray Depth is the bounce counter itself, as in Cycles.
 //
 // SPDX-License-Identifier: Apache-2.0 (semantics derived from Cycles).
 // ============================================================================
@@ -87,8 +87,7 @@ HD inline float light_path_output(unsigned char o, const PathContext& c) {
         case LPO_RAY_DEPTH: {
             // "For background, light emission and shadow evaluation from a surface
             // or volume we are effectively one bounce further." (light_path.h)
-            // Cycles' bounce excludes transparent passes; Astroray's counts them.
-            float d = (float)(c.depth > c.transparentDepth ? c.depth - c.transparentDepth : 0);
+            float d = (float)c.depth;   // Cycles' bounce excludes transparent passes (#1033)
             if (c.flags & (LPF_SHADOW | LPF_EMISSION)) d += 1.0f;
             return d;
         }

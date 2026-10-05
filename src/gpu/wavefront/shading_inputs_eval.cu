@@ -29,6 +29,9 @@ extern __constant__ GWavefrontPrimaryClip c_wfPrimaryClip;      // stage_advance
 __device__ __noinline__ astroray::lightpath::PathContext gpu_lpContext(
     unsigned lpState, int bounce, float t, GVec3 dir)
 {
+    // #1033: `t` is cumulative since the last real vertex (the intersect stage parks
+    // hit_t + pass_dist), so a camera ray measures from its near-clip start even
+    // after a pass-through.
     if (bounce == 0 && c_wfPrimaryClip.active) {
         const float zInv = 1.f / fmaxf(1e-6f, dir.dot(GVec3(
             c_wfPrimaryClip.fwdX, c_wfPrimaryClip.fwdY, c_wfPrimaryClip.fwdZ)));
@@ -44,6 +47,25 @@ __device__ __noinline__ int gpu_lpRemap(int matId, unsigned lpState, int bounce,
 {
     return astroray::lightpath::resolve_switch(
         c_wfLightPath.sw, matId, gpu_lpContext(lpState, bounce, t, dir));
+}
+
+// #1033 — is this bounce a transparent pass-through (Cycles LABEL_TRANSPARENT)?
+// Same test as gpu_lpAdvance / the CPU pathTraceSpectral transparentPass. Called
+// from the shade stage only when c_wfTransparentLimit is on.
+__device__ __noinline__ bool gpu_isTransparentPass(const ::GMaterial* mat, GVec3 wo, GVec3 wi,
+                                                   bool isDelta)
+{
+    const bool alphaLobe = mat->closureCount >= 1 &&
+                           mat->closures[0].type == GCLOSURE_PRINCIPLED &&
+                           mat->principled.alpha < 1.0f;
+    return astroray::lightpath::is_transparent_pass(isDelta, wo.dot(wi), alphaLobe);
+}
+
+// #1033 — count one transparent pass in lp_state (bits 27-31, saturating at 31),
+// for variants where gpu_lpAdvance (which counts it itself) is not running.
+__device__ __noinline__ unsigned gpu_lpCountTransparent(unsigned lpState)
+{
+    return (lpState >> 27) < 31u ? lpState + (1u << 27) : lpState;
 }
 
 // Shade stage: Cycles path_state_next across this bounce, with the pkg201

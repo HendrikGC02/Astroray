@@ -2038,6 +2038,17 @@ std::vector<float> cuda_wavefront_render(
     // false (non-hair scenes) gates off the shade kernel's hair SoA restore →
     // fleet render byte-identical.
     setWavefrontHairEnabled(res.hasHair);
+    // #1033 — transparent pass-throughs are not bounces (Cycles transparent_bounce):
+    // on only when the scene has a Principled alpha < 1 (hasAlphaShadow), else the
+    // legacy path and a byte-identical fleet render. A pass spends no max_depth
+    // pass, so the host pass plan below grants up to `limit + 1` extra passes per
+    // path (the lp_state transparent count saturates at 31, so unlimited = 32).
+    const bool transparentOn = res.hasAlphaShadow;
+    setWavefrontTransparentLimit(transparentOn ? renderer.getMaxTransparentBounces()
+                                               : kWfTransparentOff);
+    const int tLim = renderer.getMaxTransparentBounces();
+    const int passDepth = max_depth +
+        (transparentOn ? (tLim >= 0 ? std::min(tLim, 31) : 31) + 1 : 0);
     ::GLight*   d_lights    = wfSync(reuse, C.lights, res.lights);
     // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
     // power CDF continues past the GLight entries; see gpu_nee.cuh).
@@ -2502,7 +2513,7 @@ std::vector<float> cuda_wavefront_render(
         const int roundPixels = adaptiveOn ? numActive : numPixels;
         const long long total_work = (long long)roundPixels * perPixel;
         const long long counter_slack =
-            (long long)total_paths * (16 + max_depth + 2);
+            (long long)total_paths * (16 + passDepth + 2);
         if (total_work + counter_slack > 0x7FFFFFFFLL)
             throw std::runtime_error(
                 "cuda_wavefront_render: width*height*samples exceeds "
@@ -2550,10 +2561,10 @@ std::vector<float> cuda_wavefront_render(
             (total_work + total_paths - 1) / total_paths;
         const int kCheckEvery = 16;
         const long long kMaxPasses = (waves == 1)
-            ? max_depth
-            : (long long)perPixel * max_depth + max_depth + 64;
+            ? passDepth
+            : (long long)perPixel * passDepth + passDepth + 64;
         bool workExhausted = false;
-        int drainLeft = max_depth;
+        int drainLeft = passDepth;
         for (long long pass = 0; pass < kMaxPasses; ++pass) {
             // pkg266: cancellation-bounded dispatch. When a sub-pass budget is
             // set (the viewport interruptible path), synchronize + count a
@@ -2605,6 +2616,7 @@ std::vector<float> cuda_wavefront_render(
                 astroray::optix_trav::ClosestLaunch cl{};
                 cl.queue = d_queueA; cl.count = d_counts + 0;
                 cl.alive = state.path_alive; cl.bounce = state.bounce;
+                cl.passDist = state.pass_dist;  // #1033: no near clip / reduced far clip after a pass
                 cl.ox = state.ray_origin_x; cl.oy = state.ray_origin_y; cl.oz = state.ray_origin_z;
                 cl.dx = state.ray_direction_x; cl.dy = state.ray_direction_y; cl.dz = state.ray_direction_z;
                 cl.clipActive = primaryClip.active; cl.clipHasFar = primaryClip.hasFar;

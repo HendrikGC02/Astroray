@@ -185,6 +185,14 @@ struct GPUWavefrontState {
     // (a scene with a Light Path node), read by the intersect stage (Mix Shader
     // switch) and the op-VM shading context. Path state, not hit-buffer state.
     uint32_t* lp_state = nullptr;
+    // #1033 — distance the ray has travelled since its last REAL vertex (camera /
+    // bounce / medium scatter) across transparent pass-throughs. The shade stage
+    // parks the cumulative hit distance on a pass; the intersect stage reads it and
+    // zeroes it. Cycles keeps the ray origin and moves only tmin (shade_surface.h);
+    // Astroray restarts the ray at the sheet, so Ray Length, the camera far clip and
+    // the MIS light-pdf origin (origin - dir * pass_dist) are recovered from it.
+    // Touched only when c_wfTransparentLimit is on (scene has a Principled alpha < 1).
+    float*    pass_dist = nullptr;
 
     // Path-continuation flags.
     int*      was_specular  = nullptr;  // 0/1
@@ -598,6 +606,16 @@ void setWavefrontLightNeeOff(bool off);
 // All-unlimited (the default) makes shadePathSlot skip the per-type check
 // entirely, so the fleet render stays byte-identical (register-probe gate).
 void setWavefrontBounceLimits(int diffuse, int glossy, int transmission);
+
+// #1033 — publish the Cycles transparent_max_bounces into the shade/intersect
+// kernels' __constant__ c_wfTransparentLimit. kWfTransparentOff (the default, and
+// every scene with no Principled alpha < 1) keeps the legacy path: a pass-through
+// counts as an ordinary bounce and the kernels skip the whole #1033 block
+// (byte-identical). -1 = on, unlimited; >= 0 = on, terminate-on-next-surface after
+// that many passes. The count rides lp_state bits 27-31 (light_path.h pack_state,
+// saturating at 31), so a limit above 31 never fires.
+constexpr int kWfTransparentOff = -2;
+void setWavefrontTransparentLimit(int limit);
 
 // pkg201 Stage 3 (Finding E) — publish the native caustic toggles into the shade
 // kernel's __constant__ c_wfCausticGate[2] (index 0=reflective, 1=refractive;

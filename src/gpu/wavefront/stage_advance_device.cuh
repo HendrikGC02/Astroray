@@ -528,22 +528,20 @@ __device__ int intersectPathSlotT(
         if constexpr (HasCurves) {
             if (bounce > 0) skipPrim = hitBufs.hit_prim_id[idx];
         }
+        // #36: a CAMERA ray (Cycles PATH_RAY_CAMERA: lp_state keeps LPF_CAMERA through
+        // transparent passes; scene_upload makes the shade kernel maintain lp_state
+        // whenever an indirect-only object exists) does not see indirect-only prims:
+        // they are skipped inside this one traversal (Cycles visibility mask,
+        // kernel/bvh, Apache-2.0; twin of Renderer::hitCameraRay). Uniform branch on
+        // a __constant__ (0 unless the scene has an indirect-only object, in which
+        // case OptiX traversal is off too); the mask is 0 for every other scene.
+        const int skipFlags =
+            (c_wfPrimaryClip.indirectOnly &&
+             (state.lp_state[idx] & astroray::lightpath::LPF_CAMERA))
+                ? int(GPRIM_FLAG_INDIRECT_ONLY) : 0;
         hit = gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                                      ray, tNear, tFar, rec, motionVerts, curves, skipPrim);
-        // #36: a PRIMARY camera ray passes through indirect-only objects (Cycles clears
-        // their camera visibility bit, intern/cycles/blender/object.cpp, Apache-2.0):
-        // re-trace from just past each such hit. Twin of Renderer::hitCameraRay. Uniform
-        // branch on a __constant__ (0 unless the scene has an indirect-only object, in
-        // which case OptiX traversal is off too), so default scenes skip it entirely.
-        if (bounce == 0 && c_wfPrimaryClip.indirectOnly) {
-            for (int k = 0; k < 16 && hit &&
-                            (prims[rec.primId].flags & GPRIM_FLAG_INDIRECT_ONLY); ++k) {
-                tNear = rec.t + fmaxf(1e-4f, 1e-5f * rec.t);
-                hit = gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris,
-                                              spheres, ray, tNear, tFar, rec, motionVerts,
-                                              curves, skipPrim);
-            }
-        }
+                                      ray, tNear, tFar, rec, motionVerts, curves, skipPrim,
+                                      skipFlags);
     }
 
     // pkg199 Stage 2 — homogeneous medium free-flight scatter DECISION (Option A:

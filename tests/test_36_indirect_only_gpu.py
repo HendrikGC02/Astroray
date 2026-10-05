@@ -38,3 +38,16 @@ def test_gpu_indirect_only_casts_shadow():
     assert vis < 0.6 * ab, f"scene broken: sphere casts no shadow ({vis} vs {ab})"
     assert ind < 0.6 * ab, f"indirect-only sphere casts no shadow ({ind} vs unshadowed {ab})"
     assert abs(ind - vis) < 0.3 * ab, (ind, vis)
+
+
+def test_gpu_indirect_only_stays_hidden_behind_a_transparent_pass():
+    vis, ind, ab = t._behind_transparent(use_gpu=True)
+    assert t.red_fraction(vis) > 0.6, f"scene broken: the plane hides the visible sphere: {vis}"
+    assert abs(t.red_fraction(ind) - t.red_fraction(ab)) < 0.05, (ind, ab)
+    assert t.red_fraction(ind) < 0.45, f"indirect-only sphere visible through a transparent plane: {ind}"
+
+
+def test_gpu_indirect_only_pass_through_has_no_cap():
+    got, ref = t._nested(use_gpu=True)
+    assert ref > 0.1, f"scene broken: backdrop is black ({ref})"
+    assert got > 0.6 * ref, f"camera ray gave up inside the indirect-only shells: {got} vs {ref}"

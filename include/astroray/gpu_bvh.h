@@ -76,26 +76,19 @@ __device__ inline bool gpu_triangle_hit_motion(
 {
     // Interpolate vertices at ray.time if motion data exists
     GVec3 p0 = tri.v0, p1 = tri.v1, p2 = tri.v2;
-    GVec3 nm0 = tri.n0, nm1 = tri.n1, nm2 = tri.n2;  // #947: shading normals at ray time
     if (tri.motionOffset >= 0 && tri.motionSteps > 1) {
         float time = ray.time;  // Phase A already samples and carries time in GRay
         int maxStep = tri.motionSteps - 1;
         int step = min(static_cast<int>(time * maxStep), maxStep - 1);
         float t = time * maxStep - step;
         // Center step (step=0) uses tri.v0/v1/v2; additional steps read d_motionVertices.
-        // Buffer layout (#947, motionSteps == 2 only): per triangle
-        // [v0_end, v1_end, v2_end, n0_end, n1_end, n2_end]; n_end only for smooth triangles.
+        // Buffer layout: [v0_step1, v1_step1, v2_step1, v0_step2, ...]
         if (step == 0) {
             // Blend between center and first motion step
             const GVec3* nextVerts = d_motionVertices + tri.motionOffset;
             p0 = tri.v0 * (1.0f - t) + nextVerts[0] * t;
             p1 = tri.v1 * (1.0f - t) + nextVerts[1] * t;
             p2 = tri.v2 * (1.0f - t) + nextVerts[2] * t;
-            if (!tri.flat_shaded) {  // Cycles motion_triangle_smooth_normal (Apache-2.0)
-                nm0 = tri.n0 * (1.0f - t) + nextVerts[3] * t;
-                nm1 = tri.n1 * (1.0f - t) + nextVerts[4] * t;
-                nm2 = tri.n2 * (1.0f - t) + nextVerts[5] * t;
-            }
         } else {
             // Blend between two motion steps
             const GVec3* currVerts = d_motionVertices + tri.motionOffset + (step - 1) * 3;
@@ -114,13 +107,10 @@ __device__ inline bool gpu_triangle_hit_motion(
     // pkg55-followup: skip redundant interpolation for flat-shaded triangles
     GVec3 outwardNormal;
     if (tri.flat_shaded) {
-        // #947: a moving flat triangle's facet normal follows the interpolated vertices
-        // (CPU Triangle::hit twin; Cycles motion_triangle_normal, Apache-2.0).
-        outwardNormal = (tri.motionOffset >= 0 && tri.motionSteps > 1)
-            ? (p1 - p0).cross(p2 - p0).normalized() : tri.n0;
+        outwardNormal = tri.n0;
     } else {
         float w = 1.f - u - v;
-        outwardNormal = (nm0 * w + nm1 * u + nm2 * v).normalized();
+        outwardNormal = (tri.n0 * w + tri.n1 * u + tri.n2 * v).normalized();
     }
 
     rec.frontFace = ray.direction.dot(outwardNormal) < 0.f;
@@ -130,6 +120,39 @@ __device__ inline bool gpu_triangle_hit_motion(
     rec.materialId = tri.materialId;
     rec.isDelta    = false;
     return true;
+}
+
+// #947 — shading normal of a motion triangle at ray time, evaluated ONCE at the final
+// accepted hit by gpu_bvh_hit (never per traversal candidate, so the closest-hit
+// kernels pay nothing for it). __noinline__: only motion-blur scenes ever call it.
+// Re-derives (t, u, v) with the same watertight test on the same time-interpolated
+// vertices (bit-identical result), then follows Cycles motion_triangle_normal /
+// motion_triangle_smooth_normal (Apache-2.0): flat -> facet normal of the interpolated
+// vertices; smooth -> each end-lerped vertex normal normalised BEFORE the barycentric
+// blend, `is_zero(N) ? Ng : N`. motionSteps == 2 only (buffer layout per triangle:
+// [v0_end, v1_end, v2_end, n0_end, n1_end, n2_end]; enforced by Triangle::setMotionData).
+__device__ __noinline__ inline void gpu_motion_triangle_finalize(
+    const GTriangle& tri, const GRay& ray, const GVec3* d_motionVertices, GHitRecord& rec)
+{
+    const GVec3* e = d_motionVertices + tri.motionOffset;
+    const float t = ray.time;  // maxStep == 1: step 0, blend factor == time
+    const GVec3 p0 = tri.v0 * (1.0f - t) + e[0] * t;
+    const GVec3 p1 = tri.v1 * (1.0f - t) + e[1] * t;
+    const GVec3 p2 = tri.v2 * (1.0f - t) + e[2] * t;
+    float t_hit, u, v;
+    if (!gpu_triangle_watertight(p0, p1, p2, ray, 0.f, 3.0e38f, t_hit, u, v)) return;
+    GVec3 n = (p1 - p0).cross(p2 - p0).normalized();
+    if (!tri.flat_shaded) {
+        const float w = 1.f - u - v;
+        const GVec3 nm0 = (tri.n0 * (1.0f - t) + e[3] * t).normalized();
+        const GVec3 nm1 = (tri.n1 * (1.0f - t) + e[4] * t).normalized();
+        const GVec3 nm2 = (tri.n2 * (1.0f - t) + e[5] * t).normalized();
+        const GVec3 ns = (nm0 * w + nm1 * u + nm2 * v).normalized();
+        if (ns.length2() > 0.f) n = ns;
+    }
+    rec.frontFace = ray.direction.dot(n) < 0.f;
+    rec.normal    = rec.frontFace ? n : -n;
+    gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
 }
 
 // ---------------------------------------------------------------------------
@@ -240,7 +263,12 @@ __device__ inline bool gpu_bvh_hit(
     // #1037: ordered-prim index (relative to `prims`) of the curve segment the
     // ray leaves; that segment is skipped (Cycles intersection_skip_self,
     // kernel/bvh/util.h). -1 = none. Only the HasCurves curve leaf reads it.
-    int skipPrim = -1)
+    int skipPrim = -1,
+    // #36: primitives whose GPrimitive::flags intersect this mask are invisible to
+    // this traversal (Cycles ray visibility mask; GPRIM_FLAG_INDIRECT_ONLY for a
+    // camera ray). 0 = nothing skipped; constant-folds away for every caller that
+    // leaves the default.
+    int skipFlags = 0)
 {
     if (!nodes) return false;
 
@@ -260,6 +288,7 @@ __device__ inline bool gpu_bvh_hit(
                 // Leaf — test each primitive
                 for (int i = 0; i < n.nPrimitives; ++i) {
                     const GPrimitive& p = prims[n.primitivesOffset + i];
+                    if (p.flags & skipFlags) continue;  // #36
                     GHitRecord tmpRec;
                     bool isHit = false;
                     if (p.type == GPRIM_TRIANGLE) {
@@ -307,6 +336,12 @@ __device__ inline bool gpu_bvh_hit(
             if (toVisit == 0) break;
             curr = stack[--toVisit];
         }
+    }
+    // #947: the motion triangle's shading normal at ray time, only for the accepted hit.
+    if (hit && motionVerts != nullptr) {
+        const GPrimitive& hp = prims[rec.primId];
+        if (hp.type == GPRIM_TRIANGLE && tris[hp.index].motionOffset >= 0)
+            gpu_motion_triangle_finalize(tris[hp.index], ray, motionVerts, rec);
     }
     return hit;
 }
@@ -464,13 +499,14 @@ __device__ inline bool gpu_tlas_hit(
     const GCurveSegment* curves = nullptr,
     // #1037: GLOBAL ordered-prim index of the curve segment the ray leaves
     // (GHitRecord::primId of the previous vertex); -1 = none.
-    int skipPrim = -1)
+    int skipPrim = -1,
+    int skipFlags = 0)  // #36: see gpu_bvh_hit
 {
     // No TLAS uploaded -> behave exactly like the single-level path. (Lets a
     // caller route unconditionally through gpu_tlas_hit before instances exist.)
     if (!tlas || !instances || !blas) {
         return gpu_bvh_hit<HasCurves>(blasNodes, prims, tris, spheres, ray, tMin, tMax, rec,
-                                      motionVerts, curves, skipPrim);
+                                      motionVerts, curves, skipPrim, skipFlags);
     }
 
     bool  hit    = false;
@@ -506,7 +542,8 @@ __device__ inline bool gpu_tlas_hit(
                     bool ih = gpu_bvh_hit<HasCurves>(blasNodes + b.nodeOffset, prims + b.primOffset,
                                           tris, spheres, local, tMin, tMax, lrec,
                                           nullptr, curves,
-                                          skipPrim >= 0 ? skipPrim - b.primOffset : -1);
+                                          skipPrim >= 0 ? skipPrim - b.primOffset : -1,
+                                          skipFlags);
                     if (ih && lrec.t < tMax) {
                         hit  = true;
                         tMax = lrec.t;              // tighten the shared cutoff

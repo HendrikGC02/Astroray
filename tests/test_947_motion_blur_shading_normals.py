@@ -123,3 +123,58 @@ def test_missing_normals_end_keeps_legacy_static_normals():
     ref = _reference_mean()
     legacy = _motion_mean(smooth=True, with_end_normals=False)
     assert abs(legacy / ref - 1.0) > 0.2, f"legacy {legacy:.4f} vs {ref:.4f}"
+
+
+def _blend_normal_reference(w, u, v, normalise_first):
+    """Shading normal at t = 0.5 and barycentrics (w, u, v) of a triangle whose vertex
+    normals rotate non-rigidly over the shutter: n0 +Z -> +X, n1 / n2 stay +Z. The
+    first-hit normal AOV is the sample-0 hit, whose time is halton(1, 2) = 0.5."""
+    n0 = np.array([0.5, 0.0, 0.5])  # lerp((0,0,1), (1,0,0), 0.5)
+    if normalise_first:
+        n0 = n0 / np.linalg.norm(n0)
+    n = w * n0 + (u + v) * np.array([0.0, 0.0, 1.0])
+    return n / np.linalg.norm(n)
+
+
+def test_smooth_motion_normals_normalise_each_lerped_vertex_normal_first():
+    """Cycles motion_triangle_smooth_normal normalises each time-lerped vertex normal
+    BEFORE the barycentric blend. With a non-rigid rotation (one vertex normal swings
+    90 deg, the others stay) the lerped vertex normal shortens to 0.707 mid-shutter, so
+    blending first would under-weight the rotating vertex. A huge static triangle keeps
+    the barycentrics at the view centre constant, w = 0.495 (v0), u = 0.495, v = 0.0099."""
+    wpx = hpx = 32
+    r = astroray.Renderer()
+    r.set_integrator("path_tracer")
+    r.set_use_gpu(False)
+    r.set_background_color([0.0, 0.0, 0.0])
+    r.set_seed(5)
+    r.setup_camera(look_from=[0, 0, 5], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=40,
+                   aspect_ratio=1.0, aperture=0.0, focus_dist=5.0, width=wpx, height=hpx)
+    mat = r.create_material("lambertian", [0.8, 0.8, 0.8], {})
+    pos = np.array([[[-100, -1, 0], [100, -1, 0], [0, 100, 0]]], dtype=np.float32)
+    n_open = np.array([[[0, 0, 1], [0, 0, 1], [0, 0, 1]]], dtype=np.float32)
+    n_end = np.array([[[1, 0, 0], [0, 0, 1], [0, 0, 1]]], dtype=np.float32)
+    r.add_triangles_bulk_motion(pos, pos, np.array([mat], dtype=np.int32),
+                                np.zeros(1, dtype=np.int32), 0, _EMPTY_UV, [], n_open, n_end)
+    r.render(4, 2, None, False)
+    nb = np.asarray(r.get_normal_buffer(), dtype=np.float32).reshape(hpx, wpx, 3)
+    got = nb[hpx // 2 - 2:hpx // 2 + 3, wpx // 2 - 2:wpx // 2 + 3].reshape(-1, 3).mean(axis=0)
+    got = got / np.linalg.norm(got)
+    v = 1.0 / 101.0
+    u = 0.5 - 0.5 * v
+    new = _blend_normal_reference(1.0 - u - v, u, v, True)
+    old = _blend_normal_reference(1.0 - u - v, u, v, False)
+    assert abs(new[0] - old[0]) > 0.03, "scene does not separate the two blends"
+    assert abs(got[0] - new[0]) < 0.4 * abs(new[0] - old[0]), (got, new, old)
+
+
+def test_motion_stride_guard_rejects_more_than_two_steps():
+    """The 6-Vec3 per-triangle stride (verts + normals) and the GPU twin are valid only
+    for motionSteps == 2; Triangle::setMotionData must reject a layout it cannot index.
+    (Not reachable from Python -- add_triangles_bulk_motion always passes 2 -- so this
+    pins the guard in source.)"""
+    from pathlib import Path
+    src = (Path(__file__).parent.parent / "include" / "astroray" / "shapes.h").read_text(encoding="utf-8")
+    body = src[src.index("void setMotionData("):]
+    body = body[:body.index("}")]
+    assert "steps != 2 && steps != 1" in body and "invalid_argument" in body

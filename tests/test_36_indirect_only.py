@@ -36,8 +36,12 @@ def _px(x, y):
     return int(round(W / 2 + x * W / 2)), int(round(H / 2 - y * H / 2))
 
 
-def build(mode, scene, use_gpu=False):
-    """mode: 'visible' | 'indirect' | 'absent'; scene: 'mirror' | 'shadow'."""
+def build(mode, scene, use_gpu=False, transparent_plane=False, nested=0):
+    """mode: 'visible' | 'indirect' | 'absent'; scene: 'mirror' | 'shadow'.
+    nested: that many concentric tiny indirect-only spheres at the visible sphere's centre
+    (a camera ray crosses 2 * nested of their surfaces; Cycles has no pass-through cap).
+    transparent_plane: an alpha=0 Principled plane in front of the sphere (z = 3), which
+    a camera ray passes straight through (Cycles keeps PATH_RAY_CAMERA across it)."""
     r = astroray.Renderer()
     r.set_integrator("path_tracer")
     r.set_use_gpu(use_gpu)
@@ -58,6 +62,14 @@ def build(mode, scene, use_gpu=False):
         r.add_sphere([1.8, 0.0, 0.0], 1.0, mirror)
     else:
         r.add_sphere([-4.0, 0.0, 1.5], 0.6, light)  # out of view, left of the sphere
+    if transparent_plane:
+        clear = r.create_material("principled", [0.05, 0.05, 0.05],
+                                  {"alpha": 0.0, "roughness": 1.0})
+        r.add_triangle([-20, -20, 3], [20, -20, 3], [20, 20, 3], clear)
+        r.add_triangle([-20, -20, 3], [20, 20, 3], [-20, 20, 3], clear)
+    for k in range(nested):
+        r.add_sphere([-1.5, 0.0, 0.0], 0.015 * (k + 1), red)
+        r.set_object_indirect_only(r.scene_object_count() - 1, True)
     if mode != "absent":
         r.add_sphere([-1.5, 0.0, 0.0], 1.0, red)
         if mode == "indirect":
@@ -113,3 +125,34 @@ def test_indirect_only_casts_shadow():
     assert vis < 0.6 * ab, f"scene broken: sphere casts no shadow ({vis} vs {ab})"
     assert ind < 0.6 * ab, f"indirect-only sphere casts no shadow ({ind} vs unshadowed {ab})"
     assert abs(ind - vis) < 0.3 * ab, (ind, vis)
+
+
+def _behind_transparent(use_gpu=False):
+    imgs = {m: render(build(m, "mirror", use_gpu, transparent_plane=True))
+            for m in ("visible", "indirect", "absent")}
+    return tuple(roi(imgs[m], *SPHERE_UV) for m in ("visible", "indirect", "absent"))
+
+
+def test_indirect_only_stays_hidden_behind_a_transparent_pass():
+    """Cycles keeps PATH_RAY_CAMERA across a transparent pass (path_state_next returns
+    early), so the indirect-only sphere behind an alpha=0 plane is still invisible. The
+    old `bounce == 0` predicate treated the post-plane ray as indirect and showed it."""
+    vis, ind, ab = _behind_transparent()
+    assert red_fraction(vis) > 0.6, f"scene broken: the plane hides the visible sphere: {vis}"
+    assert abs(red_fraction(ind) - red_fraction(ab)) < 0.05, (ind, ab)
+    assert red_fraction(ind) < 0.45, f"indirect-only sphere visible through a transparent plane: {ind}"
+
+
+def _nested(use_gpu=False):
+    img = render(build("absent", "mirror", use_gpu, nested=20))
+    ref = render(build("absent", "mirror", use_gpu))
+    return roi(img, *SPHERE_UV, half=1).sum(), roi(ref, *SPHERE_UV, half=1).sum()
+
+
+def test_indirect_only_pass_through_has_no_cap():
+    """Twenty concentric indirect-only shells = 40 surface hits on a camera ray. The
+    re-trace used to give up after 16 (CPU: a miss -> black, GPU: the flagged hit); the
+    ray must reach the backdrop, as in Cycles."""
+    got, ref = _nested()
+    assert ref > 0.1, f"scene broken: backdrop is black ({ref})"
+    assert got > 0.6 * ref, f"camera ray gave up inside the indirect-only shells: {got} vs {ref}"

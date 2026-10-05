@@ -3977,8 +3977,9 @@ public:
             // pkg296: where the bounded media start on this ray (see the media
             // block); the default 0.001 clip keeps the pre-pkg296 0.001 start.
             const float mediaT0 = (bounce == 0 && clipNear_ > 0.001f) ? tMin : 0.001f;
-            bool didHit = (bounce == 0) ? hitCameraRay(ray, tMin, tMax, rec)  // #36
-                                        : bvh->hit(ray, tMin, tMax, rec);
+            bool didHit = (lpc.flags & astroray::lightpath::LPF_CAMERA)  // #36
+                              ? hitCameraRay(ray, tMin, tMax, rec)
+                              : bvh->hit(ray, tMin, tMax, rec);
 
             // pkg199 Stage 2 — homogeneous medium free-flight sampling. Engaged
             // ONLY when mediumScatters; otherwise the Stage-1 absorption path below
@@ -4922,8 +4923,9 @@ public:
             const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
             const float tMin = primarySeg ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
             const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv - passDist : std::numeric_limits<float>::max();
-            bool didHit = (bounce == 0) ? hitCameraRay(ray, tMin, tMax, rec)  // #36
-                                        : bvh->hit(ray, tMin, tMax, rec);
+            bool didHit = (lpc.flags & astroray::lightpath::LPF_CAMERA)  // #36
+                              ? hitCameraRay(ray, tMin, tMax, rec)
+                              : bvh->hit(ray, tMin, tMax, rec);
 
             // pkg181: dedicated-lamp visibility (Cycles lights_intersect). This
             // opt-in caustic kernel carries no pkg120 two-sided-MIS state
@@ -5379,26 +5381,30 @@ public:
     // consumes no RNG; only the transparentGlass walk samples a BSDF (to follow
     // the refraction), matching the original. The cap mirrors the old loop's
     // `bounce < maxDepth`.
-    // #36 — closest hit for a PRIMARY camera ray: indirect-only objects are skipped
-    // (the ray continues through them from t = their hit, as Cycles does when the
-    // object's camera visibility bit is clear; kernel/bvh visibility test, Apache-2.0).
-    // One bool test when no indirect-only object exists, so the default render path
-    // is byte-identical.
+    // #36 — closest hit for a CAMERA ray (Cycles PATH_RAY_CAMERA: the primary ray and
+    // any ray that has only passed straight through transparent surfaces, i.e. while
+    // PathContext.flags & LPF_CAMERA): indirect-only objects are skipped, the ray
+    // continues from just past them as Cycles does when the object's camera
+    // visibility bit is clear (kernel/bvh visibility test, Apache-2.0). One bool
+    // test when no indirect-only object exists, so the default render path is
+    // byte-identical. No pass-through cap (matches the GPU's in-traversal skip:
+    // tMin strictly advances, so the walk ends). The 1e-4 / 1e-5 t re-trace offset can
+    // skip a surface lying within it just behind an indirect-only hit; the GPU skips the
+    // flagged primitives inside one traversal and has no such window (sub-1e-4 effect).
     bool hitCameraRay(const Ray& ray, float tMin, float tMax, HitRecord& rec) const {
         if (!hasIndirectOnlyObjects_) return bvh->hit(ray, tMin, tMax, rec);
-        constexpr int kMaxPassThrough = 16;  // a closed indirect-only shell hits twice
-        for (int k = 0; k < kMaxPassThrough; ++k) {
+        for (;;) {
             HitRecord tmp;
             if (!bvh->hit(ray, tMin, tMax, tmp)) return false;
             if (!(tmp.hitObject && tmp.hitObject->isIndirectOnly())) { rec = tmp; return true; }
             tMin = tmp.t + std::max(1e-4f, 1e-5f * tmp.t);
         }
-        return false;
     }
     float coverageAlpha(const Ray& primary, std::mt19937& gen, int maxDepth) const {
         if (!useTransparentFilm) return 1.0f;
         if (!bvh) return 0.0f;
         Ray ray = primary;
+        astroray::lightpath::PathContext lpc;  // #36: camera-ray flag (see hitCameraRay)
         const int cap = std::max(1, maxDepth);
         // #1033: alpha pass-throughs (below) are not bounces; `passes` bounds them,
         // `travelled` is the camera-ray distance already covered (far clip).
@@ -5414,8 +5420,9 @@ public:
             const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
             const float tMin = (bounce == 0 && passes == 0) ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
             const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv - travelled : std::numeric_limits<float>::max();
-            if (!((bounce == 0) ? hitCameraRay(ray, tMin, tMax, rec)  // #36
-                                : bvh->hit(ray, tMin, tMax, rec)))
+            if (!((lpc.flags & astroray::lightpath::LPF_CAMERA)  // #36
+                      ? hitCameraRay(ray, tMin, tMax, rec)
+                      : bvh->hit(ray, tMin, tMax, rec)))
                 return 0.0f;  // reached the background uncovered
             if (rec.hitObject && rec.hitObject->isGRObject())
                 return 1.0f;  // a GR object covers the film
@@ -5444,6 +5451,15 @@ public:
             Vec3 wo = (ray.direction * -1.0f).normalized();
             BSDFSample bs = rec.material->sample(rec, wo, gen);
             if (bs.pdf <= 0.0f) return 0.0f;
+            {   // #36 — same bounce class as pathTraceSpectral's lobeCat (light_path.h)
+                const bool transmitted = wo.dot(rec.normal) * bs.wi.dot(rec.normal) < 0.0f;
+                const int cat = transmitted ? 2
+                              : ((bs.isDelta || rec.material->isGlossy()) ? 1 : 0);
+                lpc = astroray::lightpath::next_surface(
+                    lpc, cat, bs.isDelta,
+                    astroray::lightpath::is_transparent_pass(bs.isDelta, wo.dot(bs.wi),
+                        rec.material->shadowAlpha(rec) < 1.0f));
+            }
             ray = spawnRay(rec, bs.wi, ray.time);
         }
         return 0.0f;  // exhausted the glass-chain budget → treat as uncovered

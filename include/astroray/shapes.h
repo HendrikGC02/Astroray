@@ -214,10 +214,11 @@ public:
                 p2 = v2 * (1.0f - t) + nextVerts[2] * t;
                 if (hasVertexNormals) {
                     // Cycles motion_triangle_smooth_normal (Apache-2.0): lerp the motion
-                    // vertex normals by time, then barycentric-interpolate at the hit.
-                    nm0 = vn0 * (1.0f - t) + nextVerts[3] * t;
-                    nm1 = vn1 * (1.0f - t) + nextVerts[4] * t;
-                    nm2 = vn2 * (1.0f - t) + nextVerts[5] * t;
+                    // vertex normals by time and normalise each BEFORE the barycentric
+                    // blend (a rotation shortens a lerped unit normal).
+                    nm0 = (vn0 * (1.0f - t) + nextVerts[3] * t).normalized();
+                    nm1 = (vn1 * (1.0f - t) + nextVerts[4] * t).normalized();
+                    nm2 = (vn2 * (1.0f - t) + nextVerts[5] * t).normalized();
                 }
             } else {
                 // Blend between two motion steps
@@ -237,6 +238,10 @@ public:
         if (hasVertexNormals) {
             Vec3 nInterp = moving ? (nm0 * w + nm1 * u + nm2 * v).normalized()
                                   : (vn0 * w + vn1 * u + vn2 * v).normalized();
+            // Cycles: is_zero(N) ? Ng : N (a blend that cancels falls back to the
+            // facet normal of the time-interpolated vertices).
+            if (moving && nInterp.length2() == 0.0f)
+                nInterp = (p1 - p0).cross(p2 - p0).normalized();
             rec.setFaceNormal(r, nInterp);
         } else if (moving) {
             // #947 — a moving flat triangle: the facet normal follows the interpolated
@@ -373,6 +378,10 @@ public:
     // steps = 2 means buffer has 6 Vec3s [v0_end, v1_end, v2_end, n0_end, n1_end, n2_end]
     // for shutter close (#947 added the three end normals; the GPU upload reads the same layout).
     void setMotionData(const Vec3* buffer, int steps) {
+        // The 6-Vec3 per-triangle stride (verts + normals, #947) is baked into the
+        // hit() / GPU twin step>0 branches' indexing only for the 2-step layout.
+        if (steps != 2 && steps != 1)
+            throw std::invalid_argument("Triangle::setMotionData: only motionSteps 1 or 2 is supported");
         motionVertexBuffer = buffer;
         motionSteps = steps;
     }

@@ -271,6 +271,7 @@ struct GPrimitive {
     uint8_t   flags = 0;  // #36: GPRIM_FLAG_*; occupies padding after `type` (sizeof stays 8)
     int       index;   // index into d_triangles / d_spheres / d_curveSegments
 };
+static_assert(sizeof(GPrimitive) == 8, "#36: GPrimitive::flags must stay in the padding after `type`");
 
 struct GTriangle {
     GVec3 v0, v1, v2;

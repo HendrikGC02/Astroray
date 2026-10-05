@@ -6119,6 +6119,30 @@ class CustomRaytracerRenderEngine(RenderEngine):
             cache[mat.name] = bool(getattr(mat, 'use_nodes', False)) and                 _tree_uses_object_coords(getattr(mat, 'node_tree', None))
         return cache[mat.name]
 
+    def _warn_indirect_only_integrator(self, depsgraph):
+        """#36: only the spectral path tracer family honours Indirect Only; ReSTIR DI and
+        the multiwavelength tracer trace camera rays straight through the BVH."""
+        settings = getattr(getattr(depsgraph, "scene", None), "custom_raytracer", None)
+        if settings is None:
+            return
+        try:
+            name = _effective_integrator_name(settings)
+        except Exception:
+            return
+        if name in ("restir_di", "multiwavelength_path_tracer"):
+            self._degradation_report().ignore(
+                "INDIRECT_ONLY", "Indirect Only collections are ignored by the '%s' "
+                "integrator (camera rays still see the objects)" % name)
+
+    @staticmethod
+    def _object_indirect_only(obj, depsgraph):
+        """#36: the collection's Indirect Only flag for `obj` (Cycles BASE_INDIRECT_ONLY).
+        It lives on the ORIGINAL object's view-layer base; absent API -> False."""
+        try:
+            return bool(obj.original.indirect_only_get(view_layer=depsgraph.view_layer))
+        except (AttributeError, TypeError, RuntimeError):
+            return False
+
     def _object_instanceable(self, obj):
         """A mesh object is eligible for the two-level instancing fast-path only
         when it is a plain MESH with no instancing-deferred feature: no emissive
@@ -6206,6 +6230,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     if getattr(obj, 'instance_type', 'NONE') not in ('NONE', None, ''):
                         instancer_nested.add(pname)
             if not self._object_instanceable(obj):
+                continue
+            # #36: the indirect-only flag is per flat object (the shared BLAS has no
+            # per-instance flag): an indirect-only object is flattened instead.
+            if self._object_indirect_only(obj, depsgraph):
                 continue
             key = (obj.data, obj.name)
             groups.setdefault(key, []).append((i, obj, inst.matrix_world.copy()))
@@ -6749,13 +6777,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # camera visibility bit (intern/cycles/blender/object.cpp, Apache-2.0).
             # The flag lives on the ORIGINAL object's view-layer base; the evaluated
             # copy reads False. Absent API / fake objects -> not indirect-only.
-            is_indirect_only = False
-            if not is_holdout:
-                try:
-                    is_indirect_only = bool(obj.original.indirect_only_get(
-                        view_layer=depsgraph.view_layer))
-                except (AttributeError, TypeError, RuntimeError):
-                    pass
+            is_indirect_only = (not is_holdout) and self._object_indirect_only(obj, depsgraph)
             scene_count_before = (renderer.scene_object_count()
                                   if hasattr(renderer, "scene_object_count") else 0)
 
@@ -6939,6 +6961,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 # #36 — indirect-only flag (camera rays pass through; see above)
                 if is_indirect_only and hasattr(renderer, "set_object_indirect_only"):
                     renderer.set_object_indirect_only(oid, True)
+                    self._warn_indirect_only_integrator(depsgraph)
                 # pkg87c — Cryptomatte object name
                 if hasattr(renderer, "set_object_name"):
                     renderer.set_object_name(oid, obj.name)

@@ -13,16 +13,23 @@ vane read 0.74 with only floor+vane in the scene; static (motion off) read 0.998
 - `intern/cycles/kernel/geom/motion_triangle.h`: `motion_triangle_vertices` / `motion_triangle_normal`
   (facet normal from the time-interpolated vertices) and `motion_triangle_smooth_normal`
   (vertex normals lerped over the motion steps, then barycentric).
-- Implemented as: smooth triangle -> `lerp(n_open, n_close, t)` per vertex, normalised after the
-  barycentric blend; flat triangle -> `cross(p1-p0, p2-p0)` of the interpolated vertices.
-  CPU `Triangle::hit`, GPU `gpu_triangle_hit_motion`. Two motion steps only (the addon bakes
+- Implemented as: smooth triangle -> `lerp(n_open, n_close, t)` per vertex, each NORMALISED
+  before the barycentric blend, then the blend normalised, `is_zero(N) ? Ng : N`; flat triangle ->
+  `cross(p1-p0, p2-p0)` of the interpolated vertices. CPU `Triangle::hit`; GPU
+  `gpu_motion_triangle_finalize`, run once on the accepted hit at the end of `gpu_bvh_hit` (not
+  per traversal candidate: keeps the intersect kernel's registers at the pre-#947 level). Two motion steps only (the addon bakes
   shutter open/close); >2 steps / decomposed rotation interpolation were not needed.
 
 ## #36 indirect-only
 `intern/cycles/blender/object.cpp` (~l.186): `use_indirect_only = !use_holdout && base_parent &&
 (base_parent->flag & BASE_INDIRECT_ONLY)` clears `PATH_RAY_VISIBILITY_CAMERA`. Blender exposes the
 flag as `Object.indirect_only_get(view_layer=)` on the ORIGINAL object (the evaluated copy reads
-False; verified in Blender 5.2). Camera ray = bounce 0; the ray continues from just past the
-object (Cycles re-intersects with the visibility mask), so a closed shell is passed twice.
+False; verified in Blender 5.2). A camera ray is one with `LPF_CAMERA` set (Cycles
+PATH_RAY_CAMERA: the primary ray plus rays that only passed straight through transparent
+surfaces; light_path.h `next_surface`), not just `bounce == 0`. CPU re-traces from just past each
+indirect-only hit (offset `max(1e-4, 1e-5 t)`); GPU skips the flagged primitives inside the one
+traversal (Cycles visibility mask), so a closed shell is passed through on both. The GPU reads the
+flag from `lp_state`, which scene_upload makes the shade kernel maintain (HasProgram variant) only
+for scenes that contain an indirect-only object.
 Not covered: GPU ReSTIR path (separate driver), instanced geometry (flags are per flat object),
 the CPU wavefront oracle `reference_pt_production`, collection-level holdout.

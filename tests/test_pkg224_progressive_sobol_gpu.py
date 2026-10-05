@@ -24,13 +24,12 @@ Gates:
     unchanged PCG32 path. (Bitwise codegen identity of the OFF path is pinned
     separately by the cuobjdump register probe in the PR; the GPU renderer's
     per-pixel accumulation is ~1 ULP non-deterministic run-to-run regardless.)
-  * test_progressive_changes_output — ON vs OFF differ, proving the flag reaches
-    the device draw sites.
-  * test_progressive_lowers_noise — on a flat, uniformly-lit region at matched
-    low spp, the progressive render has lower per-pixel variance than the PCG32
-    white-noise render (the convergence benefit that unblocks pkg131 adaptive
-    sampling). Spatial variance in a flat patch is reference-free, so it carries
-    no same-sampler correlation bias.
+  * test_progressive_changes_output — ON vs OFF differ well beyond atomic
+    jitter, proving the flag reaches the device draw sites.
+  * test_progressive_lowers_noise — at matched low spp, the progressive render
+    has lower RMSE against a converged reference than the PCG32 white-noise
+    render (the convergence benefit that unblocks pkg131 adaptive sampling).
+    #1015: the scene puts its variance in the light/BSDF dimensions.
 
 GPU-gated: skips when no CUDA device (CI has none) — this is an RTX-box leg.
 """
@@ -47,17 +46,21 @@ def _has_cuda_gpu(renderer):
 
 
 def _build_scene(renderer):
-    """A diffuse quad facing the camera under a bright uniform world — a smooth
-    integrand where low-discrepancy sampling converges visibly faster."""
-    renderer.set_background_color([0.8, 0.8, 0.8])
+    """A diffuse quad filling the frame, lit by an off-frame sphere light over a
+    black world. The variance sits in the light/BSDF dimensions (dims >= 4) that
+    the sampler toggle drives. #1015: the old uniform-world scene had none there
+    (only the camera group, always Sobol since pkg305), so ON/OFF tied to 1 ulp."""
+    renderer.set_background_color([0.0, 0.0, 0.0])
     mat = renderer.create_material("lambertian", [0.6, 0.6, 0.6], {})
-    A, B = [-1, -1, 0], [1, -1, 0]
-    C, D = [1, 1, 0], [-1, 1, 0]
+    A, B = [-4, -4, 0], [4, -4, 0]
+    C, D = [4, 4, 0], [-4, 4, 0]
     n = [0, 0, 1]
     renderer.add_triangle_layers(A, B, C, mat, {"UVMap": [[0, 0], [1, 0], [1, 1]]},
                                  n, n, n)
     renderer.add_triangle_layers(A, C, D, mat, {"UVMap": [[0, 0], [1, 1], [0, 1]]},
                                  n, n, n)
+    light = renderer.create_material("light", [1.0, 1.0, 1.0], {"intensity": 40.0})
+    renderer.add_sphere([1.5, 0.9, 0.6], 0.4, light)
     setup_camera(renderer, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0],
                  vfov=45, width=48, height=48)
 
@@ -100,8 +103,9 @@ def test_progressive_changes_output():
     off = _render(progressive=False, samples=32)
     on = _render(progressive=True, samples=32)
     assert off.shape == on.shape
-    assert not np.array_equal(off, on), (
-        "progressive ON produced a byte-identical image to OFF — the flag is not "
+    # Well above the ~1e-6 float-atomic jitter (measured 0.78 max on this scene).
+    assert np.abs(off - on).max() > 1e-2, (
+        "progressive ON matches OFF to within atomic jitter — the flag is not "
         "reaching WavefrontRNG::Uniform() on the device")
     # Both must be sane, non-black renders of the same scene.
     assert 0.05 < off.mean() and 0.05 < on.mean()
@@ -109,21 +113,16 @@ def test_progressive_changes_output():
     assert abs(off.mean() - on.mean()) < 0.05
 
 
-def _flat_patch_noise(img):
-    """Per-pixel spatial std in the central 16x16 patch (a flat, uniformly-lit
-    region → its variation is Monte-Carlo noise, not signal)."""
-    h, w = img.shape[:2]
-    cy, cx = h // 2, w // 2
-    patch = img[cy - 8:cy + 8, cx - 8:cx + 8]
-    return float(patch.reshape(-1, patch.shape[-1]).std(axis=0).mean())
-
-
 def test_progressive_lowers_noise():
-    """At matched low spp the progressive render has lower flat-region noise than
-    the PCG32 white-noise render (Sobol'-class convergence)."""
+    """At matched low spp the progressive render is closer to a converged
+    reference than the PCG32 white-noise render (Sobol'-class convergence).
+    RMSE vs reference, averaged over seeds; measured ratio 0.63 at 16 spp."""
     n = 16
-    noise_prog = _flat_patch_noise(_render(progressive=True, samples=n))
-    noise_white = _flat_patch_noise(_render(progressive=False, samples=n))
-    assert noise_prog < noise_white, (
-        f"progressive flat-region noise {noise_prog:.4e} not below white-noise "
-        f"{noise_white:.4e} at {n} spp — no convergence benefit observed")
+    ref = _render(progressive=False, samples=1024, seed=99)
+    seeds = (1, 2, 3, 4)
+    rmse = lambda img: float(np.sqrt(((img - ref) ** 2).mean()))  # noqa: E731
+    err_prog = np.mean([rmse(_render(progressive=True, samples=n, seed=s)) for s in seeds])
+    err_white = np.mean([rmse(_render(progressive=False, samples=n, seed=s)) for s in seeds])
+    assert err_prog < 0.85 * err_white, (
+        f"progressive RMSE {err_prog:.4e} not below 0.85x white-noise "
+        f"{err_white:.4e} at {n} spp — no convergence benefit observed")

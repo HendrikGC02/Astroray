@@ -155,6 +155,14 @@ def test_recorder_uses_blender_52_screenshot_signature():
     assert '"stimulus": "material_view_update"' in source
 
 
+def test_recorder_retains_worker_off_raw_events():
+    """#1050: the synchronous path emits the raw stream the sync reducer re-derives from."""
+    source = (ROOT / "benchmarks/viewport_parity/blender_recorder.py").read_text(encoding="utf-8")
+    assert 'raw("sync_render", None, None, {"end_ns": int(x * 1e9), "fingerprint": fp}' in source
+    assert 'raw("post_pixel_present", None, None, {"sync": True}' in source
+    assert 'getattr(self, "_worker", None) is None' in source
+
+
 def test_gate_a_reducer_rejects_stale_after_ack_and_missing_ack_or_present():
     for failure in ("stale_after_ack", "no_ack", "no_present"):
         cap = _capture(_sha("s"), 10000, "material", 0, broken=failure)
@@ -290,8 +298,8 @@ def test_gate_manifest_rejects_wrong_device_truncation_and_forged_summary(tmp_pa
 
 
 # --- pkg291: worker-OFF reducer + table grading -----------------------------
-def test_sync_reducer_requires_a_correct_synchronous_present():
-    root = _pixel_artifacts()
+def _sync_capture(root, **over):
+    """One worker-OFF edit with the raw stream the recorder now retains (#1050)."""
     raw = []
     for label, ts in (("pre", 500_000), ("post", 40_000_000)):
         path = root / f"sync-{label}.png"
@@ -299,22 +307,113 @@ def test_sync_reducer_requires_a_correct_synchronous_present():
         raw.append({"name": "viewport_pixels", "generation": None, "epoch": None, "t_ns": ts,
                     "extra": {"label": label, "path": str(path), "event_id": 1,
                               "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}})
-    ok = {"event_id": 1, "dispatch_ns": 1_000_000, "correct_present_ns": 31_000_000,
-          "sync": True, "input_fingerprint": [0.7, 0.2], "sync_render_fingerprint": [0.7, 0.2]}
-    red = DRV.reduce_gate_a_sync_capture([ok], raw)
-    assert red["complete"] and red["rows"][0]["present_ns"] == 31_000_000
-    near = {**ok, "sync_render_fingerprint": [0.70000004, 0.2]}   # view_matrix recompute
-    assert DRV.reduce_gate_a_sync_capture([near], raw)["complete"]
-    for bad in ({**ok, "sync": False}, {**ok, "correct_present_ns": None},
-                {**ok, "correct_present_ns": 0},
-                {**ok, "sync_render_fingerprint": [0.3, 0.2]},     # render saw the OLD input
-                {**ok, "sync_render_fingerprint": None},
-                {**ok, "correct_present_ns": 50_000_000}):         # post capture precedes it
-        assert DRV.reduce_gate_a_sync_capture([bad], raw)["errors"]
-    assert DRV.reduce_gate_a_sync_capture([ok], [])["errors"]          # no pixel evidence
-    forged = [dict(raw[0]), {**raw[1], "extra": {**raw[1]["extra"], "sha256": "0" * 64}}]
-    assert DRV.reduce_gate_a_sync_capture([ok], forged)["errors"]
-    assert DRV.reduce_gate_a_sync_capture([ok], raw, truncated=True)["errors"]
+    fp = [0.7, 0.2]
+    raw += [
+        {"name": "input_applied", "generation": None, "epoch": None, "t_ns": 1_000_100,
+         "extra": {"event_id": 1, "fingerprint": fp}},
+        # an earlier render of the OLD input, then the render of this edit
+        {"name": "sync_render", "generation": None, "epoch": None, "t_ns": 900_000,
+         "extra": {"end_ns": 950_000, "fingerprint": [0.3, 0.2]}},
+        {"name": "sync_render", "generation": None, "epoch": None, "t_ns": 2_000_000,
+         "extra": {"end_ns": 30_000_000, "fingerprint": fp}},
+        {"name": "post_pixel_present", "generation": None, "epoch": None, "t_ns": 1_500_000,
+         "extra": {"sync": True}},        # before the render ends: not the correct one
+        {"name": "post_pixel_present", "generation": None, "epoch": None, "t_ns": 31_000_000,
+         "extra": {"sync": True}},
+        {"name": "post_pixel_present", "generation": None, "epoch": None, "t_ns": 35_000_000,
+         "extra": {"sync": True}},
+    ]
+    edit = {"event_id": 1, "dispatch_ns": 1_000_000, "correct_present_ns": 31_000_000,
+            "sync": True, "input_fingerprint": fp, "sync_render_fingerprint": fp,
+            "sync_render_end_ns": 30_000_000}
+    edit.update(over)
+    return edit, raw
+
+
+def _ev(raw, name, nth=0):
+    return [e for e in raw if e["name"] == name][nth]
+
+
+def _drop(name):
+    return lambda e, r: r.__setitem__(slice(None), [x for x in r if x["name"] != name])
+
+
+def test_sync_reducer_derives_the_present_from_raw_events():
+    edit, raw = _sync_capture(_pixel_artifacts())
+    red = DRV.reduce_gate_a_sync_capture([edit], raw)
+    assert red["complete"] and red["rows"][0]["present_ns"] == 31_000_000, red["errors"]
+    # view_matrix recompute noise between the edit and the render is tolerated
+    edit, raw = _sync_capture(_pixel_artifacts(), sync_render_fingerprint=[0.70000004, 0.2])
+    _ev(raw, "sync_render", 1)["extra"]["fingerprint"] = [0.70000004, 0.2]
+    assert DRV.reduce_gate_a_sync_capture([edit], raw)["complete"]
+    # the edit's claimed render end is optional but must agree when present
+    edit, raw = _sync_capture(_pixel_artifacts())
+    del edit["sync_render_end_ns"]
+    assert DRV.reduce_gate_a_sync_capture([edit], raw)["complete"]
+
+
+def test_sync_reducer_fails_closed_on_forged_shapes():
+    root = _pixel_artifacts()
+    forged = {
+        "sync flag": lambda e, r: e.update(sync=False),
+        "claim missing": lambda e, r: e.update(correct_present_ns=None),
+        "claim zero": lambda e, r: e.update(correct_present_ns=0),
+        # claimed present is a real present, but not the FIRST one after render end
+        "claim later present": lambda e, r: e.update(correct_present_ns=35_000_000),
+        # claimed present precedes the render end (pre-edit frame shown as correct)
+        "claim before render end": lambda e, r: e.update(correct_present_ns=1_500_000),
+        "claim off by 1 ns": lambda e, r: e.update(correct_present_ns=31_000_001),
+        "claimed render end forged": lambda e, r: e.update(sync_render_end_ns=1_100_000),
+        "claimed render fp forged": lambda e, r: e.update(sync_render_fingerprint=[0.3, 0.2]),
+        "claimed render fp missing": lambda e, r: e.update(sync_render_fingerprint=None),
+        "edit fp changed": lambda e, r: e.update(input_fingerprint=[0.9, 0.2]),
+        "missing sync_render": _drop("sync_render"),
+        "render saw old input": lambda e, r: _ev(r, "sync_render", 1)["extra"].update(
+            fingerprint=[0.3, 0.2]),
+        "render started before dispatch": lambda e, r: _ev(r, "sync_render", 1).update(
+            t_ns=900_000),
+        "render end before start": lambda e, r: _ev(r, "sync_render", 1)["extra"].update(
+            end_ns=1_000_000),
+        "render end missing": lambda e, r: _ev(r, "sync_render", 1)["extra"].pop("end_ns"),
+        "missing presents": _drop("post_pixel_present"),
+        "only pre-render presents": lambda e, r: r.__setitem__(slice(None), [
+            x for x in r if not (x["name"] == "post_pixel_present" and x["t_ns"] > 2_000_000)]),
+        "present has a generation": lambda e, r: _ev(r, "post_pixel_present", 1).update(
+            generation=5, epoch=7),
+        "present not sync-labelled": lambda e, r: _ev(r, "post_pixel_present", 1)["extra"].clear(),
+        "input_applied missing": _drop("input_applied"),
+        "input_applied other edit": lambda e, r: _ev(r, "input_applied")["extra"].update(event_id=2),
+        "input_applied before dispatch": lambda e, r: _ev(r, "input_applied").update(t_ns=1),
+        "input_applied other input": lambda e, r: _ev(r, "input_applied")["extra"].update(
+            fingerprint=[0.3, 0.2]),
+        "worker events in sync capture": lambda e, r: r.append(
+            {"name": "request", "generation": 3, "epoch": 7, "t_ns": 1_000_200, "extra": {}}),
+        "malformed raw event": lambda e, r: r.append({"name": "x", "t_ns": "late"}),
+        "post frame precedes present": lambda e, r: _ev(r, "viewport_pixels", 1).update(
+            t_ns=30_500_000),
+        "pre frame after dispatch": lambda e, r: _ev(r, "viewport_pixels", 0).update(
+            t_ns=1_000_050),
+        "pixel evidence missing": _drop("viewport_pixels"),
+        "pixel hash forged": lambda e, r: _ev(r, "viewport_pixels", 1)["extra"].update(
+            sha256="0" * 64),
+        "pruned without digest": lambda e, r: _ev(r, "viewport_pixels", 1)["extra"].update(
+            pruned=True, sha256=None),
+    }
+    for label, mutate in forged.items():
+        edit, raw = _sync_capture(root)
+        mutate(edit, raw)
+        assert DRV.reduce_gate_a_sync_capture([edit], raw)["errors"], label
+    edit, raw = _sync_capture(root)
+    assert DRV.reduce_gate_a_sync_capture([edit], raw, truncated=True)["errors"]
+    assert DRV.reduce_gate_a_sync_capture([edit], [])["errors"]
+
+
+def test_sync_reducer_honours_producer_pruned_frames():
+    edit, raw = _sync_capture(_pixel_artifacts())
+    for p in (e for e in raw if e["name"] == "viewport_pixels"):
+        Path(p["extra"]["path"]).unlink()
+        p["extra"]["pruned"] = True
+    assert DRV.reduce_gate_a_sync_capture([edit], raw)["complete"]
 
 
 def _row(ms):

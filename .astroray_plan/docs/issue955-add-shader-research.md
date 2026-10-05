@@ -10,7 +10,19 @@
 - Implementation: `include/astroray/add_material.h` (CPU exact), exporter spec
   `{'kind': 'add'}` (`blender_addon/shader_blending.py`), folds for pure-Diffuse
   pairs (albedo adds exactly while <= 1) and Emission (radiance adds).
-- GPU: `gpu_closure_graph_eval` (pkg170) normalises lobe weights, i.e. averages;
-  GMaterial has no additive-composition flag and the shade kernel is REG 254
-  saturated. The GPU therefore uploads child A only (all upload hooks forward to A)
-  and the addon reports it (ADD_SHADER). A true GPU sum needs a new kernel path.
+- GPU (#1072): `gpu_closure_graph_eval` (pkg170) normalises lobe weights, so one merged
+  closure graph would average. Instead a summable pair (`AddMaterial::gpuSummable()`:
+  plain, opaque, non-emissive, untextured children) uploads child A at the Add's id and
+  child B as a hidden material; `GMaterial::addPartner` (+1 index, in existing padding,
+  struct stays 640 B) links them and `c_wfAddMaterials` (constant pointer) gives the
+  shade kernel the array. A compile-time `HasAdd` shade axis (8 variants in
+  `stage_shade_add.cu`, launched only for scenes with a partner; an out-of-line call
+  alone still raised every Principled kernel's stack +4 KB) runs the CPU scheme: pick a child p = 1/2, return the
+  summed f and 0.5 (pdf_A + pdf_B) (`gpu_add_*` in `stage_advance_device.cuh`, bodies
+  `ASTRORAY_SHADE_NOINLINE`; the `<false>` fleet compiles none of it). Cycles picks a
+  closure proportional to sample_weight (`surface_shader_bsdf_bssrdf_pick`,
+  kernel/integrator/surface_shader.h, Apache-2.0); equal weights are the special case.
+  Not summable on the GPU (still child A only, reported ADD_SHADER): textured /
+  program-driven, emissive, alpha < 1, dispersive, normal-mapped, nested Add / Light
+  Path children, children without a GPU lowering. ReSTIR/harness paths and photon
+  receivers also see child A only.

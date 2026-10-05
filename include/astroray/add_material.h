@@ -13,17 +13,23 @@
 // is 0 for deltas), so it is returned alone with its pdf scaled by the 1/2
 // selection probability.
 //
-// GPU: the closure-graph evaluator normalises lobe weights
-// (gpu_closure_graph_eval, pkg170), i.e. it averages lobes, and GMaterial has
-// no additive-composition flag (shade kernel is register-saturated, REG 254).
-// The GPU therefore uploads child A only: every capability / upload hook
-// forwards to A (the same way LightPathMixMaterial uploads its child A). The
-// addon reports this degradation (blender_addon/__init__.py ADD_SHADER).
+// GPU (#1072): the closure-graph evaluator normalises lobe weights (pkg170), so an
+// Add cannot be one merged graph. A summable pair (gpuSummable()) uploads child A at
+// this material's id and child B as a hidden second GMaterial (GMaterial::addPartner
+// holds its index + 1); the wavefront shade kernel (the HasAdd=true variants only, stage_shade_add.cu) then
+// evaluates f = f_A + f_B, pdf = 0.5 (pdf_A + pdf_B) and samples a child with
+// probability 1/2, exactly the CPU scheme above. Cycles picks closures proportional
+// to sample_weight (surface_shader_bsdf_bssrdf_pick, kernel/integrator/surface_shader.h,
+// Apache-2.0); this is the equal-weight special case, and the mixture pdf keeps the
+// estimator unbiased for any selection probabilities (Veach 1997 Eq. 9.15). A pair
+// that is not summable keeps the old behaviour: child A only, reported by the addon.
 // ============================================================================
 
 #include <algorithm>
 #include <random>
 #include "raytracer.h"
+#include "light_path_mix.h"
+#include "shader_vm.h"
 
 namespace astroray {
 
@@ -94,7 +100,7 @@ public:
     std::shared_ptr<Material> lightPathSelect(const lightpath::PathContext& c) const override {
         return a_->lightPathSelect(c);
     }
-    // ---- GPU upload / parameter queries: child A (see header comment) -------
+    // ---- GPU upload / parameter queries: child A at this id; child B is the partner ----
     Vec3 getAlbedo() const override { return a_->getAlbedo(); }  // scene_upload reads it for the GMaterial
     std::string getGPUTypeName() const override { return a_->getGPUTypeName(); }
     std::shared_ptr<Material> normalMapInner() const override { return a_->normalMapInner(); }
@@ -106,10 +112,34 @@ public:
     HairGPUParams hairGPUParams() const override { return a_->hairGPUParams(); }
     std::shared_ptr<Texture> scalarProgram(int slot) const override { return a_->scalarProgram(slot); }
     MaterialClosureGraph closureGraph() const override { return a_->closureGraph(); }
+    // #1072: can the wavefront GPU sum A and B? Both must be plain, opaque, non-emissive
+    // materials whose GPU shade needs no per-hit data beyond their own GMaterial: the
+    // partner gets no texture / scalar-program / normal-map override, and a transparent
+    // or emissive child would need the (CPU) shadowAlpha / emitted sums.
+    static bool gpuSummableChild(const Material& m) {
+        if (dynamic_cast<const AddMaterial*>(&m) || dynamic_cast<const LightPathMixMaterial*>(&m))
+            return false;
+        const MaterialBackendCapabilities c = m.backendCapabilities();
+        if (!c.gpu || c.gpuApproximate || m.isEmissive() || m.isDispersive()) return false;
+        if (m.normalMapInner() || m.normalMapTexture() || m.bumpMapTexture() || m.hairGPUParams().isHair)
+            return false;
+        for (int s = 0; s <= svm::SCALAR_BASE_COLOR; ++s)
+            if (m.scalarProgram(s)) return false;
+        const MaterialClosureGraph g = m.closureGraph();
+        for (int i = 0; i < g.count(); ++i)
+            if (g.closure(i).alpha < 1.0f || g.closure(i).type == MaterialClosureType::Emission)
+                return false;
+        return true;
+    }
+    bool gpuSummable() const { return gpuSummableChild(*a_) && gpuSummableChild(*b_); }
     MaterialBackendCapabilities backendCapabilities() const override {
         MaterialBackendCapabilities caps = a_->backendCapabilities();
-        caps.gpuApproximate = true;
-        caps.notes = "Add Shader: GPU renders child A only (CPU sums both); " + caps.notes;
+        if (gpuSummable()) {
+            caps.notes = "Add Shader: GPU sums both closures (#1072); " + caps.notes;
+        } else {
+            caps.gpuApproximate = true;
+            caps.notes = "Add Shader: GPU renders child A only (CPU sums both); " + caps.notes;
+        }
         return caps;
     }
     float getRoughness() const override { return a_->getRoughness(); }

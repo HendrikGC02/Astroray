@@ -11,6 +11,7 @@
 #include "astroray/light_tree.h"   // pkg86-B: LightTree flattening (needs raytracer.h's Vec3/AABB)
 #include "advanced_features.h"
 #include "astroray/light_path_mix.h"  // #991 Mix Shader with a Light Path Fac
+#include "astroray/add_material.h"    // #1072 Add Shader partner upload
 // pkg87a — Cryptomatte hash function.
 // Path is `src/util/...` (not `util/...`) because astroray_cuda's include
 // search has `${CMAKE_SOURCE_DIR}` private — not `${CMAKE_SOURCE_DIR}/src`.
@@ -1306,6 +1307,9 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
     // #991 — switches met by getOrAddMat; their side-table entries are filled
     // after the geometry walk (children are added then, see below).
     std::vector<std::pair<int, std::shared_ptr<Material>>> lpPending;
+    // #1072 -- (material id, partner) of every summable Add Shader met by getOrAddMat;
+    // the partner is uploaded as a hidden material and linked after the geometry walk.
+    std::vector<std::pair<int, std::shared_ptr<Material>>> addPending;
     // pkg314 — graph value programs (shader_graph.h). One descriptor per unique
     // GraphProgramTexture, appended to the scene arenas with rebased 32-bit
     // offsets. Each input becomes a texture id: an image with its own Mapping on
@@ -1420,7 +1424,15 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             bmStrength = mIn->bumpMapStrength();
             bmDistance = mIn->bumpMapDistance();
         }
+        // #1072 -- Add Shader of a summable pair: child A uploads at this id (from A
+        // itself, not the Add, whose forwarded ior/transmission may be B's) and child B
+        // becomes the hidden partner attached after the geometry walk (addPending).
+        std::shared_ptr<Material> addB;
+        if (auto* am = dynamic_cast<astroray::AddMaterial*>(m.get())) {
+            if (am->gpuSummable()) { addB = am->childB(); m = am->childA(); }
+        }
         r.materials.push_back(convertMaterial(m));
+        if (addB) addPending.emplace_back(id, addB);
         // pkg178 Stage-3b D4: flag scenes carrying a closure-graph Principled
         // material so the wavefront launchers select the <true> shade-kernel
         // instantiation. The predicate mirrors gpu_closure_graph_is_principled
@@ -1766,6 +1778,26 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
     // child, below) have no corners: the walk already ran.
     const size_t attrLayersWalked = r.attrLayers.size();
 
+    // #1072 -- link each summable Add Shader to its second child. The partner is not
+    // referenced by geometry, so it is added here; GMaterial::addPartner holds index+1
+    // (16 bits, so a scene past 65535 materials keeps child A only). The partner path
+    // lives in the HasPrincipled=true shade kernels, so flag the scene to select them.
+    auto linkAddPartners = [&]() {
+        for (const auto& pa : addPending) {
+            const int pid = getOrAddMat(pa.second);
+            if (pid + 1 > 0xFFFF) {
+                fprintf(stderr, "[#1072] DEGRADED: Add Shader partner index %d exceeds 16 bits; "
+                                "GPU renders child A only\n", pid);
+                continue;
+            }
+            r.materials[pa.first].addPartner = static_cast<uint16_t>(pid + 1);
+            r.hasPrincipled = true;
+            r.hasAddPartner = true;
+        }
+        addPending.clear();
+    };
+    linkAddPartners();
+
     // #991 — Light Path switch side table. Child materials are not referenced
     // by geometry, so they are added here (inheriting the switch's world bbox
     // for OBJECT-coordinate bakes); nested switches append to lpPending as
@@ -1808,6 +1840,11 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             r.lightPathSwitch[i] = GLightPathSwitch{ i, -1, i, 0 };
         for (const auto& kv : entries) r.lightPathSwitch[kv.first] = kv.second;
         r.hasLightPath = true;
+        // A switch child may itself be an Add Shader: link it, then give the partner
+        // materials it appended identity switch entries (never hit by a ray).
+        linkAddPartners();
+        for (int i = (int)r.lightPathSwitch.size(); i < (int)r.materials.size(); ++i)
+            r.lightPathSwitch.push_back(GLightPathSwitch{ i, -1, i, 0 });
     }
     if (replayBail) return false;   // pkg315: a switch child hit a replay bail-out
     // #991 — a program reading a Light Path output (OP_SHADING >= SH_LIGHT_PATH)

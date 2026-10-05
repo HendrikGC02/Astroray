@@ -70,6 +70,7 @@ __constant__ GWavefrontPhotonSplit c_wfPhotonSplit = { nullptr, 0u };
 __constant__ GWavefrontTextureBinding c_wfTexBinding;
 __constant__ GWavefrontProgramBinding c_wfProgBinding;
 __constant__ GWavefrontLightPathBinding c_wfLightPath = { nullptr, 0 };  // #991
+__constant__ const ::GMaterial* c_wfAddMaterials = nullptr;  // #1072 Add Shader partners
 
 // pkg199 Stage 2 — non-template `intersectPathSlot` symbol. Forwards to the
 // <false> (Stage-1, no medium scatter) specialization. This is the symbol the
@@ -909,6 +910,16 @@ void setWavefrontGuideBinding(const GWavefrontGuideBinding& binding)
     cudaMemcpyToSymbol(c_wfGuideBinding, &binding, sizeof(GWavefrontGuideBinding));
 }
 
+// #1072 — publish the device material array base the Add Shader partners index into
+// (GMaterial::addPartner - 1). Called ONCE per frame by the wavefront drivers; nullptr
+// (no Add in the scene) leaves every gpu_addPartner() lookup returning nullptr.
+static bool g_addPartnersPublished = false;   // host mirror of c_wfAddMaterials != nullptr
+void setWavefrontAddMaterials(const ::GMaterial* base)
+{
+    g_addPartnersPublished = (base != nullptr);
+    cudaMemcpyToSymbol(c_wfAddMaterials, &base, sizeof(base));
+}
+
 // pkg199 Stage 1 — publish the frame's homogeneous world-volume medium into the
 // __constant__ c_worldVolume symbol (read by intersectPathSlot + stageShadowKernel
 // at runtime). Called ONCE per frame by cuda_wavefront_render. Passing
@@ -1064,6 +1075,12 @@ static const ShadePartLaunchFn kShadePartLaunch[12] = {
     stageShadePartLaunch_6, stageShadePartLaunch_7, stageShadePartLaunch_8,
     stageShadePartLaunch_9, stageShadePartLaunch_10, stageShadePartLaunch_11 };
 
+// #1072 Add Shader shade variants (stage_shade_add.cu): HasPrincipled=true, HasAdd=true,
+// (HasTexture, HasProgram, HasNormalPerturb) selectable; photons / dispersion / pass AOVs
+// are not instantiated (an Add scene with those active renders child A only, reported).
+const void* stageShadeAddKernelPtr(bool T, bool PR, bool NP);
+void stageShadeAddLaunch(bool T, bool PR, bool NP, int blocks, int threads,
+                         const StageShadeArgs& a);
 // pkg300 equivalence reference (stage_shade_reference.cu): ASTRORAY_SHADE_REFERENCE=1
 // runs the pre-pkg300 shade kernel (by-value params copied to the stack for the
 // out-of-line call, no cap) instead of the fleet kernel for fleet-axis launches.
@@ -1156,11 +1173,26 @@ void launchStageShadeBucketed(
         const int part = (sel < 8) ? (sel >> 1) : 4 + 2 * ((sel >> 1) & 3) + (hasD ? 1 : 0);
         const bool fleetAxes = !hasTexture && !hasPhotons && !hasD && !hasLightPassAOVs
                             && !hasProgram && !hasNormalPerturb;
-        const bool useRef = kReference && fleetAxes;
-        const bool useFleet = fleetAxes && !useRef;
+        // #1072: a scene with an Add partner needs the HasAdd=true instantiation, which
+        // exists only for P=true, no photons, no dispersion, no pass AOVs. Anything else
+        // falls back to the (child-A-only) normal kernels with a one-time warning.
+        const bool wantAdd = g_addPartnersPublished && hasPrincipled;
+        const bool addOk = wantAdd && !hasPhotons && !hasD && !hasLightPassAOVs;
+        if (wantAdd && !addOk) {
+            static bool warned = false;
+            if (!warned) {
+                warned = true;
+                std::fprintf(stderr, "[#1072] DEGRADED: Add Shader partners are not summed with "
+                                     "photon mapping, dispersion or light-path passes active; "
+                                     "GPU renders child A only\n");
+            }
+        }
+        const bool useRef = kReference && fleetAxes && !addOk;
+        const bool useFleet = fleetAxes && !useRef && !addOk;
         const auto fleetFn = hasPrincipled ? stageShadeFleet_1 : stageShadeFleet_0;
         const void* kptr = useRef
             ? stageShadeReference(hasPrincipled, false, 0, 0, StageShadeArgs{})
+            : addOk ? stageShadeAddKernelPtr(hasTexture, hasProgram, hasNormalPerturb)
             : useFleet ? fleetFn(false, 0, 0, StageShadeArgs{})
             : kShadePartKptr[part](hasD, hasLightPassAOVs, hasProgram, hasNormalPerturb);
         astroray::gpu_profile::ScopedTimer _t(
@@ -1179,6 +1211,8 @@ void launchStageShadeBucketed(
             d_cryptoObjectRanks, d_cryptoMaterialRanks, cryptoDepth };
         if (useRef)
             stageShadeReference(hasPrincipled, true, blocks, threads, a);
+        else if (addOk)
+            stageShadeAddLaunch(hasTexture, hasProgram, hasNormalPerturb, blocks, threads, a);
         else if (useFleet)
             fleetFn(true, blocks, threads, a);
         else

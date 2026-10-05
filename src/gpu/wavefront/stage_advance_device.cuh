@@ -1542,6 +1542,101 @@ __device__ __forceinline__ void gpu_applyScalarOverride(
 // shade kernel stays byte-identical); the launcher picks <true> off the
 // host-side hasDispersive scene flag. See
 // .astroray_plan/packages/pkg189-gpu-wavefront-dispersion-enablement.md.
+// #1072 -- Add Shader: the closures of the two children ADD (Cycles
+// kernel/svm/closure.h svm_node_add_closure, Apache-2.0). A material uploaded with
+// GMaterial::addPartner != 0 is child A; child B lives at c_wfAddMaterials[addPartner-1]
+// (published once per frame by cuda_wavefront_render; nullptr = no Add in the scene).
+// CPU twin: AddMaterial (include/astroray/add_material.h). One-sample MIS over the two
+// children (Veach 1997 Eq. 9.15; Cycles surface_shader_bsdf_bssrdf_pick, Apache-2.0):
+// pick a child with probability 1/2, sample it, then return the SUMMED f and the
+// MIXTURE pdf 0.5 (pdf_A + pdf_B), so f/pdf estimates the sum without the lobe
+// normalisation of gpu_closure_graph_eval. A delta sample is returned alone with its
+// pdf scaled by the selection probability (the other child's eval at a delta is 0).
+// Register discipline: every call is behind `if constexpr (HasAdd)`, a compile-time
+// axis instantiated ONLY by stage_shade_add.cu and launched only for scenes with an Add
+// partner. Outlining is not enough (measured +4 KB STACK on every Principled kernel):
+// the call frames of two full material evals raise a kernel's max stack even out of
+// line, so no other shade kernel (fleet, parts) may contain the call at all.
+extern __constant__ const ::GMaterial* c_wfAddMaterials;
+
+__device__ __forceinline__ const ::GMaterial* gpu_addPartner(const ::GMaterial& mat)
+{
+    return (mat.addPartner != 0 && c_wfAddMaterials != nullptr)
+               ? c_wfAddMaterials + (mat.addPartner - 1) : nullptr;
+}
+
+template<bool HasPrincipled>
+__device__ __noinline__ inline GSampledSpectrum gpu_add_eval_spectral(
+    const ::GMaterial& a, const ::GMaterial& b, GHitRecord& rec, const GVec3& wo,
+    const GVec3& wi, const GSampledWavelengths& wl)
+{
+    return gpu_material_eval_spectral<HasPrincipled>(a, rec, wo, wi, wl) +
+           gpu_material_eval_spectral<HasPrincipled>(b, rec, wo, wi, wl);
+}
+
+template<bool HasPrincipled>
+__device__ __noinline__ inline float gpu_add_pdf(
+    const ::GMaterial& a, const ::GMaterial& b, const GHitRecord& rec, const GVec3& wo,
+    const GVec3& wi)
+{
+    return 0.5f * (gpu_material_pdf<HasPrincipled>(a, rec, wo, wi) +
+                   gpu_material_pdf<HasPrincipled>(b, rec, wo, wi));
+}
+
+template<bool HasPrincipled, typename TRng>
+__device__ __noinline__ inline GBSDFSample gpu_add_sample_spectral(
+    const ::GMaterial& a, const ::GMaterial& b, GHitRecord& rec, const GVec3& wo,
+    GSampledWavelengths& wl, TRng* rng)
+{
+    const bool pickB = gpu_rng_uniform(rng) < 0.5f;
+    const ::GMaterial& c = pickB ? b : a;
+    const ::GMaterial& o = pickB ? a : b;
+    GBSDFSample s = gpu_material_sample_spectral<HasPrincipled>(c, rec, wo, wl, rng);
+    if (s.pdf <= 0.0f) return s;
+    if (s.isDelta) { s.pdf *= 0.5f; return s; }
+    // s.f (RGB) stays the chosen child's: the wavefront consumes fSpectral only.
+    s.fSpectral = s.fSpectral + gpu_material_eval_spectral<HasPrincipled>(o, rec, wo, s.wi, wl);
+    s.pdf = 0.5f * (s.pdf + gpu_material_pdf<HasPrincipled>(o, rec, wo, s.wi));
+    return s;
+}
+
+// Shade-stage entry points: identical to gpu_material_{eval_spectral,pdf,sample_spectral}
+// except that an Add material (HasPrincipled kernels only) sums its two children.
+template<bool HasPrincipled, bool HasAdd>
+__device__ __forceinline__ GSampledSpectrum gpu_shade_eval_spectral(
+    const ::GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi,
+    const GSampledWavelengths& wl)
+{
+    if constexpr (HasAdd) {
+        if (const ::GMaterial* b = gpu_addPartner(mat))
+            return gpu_add_eval_spectral<HasPrincipled>(mat, *b, rec, wo, wi, wl);
+    }
+    return gpu_material_eval_spectral<HasPrincipled>(mat, rec, wo, wi, wl);
+}
+
+template<bool HasPrincipled, bool HasAdd>
+__device__ __forceinline__ float gpu_shade_pdf(
+    const ::GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
+{
+    if constexpr (HasAdd) {
+        if (const ::GMaterial* b = gpu_addPartner(mat))
+            return gpu_add_pdf<HasPrincipled>(mat, *b, rec, wo, wi);
+    }
+    return gpu_material_pdf<HasPrincipled>(mat, rec, wo, wi);
+}
+
+template<bool HasPrincipled, bool HasAdd, typename TRng>
+__device__ __forceinline__ GBSDFSample gpu_shade_sample_spectral(
+    const ::GMaterial& mat, GHitRecord& rec, const GVec3& wo, GSampledWavelengths& wl,
+    TRng* rng)
+{
+    if constexpr (HasAdd) {
+        if (const ::GMaterial* b = gpu_addPartner(mat))
+            return gpu_add_sample_spectral<HasPrincipled>(mat, *b, rec, wo, wl, rng);
+    }
+    return gpu_material_sample_spectral<HasPrincipled>(mat, rec, wo, wl, rng);
+}
+
 // pkg258 - environment NEE sample generation, register-isolated OUT of the
 // REG-254 shade kernel via __noinline__ so the fleet kernel's live set is
 // unchanged (memory noinline-runtime-flag-avoids-shade-spill / pkg224 pattern).
@@ -1556,7 +1651,7 @@ __device__ __forceinline__ void gpu_applyScalarOverride(
 // next-bounce miss leg knows env NEE competed. The env radiance L_spec is resolved
 // lazily in stageEnvShadowKernel (register economy); here we prefold everything
 // except L_spec: throughput * f_spec * (wt / envPdf).
-template<bool HasPrincipled>
+template<bool HasPrincipled, bool HasAdd = false>
 __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_env_nee_generate(
     int idx, int bounce, GHitRecord& rec, const GVec3& wo,
     const GMaterial& mat, const GSampledSpectrum& throughput,
@@ -1579,9 +1674,9 @@ __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_env_nee_generate(
     // Delta guard (Terra Q1d): rec.isDelta is not set before NEE; guard per
     // direction on bsdfPdf>0 so a near-delta metal (f!=0, pdf==0) does not
     // double-count with its unweighted specular miss.
-    float bsdfPdf = gpu_material_pdf<HasPrincipled>(mat, rec, wo, wi);
+    float bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd>(mat, rec, wo, wi);
     if (bsdfPdf <= 0.f) return true;
-    GSampledSpectrum f_spec = gpu_material_eval_spectral<HasPrincipled>(mat, rec, wo, wi, lambdas);
+    GSampledSpectrum f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(mat, rec, wo, wi, lambdas);
     if (f_spec.maxValue() <= 0.f) return true;
     // pkg258 (Terra item 6): COMPLEMENTARY power heuristic (Veach 1997). This
     // w(env,bsdf) plus the miss leg's w(bsdf,env) sum to EXACTLY one; the old
@@ -1627,7 +1722,8 @@ __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_env_nee_generate(
 template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPhotons = false,
          bool HasDispersion = false, bool HasLightPassAOVs = false,  // pkg198 S2 pass axis
          bool HasProgram = false,   // pkg219b — per-texel op-VM axis
-         bool HasNormalPerturb = false>  // pkg223 — tangent-space normal-map axis
+         bool HasNormalPerturb = false,  // pkg223 — tangent-space normal-map axis
+         bool HasAdd = false>  // #1072 — Add Shader partner sum (requires HasPrincipled)
 // pkg300: the body is __forceinline__ so a kernel can inline it (the pkg300 fleet
 // kernels in stage_shade_fleet_p<P>.cu); stageShadeBucketedKernel and the MIS-snapshot
 // kernel call the out-of-line shadePathSlot wrapper below.
@@ -2223,10 +2319,10 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                     // reorder: identical output, evals paid on occluded
                     // samples in exchange for a lean ~100-reg shadow kernel
                     // (measured tradeoff per the blueprint).
-                    GSampledSpectrum f_spec = gpu_material_eval_spectral<HasPrincipled>(
+                    GSampledSpectrum f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(
                         mat, rec, wo, s.wi, lambdas);
                     if (f_spec.maxValue() > 0.f) {
-                        float bsdfPdf = gpu_material_pdf<HasPrincipled>(mat, rec, wo, s.wi);
+                        float bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd>(mat, rec, wo, s.wi);
                         // Power heuristic (Veach 1997) — mirrors
                         // gpu_mw_powerHeuristic in the MW TU. Delta lights
                         // (pkg140, e.g. zero-diameter sun) force wt = 1
@@ -2385,7 +2481,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     bool envNeeRan = false;
     if (c_wfEnvNeeBinding.enabled && c_wfEnvNeeBinding.envMap.loaded &&
         (bounce + 1) <= c_wfEnvNeeBinding.worldMaxBounces) {
-        envNeeRan = gpu_env_nee_generate<HasPrincipled>(
+        envNeeRan = gpu_env_nee_generate<HasPrincipled, HasAdd>(
             idx, bounce, rec, wo, mat, throughput, lambdas, &rng);
     }
 
@@ -2419,7 +2515,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // ---- BSDF sampling via the templated megakernel material dispatch
     // (all 7 GMAT types + closure graphs), drawing directly from the
     // per-path PCG32 stream (template-RNG arc; see the NEE note above).
-    GBSDFSample bss = gpu_material_sample_spectral<HasPrincipled>(mat, rec, wo, lambdas, &rng);
+    GBSDFSample bss = gpu_shade_sample_spectral<HasPrincipled, HasAdd>(mat, rec, wo, lambdas, &rng);
     if (bss.pdf <= 0.0f) {
         state.color_0[idx] = color.v[0];
         state.color_1[idx] = color.v[1];
@@ -2699,7 +2795,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
 
 template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPhotons = false,
          bool HasDispersion = false, bool HasLightPassAOVs = false,
-         bool HasProgram = false, bool HasNormalPerturb = false>
+         bool HasProgram = false, bool HasNormalPerturb = false, bool HasAdd = false>
 __device__ bool shadePathSlot(
     int idx, const GPUWavefrontState& state, const GPUWavefrontHitBuffers& hitBufs,
     const GTLASNode* tlas, const GInstance* instances, const GBLAS* blas,
@@ -2717,7 +2813,7 @@ __device__ bool shadePathSlot(
     int cryptoDepth = 0)
 {
     return shadePathSlotImpl<Deferred, HasPrincipled, HasTexture, HasPhotons, HasDispersion,
-                             HasLightPassAOVs, HasProgram, HasNormalPerturb>(
+                             HasLightPassAOVs, HasProgram, HasNormalPerturb, HasAdd>(
         idx, state, hitBufs, tlas, instances, blas, bvhNodes, prims, tris, spheres,
         motionVerts, materials, lights, numLights, totalLightPower, dedLights, numDed,
         lightTree, max_depth, nee_f, nee_i, shadow_queue, shadow_count, nee_capacity,
@@ -2729,7 +2825,8 @@ __device__ bool shadePathSlot(
 template<bool HasPrincipled, bool HasTexture, bool HasPhotons, bool HasDispersion,
          bool HasLightPassAOVs = false,  // pkg178 D4; pkg186 texture; pkg184 photons; pkg189 dispersion; pkg198 S2 pass axis
          bool HasProgram = false,   // pkg219b — per-texel op-VM axis
-         bool HasNormalPerturb = false>  // pkg223 — tangent-space normal-map axis
+         bool HasNormalPerturb = false,  // pkg223 — tangent-space normal-map axis
+         bool HasAdd = false>  // #1072 — Add Shader axis (only the stage_shade_add.cu variants)
 __global__ void stageShadeBucketedKernel(
     // pkg300: __grid_constant__ lets the out-of-line shadePathSlot take these ~2 KB
     // by const reference straight from kernel-parameter space. Without it the
@@ -2769,7 +2866,7 @@ __global__ void stageShadeBucketedKernel(
     // pkg186: texture data comes from the __constant__ c_wfTexBinding symbol, NOT
     // kernel params — keeps the untextured <false,false> signature at its
     // pre-pkg186 footprint (see c_wfTexBinding note above).
-    bool alive = shadePathSlot<true, HasPrincipled, HasTexture, HasPhotons, HasDispersion, HasLightPassAOVs, HasProgram, HasNormalPerturb>(idx, state, hitBufs, tlas, instances, blas,
+    bool alive = shadePathSlot<true, HasPrincipled, HasTexture, HasPhotons, HasDispersion, HasLightPassAOVs, HasProgram, HasNormalPerturb, HasAdd>(idx, state, hitBufs, tlas, instances, blas,
                                bvhNodes, prims, tris, spheres, motionVerts,
                                materials, lights, numLights,
                                totalLightPower, dedLights, numDed,
@@ -2818,14 +2915,14 @@ struct StageShadeArgs {
     float* cryptoObjectRanks; float* cryptoMaterialRanks; int cryptoDepth;
 };
 
-template<bool P, bool T, bool Ph, bool D, bool LP, bool PR, bool NP>
+template<bool P, bool T, bool Ph, bool D, bool LP, bool PR, bool NP, bool AD = false>
 inline const void* shadeKptr() {
-    return (const void*)stageShadeBucketedKernel<P,T,Ph,D,LP,PR,NP>;
+    return (const void*)stageShadeBucketedKernel<P,T,Ph,D,LP,PR,NP,AD>;
 }
 
-template<bool P, bool T, bool Ph, bool D, bool LP, bool PR, bool NP>
+template<bool P, bool T, bool Ph, bool D, bool LP, bool PR, bool NP, bool AD = false>
 inline void shadeLaunch(int blocks, int threads, const StageShadeArgs& a) {
-    stageShadeBucketedKernel<P,T,Ph,D,LP,PR,NP><<<blocks, threads>>>(
+    stageShadeBucketedKernel<P,T,Ph,D,LP,PR,NP,AD><<<blocks, threads>>>(
         *a.state, *a.hitBufs, a.shade_queues, a.shade_counts, a.capacity,
         a.queue_out, a.count_out,
         a.nee_f, a.nee_i, a.shadow_queue, a.shadow_count,

@@ -165,9 +165,11 @@ def _addon_wall(monkeypatch, out_node, spp=128):
     def make(r):
         eng = _addon_engine(monkeypatch, True)
         spec = eng._shader_spec_from_node(out_node, _Recorder(r), None)
-        holder["lines"] = eng._degradation_report().messages()
         holder["kind"] = spec["kind"]
-        return eng._create_material_from_shader_spec(spec, r)
+        mat = eng._create_material_from_shader_spec(spec, r)
+        # #1072: the GPU-degradation report is raised when the Add material is created.
+        holder["lines"] = eng._degradation_report().messages()
+        return mat
 
     return _wall_radiance(make, spp=spp), holder
 
@@ -194,14 +196,15 @@ def test_addon_add_diffuse_red_plus_diffuse_blue_matches_sum(monkeypatch):
     np.testing.assert_allclose(got, [0.7, 0.2, 0.7], rtol=0.06)
 
 
-def test_addon_add_diffuse_plus_glossy_sums_on_cpu_and_reports_gpu(monkeypatch):
+def test_addon_add_diffuse_plus_glossy_sums_and_is_not_a_gpu_degradation(monkeypatch):
     diffuse = _bsdf('BSDF_DIFFUSE', [0.3, 0.3, 0.3])
     glossy = _bsdf('BSDF_GLOSSY', [0.9, 0.9, 0.9], roughness=0.2)
     got_add, info = _addon_wall(monkeypatch, _add(diffuse, glossy))
     got_diffuse, _ = _addon_wall(monkeypatch, diffuse)
     got_glossy, _ = _addon_wall(monkeypatch, glossy)
     assert info["kind"] == "add"
-    assert any("ADD_SHADER" in m and "GPU" in m for m in info["lines"]), info["lines"]
+    # #1072: two plain opaque closures are summed on the GPU wavefront too -> no report.
+    assert not any("ADD_SHADER" in m for m in info["lines"]), info["lines"]
     np.testing.assert_allclose(got_add, got_diffuse + got_glossy, rtol=0.08)
     assert (got_add > got_diffuse * 1.5).all() and (got_add > got_glossy * 1.2).all()
 

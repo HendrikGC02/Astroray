@@ -115,6 +115,7 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontAddMaterials(nullptr);   // #1072: no Add partners on the ReSTIR/harness paths
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -296,6 +297,7 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontAddMaterials(nullptr);   // #1072: no Add partners on the ReSTIR/harness paths
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -486,6 +488,7 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontAddMaterials(nullptr);   // #1072: no Add partners on the ReSTIR/harness paths
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -654,6 +657,7 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontAddMaterials(nullptr);   // #1072: no Add partners on the ReSTIR/harness paths
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -840,6 +844,7 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontAddMaterials(nullptr);   // #1072: no Add partners on the ReSTIR/harness paths
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -1365,6 +1370,7 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontAddMaterials(nullptr);   // #1072: no Add partners on the ReSTIR/harness paths
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -2430,6 +2436,9 @@ std::vector<float> cuda_wavefront_render(
     }
     setWavefrontGuideBinding(GWavefrontGuideBinding{
         d_guideAlbedo, d_guideNormal, d_guideDepth});
+    // #1072: Add Shader partners index into the device material array; published every
+    // frame (nullptr when the scene has none) so a prior render's pointer is never stale.
+    setWavefrontAddMaterials(res.hasAddPartner ? d_materials : nullptr);
 
     // pkg201 Stage 2 (Finding F) — transparent-film alpha coverage. Only allocate +
     // publish the bounce-0 background-miss accumulator when the render both requests
@@ -3170,6 +3179,7 @@ std::vector<float> cuda_wavefront_render_restir(
     // enabled with a loaded (now-stale) HDRI. Reset to a disabled/all-null binding
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
+    setWavefrontAddMaterials(nullptr);   // #1072: no Add partners on the ReSTIR/harness paths
     publishPrimaryClip(cam);         // #873: ReSTIR primary rays clip too (CPU restir_di)
     // #877: ReSTIR-DI is its own light-sampling estimator; set_light_nee does not
     // apply (the CPU restir_di ignores it too), so emitter hits keep MIS weights.

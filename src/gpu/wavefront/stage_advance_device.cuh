@@ -1494,9 +1494,11 @@ __device__ __forceinline__ void gpu_applyScalarOverride(
 // MIXTURE pdf 0.5 (pdf_A + pdf_B), so f/pdf estimates the sum without the lobe
 // normalisation of gpu_closure_graph_eval. A delta sample is returned alone with its
 // pdf scaled by the selection probability (the other child's eval at a delta is 0).
-// Register discipline: the bodies are ASTRORAY_SHADE_NOINLINE and every call is behind
-// `if constexpr (HasPrincipled)`, so the fleet <false> kernel is byte-identical; the
-// <true> kernels pay one `addPartner` load + a not-taken call per BSDF/pdf site.
+// Register discipline: the bodies are a RAW __noinline__ (NOT ASTRORAY_SHADE_NOINLINE:
+// the fleet TU's shade_force_inline.cuh force-inlines that macro, which put both
+// children's eval paths into every Principled shade kernel, STACK +4 KB), and every
+// call is behind `if constexpr (HasPrincipled)`, so the fleet <false> kernel is
+// byte-identical; the <true> kernels pay one `addPartner` load + a not-taken call per site.
 extern __constant__ const ::GMaterial* c_wfAddMaterials;
 
 __device__ __forceinline__ const ::GMaterial* gpu_addPartner(const ::GMaterial& mat)
@@ -1506,7 +1508,7 @@ __device__ __forceinline__ const ::GMaterial* gpu_addPartner(const ::GMaterial& 
 }
 
 template<bool HasPrincipled>
-__device__ ASTRORAY_SHADE_NOINLINE inline GSampledSpectrum gpu_add_eval_spectral(
+__device__ __noinline__ inline GSampledSpectrum gpu_add_eval_spectral(
     const ::GMaterial& a, const ::GMaterial& b, GHitRecord& rec, const GVec3& wo,
     const GVec3& wi, const GSampledWavelengths& wl)
 {
@@ -1515,7 +1517,7 @@ __device__ ASTRORAY_SHADE_NOINLINE inline GSampledSpectrum gpu_add_eval_spectral
 }
 
 template<bool HasPrincipled>
-__device__ ASTRORAY_SHADE_NOINLINE inline float gpu_add_pdf(
+__device__ __noinline__ inline float gpu_add_pdf(
     const ::GMaterial& a, const ::GMaterial& b, const GHitRecord& rec, const GVec3& wo,
     const GVec3& wi)
 {
@@ -1524,7 +1526,7 @@ __device__ ASTRORAY_SHADE_NOINLINE inline float gpu_add_pdf(
 }
 
 template<bool HasPrincipled, typename TRng>
-__device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_add_sample_spectral(
+__device__ __noinline__ inline GBSDFSample gpu_add_sample_spectral(
     const ::GMaterial& a, const ::GMaterial& b, GHitRecord& rec, const GVec3& wo,
     GSampledWavelengths& wl, TRng* rng)
 {

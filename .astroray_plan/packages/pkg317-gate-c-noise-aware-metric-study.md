@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** C
-**Status:** open
+**Status:** done — lane f4 batch-f 2026-10-06: study only; Welch tiles pass all controls, owner decision pending; PR pending
 **Estimated effort:** 1 session (~3 h) + ~20 min of GPU renders under the lead's lock
 **Depends on:** pkg278, pkg284
 
@@ -53,8 +53,8 @@ converge to the same image? This package only measures and reports. Owner decisi
 
 ## Prerequisites
 
-- [ ] Gate (c) legs reproducible with `benchmarks/blender_parity/harness.py` (Blender 5.2 via `BLENDER_EXE`).
-- [ ] Lead schedules the GPU legs under `gpu_locked_run.py`.
+- [x] Gate (c) legs reproducible with `benchmarks/blender_parity/harness.py` (Blender 5.2 via `BLENDER_EXE`).
+- [x] Lead schedules the GPU legs under `gpu_locked_run.py`.
 
 ---
 
@@ -92,10 +92,10 @@ converge to the same image? This package only measures and reports. Owner decisi
 
 ## Acceptance criteria
 
-- [ ] `pytest tests/test_pkg317_mc_compare.py` green; null false-positive rate within α ± 2σ on 200 synthetic pairs.
-- [ ] Study doc: table of candidate × {gallery, workshop, terrace, negative controls, each positive control} with
+- [x] `pytest tests/test_pkg317_mc_compare.py` green; null false-positive rate within α ± 2σ on 200 synthetic pairs.
+- [x] Study doc: table of candidate × {gallery, workshop, terrace, negative controls, each positive control} with
       pass/fail and the statistic, plus cost; contact sheet of tile-wise p-value maps (inspected).
-- [ ] The doc ends with the owner question and a recommendation; no gate file changed.
+- [x] The doc ends with the owner question and a recommendation; no gate file changed.
 
 ---
 
@@ -109,9 +109,9 @@ converge to the same image? This package only measures and reports. Owner decisi
 
 ## Progress
 
-- [ ] `mc_compare.py` + synthetic tests.
-- [ ] Multi-seed legs rendered (CPU lane; GPU via the lead).
-- [ ] Controls + study doc + owner question.
+- [x] `mc_compare.py` + synthetic tests.
+- [x] Multi-seed legs rendered (CPU lane; GPU via gpu_locked_run, 161 s).
+- [x] Controls + study doc + owner question.
 
 ---
 

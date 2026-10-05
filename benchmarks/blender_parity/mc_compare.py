@@ -318,7 +318,46 @@ def study(legs: Path, freeze: dict, out: Path, *, tile: int = 8) -> dict:
     fig.savefig(out / "welch_pvalue_maps.png", dpi=110)
     plt.close(fig)
     (out / "study.json").write_text(json.dumps(result, indent=1, default=float), encoding="utf-8")
+    (out / "study_tables.md").write_text(markdown_tables(result), encoding="utf-8")
     return result
+
+
+def _stat(v: dict) -> str:
+    if "n_reject_holm" in v:
+        return f"{v['n_reject_holm']}/{v['n_tests']} tiles"
+    if "ceiling" in v:
+        return f"{v['stat']:.3f} vs {v['ceiling']:.3f}"
+    return f"{v['stat']:.4f}"
+
+
+def markdown_tables(result: dict) -> str:
+    """Candidate x {roles, negative controls, positive controls} tables from ``study`` output."""
+    roles = list(result["roles"])
+    names = list(CANDIDATES)
+    lines = ["### Real CPU vs GPU (8 seeds each): verdict (statistic)", "",
+             "| candidate | " + " | ".join(roles) + " |", "|---|" + "---|" * len(roles)]
+    for c in names:
+        lines.append(f"| {c} | " + " | ".join(
+            f"{'PASS' if result['roles'][r]['real'][c]['pass'] else 'FAIL'} ({_stat(result['roles'][r]['real'][c])})"
+            for r in roles) + " |")
+    lines += ["", "### Negative controls: fraction of the 35 half-splits (4 vs 4 seeds) that PASS (want ~1)", "",
+              "| candidate | " + " | ".join(f"{r} {k}" for r in roles for k in ("cpu_vs_cpu", "gpu_vs_gpu")) + " |",
+              "|---|" + "---|" * (2 * len(roles))]
+    for c in names:
+        lines.append(f"| {c} | " + " | ".join(
+            f"{result['roles'][r]['negative'][k]['pass_frac'][c]:.2f}" for r in roles for k in ("cpu_vs_cpu", "gpu_vs_gpu")) + " |")
+    for r in roles:
+        pos = result["roles"][r]["positive"]
+        lines += ["", f"### Positive controls on {r}: FAIL is the wanted verdict", "",
+                  "| candidate | " + " | ".join(pos) + " |", "|---|" + "---|" * len(pos)]
+        for c in names:
+            lines.append(f"| {c} | " + " | ".join("FAIL" if not pos[k][c]["pass"] else "**pass (missed)**" for k in pos) + " |")
+    lines += ["", "### Render cost per leg (mean seconds)", "",
+              "| role | CPU leg | GPU leg |", "|---|---|---|"]
+    for r in roles:
+        t = result["roles"][r]["render_s_per_leg"]
+        lines.append(f"| {r} | {t['cpu']:.1f} | {t['gpu']:.1f} |")
+    return "\n".join(lines) + "\n"
 
 
 def main(argv=None) -> int:

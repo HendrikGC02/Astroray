@@ -10,7 +10,6 @@ Engine tests run on the CPU path-tracer; addon tests use the real
 shader_blending / spec lowering with a recording renderer.
 """
 import sys
-import types
 from pathlib import Path
 
 import numpy as np

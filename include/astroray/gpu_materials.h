@@ -2032,8 +2032,12 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         } else {
             GPrincipledLobe& L = lobes[n++];
             L.kind = GPR_TRANSMISSION; L.weight = weight * c.transmission; L.color = baseColor;
-            L.roughness = c.roughness; L.ior = c.ior;
-            L.isDelta = c.roughness <= kPrincipledDeltaGlassRoughness;
+            L.roughness = c.roughness;
+            // #1084 twin of principled.cpp: rough transmission at eta == 1 has a zero
+            // refraction half-vector (wi = -wo). Cycles bsdf_microfacet_sample treats
+            // |eta-1| < 1e-4 as singular (pure pass-through): m_singular ||= fabsf(m_eta-1) < 1e-4f.
+            L.isDelta = c.roughness <= kPrincipledDeltaGlassRoughness || fabsf(c.ior - 1.f) < 1e-4f;
+            L.ior = c.ior;
             L.sel = fmaxf(luminance(L.weight), 1e-4f);
             if (wl) L.weightSpec = weightSp * c.transmission;
         }

@@ -978,6 +978,21 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
     // uploading: the bake domain of an OBJECT-coordinate procedural.
     std::unordered_map<const Material*, AABB> matWorldBox;
     const AABB* curObjBox = nullptr;
+    // #1085 - the WORLD-space bbox per material (matWorldBox holds object-local
+    // boxes for triangles that carry them): bakeProceduralTexId reads it to spot a
+    // flat (planar) Generated-coordinate consumer.
+    // C1 (#1085 review): the GPU lookup (gpu_generatedCoord) interpolates the per-vertex
+    // #847 Generated coords, which carry the object's rotation, so a plane that is
+    // world-flat on y can be Generated-flat on z. Flatness is therefore judged on the
+    // per-vertex Generated coords when every triangle of the material has them; the
+    // world bbox is only the fallback frame (no per-vertex Generated at all).
+    struct GenFlatInfo {
+        AABB world; bool haveWorld = false;   // world bbox (fallback frame)
+        AABB gen;   bool haveGen = false;     // bbox of per-vertex Generated coords
+        bool noGen = false;                   // some primitive lacks per-vertex Generated
+    };
+    std::unordered_map<const Material*, GenFlatInfo> matGenBox;
+    const GenFlatInfo* curGenBox = nullptr;
     auto bakeProceduralTexId = [&](Texture* tex) -> int {
         Texture* key = tex;
         const Texture::CoordMode cmode = tex->getCoordMode();
@@ -992,6 +1007,57 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         const bool bakeable = uvMode || cmode == Texture::CoordMode::Generated || objMode;
         if (!bakeable) return -1;
         std::string pkey = procBakeKey(key);
+        // #1085 - a Generated-coordinate procedural on FLAT geometry (the default
+        // plane: every swatch card) bakes a 2-layer high-resolution slice at the
+        // plane's exact Generated coordinate instead of 64^3 cubes. Before, the plane
+        // (Generated z = 0.5) sat on a voxel face and read the cell centred at
+        // 31.5/64 (z-dependent Wave Bands: a uniform brightness offset), and detail
+        // finer than 1/64 of the object aliased. Flat = world-bbox extent below the
+        // Triangle::boundingBox padding (2 x 1e-4) plus slack. All three axes flat
+        // (a point-like object) keeps the cube.
+        const bool genMode = !uvMode && !objMode;
+        bool flat[3] = {false, false, false};
+        float flatG[3] = {0.f, 0.f, 0.f};
+        int nFlat = 0;
+        if (genMode && curGenBox && curGenBox->haveGen && !curGenBox->noGen) {
+            // Per-vertex Generated frame (what the shade path reads): the box of the
+            // coordinates themselves, no genMin/genSize normalisation.
+            for (int a = 0; a < 3; ++a) {
+                if (curGenBox->gen.max[a] - curGenBox->gen.min[a] >= 1e-4f) continue;
+                flat[a] = true;
+                ++nFlat;
+                flatG[a] = 0.5f * (curGenBox->gen.min[a] + curGenBox->gen.max[a]);
+            }
+            if (nFlat == 3) {
+                flat[0] = flat[1] = flat[2] = false;
+                nFlat = 0;
+            }
+        } else if (genMode && curGenBox && curGenBox->haveWorld && !curGenBox->haveGen) {
+            const AABB* wbox = &curGenBox->world;
+            const Vec3 gm = tex->hasGeneratedBBox() ? tex->getGeneratedMin() : Vec3(0.f, 0.f, 0.f);
+            const Vec3 gs = tex->hasGeneratedBBox() ? tex->getGeneratedSize() : Vec3(1.f, 1.f, 1.f);
+            for (int a = 0; a < 3; ++a) {
+                if (wbox->max[a] - wbox->min[a] >= 3e-4f) continue;
+                flat[a] = true;
+                ++nFlat;
+                // The same normalisation the CPU applies to a hit on the plane
+                // (advanced_features.h CoordMode::Generated bbox branch).
+                flatG[a] = gs[a] > 1e-6f
+                    ? std::min(1.0f, std::max(0.0f, (0.5f * (wbox->min[a] + wbox->max[a]) - gm[a]) / gs[a]))
+                    : 0.0f;
+            }
+            if (nFlat == 3) {
+                flat[0] = flat[1] = flat[2] = false;
+                nFlat = 0;
+            }
+        }
+        if (nFlat > 0) {
+            for (int a = 0; a < 3; ++a) {
+                if (!flat[a]) continue;
+                uint32_t bits; std::memcpy(&bits, &flatG[a], sizeof bits);
+                pkey += "|f"; pkey += std::to_string(a); pkey += ':'; pkey += std::to_string(bits);
+            }
+        }
         if (objMode) {
             const float bb[6] = {curObjBox->min.x, curObjBox->min.y, curObjBox->min.z,
                                  curObjBox->max.x, curObjBox->max.y, curObjBox->max.z};
@@ -1006,10 +1072,15 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         // (perHitTexId); a 3D bake is the fallback (other texture types, emission).
         if (!uvMode)
             fprintf(stderr, "[#1007] DEGRADED: procedural texture with %s coordinates "
-                            "sampled from a 64^3 voxel bake on GPU (no per-hit evaluator "
-                            "for this texture or consumer); detail finer than a voxel "
-                            "aliases\n", objMode ? "Object" : "Generated");
+                            "sampled from a %s bake on GPU (no per-hit evaluator "
+                            "for this texture or consumer); detail finer than a bake "
+                            "cell aliases\n", objMode ? "Object" : "Generated",
+                    nFlat == 0 ? "64^3 voxel" : (nFlat == 1 ? "512^2 slice" : "4096-cell line"));
         int res = 64;  // pkg190 default bake resolution
+        // #1085: one flat axis -> 512^2 (the same 262k evaluations as 64^3), two -> 4096.
+        const int nx = flat[0] ? 2 : (nFlat == 0 ? res : (nFlat == 1 ? 512 : 4096));
+        const int ny = flat[1] ? 2 : (nFlat == 0 ? res : (nFlat == 1 ? 512 : 4096));
+        const int nz = flat[2] ? 2 : (nFlat == 0 ? res : (nFlat == 1 ? 512 : 4096));
         GImageTexture desc;
         desc.offset = (int)r.textureTexels.size();
         desc.width  = res;
@@ -1052,7 +1123,7 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
                 }
             }
         } else {
-            desc.depth = res;  // Generated 3D voxel
+            desc.width = nx; desc.height = ny; desc.depth = nz;  // Generated 3D voxel
             Vec3 gmin  = tex->hasGeneratedBBox() ? tex->getGeneratedMin()
                                                  : Vec3(0.f, 0.f, 0.f);
             Vec3 gsize = tex->hasGeneratedBBox() ? tex->getGeneratedSize()
@@ -1060,13 +1131,23 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             desc.genMin  = GVec3(gmin.x,  gmin.y,  gmin.z);
             desc.genSize = GVec3(gsize.x, gsize.y, gsize.z);
             r.textureTexels.reserve(r.textureTexels.size() +
-                                    (size_t)res * res * res);
-            for (int k = 0; k < res; ++k) {
-                float pz = (k + 0.5f) / res;
-                for (int j = 0; j < res; ++j) {
-                    float py = (j + 0.5f) / res;
-                    for (int i = 0; i < res; ++i) {
-                        float px = (i + 0.5f) / res;
+                                    (size_t)nx * ny * nz);
+            for (int k = 0; k < nz; ++k) {
+                float pz = flat[2] ? flatG[2] : (k + 0.5f) / nz;
+                for (int j = 0; j < ny; ++j) {
+                    float py = flat[1] ? flatG[1] : (j + 0.5f) / ny;
+                    for (int i = 0; i < nx; ++i) {
+                        if ((flat[0] && i > 0) || (flat[1] && j > 0) || (flat[2] && k > 0)) {
+                            // #1085: both layers of a flat axis are the same slice
+                            // (depth must stay > 1: the shade path tells a 3D bake
+                            // from a 2D UV image by depth > 1).
+                            const size_t src = ((size_t)(flat[2] ? 0 : k) * ny + (flat[1] ? 0 : j)) * nx +
+                                               (flat[0] ? 0 : i);
+                            const GVec3 dup = r.textureTexels[(size_t)desc.offset + src];
+                            r.textureTexels.push_back(dup);
+                            continue;
+                        }
+                        float px = flat[0] ? flatG[0] : (i + 0.5f) / nx;
                         // #962: CPU Generated chain (uv = g.xy, p = g).
                         Vec3 c = tex->valueAtCoord(Vec2(px, py), Vec3(px, py, pz));
                         r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
@@ -1301,6 +1382,8 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         {   // #994: OBJECT-coordinate bakes of this material cover its geometry.
             auto wb = matWorldBox.find(mKey.get());
             curObjBox = (wb != matWorldBox.end()) ? &wb->second : nullptr;
+            auto gb = matGenBox.find(mKey.get());
+            curGenBox = (gb != matGenBox.end()) ? &gb->second : nullptr;
         }
         // #991 — a Mix Shader with a Light Path Fac uploads its emission-context
         // leaf (child A, unwrapped) at its own id: every reader unaware of the
@@ -1640,6 +1723,24 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             auto it = matWorldBox.find(pm);
             if (it == matWorldBox.end()) matWorldBox.emplace(pm, hb);
             else it->second = it->second.merge(hb);
+            GenFlatInfo& gi = matGenBox[pm];   // #1085
+            AABB wb;  // world-space box (hb is object-local when haveBox)
+            if (h->boundingBox(wb)) {
+                gi.world = gi.haveWorld ? gi.world.merge(wb) : wb;
+                gi.haveWorld = true;
+            }
+            Vec3 g0, g1, g2;
+            if (auto* gt = dynamic_cast<Triangle*>(h.get());
+                gt && gt->getGenerated(g0, g1, g2)) {
+                const AABB gb(Vec3(std::min({g0.x, g1.x, g2.x}), std::min({g0.y, g1.y, g2.y}),
+                                   std::min({g0.z, g1.z, g2.z})),
+                              Vec3(std::max({g0.x, g1.x, g2.x}), std::max({g0.y, g1.y, g2.y}),
+                                   std::max({g0.z, g1.z, g2.z})));
+                gi.gen = gi.haveGen ? gi.gen.merge(gb) : gb;
+                gi.haveGen = true;
+            } else {
+                gi.noGen = true;
+            }
         }
     }
     if (replayRoots) {
@@ -1677,6 +1778,9 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             auto addChild = [&](const std::shared_ptr<Material>& c) {
                 if (wb != matWorldBox.end() && !matWorldBox.count(c.get()))
                     matWorldBox.emplace(c.get(), wb->second);
+                auto gwb = matGenBox.find(sw.get());   // #1085
+                if (gwb != matGenBox.end() && !matGenBox.count(c.get()))
+                    matGenBox.emplace(c.get(), gwb->second);
                 return getOrAddMat(c);
             };
             std::shared_ptr<Material> leafA = sw;   // what `self` uploaded

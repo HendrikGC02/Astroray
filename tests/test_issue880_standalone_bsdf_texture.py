@@ -262,7 +262,7 @@ def test_diffuse_texture_without_renderer_falls_back_to_constant_fold(monkeypatc
 @pytest.mark.parametrize("node_factory,expected_kind_params", [
     (_glossy_node, {'metallic': 1.0}),
     (_glass_node, {'transmission': 1.0}),
-    (_translucent_node, {'transmission': 1.0}),
+    (_translucent_node, {'subsurface_weight': 1.0}),  # #1084: thin-subsurface translucent lobe
     (_refraction_node, {'transmission': 1.0}),
     (_sheen_node, {'sheen': 1.0}),
 ])

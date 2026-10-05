@@ -1847,6 +1847,13 @@ public:
         renderer.addObject(bh);
     }
 
+    // #895: instantiate a ShapeRegistry plugin by name (the path scenes built
+    // from the plugin registry take) and add it to the scene.
+    void addShape(const std::string& name, py::dict params) {
+        renderer.addObject(astroray::ShapeRegistry::instance().create(
+            name, paramDictFromPyDict(params)));
+    }
+
     void addVolume(const std::vector<float>& center, float radius, float density,
                   const std::vector<float>& color, float anisotropy = 0,
                   float emissionStrength = 0.0f,
@@ -4229,6 +4236,8 @@ PYBIND11_MODULE(astroray, m) {
              "center"_a, "radius"_a, "density"_a, "color"_a,
              "anisotropy"_a = 0.0f, "emission_strength"_a = 0.0f,
              "emission_color"_a = std::vector<float>{1.0f, 1.0f, 1.0f})
+        .def("add_shape", &PyRenderer::addShape, "name"_a, "params"_a = py::dict(),
+             "#895: add a ShapeRegistry plugin shape (e.g. \"black_hole\") by name.")
         .def("add_black_hole", &PyRenderer::addBlackHole,
              "position"_a, "mass"_a, "influence_radius"_a, "params"_a = py::dict())
         .def("setup_camera", &PyRenderer::setupCamera, "look_from"_a, "look_at"_a, "vup"_a, "vfov"_a,

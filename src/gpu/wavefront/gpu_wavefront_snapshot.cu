@@ -3111,6 +3111,9 @@ std::vector<float> cuda_wavefront_render_restir(
     GPrimitive* d_prims     = wfUpload(C.prims, res.prims);
     GTriangle*  d_tris      = wfUpload(C.tris, res.triangles);
     GSphere*    d_spheres   = wfUpload(C.spheres, res.spheres);
+    // #1042: curve segments (wfUpload returns nullptr on empty -> the unchanged
+    // non-curve ReSTIR kernels; the strands then hit and shadow like the path tracer).
+    GCurveSegment* d_curveSegments = wfUpload(C.curveSegments, res.curveSegments);
     GTLASNode*  d_tlas      = wfUpload(C.tlas, res.tlas);
     GInstance*  d_instances = wfUpload(C.instances, res.instances);
     GBLAS*      d_blas      = wfUpload(C.blas, res.blas);
@@ -3253,7 +3256,8 @@ std::vector<float> cuda_wavefront_render_restir(
             state, hitBufs, gcam, width, height, s, seed, lambdaMin, lambdaMax,
             d_tlas, d_instances, d_blas, d_bvhNodes, d_prims, d_tris, d_spheres,
             d_motionVerts, d_materials, envMap, gbg, hasBg, worldMaxBounces,
-            useLuminanceOutput, clampDirect, clampIndirect);  // pkg157
+            useLuminanceOutput, clampDirect, clampIndirect,  // pkg157
+            d_curveSegments);                                // #1042
 
         launchStageRestirInitialRIS(
             state, hitBufs, curRes, d_prims, d_tris, d_spheres, d_materials,
@@ -3273,7 +3277,8 @@ std::vector<float> cuda_wavefront_render_restir(
         launchStageRestirResolve(
             state, hitBufs, curRes, d_accum, d_tlas, d_instances, d_blas,
             d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials,
-            numPixels, useLuminanceOutput, clampDirect, clampIndirect);  // pkg157
+            numPixels, useLuminanceOutput, clampDirect, clampIndirect,  // pkg157
+            d_curveSegments);                                           // #1042
     }
 
     cudaError_t syncErr = cudaDeviceSynchronize();

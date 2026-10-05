@@ -111,6 +111,31 @@ __device__ int intersectPathSlot(
     const GDedicatedLight* dedLights, int numDed,  // pkg181
     GLightTreeView    lightTree);
 
+// #1042: HasCurves twin (defined next to intersectPathSlot in stage_advance.cu).
+__device__ int intersectPathSlotCurves(
+    int idx,
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode*  tlas,
+    const GInstance*  instances,
+    const GBLAS*      blas,
+    const GBVHNode*   bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const GVec3*      motionVerts,
+    const ::GMaterial* materials,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    bool              useLuminanceOutput,
+    bool              enableNEE,
+    float             clampDirect, float clampIndirect,
+    const ::GLight*   lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,
+    GLightTreeView    lightTree,
+    const GCurveSegment* curves);
+
 using ::astroray::WavefrontRNG;
 
 // ---------------------------------------------------------------------------
@@ -259,6 +284,9 @@ __device__ inline WavefrontRNG loadRNG(const GPUWavefrontState& state, int i) {
 // ===========================================================================
 // Stage 0 — primary init + intersect (1 thread per pixel; slot = pixel)
 // ===========================================================================
+// #1042: HasCurves selects the curve-aware intersect (nullptr curves = the
+// unchanged <false> kernel; the curve leaf is compiled out, byte-identical).
+template<bool HasCurves>
 __global__ void stageRestirPrimaryKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -271,7 +299,8 @@ __global__ void stageRestirPrimaryKernel(
     const ::GMaterial* materials,
     GEnvMap envMap, GVec3 backgroundColor, bool hasBackgroundColor,
     int worldMaxBounces, bool useLuminanceOutput, int numPixels,
-    float clampDirect, float clampIndirect)  // pkg157
+    float clampDirect, float clampIndirect,  // pkg157
+    const GCurveSegment* curves)             // #1042 (nullptr when !HasCurves)
 {
     int p = blockIdx.x * blockDim.x + threadIdx.x;
     if (p >= numPixels) return;
@@ -290,16 +319,25 @@ __global__ void stageRestirPrimaryKernel(
     // pkg120: ReSTIR-DI is bounce-0-only, so intersectPathSlot's two-sided-MIS
     // emissive-hit branch (bounce > 0 && !wasSpecular) never fires here; pass
     // empty light data (numLights = 0 short-circuits gpu_reconstruct_light_pdf).
-    intersectPathSlot(p, state, hitBufs, tlas, instances, blas, bvhNodes,
-                      prims, tris, spheres, motionVerts, materials, envMap,
-                      backgroundColor, hasBackgroundColor, worldMaxBounces,
-                      useLuminanceOutput, /*enableNEE=*/true, clampDirect, clampIndirect,
-                      /*lights=*/nullptr, /*numLights=*/0,
-                      /*totalLightPower=*/0.f,
-                      // pkg181: ReSTIR-DI is bounce-0-only, so the lamp-intersect
-                      // pass (gated bounce > 0) never fires; pass empty dedicated
-                      // lights (numDed = 0 also short-circuits it defensively).
-                      /*dedLights=*/nullptr, /*numDed=*/0, GLightTreeView{});
+    if constexpr (HasCurves) {
+        intersectPathSlotCurves(p, state, hitBufs, tlas, instances, blas, bvhNodes,
+                                prims, tris, spheres, motionVerts, materials, envMap,
+                                backgroundColor, hasBackgroundColor, worldMaxBounces,
+                                useLuminanceOutput, /*enableNEE=*/true, clampDirect, clampIndirect,
+                                /*lights=*/nullptr, /*numLights=*/0, /*totalLightPower=*/0.f,
+                                /*dedLights=*/nullptr, /*numDed=*/0, GLightTreeView{}, curves);
+    } else {
+        intersectPathSlot(p, state, hitBufs, tlas, instances, blas, bvhNodes,
+                          prims, tris, spheres, motionVerts, materials, envMap,
+                          backgroundColor, hasBackgroundColor, worldMaxBounces,
+                          useLuminanceOutput, /*enableNEE=*/true, clampDirect, clampIndirect,
+                          /*lights=*/nullptr, /*numLights=*/0,
+                          /*totalLightPower=*/0.f,
+                          // pkg181: ReSTIR-DI is bounce-0-only, so the lamp-intersect
+                          // pass (gated bounce > 0) never fires; pass empty dedicated
+                          // lights (numDed = 0 also short-circuits it defensively).
+                          /*dedLights=*/nullptr, /*numDed=*/0, GLightTreeView{});
+    }
 }
 
 // ===========================================================================
@@ -467,6 +505,7 @@ __global__ void stageRestirSpatialReuseKernel(
 // its primary env/emissive radiance (state.color); shading points additionally
 // accumulate the ReSTIR direct-light term.
 // ===========================================================================
+template<bool HasCurves>  // #1042: curve segments occlude the shadow ray
 __global__ void stageRestirResolveKernel(
     GPUWavefrontState state,
     GPUWavefrontHitBuffers hitBufs,
@@ -478,7 +517,8 @@ __global__ void stageRestirResolveKernel(
     const ::GMaterial* materials,
     int numPixels,
     bool              useLuminanceOutput,   // pkg157
-    float             clampDirect, float clampIndirect)  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    const GCurveSegment* curves)            // #1042 (nullptr when !HasCurves)
 {
     int p = blockIdx.x * blockDim.x + threadIdx.x;
     if (p >= numPixels) return;
@@ -538,9 +578,13 @@ __global__ void stageRestirResolveKernel(
             // Shadow ray: any occluder in [eps, dist-eps] blocks (matches CPU
             // triangle-source occlusion; the light geometry itself sits just past
             // dist-0.001). restir_di.cpp:279-282.
-            bool occluded = gpu_tlas_occluded(
+            // #1042: curves occlude too; skipPrim = the shading vertex's own curve
+            // segment (#1037, as stageShadowKernel), so a strand never shadows itself.
+            const int skipPrim = HasCurves ? rec.primId : -1;
+            bool occluded = gpu_tlas_occluded<HasCurves>(
                 tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                GRay(rec.point, wi, ptime), 0.001f, distLocal - 0.001f, motionVerts);
+                GRay(rec.point, wi, ptime), 0.001f, distLocal - 0.001f, motionVerts,
+                curves, skipPrim);
 
             if (!occluded) {
                 GSampledSpectrum f_spec = gpu_material_eval_spectral(
@@ -586,16 +630,22 @@ void launchStageRestirPrimary(
     const ::GMaterial* d_materials, GEnvMap envMap,
     GVec3 backgroundColor, bool hasBackgroundColor,
     int worldMaxBounces, bool useLuminanceOutput,
-    float clampDirect, float clampIndirect)  // pkg157
+    float clampDirect, float clampIndirect,  // pkg157
+    const GCurveSegment* d_curveSegments)    // #1042 (nullptr = no curves)
 {
     int numPixels = width * height;
     int tpb = 256;
-    stageRestirPrimaryKernel<<<gGrid(numPixels, tpb), tpb>>>(
-        state, hitBufs, cam, width, height, sample_index, seed, lambdaMin, lambdaMax,
-        d_tlas, d_instances, d_blas, d_bvhNodes, d_prims, d_tris, d_spheres,
-        d_motionVerts, d_materials, envMap, backgroundColor, hasBackgroundColor,
-        worldMaxBounces, useLuminanceOutput, numPixels,
-        clampDirect, clampIndirect);
+    #define ASTRORAY_RESTIR_PRIMARY_ARGS \
+        state, hitBufs, cam, width, height, sample_index, seed, lambdaMin, lambdaMax, \
+        d_tlas, d_instances, d_blas, d_bvhNodes, d_prims, d_tris, d_spheres, \
+        d_motionVerts, d_materials, envMap, backgroundColor, hasBackgroundColor, \
+        worldMaxBounces, useLuminanceOutput, numPixels, \
+        clampDirect, clampIndirect, d_curveSegments
+    if (d_curveSegments != nullptr)
+        stageRestirPrimaryKernel<true><<<gGrid(numPixels, tpb), tpb>>>(ASTRORAY_RESTIR_PRIMARY_ARGS);
+    else
+        stageRestirPrimaryKernel<false><<<gGrid(numPixels, tpb), tpb>>>(ASTRORAY_RESTIR_PRIMARY_ARGS);
+    #undef ASTRORAY_RESTIR_PRIMARY_ARGS
 }
 
 void launchStageRestirInitialRIS(
@@ -641,13 +691,19 @@ void launchStageRestirResolve(
     const GTriangle* d_tris, const GSphere* d_spheres, const GVec3* d_motionVerts,
     const ::GMaterial* d_materials, int numPixels,
     bool useLuminanceOutput,             // pkg157
-    float clampDirect, float clampIndirect)  // pkg157
+    float clampDirect, float clampIndirect,  // pkg157
+    const GCurveSegment* d_curveSegments)    // #1042 (nullptr = no curves)
 {
     int tpb = 256;
-    stageRestirResolveKernel<<<gGrid(numPixels, tpb), tpb>>>(
-        state, hitBufs, cur, d_accum_xyz, d_tlas, d_instances, d_blas,
-        d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials, numPixels,
-        useLuminanceOutput, clampDirect, clampIndirect);
+    #define ASTRORAY_RESTIR_RESOLVE_ARGS \
+        state, hitBufs, cur, d_accum_xyz, d_tlas, d_instances, d_blas, \
+        d_bvhNodes, d_prims, d_tris, d_spheres, d_motionVerts, d_materials, numPixels, \
+        useLuminanceOutput, clampDirect, clampIndirect, d_curveSegments
+    if (d_curveSegments != nullptr)
+        stageRestirResolveKernel<true><<<gGrid(numPixels, tpb), tpb>>>(ASTRORAY_RESTIR_RESOLVE_ARGS);
+    else
+        stageRestirResolveKernel<false><<<gGrid(numPixels, tpb), tpb>>>(ASTRORAY_RESTIR_RESOLVE_ARGS);
+    #undef ASTRORAY_RESTIR_RESOLVE_ARGS
 }
 
 }  // namespace astroray::wavefront

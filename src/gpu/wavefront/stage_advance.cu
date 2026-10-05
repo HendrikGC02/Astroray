@@ -106,6 +106,42 @@ __device__ int intersectPathSlot(
         dedLights, numDed, lightTree);
 }
 
+// #1042 -- curve-aware twin of intersectPathSlot for the ReSTIR primary stage
+// (stage_restir.cu; scatter=0, no pass AOVs). Forwards to the <false,false,true>
+// (HasCurves) specialization with the device curve segments, exactly like the
+// path tracer's stageIntersectQueuedKernel<..., true, ...> axis (pkg225 Stage 3).
+// Non-curve ReSTIR scenes keep calling the symbol above (curve leaf compiled out).
+__device__ int intersectPathSlotCurves(
+    int idx,
+    GPUWavefrontState& state,
+    GPUWavefrontHitBuffers& hitBufs,
+    const GTLASNode*  tlas,
+    const GInstance*  instances,
+    const GBLAS*      blas,
+    const GBVHNode*   bvhNodes,
+    const GPrimitive* prims,
+    const GTriangle*  tris,
+    const GSphere*    spheres,
+    const GVec3*      motionVerts,
+    const ::GMaterial* materials,
+    GEnvMap           envMap,
+    GVec3             backgroundColor, bool hasBackgroundColor,
+    int               worldMaxBounces,
+    bool              useLuminanceOutput,
+    bool              enableNEE,
+    float             clampDirect, float clampIndirect,
+    const ::GLight*   lights, int numLights, float totalLightPower,
+    const GDedicatedLight* dedLights, int numDed,
+    GLightTreeView    lightTree,
+    const GCurveSegment* curves)
+{
+    return intersectPathSlotT<false, false, true>(idx, state, hitBufs, tlas, instances, blas,
+        bvhNodes, prims, tris, spheres, motionVerts, materials, envMap,
+        backgroundColor, hasBackgroundColor, worldMaxBounces, useLuminanceOutput,
+        enableNEE, clampDirect, clampIndirect, lights, numLights, totalLightPower,
+        dedLights, numDed, lightTree, curves);
+}
+
 // ---------------------------------------------------------------------------
 // pkg55-B' shadow stage: lean occlusion + resolve over the parked NEE
 // samples (Laine 2013's dedicated shadow-ray stage). No sampling RNG, no

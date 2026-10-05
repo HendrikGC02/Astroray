@@ -5404,9 +5404,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'ior': ior, 'roughness': rough}}
         if ntype == 'BSDF_TRANSLUCENT':
             color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
-            self._warn_shader_fallback('BSDF_TRANSLUCENT', 'true normal-flipped diffuse transmission is approximated with rough transmission')
             _warn_color_texture_unsupported('BSDF_TRANSLUCENT')
-            return {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'roughness': 1.0, 'ior': 1.0}}
+            # #1084: Cycles' Translucent is a pure back-hemisphere Lambert (-N) lobe.
+            # The engine already has exactly that lobe: the thin-subsurface split with
+            # g=+1 puts all weight on the translucent lobe, none on the front diffuse
+            # (principled.cpp "Thin subsurface"; gpu_materials.h GPR_TRANSLUCENT twin).
+            # ior=1 -> f0=0, so no specular layer. The old lowering (rough transmission,
+            # ior=1.0) hit the eta==1 half-vector singularity and rendered black.
+            return {'kind': 'principled', 'base_color': color,
+                    'params': {'thin_wall': 1.0, 'subsurface_weight': 1.0,
+                               'subsurface_anisotropy': 1.0, 'ior': 1.0}}
         if ntype == 'BSDF_TRANSPARENT':
             color = self.get_color_input(node, 'Color', [1.0, 1.0, 1.0])
             return {'kind': 'transparent', 'base_color': color}

@@ -2032,8 +2032,11 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         } else {
             GPrincipledLobe& L = lobes[n++];
             L.kind = GPR_TRANSMISSION; L.weight = weight * c.transmission; L.color = baseColor;
-            L.roughness = c.roughness; L.ior = c.ior;
+            L.roughness = c.roughness;
             L.isDelta = c.roughness <= kPrincipledDeltaGlassRoughness;
+            // #1084 twin of principled.cpp: rough transmission at eta == 1 has a zero
+            // refraction half-vector (wi = -wo) -> lobe evaluates to 0 (black).
+            L.ior = (!L.isDelta && fabsf(c.ior - 1.f) < 1e-4f) ? 1.0001f : c.ior;
             L.sel = fmaxf(luminance(L.weight), 1e-4f);
             if (wl) L.weightSpec = weightSp * c.transmission;
         }

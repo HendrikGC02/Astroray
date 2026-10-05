@@ -12,14 +12,6 @@ reason = "Sellmeier (dispersive) sphere limb vs constant-IOR Cycles glass: colou
 
 [[row]]
 scene = "v2_camera_geometry"
-backend = "cpu"
-roi = "hair_tuft"
-channels = ["g", "b", "L"]
-issue = "#1051"
-reason = "principled_hair tuft after #1037 self-skip: r matches Cycles, g 0.94 / b 0.94 / L 0.96 of Cycles (was 0.81-0.96); residual hair g/b/L gap tracked in the follow-up issue"
-
-[[row]]
-scene = "v2_camera_geometry"
 backend = "gpu"
 roi = "hair_tuft"
 channels = ["g", "b", "L"]
@@ -41,14 +33,6 @@ roi = "motion_vane"
 channels = ["r"]
 issue = "#947"
 reason = "motion-blurred vane too narrow (0.80-0.83 of Cycles)"
-
-[[row]]
-scene = "v2_camera_geometry@ortho"
-backend = "cpu"
-roi = "hair_tuft"
-channels = ["g", "b", "L"]
-issue = "#1051"
-reason = "principled_hair tuft after #1037 self-skip: r matches Cycles, g 0.91 / b 0.91 / L 0.93 of Cycles (was 0.81-0.96); residual hair g/b/L gap tracked in the follow-up issue"
 
 [[row]]
 scene = "v2_camera_geometry@ortho"

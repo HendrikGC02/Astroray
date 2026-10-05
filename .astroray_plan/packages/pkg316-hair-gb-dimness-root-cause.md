@@ -2,7 +2,7 @@
 
 **Pillar:** 1
 **Track:** A
-**Status:** open
+**Status:** in-progress — lane f3 2026-10-06: CPU fix + gates done; GPU build + GPU corpus rows pending
 **Estimated effort:** 1–2 sessions (~5 h): diagnosis 2–3 h, fix + gates 2 h; one lead CUDA build if the GPU hair eval changes
 **Depends on:** pkg225
 
@@ -119,10 +119,14 @@ to `model = CHIANG`), so this is not a Huang-vs-Chiang model mismatch.
 
 ## Progress
 
-- [ ] Stage 1 lobe grid + furnace.
-- [ ] Stages 2–4 as needed; diagnosis doc.
-- [ ] Fix CPU + GPU; corpus rows; melanin re-pin.
-- [ ] Lead: build, GPU suite, corpus v2 hair rows.
+- [x] Stage 1 lobe grid + furnace (grid 6.9e-5 vs pbrt-v4 with the Cycles tilt sign; furnace within 1 %).
+- [x] Stages 2–4; `.astroray_plan/docs/pkg316-hair-dimness-diagnosis.md` (owners: tilt sign, curve `v`
+      sign, Direct Coloring σa(λ), thick-curve shading depth).
+- [x] Fix CPU + GPU source; CPU corpus rows removed (seed 278 in band); melanin re-pin (1.002 x Cycles).
+- [ ] Lead: CUDA build, GPU suite, GPU corpus hair rows (remove if they pass), cuobjdump for
+      `gpu_curve_intersect` / hair entry frames.
+- [ ] Follow-up: per-strand self-skip (Cycles curve-prim semantics, ~1 % corpus); shared 10-term I0
+      (pdf vs sampling density, BSDF-only 1.2 % over MIS).
 
 ---
 

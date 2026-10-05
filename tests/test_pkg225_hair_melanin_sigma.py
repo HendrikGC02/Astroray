@@ -24,7 +24,7 @@ CP = np.array([0.343, 0.733, 1.924])
 
 
 def _rgb_fallback(eu, ph, lam):
-    """The non-melanin fallback in principled_hair.cpp sigmaAAtLambda: piecewise-
+    """The direct-absorption fallback in principled_hair.cpp sigmaAAtLambda: piecewise-
     linear upsample of the RGB triple (B<=450, G=550, R>=600)."""
     r, g, b = CE * eu + CP * ph
     if lam <= 450.0:

@@ -197,8 +197,9 @@ def test_spectral_melanin_distinct_and_red_dominant():
     # melanin 0.6, redness 0, roughness/radial 0.3, coat 0), this exact tuft/light/
     # camera, 384 spp, same covered-pixel R/B: 1.145 (seeds 1,2: 1.145/1.144), and
     # 1.035 / 1.058 for (0.9, 0.5) / (0.9, 1.0) -- NOT strongly red-dominant, because
-    # the achromatic R-lobe glint is part of the sum. Engine now reads 1.217 (rgb) /
-    # 1.205 (spectral). Bound = ~0.92 x Cycles; > 1 = red-dominant.
+    # the achromatic R-lobe glint is part of the sum. Engine read 1.217 (rgb) / 1.205
+    # (spectral) before pkg316, 1.149 / 1.156 after. Bound = ~0.92 x Cycles; > 1 =
+    # red-dominant. Energy vs Cycles: test_melanin_tuft_energy_matches_cycles.
     assert rb_spec > 1.05, (
         f"spectral eumelanin R/B={rb_spec:.3f} should be red-dominant (>1.05); the "
         f"lambda^-3.33 absorption must pass red and absorb blue. Melanin seam broken?")
@@ -223,6 +224,30 @@ def test_spectral_melanin_distinct_and_red_dominant():
     # difference is physically <= 0.4 % (backlit, noise 0.3 %) and is noise-level
     # (+-1-8 % per seed) in the front-lit tuft. Seam engagement is checked
     # deterministically by the sigma_a binding test instead.
+
+
+# pkg316 (#1051): Blender 5.2 Cycles CPU twin of _make_hair_scene -- Principled Hair
+# Chiang, melanin 0.6, redness 0, roughness/radial 0.3, coat 0; THICK curves; the
+# emitter a smooth UV sphere (r 0.5) with Emission strength 16; camera angle 40 deg;
+# all bounce limits 6; filter glossy 0; adaptive/denoise off; 1024 spp, seeds 1 and 2.
+# Whole-frame RGB sums (black world, so the mask is the full frame for both engines and
+# pixel-filter / coverage differences cannot bias the comparison).
+CYCLES_MELANIN06_SUM = (30.50, 28.22, 26.96)
+
+
+def test_melanin_tuft_energy_matches_cycles():
+    # Before pkg316 the engine read 0.78 of Cycles here (66.5 vs 85.5, the #1051
+    # report): pbrt cuticle-tilt sign, mirrored h, and NEE from the strand axis
+    # (shadowed by close neighbours). After: 1.002, R/B 1.026 x Cycles (this seed).
+    img = _render(use_gpu=False, spectral=False, melanin=0.6, redness=0.0, adaptive=False)
+    s = np.asarray(img, dtype=np.float64).reshape(-1, 3).sum(axis=0)
+    cy = np.asarray(CYCLES_MELANIN06_SUM)
+    total = float(s.sum() / cy.sum())
+    rb = float((s[0] / s[2]) / (cy[0] / cy[2]))
+    print(f"\n[pkg316] melanin tuft engine/Cycles energy {total:.4f}, R/B ratio {rb:.4f}")
+    assert abs(total - 1.0) <= 0.05, f"melanin tuft energy {total:.4f} x Cycles 5.2"
+    # Residual: the per-lambda melanin power law (pkg225 S5) vs Cycles' RGB triple.
+    assert abs(rb - 1.0) <= 0.03, f"melanin tuft R/B {rb:.4f} x Cycles 5.2"
 
 
 # ---------------------------------------------------------------------------

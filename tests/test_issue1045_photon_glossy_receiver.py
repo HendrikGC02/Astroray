@@ -47,7 +47,7 @@ def _yup(p):
     return [p[0], p[2], -p[1]]
 
 
-def _scene(floor_key, photons, cam_from=(-0.75, 9.0, -0.75)):
+def _scene(floor_key, photons, cam_from=(-0.75, 9.0, -0.75), gpu=False):
     r = astroray.Renderer()
     r.set_background_color([0.0, 0.0, 0.0])
     prism = MS.PARAMS["arb_prism_sun"]["prism"]
@@ -69,15 +69,15 @@ def _scene(floor_key, photons, cam_from=(-0.75, 9.0, -0.75)):
     r.set_use_refractive_caustics(True)
     r.set_use_reflective_caustics(True)
     r.set_adaptive_sampling(False)
-    r.set_use_gpu(False)
+    r.set_use_gpu(gpu)
     r.set_use_photon_caustics(photons)
     r.setup_camera(list(cam_from), [-0.75, 0.0, -0.75], [0.0, 0.0, -1.0],
                    28.0, 1.0, 0.0, 9.0, W, H)
     return r
 
 
-def _lum(floor_key, photons, spp, seed, cam_from=(-0.75, 9.0, -0.75)):
-    r = _scene(floor_key, photons, cam_from)
+def _lum(floor_key, photons, spp, seed, cam_from=(-0.75, 9.0, -0.75), gpu=False):
+    r = _scene(floor_key, photons, cam_from, gpu)
     r.set_seed(seed)
     img = np.asarray(r.render(spp, 16, None, False), dtype=np.float64).reshape(H, W, 3)
     return img @ LUM
@@ -87,9 +87,9 @@ def _regions(img):
     return {k: float(img[y0:y1, x0:x1].mean()) for k, (y0, y1, x0, x1) in REGIONS.items()}
 
 
-def _ratios(floor_key, spp_pt, seeds_pt, cam_from=(-0.75, 9.0, -0.75)):
-    on = np.mean([_lum(floor_key, True, 64, s, cam_from) for s in (1, 2)], axis=0)
-    off = np.mean([_lum(floor_key, False, spp_pt, s, cam_from) for s in seeds_pt], axis=0)
+def _ratios(floor_key, spp_pt, seeds_pt, cam_from=(-0.75, 9.0, -0.75), gpu=False):
+    on = np.mean([_lum(floor_key, True, 64, s, cam_from, gpu) for s in (1, 2)], axis=0)
+    off = np.mean([_lum(floor_key, False, spp_pt, s, cam_from, gpu) for s in seeds_pt], axis=0)
     a, b = _regions(on), _regions(off)
     ratios = {k: a[k] / b[k] for k in REGIONS}
     print(f"\n[#1045] {floor_key}: photons ON / path traced: "
@@ -116,3 +116,23 @@ def test_rough_metal_floor_view_dependence():
     # estimate is not. Only the whole-frame mean is compared (REGIONS are top-down).
     ratios = _ratios("rough_metal", 1024, (1, 2), cam_from=(5.25, 6.0, -0.75))
     assert abs(ratios["whole"] - 1.0) <= 0.08, ratios
+
+
+def _gpu_ok():
+    return AVAILABLE and astroray.__features__.get("cuda", False) and astroray.Renderer().gpu_available
+
+
+@pytest.mark.skipif(not _gpu_ok(), reason="CUDA GPU not available")
+@pytest.mark.parametrize("floor_key,tol", [("lambertian", 0.03), ("rough_metal", 0.05)])
+def test_gpu_photons_match_path_tracing(floor_key, tol):
+    # GPU twin (stage_advance_device.cuh): the per-photon receiver BSDF weight.
+    for k, v in _ratios(floor_key, 4096, (1, 2), gpu=True).items():
+        assert abs(v - 1.0) <= tol, (k, v)
+
+
+@pytest.mark.skipif(not _gpu_ok(), reason="CUDA GPU not available")
+def test_cpu_and_gpu_agree_on_rough_metal_floor():
+    cpu = _regions(np.mean([_lum("rough_metal", True, 64, s) for s in (1, 2)], axis=0))
+    gpu = _regions(np.mean([_lum("rough_metal", True, 64, s, gpu=True) for s in (1, 2)], axis=0))
+    for k in REGIONS:
+        assert abs(cpu[k] / gpu[k] - 1.0) <= 0.04, (k, cpu[k], gpu[k])

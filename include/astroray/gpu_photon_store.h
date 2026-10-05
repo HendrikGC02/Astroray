@@ -183,8 +183,13 @@ __device__ inline int photonGridGather(const GPhotonGrid& g, const GVec3& q,
 // receiver ROI. `g.radius` is the calibrated 1.5*median(kth) cap (CPU maxRadius); the 27-cell
 // neighbourhood (cell size ~ g.radius) contains every photon within it. Returns E (XYZ);
 // foundCount = number of in-radius neighbours.
-__device__ inline GVec3 photonGridGatherKnn(const GPhotonGrid& g, const GVec3& q,
-                                            int K, float kf, int& foundCount) {
+// #1045: `weight(const GPhoton&) -> float` is the per-photon receiver weight rho_p =
+// pi * f_r(x, w_p, w_o) (CPU PhotonMap::estimateWeightedIrradiance twin); weight == 1
+// is the plain irradiance estimate photonGridGatherKnn returns.
+template <class WeightFn>
+__device__ inline GVec3 photonGridGatherKnnWeighted(const GPhotonGrid& g, const GVec3& q,
+                                                    int K, float kf, int& foundCount,
+                                                    WeightFn&& weight) {
     foundCount = 0;
     const int KMAX = 64;
     int kk = (K < KMAX) ? K : KMAX;
@@ -232,11 +237,17 @@ __device__ inline GVec3 photonGridGatherKnn(const GPhotonGrid& g, const GVec3& q
     GVec3 sum(0.f);
     for (int t = 0; t < cnt; ++t) {
         float w = 1.0f - sqrtf(bestD2[t]) / (kf * r);   // Jensen cone weight (>= 0)
-        sum = sum + g.photons[bestIx[t]].power * w;
+        sum = sum + g.photons[bestIx[t]].power * (w * weight(g.photons[bestIx[t]]));
     }
     float norm = (1.0f - 2.0f / (3.0f * kf)) * 3.14159265358979323846f * r2;
     if (norm <= 0.f) return GVec3(0.f);
     return sum / norm;
+}
+
+__device__ inline GVec3 photonGridGatherKnn(const GPhotonGrid& g, const GVec3& q,
+                                            int K, float kf, int& foundCount) {
+    return photonGridGatherKnnWeighted(g, q, K, kf, foundCount,
+                                       [](const GPhoton&) { return 1.0f; });
 }
 #endif  // __CUDACC__
 

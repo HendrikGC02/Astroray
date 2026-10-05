@@ -1013,12 +1013,14 @@ class PrincipledPlugin : public Material {
                 L.weight = weight * transmission_;
                 L.color = baseColor_;
                 L.roughness = roughness_;
-                L.isDelta = roughness_ <= kDeltaGlassRoughness;
                 // #1084: rough transmission at eta == 1 exactly has wi = -wo, so the
                 // refraction half-vector (wi*eta + wo) is the zero vector -> eval/pdf
-                // collapse to 0 (GPU) / ~0 (CPU) and the surface renders black. Nudge
-                // |eta-1| < 1e-4 to 1.0001 (renders within 0.5% of the delta ior=1 pass-through).
-                L.ior = (!L.isDelta && std::fabs(ior_ - 1.0f) < 1e-4f) ? 1.0001f : ior_;
+                // collapse and the surface rendered black. Cycles treats |eta-1| < 1e-4
+                // as singular (pure pass-through): kernel/closure/bsdf_microfacet.h
+                // bsdf_microfacet_sample, `m_singular = m_singular || (fabsf(m_eta - 1.0f)
+                // < 1e-4f)` (BSD-3-Clause; .astroray_plan/docs/microfacet-eta1-singular-research.md).
+                L.isDelta = roughness_ <= kDeltaGlassRoughness || std::fabs(ior_ - 1.0f) < 1e-4f;
+                L.ior = ior_;
                 L.sel = std::max(luminance(L.weight), 1e-4f);
                 // Film-off transmission eval uses L.weight directly (pkg188 Finding A
                 // colour/scalar split); the film-on spectral path reads weightSpec.

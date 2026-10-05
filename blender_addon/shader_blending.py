@@ -59,8 +59,85 @@ def _normalized_principled(spec):
     return out
 
 
+def _is_translucent(spec):
+    """The Translucent BSDF spec (#1084; marker set by the addon's BSDF_TRANSLUCENT)."""
+    return spec.get("kind") == "principled" and bool(spec.get("translucent"))
+
+
+def _is_plain_diffuse(spec):
+    """A constant-colour Diffuse BSDF spec (the addon's BSDF_DIFFUSE lowering): Principled
+    with no metal / transmission / coat / sheen / subsurface / specular layer / alpha and
+    no texture, program or native-param payload."""
+    if spec.get("kind") != "principled" or spec.get("translucent"):
+        return False
+    p = spec.get("params", {})
+    if (p.get("metallic", 0.0) or p.get("transmission", 0.0) or p.get("clearcoat", 0.0)
+            or p.get("sheen", 0.0) or p.get("subsurface", 0.0) or p.get("subsurface_weight", 0.0)
+            or p.get("thin_wall", 0.0) or p.get("alpha", 1.0) != 1.0
+            or p.get("specular_ior_level", 0.5)):
+        return False
+    return not any(k in spec for k in ("base_color_texture", "scalar_programs", "native_params",
+                                       "normal_texture", "bump_strength", "emission_color_texture"))
+
+
+def _blend_translucent(fac, a, b):
+    """Mix Shader(fac, A, B) where one side is the Translucent BSDF.
+
+    Cycles weights the closures (1-fac)·A + fac·B. A Diffuse + Translucent pair is exact
+    in the engine's thin-subsurface split (principled.cpp "Thin subsurface", Cycles
+    bsdf_thin_subsurface_setup): wr = 0.5(1-g) on the front Lambert lobe, wt = 0.5(1+g)
+    on the back one, so g = 2·ft - 1 gives wr = 1-ft, wt = ft with ft = the Translucent
+    weight. Both lobes share ONE base colour, so differing Diffuse / Translucent colours
+    are blended (reported). Any other pair keeps the generic Principled lerp, which turns
+    thin_wall into a fraction the engine thresholds at 0.5 - reported as degraded.
+    Returns (spec | None, notes)."""
+    ta, tb = _is_translucent(a), _is_translucent(b)
+    if ta and tb:
+        out = _blend_principled(fac, a, b)
+        out["translucent"] = True
+        return out, []
+    t, d = (a, b) if ta else (b, a)
+    ft = (1.0 - fac) if ta else fac        # Translucent's share of the mix
+    if _is_plain_diffuse(d):
+        out = _normalized_principled(d)
+        ct, cd = t.get("base_color", [0.8, 0.8, 0.8]), d.get("base_color", [0.8, 0.8, 0.8])
+        out["base_color"] = _lerp_vec3(cd, ct, ft)
+        out["params"].update({"thin_wall": 1.0, "subsurface_weight": 1.0,
+                              "subsurface_anisotropy": 2.0 * ft - 1.0, "ior": 1.0,
+                              "specular_ior_level": 0.0, "transmission": 0.0})
+        notes = []
+        if max(abs(float(cd[i]) - float(ct[i])) for i in range(3)) > 1e-4:
+            notes.append("Mix Shader of Diffuse + Translucent with different colours: both "
+                         "lobes use the Fac-blended colour (the engine's thin-subsurface "
+                         "split has one base colour)")
+        return out, notes
+    out = _blend_principled(fac, a, b)
+    return out, ["Mix Shader with a Translucent BSDF and a non-Diffuse shader is approximated "
+                 "by a Principled parameter lerp (thin_wall is thresholded at 0.5, so the "
+                 "translucent fraction is not exact)"]
+
+
+def _blend_principled(fac, a, b):
+    pa = _normalized_principled(a)
+    pb = _normalized_principled(b)
+    keys = set(pa["params"].keys()) | set(pb["params"].keys())
+    params = {k: _lerp_float(pa["params"].get(k, 0.0), pb["params"].get(k, 0.0), fac) for k in keys}
+    return {
+        "kind": "principled",
+        "base_color": _lerp_vec3(pa["base_color"], pb["base_color"], fac),
+        "params": params,
+        "native_params": _blend_params(pa["native_params"], pb["native_params"], fac),
+        "native_gaps": list(dict.fromkeys(pa["native_gaps"] + pb["native_gaps"])),
+        "emission_color": _lerp_vec3(pa["emission_color"], pb["emission_color"], fac),
+        "emission_strength": _lerp_float(pa["emission_strength"], pb["emission_strength"], fac),
+    }
+
+
 def blend_shader_specs(fac, a, b):
-    """Mix Shader(fac, A, B) → blended shader spec."""
+    """Mix Shader(fac, A, B) → blended shader spec.
+
+    A returned spec may carry `mix_notes` (list of str): approximations the addon
+    reports through the degradation policy."""
     fac = _clamp01(fac)
     if a is None:
         return deepcopy(b)
@@ -71,19 +148,12 @@ def blend_shader_specs(fac, a, b):
     kb = b.get("kind")
 
     if ka == "principled" and kb == "principled":
-        pa = _normalized_principled(a)
-        pb = _normalized_principled(b)
-        keys = set(pa["params"].keys()) | set(pb["params"].keys())
-        params = {k: _lerp_float(pa["params"].get(k, 0.0), pb["params"].get(k, 0.0), fac) for k in keys}
-        return {
-            "kind": "principled",
-            "base_color": _lerp_vec3(pa["base_color"], pb["base_color"], fac),
-            "params": params,
-            "native_params": _blend_params(pa["native_params"], pb["native_params"], fac),
-            "native_gaps": list(dict.fromkeys(pa["native_gaps"] + pb["native_gaps"])),
-            "emission_color": _lerp_vec3(pa["emission_color"], pb["emission_color"], fac),
-            "emission_strength": _lerp_float(pa["emission_strength"], pb["emission_strength"], fac),
-        }
+        if _is_translucent(a) or _is_translucent(b):   # #1084 review M1
+            out, notes = _blend_translucent(fac, a, b)
+            if notes:
+                out["mix_notes"] = notes
+            return out
+        return _blend_principled(fac, a, b)
 
     if ka == "principled" and kb == "transparent":
         out = _normalized_principled(a)
@@ -115,7 +185,7 @@ def blend_shader_specs(fac, a, b):
 def _pure_diffuse(spec):
     """True for a plain constant-colour Lambertian-equivalent Principled spec
     (no spec lobe, metal, transmission, texture, program or emission)."""
-    if spec.get("kind") != "principled":
+    if spec.get("kind") != "principled" or spec.get("translucent"):
         return False
     p = spec.get("params", {})
     if (p.get("metallic", 0.0) or p.get("transmission", 0.0) or p.get("specular_ior_level", 0.5)

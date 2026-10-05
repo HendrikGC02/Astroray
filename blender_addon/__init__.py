@@ -5221,6 +5221,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         'sheen': 'sheen_weight',
         'subsurface': 'subsurface_weight',
         'specular_ior_level': 'specular_ior_level',  # #757 Diffuse-BSDF specular-0
+        # #1084: the Translucent lowering (thin-subsurface split) and its Mix with a
+        # Diffuse BSDF carry native-named params; without these the native route drops them.
+        'thin_wall': 'thin_wall',
+        'subsurface_weight': 'subsurface_weight',
+        'subsurface_anisotropy': 'subsurface_anisotropy',
     }
 
     def _disney_params_to_native(self, params):
@@ -5312,6 +5317,26 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return renderer.create_material('lambertian', color, lambert_params)
 
         return renderer.create_material('principled', color, native)
+
+    def _report_generated_emitter_bake(self, color_input):
+        """#1085: an emitter's procedural Emission Color is not evaluated per hit on the
+        GPU (the intersect / shadow kernels carry no evaluator); scene_upload.cu bakes a
+        Generated-coordinate procedural into a 64^3 cube (a 512^2 slice on a flat card).
+        Report it: detail finer than a bake cell aliases; CPU is exact."""
+        src = color_input.links[0].from_node if (
+            color_input is not None and getattr(color_input, 'is_linked', False)
+            and getattr(color_input, 'links', None)) else None
+        if src is None or not str(getattr(src, 'type', '')).startswith('TEX_') or src.type == 'TEX_IMAGE':
+            return
+        vinp = src.inputs.get('Vector') if hasattr(src, 'inputs') else None
+        mode = self._resolve_affine_coordinates(
+            vinp, default_coord_mode='GENERATED', warn=lambda *a: None,
+            allow_affine=False)['coord_mode']
+        if mode == 'GENERATED':
+            self._degradation_report().approximate(
+                'EMISSION', "procedural Emission Color '%s' with Generated coordinates: GPU "
+                "samples a baked grid (emitters are not evaluated per hit); fine detail "
+                "aliases, CPU exact" % getattr(src, 'name', src.type))
 
     def _degradation_report(self):
         """pkg119 Phase C: the per-render degradation policy accumulator. Lazily
@@ -5411,9 +5436,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # (principled.cpp "Thin subsurface"; gpu_materials.h GPR_TRANSLUCENT twin).
             # ior=1 -> f0=0, so no specular layer. The old lowering (rough transmission,
             # ior=1.0) hit the eta==1 half-vector singularity and rendered black.
-            return {'kind': 'principled', 'base_color': color,
+            # specular_ior_level 0: Cycles' Translucent has no specular layer (as Diffuse,
+            # #757). 'translucent' marks the spec for the exact Mix(Diffuse, Translucent)
+            # lowering in shader_blending (#1084 review M1).
+            return {'kind': 'principled', 'base_color': color, 'translucent': True,
                     'params': {'thin_wall': 1.0, 'subsurface_weight': 1.0,
-                               'subsurface_anisotropy': 1.0, 'ior': 1.0}}
+                               'subsurface_anisotropy': 1.0, 'ior': 1.0,
+                               'specular_ior_level': 0.0}}
         if ntype == 'BSDF_TRANSPARENT':
             color = self.get_color_input(node, 'Color', [1.0, 1.0, 1.0])
             return {'kind': 'transparent', 'base_color': color}
@@ -5557,6 +5586,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 color_tex = None
             if color_tex is not None:
                 spec['emission_color_texture'] = color_tex
+                self._report_generated_emitter_bake(color_input)
             elif (color_input is not None and color_input.is_linked
                   and self._get_socket_color(color_input) is None):
                 # Linked to a node chain neither get_color_input() nor the texture
@@ -5578,6 +5608,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             fac = self.get_float_input(node, 'Fac', 0.5)
             self._warn_light_path_mix_nested(a, b)
             out = blend_shader_specs(fac, a, b)
+            for note in (out.pop('mix_notes', ()) if isinstance(out, dict) else ()):
+                self._warn_shader_fallback('MIX_SHADER', note)   # #1084 review M1
             if (a is not None and b is not None
                     and (a.get('kind'), b.get('kind')) not in _MIX_LERPED_PAIRS):
                 # #955: blend_shader_specs keeps the dominant shader for every

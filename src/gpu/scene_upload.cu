@@ -946,8 +946,18 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // #1085 - the WORLD-space bbox per material (matWorldBox holds object-local
     // boxes for triangles that carry them): bakeProceduralTexId reads it to spot a
     // flat (planar) Generated-coordinate consumer.
-    std::unordered_map<const Material*, AABB> matGenBox;
-    const AABB* curGenBox = nullptr;
+    // C1 (#1085 review): the GPU lookup (gpu_generatedCoord) interpolates the per-vertex
+    // #847 Generated coords, which carry the object's rotation, so a plane that is
+    // world-flat on y can be Generated-flat on z. Flatness is therefore judged on the
+    // per-vertex Generated coords when every triangle of the material has them; the
+    // world bbox is only the fallback frame (no per-vertex Generated at all).
+    struct GenFlatInfo {
+        AABB world; bool haveWorld = false;   // world bbox (fallback frame)
+        AABB gen;   bool haveGen = false;     // bbox of per-vertex Generated coords
+        bool noGen = false;                   // some primitive lacks per-vertex Generated
+    };
+    std::unordered_map<const Material*, GenFlatInfo> matGenBox;
+    const GenFlatInfo* curGenBox = nullptr;
     auto bakeProceduralTexId = [&](Texture* tex) -> int {
         Texture* key = tex;
         const Texture::CoordMode cmode = tex->getCoordMode();
@@ -972,17 +982,31 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         bool flat[3] = {false, false, false};
         float flatG[3] = {0.f, 0.f, 0.f};
         int nFlat = 0;
-        if (genMode && curGenBox) {
+        if (genMode && curGenBox && curGenBox->haveGen && !curGenBox->noGen) {
+            // Per-vertex Generated frame (what the shade path reads): the box of the
+            // coordinates themselves, no genMin/genSize normalisation.
+            for (int a = 0; a < 3; ++a) {
+                if (curGenBox->gen.max[a] - curGenBox->gen.min[a] >= 1e-4f) continue;
+                flat[a] = true;
+                ++nFlat;
+                flatG[a] = 0.5f * (curGenBox->gen.min[a] + curGenBox->gen.max[a]);
+            }
+            if (nFlat == 3) {
+                flat[0] = flat[1] = flat[2] = false;
+                nFlat = 0;
+            }
+        } else if (genMode && curGenBox && curGenBox->haveWorld && !curGenBox->haveGen) {
+            const AABB* wbox = &curGenBox->world;
             const Vec3 gm = tex->hasGeneratedBBox() ? tex->getGeneratedMin() : Vec3(0.f, 0.f, 0.f);
             const Vec3 gs = tex->hasGeneratedBBox() ? tex->getGeneratedSize() : Vec3(1.f, 1.f, 1.f);
             for (int a = 0; a < 3; ++a) {
-                if (curGenBox->max[a] - curGenBox->min[a] >= 3e-4f) continue;
+                if (wbox->max[a] - wbox->min[a] >= 3e-4f) continue;
                 flat[a] = true;
                 ++nFlat;
                 // The same normalisation the CPU applies to a hit on the plane
                 // (advanced_features.h CoordMode::Generated bbox branch).
                 flatG[a] = gs[a] > 1e-6f
-                    ? std::min(1.0f, std::max(0.0f, (0.5f * (curGenBox->min[a] + curGenBox->max[a]) - gm[a]) / gs[a]))
+                    ? std::min(1.0f, std::max(0.0f, (0.5f * (wbox->min[a] + wbox->max[a]) - gm[a]) / gs[a]))
                     : 0.0f;
             }
             if (nFlat == 3) {
@@ -1011,9 +1035,10 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         // (perHitTexId); a 3D bake is the fallback (other texture types, emission).
         if (!uvMode)
             fprintf(stderr, "[#1007] DEGRADED: procedural texture with %s coordinates "
-                            "sampled from a 64^3 voxel bake on GPU (no per-hit evaluator "
-                            "for this texture or consumer); detail finer than a voxel "
-                            "aliases\n", objMode ? "Object" : "Generated");
+                            "sampled from a %s bake on GPU (no per-hit evaluator "
+                            "for this texture or consumer); detail finer than a bake "
+                            "cell aliases\n", objMode ? "Object" : "Generated",
+                    nFlat == 0 ? "64^3 voxel" : (nFlat == 1 ? "512^2 slice" : "4096-cell line"));
         int res = 64;  // pkg190 default bake resolution
         // #1085: one flat axis -> 512^2 (the same 262k evaluations as 64^3), two -> 4096.
         const int nx = flat[0] ? 2 : (nFlat == 0 ? res : (nFlat == 1 ? 512 : 4096));
@@ -1647,11 +1672,23 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             auto it = matWorldBox.find(pm);
             if (it == matWorldBox.end()) matWorldBox.emplace(pm, hb);
             else it->second = it->second.merge(hb);
-            AABB wb;  // #1085: world-space box (hb is object-local when haveBox)
+            GenFlatInfo& gi = matGenBox[pm];   // #1085
+            AABB wb;  // world-space box (hb is object-local when haveBox)
             if (h->boundingBox(wb)) {
-                auto git = matGenBox.find(pm);
-                if (git == matGenBox.end()) matGenBox.emplace(pm, wb);
-                else git->second = git->second.merge(wb);
+                gi.world = gi.haveWorld ? gi.world.merge(wb) : wb;
+                gi.haveWorld = true;
+            }
+            Vec3 g0, g1, g2;
+            if (auto* gt = dynamic_cast<Triangle*>(h.get());
+                gt && gt->getGenerated(g0, g1, g2)) {
+                const AABB gb(Vec3(std::min({g0.x, g1.x, g2.x}), std::min({g0.y, g1.y, g2.y}),
+                                   std::min({g0.z, g1.z, g2.z})),
+                              Vec3(std::max({g0.x, g1.x, g2.x}), std::max({g0.y, g1.y, g2.y}),
+                                   std::max({g0.z, g1.z, g2.z})));
+                gi.gen = gi.haveGen ? gi.gen.merge(gb) : gb;
+                gi.haveGen = true;
+            } else {
+                gi.noGen = true;
             }
         }
     }

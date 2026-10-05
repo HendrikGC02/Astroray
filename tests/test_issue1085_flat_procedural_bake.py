@@ -54,7 +54,7 @@ def _has_cuda_gpu():
     return bool(astroray.__features__.get("cuda", False)) and bool(getattr(r, "gpu_available", False))
 
 
-def _render(kind, gpu):
+def _render(kind, gpu, rotated=False):
     typ, params = LEAF[kind]
     r = astroray.Renderer()
     r.set_integrator("path_tracer")
@@ -66,8 +66,15 @@ def _render(kind, gpu):
     h = SZ / 2
     r.set_texture_generated_bbox("t", [-h, -h, -1.0], [SZ, SZ, 2.0])
     m = r.create_material("light", [1, 1, 1], {"intensity": 1.6, "texture": "t"})
-    a, b, c, d = [-h, -h, 0], [h, -h, 0], [h, h, 0], [-h, h, 0]
-    n = [0, 0, 1]
+    if rotated:
+        # The same card rotated 90 deg about X (local (x, y, 0) -> world (x, 0, y)): world-flat on
+        # y but Generated-flat on z (the #847 frame carries the rotation). C1 (Opus review):
+        # the bake once judged flatness on the WORLD bbox and baked stripes.
+        a, b, c, d = [-h, 0, -h], [h, 0, -h], [h, 0, h], [-h, 0, h]
+        n = [0, -1, 0]
+    else:
+        a, b, c, d = [-h, -h, 0], [h, -h, 0], [h, h, 0], [-h, h, 0]
+        n = [0, 0, 1]
     first = r.scene_object_count()
     r.add_triangle_layers(a, b, c, m, {"UVMap": [[0, 0], [1, 0], [1, 1]]}, n, n, n)
     r.add_triangle_layers(a, c, d, m, {"UVMap": [[0, 0], [1, 1], [0, 1]]}, n, n, n)
@@ -75,19 +82,30 @@ def _render(kind, gpu):
     # to 1 (BKE_mesh_texspace_calc), so the plane sits at Generated z = 0.5.
     sx = 1.0 / SZ
     r.set_objects_generated_transform(first, r.scene_object_count(),
-                                      [sx, 0, 0, 0.5, 0, sx, 0, 0.5, 0, 0, 0, 0.5])
-    setup_camera(r, look_from=[0, 0, 2.5], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=26,
-                 width=W, height=W)
+                                      [sx, 0, 0, 0.5, 0, 0, sx, 0.5, 0, 0, 0, 0.5] if rotated
+                                      else [sx, 0, 0, 0.5, 0, sx, 0, 0.5, 0, 0, 0, 0.5])
+    if rotated:   # camera on -y looking +y, up +z: world x is image-right as in the flat case
+        setup_camera(r, look_from=[0, -2.5, 0], look_at=[0, 0, 0], vup=[0, 0, 1], vfov=26,
+                     width=W, height=W)
+    else:
+        setup_camera(r, look_from=[0, 0, 2.5], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=26,
+                     width=W, height=W)
     px = np.asarray(r.render(SPP, 4, None, False), np.float32).reshape(W, W, 3)
     return px[18:78, 18:78].mean(axis=2)
 
 
+def _cases():
+    # C1: rotated cards for the z-dependent / fine-detail kinds that exposed the bake axis.
+    return ([(k, False) for k in sorted(LEAF)] +
+            [(k, True) for k in ("wave_bands_z_nodist", "magic", "brick")])
+
+
 @pytest.mark.gpu
-@pytest.mark.parametrize("kind", sorted(LEAF))
-def test_flat_procedural_card_gpu_matches_cpu(kind):
+@pytest.mark.parametrize("kind,rotated", _cases())
+def test_flat_procedural_card_gpu_matches_cpu(kind, rotated):
     if not _has_cuda_gpu():
         pytest.skip("No CUDA GPU - #1085 GPU leg runs on the RTX box.")
-    cpu, gpu = _render(kind, False), _render(kind, True)
+    cpu, gpu = _render(kind, False, rotated), _render(kind, True, rotated)
     ratio = gpu.mean() / cpu.mean()
     assert 0.97 <= ratio <= 1.03, f"{kind}: GPU/CPU mean ratio {ratio:.3f}"
     if cpu.std() > 0.02:  # a (near-)uniform card has no structure to correlate

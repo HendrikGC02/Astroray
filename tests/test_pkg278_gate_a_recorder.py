@@ -219,6 +219,40 @@ def test_gate_a_reducer_rejects_forged_or_misordered_pixel_evidence():
     assert DRV.reduce_gate_a_capture(cap["raw_events"], cap["edits"])["errors"]
 
 
+def _per_event_frames(cap, frames):
+    """Give each pre/post its own PNG, as the recorder does."""
+    frames.mkdir(parents=True, exist_ok=True)
+    for e in cap["raw_events"]:
+        if e["name"] == "viewport_pixels":
+            x = e["extra"]
+            target = frames / f"{x['event_id']:04d}-{x['label']}.png"
+            target.write_bytes(PNG)
+            x["path"] = str(target)
+    return cap
+
+
+def test_gate_a_prune_keeps_reducer_complete_and_inspection_pair(tmp_path):
+    cap = _per_event_frames(_capture(_sha("s"), 10000, "camera", 0), tmp_path / "frames")
+    DRV._prune_gate_a_frames(cap["raw_events"], 1, tmp_path / "inspection", "small-camera-")
+    assert not list((tmp_path / "frames").glob("*.png"))
+    assert sorted(p.name for p in (tmp_path / "inspection").iterdir()) == [
+        "small-camera-0001-post.png", "small-camera-0001-pre.png"]
+    result = DRV.reduce_gate_a_capture(cap["raw_events"], cap["edits"])
+    assert result["complete"] and len(result["rows"]) == 100, result["errors"][:3]
+
+
+def test_gate_a_prune_leaves_unverified_frame_failing_closed(tmp_path):
+    cap = _per_event_frames(_capture(_sha("s"), 10000, "camera", 0), tmp_path / "frames")
+    forged = (tmp_path / "frames" / "0005-pre.png")
+    forged.write_bytes(PNG + b"tampered")
+    DRV._prune_gate_a_frames(cap["raw_events"])
+    assert forged.is_file() and not any(
+        e["extra"].get("pruned") for e in cap["raw_events"] if e["extra"].get("path") == str(forged))
+    forged.unlink()  # the producer removes the frames dir afterwards
+    errors = DRV.reduce_gate_a_capture(cap["raw_events"], cap["edits"])["errors"]
+    assert errors == ["edit 5 has no correct presented generation chain"]
+
+
 def test_gate_manifest_adapts_raw_producer_and_rejects_bad_captures(tmp_path):
     good = _payload()
     path = tmp_path / "instrument.json"; path.write_text(json.dumps(good), encoding="utf-8")

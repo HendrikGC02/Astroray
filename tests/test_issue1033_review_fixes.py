@@ -17,7 +17,15 @@ import sys
 
 import numpy as np
 import pytest
-from test_issue991_light_path import BACKENDS, C, _lp_value, _program, _render, _renderer, _roi
+from test_issue991_light_path import (
+    BACKENDS,
+    C,
+    _lp_value,
+    _program,
+    _render,
+    _renderer,
+    _roi,
+)
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -73,6 +81,7 @@ def test_fog_survival_is_not_replayed_behind_alpha_sheets(use_gpu):
 
 
 # ---- 2. photon caustic split behind a sheet ------------------------------------------
+@pytest.mark.slow   # ~40 s CPU
 @pytest.mark.parametrize("use_gpu", BACKENDS)
 def test_photon_caustic_is_not_lost_behind_an_alpha_sheet(use_gpu):
     """Caustic photons ON vs brute-force path tracing (OFF) with an invisible sheet

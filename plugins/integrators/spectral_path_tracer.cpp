@@ -309,19 +309,37 @@ public:
             if (bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec) &&
                 rec.material && !rec.material->isEmissive() &&
                 !rec.material->isTransmissive()) {
-                // k-NN density estimate (Jensen 1996 Eq. 8) at ANY diffuse surface.
-                astroray::XYZ E = photonMap_.estimateIrradiance(
-                    rec.point, photonGatherK_, photonGatherRadius_);
-                const Vec3 alb = rec.material->getAlbedo();
-                // Lambertian receiver: L = (albedo/π) · E; photonCausticScale_ = boost/π.
-                Vec3 causticXYZ(alb.x * E.X * photonCausticScale_,
-                                alb.y * E.Y * photonCausticScale_,
-                                alb.z * E.Z * photonCausticScale_);
+                // k-NN density estimate (Jensen 1996 Eq. 8) at the first receiver hit.
+                // #1045: reflected radiance L_r = sum_p f_r(x, w_p, w_o) dPhi_p / (pi r^2)
+                // (Jensen 2001 §7.1 / pbrt-v3 SPPM bsdf.f(wo, wi)): each photon is weighted
+                // by the receiver BSDF for ITS incoming direction and the view direction,
+                // rho_p = pi * f_r, evaluated at the photon's own wavelength. A Lambertian
+                // receiver gives rho_p = albedo(lambda_p) for every photon (the old
+                // albedo * E). Delta-only receivers (mirror) evaluate to 0.
+                const Vec3 wo = (ray.direction * -1.0f).normalized();
+                const Material* receiver = rec.material.get();
+                auto receiverWeight = [&](const astroray::photon::Photon& ph) -> float {
+                    const Vec3 wi = ph.incidentDir * -1.0f;   // toward the light
+                    const float cosI = wi.dot(rec.normal);
+                    if (cosI <= 1e-3f) return 0.0f;
+                    const float lam = ph.lambda;
+                    const astroray::SampledWavelengths one =
+                        astroray::SampledWavelengths::fromLambdas({lam, lam, lam, lam});
+                    // eval* includes the cosine; the photon hit density already carries it.
+                    const float f = receiver->evalSpectral(rec, wo, wi, one)[0] / cosI;
+                    return f > 0.0f ? f * 3.14159265358979323846f : 0.0f;
+                };
+                astroray::XYZ E = photonMap_.estimateWeightedIrradiance(
+                    rec.point, photonGatherK_, photonGatherRadius_, receiverWeight);
+                // photonCausticScale_ = boost/π (the BSDF's 1/π).
+                Vec3 causticXYZ(E.X * photonCausticScale_,
+                                E.Y * photonCausticScale_,
+                                E.Z * photonCausticScale_);
                 xyz.X += causticXYZ.x;
                 xyz.Y += causticXYZ.y;
                 xyz.Z += causticXYZ.z;
                 // pkg198: keep Σpasses == beauty when photon caustics are on — the
-                // gather lands on a diffuse receiver → diffuse-indirect pass.
+                // gather lands on a receiver → diffuse-indirect pass.
                 r.passes[PASS_DIFFUSE_INDIRECT] += causticXYZ;
             }
         }

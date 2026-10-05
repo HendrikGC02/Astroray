@@ -441,6 +441,17 @@ __device__ int intersectPathSlotT(
     const GCurveSegment* curves = nullptr)
 {
     const int bounce = state.bounce[idx];
+    // #1033 — transparent pass-throughs are not bounces. `passDist` = distance the ray
+    // has travelled since its last real vertex across passes (the shade stage parks
+    // it, this stage consumes it); `tcount` = passes so far (lp_state bits 27-31). Both
+    // stay 0 (no loads) unless the scene has a Principled alpha < 1.
+    float passDist = 0.f;
+    unsigned tcount = 0u;
+    if (c_wfTransparentLimit != kWfTransparentOff) {
+        passDist = state.pass_dist[idx];
+        state.pass_dist[idx] = 0.f;
+        tcount = state.lp_state[idx] >> 27;
+    }
 
     // ---- Reconstruct live path state from SoA (already-normalized ray
     // direction restored verbatim — the Phase A.1 ulp rule).
@@ -489,12 +500,19 @@ __device__ int intersectPathSlotT(
     // 1e-6). The origin stays at the camera, so media, lamp hits and the depth
     // AOV see the same segment as on the CPU.
     float tNear = 0.001f, tFar = 1e30f;
-    if (bounce == 0 && c_wfPrimaryClip.active && (state.lp_state[idx] >> 27) == 0u) {  // #1033
+    // #1033: after a transparent pass (passDist > 0) the ray is still the camera
+    // ray: no near clip (Cycles moves tmin past the sheet) but the far clip still
+    // bounds it, measured from the camera (CPU twin: pathTraceSpectral tMax).
+    if (bounce == 0 && c_wfPrimaryClip.active) {
         const float zInv = 1.f / fmaxf(1e-6f, ray.direction.dot(GVec3(
             c_wfPrimaryClip.fwdX, c_wfPrimaryClip.fwdY, c_wfPrimaryClip.fwdZ)));
-        tNear = fmaxf(0.001f, c_wfPrimaryClip.nearDist * zInv);
-        if (c_wfPrimaryClip.hasFar) tFar = c_wfPrimaryClip.farDist * zInv;
+        if (passDist == 0.f) tNear = fmaxf(0.001f, c_wfPrimaryClip.nearDist * zInv);
+        if (c_wfPrimaryClip.hasFar) tFar = c_wfPrimaryClip.farDist * zInv - passDist;
     }
+    // #1033: the last real vertex (the MIS light-pdf origin; Cycles keeps the ray
+    // origin across a pass, Astroray restarts it at the sheet). == ray.origin unless
+    // the previous interaction was a pass.
+    const GVec3 misOrigin = ray.origin - ray.direction * passDist;
     bool hit;
     if constexpr (HwHits) {
         // pkg299: OptiX traversed [tNear, tFar] already (same bounds, computed by
@@ -617,7 +635,7 @@ __device__ int intersectPathSlotT(
                 const float misSegT = (state.env_nee_sampled_prev[idx] == 2)
                                     ? state.path_mis_dt[idx] : 0.f;
                 float lp = gpu_dedicated_reconstruct_pdf(
-                    dedLights, numDed, totalLightPower, ray.origin, ray.direction,
+                    dedLights, numDed, totalLightPower, misOrigin, ray.direction,
                     lightTree, numLights, misNormalPrev, lampIdx, misSegT);  // #912
                 float wB = gpu_mw_powerHeuristic(state.path_bsdf_pdf[idx], lp);
                 contrib = throughput * Le * wB;
@@ -664,7 +682,8 @@ __device__ int intersectPathSlotT(
         // at bounce 0 with r_u = 1: reset there (no regen-kernel change needed).
         const int ruCap = c_wfGridVolume.capacity;
         float* const ruLane = c_wfGridVolume.ru;
-        if (bounce == 0)
+        // #1033: a pass-through continuation keeps the path's r_u (bounce stays 0).
+        if (bounce == 0 && passDist == 0.f)
             for (int l = 0; l < G_SPECTRUM_SAMPLES; ++l) ruLane[l * ruCap + idx] = 1.f;
         // #842: every medium on [0.001, surfaceT], swept in AABB-boundary order
         // (device twin of astroray::volume::spectralTrackSegment; was: only the
@@ -675,7 +694,11 @@ __device__ int intersectPathSlotT(
         float tEv = 0.f;
         GSampledSpectrum ru, beta, emission(0.f);
         uint32_t draw = 0;
-        const uint32_t salt = gpu_gridTrackSalt(bounce);   // #828 disjoint fields
+        // #1033: the draw stream advances across a pass-through (Cycles advances
+        // rng_offset by PRNG_BOUNCE_NUM on a transparent pass, path_state.h): the
+        // segment behind a sheet must not replay the draws of the segment in front,
+        // else the two flights are correlated (survival exp(-s*max(L1,L2))).
+        const uint32_t salt = gpu_gridTrackSalt(bounce + (int)tcount);   // #828 disjoint fields
         float cursor = gpu_wfMediaStart(bounce, tNear);  // pkg296 camera clip
         while (cursor < surfaceT) {
             uint32_t mask = 0u;
@@ -784,7 +807,7 @@ __device__ int intersectPathSlotT(
         uint32_t rpix = state.rng_pixel[idx];
         uint32_t rsmp = state.rng_sample[idx];
         uint64_t rsd  = state.rng_seed[idx];
-        uint32_t salt = G_WF_VOL_DIM_SALT + (uint32_t)bounce * 2u;
+        uint32_t salt = G_WF_VOL_DIM_SALT + (uint32_t)(bounce + (int)tcount) * 2u;  // #1033: see grid salt
         GSampledSpectrum sigmaT = gpu_worldSigmaT(lambdas);
         // #929 (CPU #925 twin): per-segment direct light on [0, surfaceT] before the
         // free flight (Tr(t)·σ_s·NEE at a one-sample-MIS distance), segment slot 1.
@@ -925,8 +948,8 @@ __device__ int intersectPathSlotT(
     // type selects (Is Camera Ray -> hidden emitter). Downstream (emission,
     // bucketing, the parked hit) all see the resolved id.
     if (c_wfLightPath.sw)
-        rec.materialId = gpu_lpRemap(rec.materialId, state.lp_state[idx], bounce, rec.t,
-                                     ray.direction);
+        rec.materialId = gpu_lpRemap(rec.materialId, state.lp_state[idx], bounce,
+                                     rec.t + passDist, ray.direction);  // #1033: Ray Length since the last real vertex
     const ::GMaterial& mat = materials[rec.materialId];
 
     // #909: photon-map split chain (see GWavefrontPhotonSplit). Live from a
@@ -934,9 +957,11 @@ __device__ int intersectPathSlotT(
     // reflected or refracted: #959, the photon trace Fresnel-samples both), else dead.
     if (c_wfPhotonSplit.chain != nullptr) {
         unsigned char c;
-        if (bounce == 0) {
+        if (bounce == 0 && passDist == 0.f) {
             c = (mat.emissionIntensity <= 0.f && !wf_isPhotonCaster(mat) &&
                  !wf_isDeltaOnlyReceiver(mat)) ? 1 : 0;
+        } else if (bounce == 0) {
+            c = 0;   // #1033: behind a pass-through the gather never reaches this surface (CPU twin)
         } else {
             c = c_wfPhotonSplit.chain[idx];
             if (c & 1) c = wf_isPhotonCaster(mat) ? 3 : 0;
@@ -962,7 +987,7 @@ __device__ int intersectPathSlotT(
     // front-facing world-space shading normal (gpu_bvh sets rec.normal =
     // frontFace?out:-out — the get_normal_buffer convention, pkg75). The three
     // output pointers ride in the c_wfGuideBinding constant, so no signature grows.
-    if (bounce == 0 && state.sample_index[idx] == 0 &&
+    if (bounce == 0 && passDist == 0.f && state.sample_index[idx] == 0 &&   // #1033: first hit only (CPU twin)
         c_wfGuideBinding.albedo != nullptr) {
         const int pixel = state.pixel_index[idx];
         c_wfGuideBinding.albedo[pixel * 3 + 0] = mat.baseColor.x;
@@ -1023,8 +1048,8 @@ __device__ int intersectPathSlotT(
             // pathTraceSpectral. This continuation ray was BSDF-sampled at a
             // diffuse bounce; weight its emission by the power heuristic against
             // the light-sampling pdf that would have generated this same hit.
-            // prevPoint = ray.origin (this ray's origin is the previous shading
-            // vertex, written verbatim by shadePathSlot), dir = ray.direction
+            // prevPoint = misOrigin (= ray.origin: the previous shading vertex, written
+            // verbatim by shadePathSlot; #1033: moved back across a pass), dir = ray.direction
             // (the sampled BSDF direction) — same values on CPU and GPU, so the
             // pdf reconstruction matches by construction (no snapshot skew).
             //
@@ -1045,7 +1070,7 @@ __device__ int intersectPathSlotT(
             const float misSegT = (state.env_nee_sampled_prev[idx] == 2)
                                 ? state.path_mis_dt[idx] : 0.f;
             float lp = gpu_reconstruct_light_pdf(
-                rec, ray.origin, ray.direction,
+                rec, misOrigin, ray.direction,
                 lights, numLights, totalLightPower,
                 prims, tris, spheres, lightTree, misNormalPrev, misSegT);
             float wB = gpu_mw_powerHeuristic(bsdfPdfPrev, lp);
@@ -1083,15 +1108,14 @@ __device__ int intersectPathSlotT(
     // emission above and the path ends here instead of being shaded. The count is
     // the lp_state transparent field (CPU twin: pathTraceSpectral).
     if (c_wfTransparentLimit >= 0) {
-        const unsigned tc = state.lp_state[idx] >> 27;
-        if (tc > 0u && (int)tc >= c_wfTransparentLimit) {
+        if (tcount > 0u && (int)tcount >= c_wfTransparentLimit) {
             state.path_alive[idx] = 0;
             return -1;
         }
     }
 
     // ---- Park the hit record in SoA for the shade stage.
-    hitBufs.hit_t[idx]           = rec.t;
+    hitBufs.hit_t[idx]           = rec.t + passDist;   // #1033: cumulative since the last real vertex
     hitBufs.hit_point_x[idx]     = rec.point.x;
     hitBufs.hit_point_y[idx]     = rec.point.y;
     hitBufs.hit_point_z[idx]     = rec.point.z;
@@ -2291,7 +2315,10 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // pre-pkg184 kernel; a HasPhotons=false kernel (launched when hasPhotonGrid is
     // false) never gathered anyway, so this is behaviour-preserving.
     if constexpr (HasPhotons) {
-        if (bounce == 0 && hasPhotonGrid && !useLuminanceOutput && photonGrid.numPhotons > 0) {
+        // #1033: the gather belongs to the FIRST geometric hit (CPU sampleFull): a hit
+        // behind a transparent pass (bounce stays 0) must not overwrite it.
+        if (bounce == 0 && (state.lp_state[idx] >> 27) == 0u && hasPhotonGrid &&
+            !useLuminanceOutput && photonGrid.numPhotons > 0) {
             // rec is already the primary hit from intersectPathSlot; check non-emissive.
             // #959: receivers only (a caster holds no photons; the split chain
             // starts only at a non-caster receiver) -- CPU sampleFull twin.
@@ -2382,14 +2409,16 @@ __device__ __forceinline__ bool shadePathSlotImpl(
         state.rng_dimension[idx] = rng.dimension();
         return false;
     }
-    wasSpecular = bss.isDelta;
     // #1033 — a transparent pass-through (Cycles LABEL_TRANSPARENT; CPU twin
     // pathTraceSpectral transparentPass) is not a bounce: no pass-category lock, no
-    // per-type / caustic accounting, state.bounce not advanced; it counts in the
-    // lp_state transparent field instead. Compiled to a constant-memory compare
-    // when the scene has no Principled alpha < 1 (c_wfTransparentLimit off).
+    // per-type / caustic accounting, no MIS-state update (Cycles keeps mis_ray_pdf /
+    // MIS_SKIP across it, shade_surface.h), no cryptomatte credit, state.bounce not
+    // advanced; it counts in the lp_state transparent field instead. Compiled to a
+    // constant-memory compare when the scene has no Principled alpha < 1
+    // (c_wfTransparentLimit off).
     const bool tp = (c_wfTransparentLimit != kWfTransparentOff) &&
                     gpu_isTransparentPass(&mat, wo, bss.wi, bss.isDelta);
+    if (!tp) wasSpecular = bss.isDelta;
     // pkg198 Stage 2: lock the first-bounce light-path category (Cycles locks pass
     // weights at bounce 0). TRANSMISSION if the sampled wi crossed the surface (a
     // geometric sign test on rec.normal — no distance/sentinel per
@@ -2414,16 +2443,22 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // pkg120: park this bounce's BSDF pdf so the NEXT bounce's intersect stage
     // can weight a diffuse-bounce emissive hit by the two-sided MIS heuristic
     // (mirrors CPU bsdfPdfPrev = bss.pdf in pathTraceSpectral).
-    state.path_bsdf_pdf[idx] = bss.pdf;
-    // #851: the normal NEE used at this vertex, for the next hit's tree MIS pdf.
-    state.path_mis_nx[idx] = rec.normal.x;
-    state.path_mis_ny[idx] = rec.normal.y;
-    state.path_mis_nz[idx] = rec.normal.z;
-    // pkg258: record whether env NEE competed at THIS vertex so the next-bounce
-    // miss leg applies the env power heuristic only when it actually ran (mirrors
-    // CPU pathTraceSpectral envNeeSampledPrev; the miss leg also requires
-    // !wasSpecular, so a specular continuation stays unweighted regardless).
-    state.env_nee_sampled_prev[idx] = envNeeRan ? 1 : 0;
+    // #1033: skipped on a transparent pass (the MIS state describes the last real
+    // scatter); the pass instead parks its cumulative hit distance (see pass_dist).
+    if (!tp) {
+        state.path_bsdf_pdf[idx] = bss.pdf;
+        // #851: the normal NEE used at this vertex, for the next hit's tree MIS pdf.
+        state.path_mis_nx[idx] = rec.normal.x;
+        state.path_mis_ny[idx] = rec.normal.y;
+        state.path_mis_nz[idx] = rec.normal.z;
+        // pkg258: record whether env NEE competed at THIS vertex so the next-bounce
+        // miss leg applies the env power heuristic only when it actually ran (mirrors
+        // CPU pathTraceSpectral envNeeSampledPrev; the miss leg also requires
+        // !wasSpecular, so a specular continuation stays unweighted regardless).
+        state.env_nee_sampled_prev[idx] = envNeeRan ? 1 : 0;
+    } else {
+        state.pass_dist[idx] = rec.t;   // cumulative: the intersect stage parked hit_t + pass_dist
+    }
 
     // pkg55-C3/C7: non-visible-band profile override — mirrors the deleted
     // MW megakernel block (multiwavelength_kernel.cu:376-390) and CPU
@@ -2433,7 +2468,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     //   * non-visible λ + NO profile → 0 (RGB albedo is undefined outside
     //     the visible band — the else-zero was dropped in the C3 port and
     //     restored in C7).
-    if (!wasSpecular) {
+    if (!bss.isDelta) {   // #1033: == !wasSpecular except across a pass
         float cosTheta = fmaxf(0.f, rec.normal.dot(bss.wi));
         for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
             float lam = lambdas.lambda[i];
@@ -2475,7 +2510,9 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // Weight = average(throughput · bsdf_eval) over linear sRGB, per Cycles
     // film_write_cryptomatte_slots; the matrix is the CIE XYZ D65 → linear
     // sRGB one the CPU inlines at raytracer.h:2586-2588.
-    if (bounce == 0 && cryptoDepth > 0 &&
+    // #1033: no credit on the transparent-lobe sample (CPU twin; Cycles weights the
+    // slot by 1 - transparency); the surface behind a sheet is bounce 0 too.
+    if (bounce == 0 && !tp && cryptoDepth > 0 &&
         cryptoObjectRanks != nullptr && cryptoMaterialRanks != nullptr) {
         GSampledSpectrum contrib = throughput * bss.fSpectral;
         GVec3 xyz = gpu_spectrum_to_xyz(contrib, lambdas);

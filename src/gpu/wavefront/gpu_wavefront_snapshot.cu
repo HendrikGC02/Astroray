@@ -2616,7 +2616,7 @@ std::vector<float> cuda_wavefront_render(
                 astroray::optix_trav::ClosestLaunch cl{};
                 cl.queue = d_queueA; cl.count = d_counts + 0;
                 cl.alive = state.path_alive; cl.bounce = state.bounce;
-                cl.lp = state.lp_state;  // #1033: clip applies before any pass-through
+                cl.passDist = state.pass_dist;  // #1033: no near clip / reduced far clip after a pass
                 cl.ox = state.ray_origin_x; cl.oy = state.ray_origin_y; cl.oz = state.ray_origin_z;
                 cl.dx = state.ray_direction_x; cl.dy = state.ray_direction_y; cl.dz = state.ray_direction_z;
                 cl.clipActive = primaryClip.active; cl.clipHasFar = primaryClip.hasFar;

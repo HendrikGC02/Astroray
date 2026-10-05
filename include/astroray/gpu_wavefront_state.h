@@ -185,6 +185,14 @@ struct GPUWavefrontState {
     // (a scene with a Light Path node), read by the intersect stage (Mix Shader
     // switch) and the op-VM shading context. Path state, not hit-buffer state.
     uint32_t* lp_state = nullptr;
+    // #1033 — distance the ray has travelled since its last REAL vertex (camera /
+    // bounce / medium scatter) across transparent pass-throughs. The shade stage
+    // parks the cumulative hit distance on a pass; the intersect stage reads it and
+    // zeroes it. Cycles keeps the ray origin and moves only tmin (shade_surface.h);
+    // Astroray restarts the ray at the sheet, so Ray Length, the camera far clip and
+    // the MIS light-pdf origin (origin - dir * pass_dist) are recovered from it.
+    // Touched only when c_wfTransparentLimit is on (scene has a Principled alpha < 1).
+    float*    pass_dist = nullptr;
 
     // Path-continuation flags.
     int*      was_specular  = nullptr;  // 0/1

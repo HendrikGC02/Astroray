@@ -419,6 +419,7 @@ __device__ void initPathSlot(
     state.per_type_bounce[idx] = 0u;  // pkg201 Stage 3 (A) — reset per-type counters
     state.had_diffuse_ancestor[idx] = 0;  // pkg201 Stage 3 (E) — reset ancestor flag
     state.lp_state[idx] = astroray::lightpath::kInitialState;  // #991 camera ray
+    state.pass_dist[idx] = 0.f;  // #1033
 
     state.rng_pixel[idx]     = rng.pixel();
     state.rng_sample[idx]    = rng.sample();

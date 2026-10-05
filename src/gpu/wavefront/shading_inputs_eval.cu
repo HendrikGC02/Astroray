@@ -29,7 +29,10 @@ extern __constant__ GWavefrontPrimaryClip c_wfPrimaryClip;      // stage_advance
 __device__ __noinline__ astroray::lightpath::PathContext gpu_lpContext(
     unsigned lpState, int bounce, float t, GVec3 dir)
 {
-    if (bounce == 0 && c_wfPrimaryClip.active && (lpState >> 27) == 0u) {  // #1033: not after a pass
+    // #1033: `t` is cumulative since the last real vertex (the intersect stage parks
+    // hit_t + pass_dist), so a camera ray measures from its near-clip start even
+    // after a pass-through.
+    if (bounce == 0 && c_wfPrimaryClip.active) {
         const float zInv = 1.f / fmaxf(1e-6f, dir.dot(GVec3(
             c_wfPrimaryClip.fwdX, c_wfPrimaryClip.fwdY, c_wfPrimaryClip.fwdZ)));
         t -= c_wfPrimaryClip.nearDist * zInv;

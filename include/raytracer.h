@@ -3874,6 +3874,12 @@ public:
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
         int lastBounce = 0;
         float weightSum = 0.0f;
+        // #1033: origin of the last REAL vertex (camera / bounce / medium scatter). A
+        // transparent pass restarts the ray at the sheet, but Cycles keeps the ray's
+        // origin and only moves tmin (shade_surface.h), so the MIS light-pdf origin,
+        // Ray Length and the camera far clip are all measured from here.
+        Vec3 vertexOrigin = r.origin;
+        bool passPrev = false;
         // pkg136 — per-vertex radiance records for SD-tree training. Only populated
         // during a guiding training pass (guideLearning()); replayed into the
         // per-thread record buffer at path end. Fixed stack storage (maxDepth small).
@@ -3899,10 +3905,17 @@ public:
             // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
             // camera clip planes; every secondary ray keeps the unconditional
             // 0.001f/FLT_MAX bounds so it is byte-identical to pre-clip behaviour.
-            const bool primarySeg = (bounce == 0 && lpc.transparentDepth == 0);  // #1033: a pass-through continuation is no longer the camera segment
-            const float clipZInv = primarySeg ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
+            // #1033: after a transparent pass the ray is a continuation of the camera
+            // segment: the near clip is not re-applied (Cycles moves tmin past the
+            // sheet) but the far clip still is, measured from the camera, and Ray
+            // Length is cumulative from the last real vertex (passDist).
+            if (!passPrev) vertexOrigin = ray.origin;
+            const float passDist = passPrev ? (ray.origin - vertexOrigin).length() : 0.0f;
+            passPrev = false;
+            const bool primarySeg = (bounce == 0 && lpc.transparentDepth == 0);
+            const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
             const float tMin = primarySeg ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
-            const float tMax = (primarySeg && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv : std::numeric_limits<float>::max();
+            const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv - passDist : std::numeric_limits<float>::max();
             // pkg296: where the bounded media start on this ray (see the media
             // block); the default 0.001 clip keeps the pre-pkg296 0.001 start.
             const float mediaT0 = (bounce == 0 && clipNear_ > 0.001f) ? tMin : 0.001f;
@@ -3973,9 +3986,9 @@ public:
                     float wB = 1.0f;  // specular / NEE off (pkg265): no competing NEE leg
                     if (!wasSpecular && lightNeeEnabled) {
                         float lp = misSegPrev  // #961: segment pick after a medium scatter
-                            ? lights.pdfValueSegment(misSegO, misSegD, misSegT, ray.origin,
+                            ? lights.pdfValueSegment(misSegO, misSegD, misSegT, vertexOrigin,
                                                      ray.direction, nullptr, hitLamp)
-                            : lights.pdfValue(ray.origin, ray.direction, misNormalPrev,
+                            : lights.pdfValue(vertexOrigin, ray.direction, misNormalPrev,
                                               nullptr, hitLamp);  // #912: this lamp only
                         float bp = bsdfPdfPrev;
                         wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
@@ -4097,9 +4110,16 @@ public:
             // chains path-traced AND in the map: counted twice).
             if (!photonSplitLamps_.empty()) {
                 const bool glass = didHit && rec.material && rec.material->isTransmissive();
-                if (bounce == 0) {
+                if (bounce == 0 && lpc.transparentDepth == 0) {
                     photonChain = (didHit && rec.material && !rec.material->isEmissive() &&
                                    !glass && !rec.material->isDeltaOnly()) ? 1u : 0u;
+                } else if (bounce == 0) {
+                    // #1033: behind an alpha pass-through (bounce does not advance) the
+                    // photon gather (first geometric hit = the sheet) never reaches this
+                    // surface, so it must not start a split chain (lamps culled, no
+                    // gather): trace the caustic by path tracing instead. GPU twin: the
+                    // intersect stage's chain update.
+                    photonChain = 0u;
                 } else if (photonChain & 1u) {
                     photonChain = glass ? 3u : 0u;
                 }
@@ -4320,7 +4340,7 @@ public:
             rec.lightPath.depth = (unsigned short)bounce;
             // Cycles measures a camera ray from its near-clip start (camera.h
             // camera_sample_perspective: P += nearclip * z_inv * D).
-            rec.lightPath.rayLength = (bounce == 0 && lpc.transparentDepth == 0) ? rec.t - clipNear_ * clipZInv : rec.t;
+            rec.lightPath.rayLength = rec.t + passDist - ((bounce == 0) ? clipNear_ * clipZInv : 0.0f);  // #1033: cumulative since the last real vertex
             resolveLightPathMaterial(rec);
 
             // Emission (gated on camera ray or post-specular bounce).
@@ -4353,9 +4373,9 @@ public:
                     float lightPdfHit = lights.empty()
                         ? 0.0f
                         : misSegPrev  // #961: segment pick after a medium scatter
-                        ? lights.pdfValueSegment(misSegO, misSegD, misSegT, ray.origin,
+                        ? lights.pdfValueSegment(misSegO, misSegD, misSegT, vertexOrigin,
                                                  ray.direction, rec.hitObject)
-                        : lights.pdfValue(ray.origin, ray.direction, misNormalPrev,
+                        : lights.pdfValue(vertexOrigin, ray.direction, misNormalPrev,
                                           rec.hitObject);  // #912: this emitter only
                     float bp = bsdfPdfPrev, lp = lightPdfHit;
                     // Same power-heuristic form as the NEE leg above and the GPU
@@ -4604,19 +4624,30 @@ public:
                 }
                 if (bss.pdf <= 0.0f) break;
             }
-            wasSpecular = bss.isDelta;
-            // pkg120: carry this bounce's BSDF pdf so the next iteration's
-            // emissive-hit two-sided MIS can weight the BSDF leg (see above).
-            bsdfPdfPrev = bss.pdf;
-            misNormalPrev = rec.normal;
-            misSegPrev = false;  // #961
-            // pkg258 (Terra Q1c): env NEE competed at THIS surface vertex iff the
-            // env-NEE strategy was active (enabled, HDRI loaded, bounce gate) AND
-            // this is a non-delta lobe (a delta continuation is unweighted on miss).
-            // Mirrors the env-NEE block's gate; the delta test is bss.isDelta, the
-            // same flag wasSpecular carries.
-            envNeeSampledPrev = envNeeEnabled && envMap && envMap->loaded() &&
-                                ((bounce + 1) <= worldMaxBounces) && !bss.isDelta;
+            // #1033: a transparent pass-through (Cycles LABEL_TRANSPARENT) keeps the
+            // path state, counts in transparent depth only and is skipped by the
+            // MIS state, the pass-category lock, the per-type counters, the caustic
+            // cull, cryptomatte and the bounce counter below.
+            const bool transparentPass = astroray::lightpath::is_transparent_pass(
+                bss.isDelta, wo.dot(bss.wi), rec.material->shadowAlpha(rec) < 1.0f);
+            // The MIS state describes the last REAL scatter: Cycles keeps mis_ray_pdf /
+            // MIS_SKIP across LABEL_TRANSPARENT (shade_surface.h), so diffuse -> sheet
+            // -> emitter still weights the BSDF leg against the NEE leg.
+            if (!transparentPass) {
+                wasSpecular = bss.isDelta;
+                // pkg120: carry this bounce's BSDF pdf so the next iteration's
+                // emissive-hit two-sided MIS can weight the BSDF leg (see above).
+                bsdfPdfPrev = bss.pdf;
+                misNormalPrev = rec.normal;
+                misSegPrev = false;  // #961
+                // pkg258 (Terra Q1c): env NEE competed at THIS surface vertex iff the
+                // env-NEE strategy was active (enabled, HDRI loaded, bounce gate) AND
+                // this is a non-delta lobe (a delta continuation is unweighted on miss).
+                // Mirrors the env-NEE block's gate; the delta test is bss.isDelta, the
+                // same flag wasSpecular carries.
+                envNeeSampledPrev = envNeeEnabled && envMap && envMap->loaded() &&
+                                    ((bounce + 1) <= worldMaxBounces) && !bss.isDelta;
+            }
 
             // pkg198 Stage 1: lock the light-path category at the FIRST BSDF
             // interaction (Cycles locks pass_diffuse/glossy_weight at bounce 0).
@@ -4636,12 +4667,6 @@ public:
                 lobeCat = transmitted ? 2
                         : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
             }
-            // #1033: a transparent pass-through (Cycles LABEL_TRANSPARENT) keeps the
-            // path state, counts in transparent depth only and is skipped by the
-            // pass-category lock, the per-type counters, the caustic cull and the
-            // bounce counter below.
-            const bool transparentPass = astroray::lightpath::is_transparent_pass(
-                bss.isDelta, wo.dot(bss.wi), rec.material->shadowAlpha(rec) < 1.0f);
             if (firstCat < 0 && !transparentPass) firstCat = lobeCat;
             lpc = astroray::lightpath::next_surface(  // #991
                 lpc, lobeCat, bss.isDelta, transparentPass);
@@ -4667,7 +4692,10 @@ public:
             // Accumulated *before* throughput is updated for the next bounce.
             // cryptoObjectRanks/cryptoMaterialRanks point to this pixel's rank array (already offset).
             // Cryptomatte records only the first hit (bounce == 0), not indirect bounces.
-            if (cryptomatteEnabled && cryptoObjectRanks && cryptoMaterialRanks && bounce == 0) {
+            // #1033: the sheet's own transparent-lobe sample credits nothing (Cycles
+            // weights the slot by 1 - transparency); the surface behind it is bounce 0 too.
+            if (cryptomatteEnabled && cryptoObjectRanks && cryptoMaterialRanks && bounce == 0 &&
+                !transparentPass) {
                 astroray::SampledSpectrum contrib = throughput * bss.f_spectral;
                 astroray::XYZ contribXYZ = contrib.toXYZ(lambdas);
                 // Inline XYZ→sRGB (avoiding spectral.h circular dependency).
@@ -4724,7 +4752,7 @@ public:
             // #1033: a transparent pass spends no max_bounces / clamp-class budget
             // (the loop's ++bounce nets to zero); its own budget is the
             // transparent_max_bounces check above.
-            if (transparentPass) --bounce;
+            if (transparentPass) { --bounce; passPrev = true; }
 
             weightSum += throughput.maxValue();
             float maxC = throughput.maxValue();
@@ -4736,7 +4764,7 @@ public:
             // (Yfinal - Csnap) / betaSnap is the incident radiance L_i(p, w) that
             // came back along the sampled direction — exactly what the guide caches.
             // Non-delta only (guiding excludes Dirac lobes).
-            if (guideLearning() && !wasSpecular && gvertCount < 64) {
+            if (guideLearning() && !bss.isDelta && gvertCount < 64) {  // #1033: wasSpecular is stale across a pass
                 gverts[gvertCount++] = GuideVtx{rec.point, bss.wi, color, throughput, bss.pdf};
             }
         }
@@ -4804,6 +4832,8 @@ public:
         int causticConnections = 0;
         float causticEnergy = 0.0f;
         astroray::lightpath::PathContext lpc;  // #991 (see pathTraceSpectral)
+        Vec3 vertexOrigin = r.origin;  // #1033 (see pathTraceSpectral)
+        bool passPrev = false;
 
         for (int bounce = 0; bounce < maxDepth; ++bounce) {
             lastBounce = bounce;
@@ -4811,10 +4841,15 @@ public:
             // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
             // camera clip planes; every secondary ray keeps the unconditional
             // 0.001f/FLT_MAX bounds so it is byte-identical to pre-clip behaviour.
-            const bool primarySeg = (bounce == 0 && lpc.transparentDepth == 0);  // #1033: a pass-through continuation is no longer the camera segment
-            const float clipZInv = primarySeg ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
+            // #1033: as pathTraceSpectral: no near clip after a pass, far clip + Ray
+            // Length measured from the last real vertex.
+            if (!passPrev) vertexOrigin = ray.origin;
+            const float passDist = passPrev ? (ray.origin - vertexOrigin).length() : 0.0f;
+            passPrev = false;
+            const bool primarySeg = (bounce == 0 && lpc.transparentDepth == 0);
+            const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
             const float tMin = primarySeg ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
-            const float tMax = (primarySeg && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv : std::numeric_limits<float>::max();
+            const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv - passDist : std::numeric_limits<float>::max();
             bool didHit = bvh->hit(ray, tMin, tMax, rec);
 
             // pkg181: dedicated-lamp visibility (Cycles lights_intersect). This
@@ -4886,7 +4921,7 @@ public:
             if (!rec.material) break;
             rec.lightPath = lpc;  // #991
             rec.lightPath.depth = (unsigned short)bounce;
-            rec.lightPath.rayLength = (bounce == 0 && lpc.transparentDepth == 0) ? rec.t - clipNear_ * clipZInv : rec.t;
+            rec.lightPath.rayLength = rec.t + passDist - ((bounce == 0) ? clipNear_ * clipZInv : 0.0f);  // #1033
             resolveLightPathMaterial(rec);
 
             astroray::SampledSpectrum Le_spec = rec.material->emittedSpectral(rec, lambdas);
@@ -5049,7 +5084,6 @@ public:
                 }
             }
 
-            wasSpecular = bss.isDelta;
             throughput = nextThroughput;
             bool transparentPass;  // #1033 (see pathTraceSpectral)
             {   // #991 — same bounce class as pathTraceSpectral's lobeCat.
@@ -5060,6 +5094,7 @@ public:
                     bss.isDelta, wo.dot(bss.wi), rec.material->shadowAlpha(rec) < 1.0f);
                 lpc = astroray::lightpath::next_surface(lpc, cat, bss.isDelta, transparentPass);
             }
+            if (!transparentPass) wasSpecular = bss.isDelta;  // #1033: a pass keeps the MIS state
 
             Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
             next.self = rec.hitObject;  // #1037
@@ -5069,7 +5104,7 @@ public:
             next.cameraV = ray.cameraV;
             next.cameraW = ray.cameraW;
             ray = next;
-            if (transparentPass) --bounce;  // #1033: no max_bounces / clamp-class spend
+            if (transparentPass) { --bounce; passPrev = true; }  // #1033: no max_bounces / clamp-class spend
 
             weightSum += throughput.maxValue();
             float maxC = throughput.maxValue();
@@ -5235,19 +5270,42 @@ public:
         if (!bvh) return 0.0f;
         Ray ray = primary;
         const int cap = std::max(1, maxDepth);
+        // #1033: alpha pass-throughs (below) are not bounces; `passes` bounds them,
+        // `travelled` is the camera-ray distance already covered (far clip).
+        int passes = 0;
+        float travelled = 0.0f;
+        std::uniform_real_distribution<float> u01(0.0f, 1.0f);
         for (int bounce = 0; bounce < cap; ++bounce) {
             HitRecord rec;
             // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
             // camera clip planes; the transparent-glass continuation rays keep the
-            // unconditional 0.001f/FLT_MAX bounds.
+            // unconditional 0.001f/FLT_MAX bounds. A pass-through continuation is
+            // still the camera ray: far clip only (as pathTraceSpectral).
             const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
-            const float tMin = (bounce == 0) ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
-            const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv : std::numeric_limits<float>::max();
+            const float tMin = (bounce == 0 && passes == 0) ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
+            const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv - travelled : std::numeric_limits<float>::max();
             if (!bvh->hit(ray, tMin, tMax, rec))
                 return 0.0f;  // reached the background uncovered
             if (rec.hitObject && rec.hitObject->isGRObject())
                 return 1.0f;  // a GR object covers the film
             if (!rec.material) return 0.0f;
+            // #1033: a surface with alpha < 1 covers the film with probability alpha;
+            // otherwise the camera ray passes straight through it (Cycles: film alpha
+            // is 1 - the transparent-lobe throughput; the GPU counts misses behind a
+            // sheet the same way). Only reached for alpha < 1 surfaces: every
+            // existing scene is unchanged and draws no extra RNG.
+            {
+                const float a = rec.material->shadowAlpha(rec);
+                if (a < 1.0f && passes < 64) {
+                    if (u01(gen) >= a) {
+                        if (bounce == 0) travelled += rec.t;
+                        ++passes; --bounce;
+                        ray = spawnRay(rec, ray.direction.normalized(), ray.time);
+                        continue;
+                    }
+                    return 1.0f;
+                }
+            }
             if (!(transparentGlass && rec.material->isTransmissive()))
                 return 1.0f;  // an opaque / non-glass surface covers the film
             // Transparent glass: follow the sampled (refracted/reflected) ray and

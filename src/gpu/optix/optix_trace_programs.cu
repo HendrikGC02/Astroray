@@ -44,11 +44,13 @@ extern "C" __global__ void __raygen__closest()
     const float3 d = make_float3(c.dx[idx], c.dy[idx], c.dz[idx]);
     // #873 camera clip, identical expression to intersectPathSlotT.
     float tNear = 0.001f, tFar = 1e30f;
-    // #1033: after a transparent pass-through the ray is no longer the camera segment.
-    if (c.bounce[idx] == 0 && c.clipActive && (c.lp == nullptr || (c.lp[idx] >> 27) == 0u)) {
+    if (c.bounce[idx] == 0 && c.clipActive) {
+        // #1033: after a transparent pass-through (passDist > 0) the near clip is not
+        // re-applied; the far clip still bounds the continuation from the camera.
+        const float pd = (c.passDist != nullptr) ? c.passDist[idx] : 0.f;
         const float zInv = 1.f / fmaxf(1e-6f, d.x * c.fwdX + d.y * c.fwdY + d.z * c.fwdZ);
-        tNear = fmaxf(0.001f, c.clipNear * zInv);
-        if (c.clipHasFar) tFar = c.clipFar * zInv;
+        if (pd == 0.f) tNear = fmaxf(0.001f, c.clipNear * zInv);
+        if (c.clipHasFar) tFar = c.clipFar * zInv - pd;
     }
 
     unsigned int p0 = __float_as_uint(-1.f), p1 = 0u, p2 = 0u, p3 = 0u, p4 = 0xffffffffu;

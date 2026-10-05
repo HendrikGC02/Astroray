@@ -19,7 +19,11 @@ import numpy as np
 import pytest
 
 from tests.test_issue762_emission_texture import (
-    _RecordingRenderer, _checker_node, _emission_node, _load_blender_addon)
+    _checker_node,
+    _emission_node,
+    _load_blender_addon,
+    _RecordingRenderer,
+)
 
 
 @pytest.fixture(scope="module")

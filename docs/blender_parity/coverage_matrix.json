@@ -1084,7 +1084,7 @@
     "feature": "BSDF_TRANSLUCENT",
     "bl_idname": "ShaderNodeBsdfTranslucent",
     "socket_or_prop": "input:Color",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {

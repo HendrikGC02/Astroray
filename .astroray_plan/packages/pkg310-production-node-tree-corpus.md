@@ -153,7 +153,7 @@ possibly a scene or reference defect first (CLAUDE.md §5c).
 - [x] Silent-drop audit + fixture
 - [x] CPU/GPU runs, bands, contact sheet
 - [x] Backlog issues + burn-down doc
-- [x] Manifest row (g) wired (owner 2026-10-06): `scripts/gate_manifest.py --adapt-g`; N bound pending owner, row stays unmeasured until measured (`stage0-gate-scoring-2026-10-05.md`)
+- [x] Manifest row (g) wired (owner 2026-10-06): `scripts/gate_manifest.py --adapt-g`; threshold >= 6/8 on both CPU and GPU + zero silent pairs (owner 2026-10-06); unmeasured until run (`stage0-gate-scoring-2026-10-05.md`)
 
 ---
 

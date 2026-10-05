@@ -12,16 +12,14 @@ Reducer: `scripts/gate_manifest.py` (statuses computed, never hand-set).
 | (d) native panels | **GREEN** | CPU+GPU: all 10 checks; mean rel. error max 0.0049, detail preservation min 0.9996 | ≤ 0.02, ≥ 0.95 | committed |
 | (e) triage | **RED** | high_count 10 of 79 (was 21) | 0 | committed; `gate-e-triage-2026-10-05.md` |
 | (f) clean install | unmeasured | — | 5 checks | needs a clean host |
-| (g) production node score | unmeasured (row added 2026-10-06) | — | zero silent pairs; N/8 pass per backend, **N pending owner** | not yet run; see below |
+| (g) production node score | unmeasured (row added 2026-10-06) | — | pass >= 6/8 on CPU and on GPU; zero silent pairs | not yet run; see below |
 
 Row (g) (owner 2026-09-29 exit-gate row, 2026-10-06 "becomes manifest row (g)"): the pkg310 eight-material
 production score. `gate_manifest.py` recomputes it from raw per-leg renders + render logs (ROI bands via
 `mc_tolerance.score_material`, silent drops via `silent_drop_audit.audit_scene`, both against hash-pinned
 `gates_production.toml` / `manifest.json` / `node_uses.json` / `coverage_matrix.json`); PASS = in band and
-no silent pair. The owner decision states "N/8 in band, zero silent degradations" but no N, so
-`ROW_SPEC["g"]["owner_threshold_pending"] = (cpu_pass, gpu_pass)`: the row reports those counts but stays
-`unmeasured` (never green) until the owner sets N; zero silent pairs is already frozen. To close it, move the
-two names into `threshold` as `{"min": N}` and delete the pending key. Evidence command:
+no silent pair. Owner thresholds: >= 6/8 passing on BOTH CPU and GPU (2026-10-06) and zero silent pairs
+(2026-09-29), frozen in `ROW_SPEC["g"]`. Evidence command:
 `PKG310_WORK=<dir> python scripts/build/gpu_locked_run.py <lane> -- python -m pytest tests/test_production_corpus.py -k "parity or silent"`
 then `python scripts/gate_manifest.py --adapt-g <dir> --out docs/blender_parity/evidence/g/instrument.json`.
 

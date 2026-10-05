@@ -91,14 +91,9 @@ def _rewrite(path: Path, edit) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-@pytest.fixture
-def owner_bound_set(monkeypatch):
-    """What row (g) looks like once the owner states N: pending moved into ``threshold`` (N=8 here)."""
-    spec = copy.deepcopy(GM.ROW_SPEC["g"])
-    spec.pop("owner_threshold_pending")
-    spec["threshold"].update({"cpu_pass": {"min": 8}, "gpu_pass": {"min": 8}})
-    monkeypatch.setitem(GM.ROW_SPEC, "g", spec)
-    return spec
+def _off_band(*materials, backends=("CPU", "GPU")):
+    """Skew one ROI of each material out of band (x2) on the given backends."""
+    return {(m, b): (GATES[m]["roi"][0]["name"], "all", 2.0) for m in materials for b in backends}
 
 
 # --------------------------------------------------------------------------- structure
@@ -113,11 +108,12 @@ def test_row_g_is_declared_and_committed_unmeasured():
     assert "production_node_score" in schema["$defs"]["row"]["properties"]["instrument"]["enum"]
 
 
-def test_threshold_is_owner_pending_not_invented():
-    spec = GM.ROW_SPEC["g"]
-    assert spec["owner_threshold_pending"] == ("cpu_pass", "gpu_pass")
-    assert "cpu_pass" not in spec["threshold"] and "gpu_pass" not in spec["threshold"]
-    assert spec["threshold"] == {"cpu_silent_pairs": {"max": 0}, "gpu_silent_pairs": {"max": 0}}  # owner: zero silent
+def test_threshold_is_owner_6_of_8_on_both_backends_plus_zero_silent():
+    # owner 2026-10-06: >= 6/8 scenes passing on BOTH CPU and GPU; 2026-09-29: zero silent degradations
+    assert GM.ROW_SPEC["g"]["threshold"] == {
+        "cpu_pass": {"min": 6}, "gpu_pass": {"min": 6},
+        "cpu_silent_pairs": {"max": 0}, "gpu_silent_pairs": {"max": 0}}
+    assert "owner_threshold_pending" not in GM.ROW_SPEC["g"]
 
 
 def test_assemble_without_instrument_is_unmeasured_and_a_to_f_keep_their_instruments():
@@ -134,47 +130,44 @@ def test_hand_edited_green_without_instrument_is_rejected():
 
 # --------------------------------------------------------------------------- recompute
 
-def test_all_in_band_silent_free_recomputes_8_of_8_but_stays_unmeasured_while_pending(tmp_path):
+def test_8_of_8_recomputes_green(tmp_path):
     row, why = GM.compute_row("g", _row(_evidence(tmp_path)), GM.ROW_SPEC["g"], GM.REPO_ROOT)
     assert row["value"] == {"cpu_pass": 8, "cpu_in_band": 8, "cpu_silent_pairs": 0,
                             "gpu_pass": 8, "gpu_in_band": 8, "gpu_silent_pairs": 0}
     assert row["subchecks"] == {"legs_complete": True, "identity_bound": True,
                                 "bands_recomputed": True, "zero_silent_degradations": True}
-    assert row["status"] == "unmeasured" and any("owner threshold pending" in r for r in why)
+    assert row["status"] == "green" and not why
 
 
-def test_green_once_owner_bound_is_set_and_met(tmp_path, owner_bound_set):
-    manifest, _ = GM.assemble({"g": _row(_evidence(tmp_path))})
-    assert manifest["rows"]["g"]["status"] == "green"
+def test_6_of_8_on_both_backends_is_green_and_validates(tmp_path):
+    skew = _off_band("prod_wood", "prod_marble")
+    manifest, _ = GM.assemble({"g": _row(_evidence(tmp_path, skew=skew))})
+    row = manifest["rows"]["g"]
+    assert row["value"]["cpu_pass"] == 6 and row["value"]["gpu_pass"] == 6
+    assert row["status"] == "green"
     assert GM.validate_manifest(manifest) == []
 
 
-def test_out_of_band_material_is_a_measured_red_once_bound_is_set(tmp_path, owner_bound_set):
-    roi = GATES["prod_wood"]["roi"][0]["name"]
-    path = _evidence(tmp_path, skew={("prod_wood", "GPU"): (roi, "all", 2.0)})
-    row, why = GM.compute_row("g", _row(path), GM.ROW_SPEC["g"], GM.REPO_ROOT)
-    assert row["value"]["gpu_in_band"] == 7 and row["value"]["cpu_in_band"] == 8
-    assert row["status"] == "red" and any("gpu_pass" in r for r in why)
+def test_5_of_8_on_either_backend_is_red(tmp_path):
+    for backends in (("CPU",), ("GPU",)):
+        sub = tmp_path / backends[0]
+        skew = _off_band("prod_wood", "prod_marble", "prod_car_paint", backends=backends)
+        row, why = GM.compute_row("g", _row(_evidence(sub, skew=skew)), GM.ROW_SPEC["g"], GM.REPO_ROOT)
+        key = f"{backends[0].lower()}_pass"
+        assert row["value"][key] == 5 and row["status"] == "red" and any(key in r for r in why)
 
 
-def test_silent_drop_is_counted_and_reds_the_zero_silent_bound_even_while_pending(tmp_path):
-    row, _why = GM.compute_row("g", _row(_evidence(tmp_path, report_all=False)), GM.ROW_SPEC["g"], GM.REPO_ROOT)
+def test_silent_drop_reds_the_row_even_with_8_of_8_in_band(tmp_path):
+    row, why = GM.compute_row("g", _row(_evidence(tmp_path, report_all=False)), GM.ROW_SPEC["g"], GM.REPO_ROOT)
     assert row["value"]["cpu_silent_pairs"] > 0 and row["value"]["cpu_silent_pairs"] == row["value"]["gpu_silent_pairs"]
-    assert row["value"]["cpu_pass"] < 8 and row["value"]["cpu_in_band"] == 8
-    assert row["subchecks"]["zero_silent_degradations"] is False
-    # the measured shortfall is data, not a broken instrument: the pending row stays unmeasured, never green
-    assert row["status"] == "unmeasured"
+    assert row["value"]["cpu_in_band"] == 8 and row["subchecks"]["zero_silent_degradations"] is False
+    assert row["status"] == "red" and any("silent_pairs" in r for r in why)
 
 
-def test_silent_drop_is_red_when_not_pending(tmp_path, owner_bound_set):
-    row, _ = GM.compute_row("g", _row(_evidence(tmp_path, report_all=False)), GM.ROW_SPEC["g"], GM.REPO_ROOT)
-    assert row["status"] == "red"
-
-
-def test_pending_row_cannot_be_validated_green(tmp_path):
+def test_green_row_without_recomputable_evidence_is_rejected_by_validate(tmp_path):
     manifest, _ = GM.assemble({"g": _row(_evidence(tmp_path))})
-    manifest["rows"]["g"]["status"] = "green"  # hand edit
-    assert any("owner threshold is pending" in e for e in GM.validate_manifest(manifest))
+    manifest["rows"]["g"]["value"]["cpu_pass"] = 5  # hand edit of a green row
+    assert any("row g" in e for e in GM.validate_manifest(manifest))
 
 
 # --------------------------------------------------------------------------- fail closed
@@ -305,9 +298,11 @@ def test_pinned_input_digest_mismatch_or_non_canonical_input_is_red(tmp_path):
 
 
 def test_loosened_frozen_threshold_in_payload_is_red(tmp_path):
-    path = _evidence(tmp_path)
-    _rewrite(path, lambda p: p["threshold"].update(cpu_silent_pairs=5))
-    assert _status(path)[0] == "red"
+    for key, loose in (("cpu_silent_pairs", 5), ("cpu_pass", 1), ("gpu_pass", 5)):
+        path = _evidence(tmp_path / key)
+        _rewrite(path, lambda p, key=key, loose=loose: p["threshold"].update({key: loose}))
+        status, why, _ = _status(path)
+        assert status == "red" and any("loosened" in r for r in why)
 
 
 # --------------------------------------------------------------------------- CLI
@@ -325,5 +320,5 @@ def test_cli_adapt_g_then_validate(tmp_path):
                            "--instruments-dir", str(tmp_path / "none"), "--instrument", f"g={out}",
                            "--out", str(manifest), "--json"], capture_output=True, text=True, cwd=tmp_path, check=False)
     result = json.loads(done.stdout)
-    assert result["statuses"]["g"] == "unmeasured"  # pending owner bound, 8/8 recomputed
+    assert result["statuses"]["g"] == "green"  # 8/8 recomputed >= owner bound 6
     assert json.loads(manifest.read_text(encoding="utf-8"))["rows"]["g"]["value"]["cpu_pass"] == 8

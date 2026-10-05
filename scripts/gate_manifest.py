@@ -145,20 +145,16 @@ ROW_SPEC: dict[str, dict[str, Any]] = {
         ),
     },
     # Row (g): pkg310 production node-tree score (owner 2026-09-29: "Stage 0 exit-gate
-    # row", re-confirmed 2026-10-06: "becomes manifest row (g)").  The owner wording is
-    # "N/8 materials in band on CPU+GPU, zero silent degradations" but no source states N
-    # (product-themes-plan §1 "5/8 after P3, 8/8 after P4" are theme targets, not an exit
-    # bound).  ``owner_threshold_pending`` therefore names the metrics whose bound the
-    # owner has not set: the row computes and reports them but can never be green --
-    # compute_row caps it at ``unmeasured`` and validate_manifest rejects a green.  To
-    # close it, move each name into ``threshold`` as {"min": N} and delete the key.
+    # row", re-confirmed 2026-10-06: "becomes manifest row (g)").  Owner decision
+    # 2026-10-06: at least 6/8 production scenes passing on BOTH CPU and GPU (PASS = in
+    # band and silent-free), plus zero silent pairs (2026-09-29).
     "g": {
         "instrument": "production_node_score",
         "required_dimensions": ("backend", "material"),
         "required_backends": ("CPU", "GPU"),
         "min_scenes": 8,
-        "threshold": {"cpu_silent_pairs": {"max": 0}, "gpu_silent_pairs": {"max": 0}},
-        "owner_threshold_pending": ("cpu_pass", "gpu_pass"),
+        "threshold": {"cpu_pass": {"min": 6}, "gpu_pass": {"min": 6},
+                      "cpu_silent_pairs": {"max": 0}, "gpu_silent_pairs": {"max": 0}},
         "required_subchecks": (
             "legs_complete", "identity_bound", "bands_recomputed",
             "zero_silent_degradations",
@@ -1031,10 +1027,7 @@ def compute_row(rid: str, raw: Mapping[str, Any] | None, spec: Mapping[str, Any]
     row["row"] = rid
     row.setdefault("instrument", spec["instrument"])
     row["status"] = "red"  # provisional until checks pass
-    pending = spec.get("owner_threshold_pending")
-    # A pending owner bound is not a measured failure: only evidence-integrity problems
-    # make the row red; metric/subcheck shortfalls wait for the bound.
-    reasons = _check_common(row, spec, repo_root, measurement_failure_is_error=not pending)
+    reasons = _check_common(row, spec, repo_root)
 
     if spec.get("requires_scanner_823"):
         scanner_ok, scanner_why = _check_scanner_823(row, repo_root)
@@ -1045,10 +1038,6 @@ def compute_row(rid: str, raw: Mapping[str, Any] | None, spec: Mapping[str, Any]
             return row, reasons
 
     row["status"] = "green" if not reasons else "red"
-    if pending and not reasons:
-        # Measured and integrity-clean, but the bound is the owner's: never green.
-        row["status"] = "unmeasured"
-        reasons.append(f"row {rid} not scored: owner threshold pending for {list(pending)}")
     if existing_status and existing_status != row["status"]:
         # The stored status disagrees with the recomputed one: a hand edit.
         row["hand_edit_detected"] = True
@@ -1148,9 +1137,6 @@ def validate_manifest(manifest: Mapping[str, Any], repo_root: Path = REPO_ROOT) 
                     reasons.append(f"scanner #823: {why}")
             if reasons:
                 errors.append(f"row {rid}: {status} fails semantic recomputation: {reasons[:3]}")
-        if status == "green" and ROW_SPEC[rid].get("owner_threshold_pending"):
-            errors.append(f"row {rid}: green while owner threshold is pending "
-                          f"{list(ROW_SPEC[rid]['owner_threshold_pending'])}")
     return errors
 
 
@@ -1372,8 +1358,6 @@ def adapt_g_instrument(work_dir: Path, out_path: Path) -> dict[str, Any]:
     if len(build_ids) != 1 or not next(iter(build_ids)):
         raise ValueError(f"production legs must report one non-empty build id, got {sorted(build_ids)}")
     threshold: dict[str, Any] = {k: rule.get("max", rule.get("min")) for k, rule in ROW_SPEC["g"]["threshold"].items()}
-    if ROW_SPEC["g"].get("owner_threshold_pending"):
-        threshold["owner_threshold_pending"] = list(ROW_SPEC["g"]["owner_threshold_pending"])
     payload: dict[str, Any] = {
         "schema": PAYLOAD_SCHEMA, "row": "g", "instrument": "production_node_score",
         "scene_sha256": sorted(e["sha256"] for e in manifest.values()), "build_id": build_ids.pop(),

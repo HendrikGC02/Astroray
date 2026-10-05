@@ -152,6 +152,7 @@ class GlassConfig:
     name: str
     roughness: float
     ior: float = GLASS_IOR
+    color: tuple = (1.0, 1.0, 1.0)   # Glass BSDF Color (#1038)
 
 
 def glass_sweep() -> list[GlassConfig]:
@@ -160,8 +161,14 @@ def glass_sweep() -> list[GlassConfig]:
             for r in GLASS_ROUGHNESSES]
 
 
+# #1038 - coloured near-smooth Glass (the prod_light_path ball's material). Not in
+# the default sweep; run with ``harness.py --material glass --glass-configs glass_tint``.
+GLASS_TINT_CONFIG = GlassConfig(name="glass_tint", roughness=0.02,
+                                color=(0.9, 1.0, 0.95))
+
+
 def glass_config_by_name(name: str) -> GlassConfig:
-    for cfg in glass_sweep():
+    for cfg in (*glass_sweep(), GLASS_TINT_CONFIG):
         if cfg.name == name:
             return cfg
     raise ValueError(f"unknown glass config {name!r}")
@@ -231,6 +238,7 @@ def build_glass_scene(bpy, cfg: GlassConfig):
     glass = nt.nodes.new("ShaderNodeBsdfGlass")
     glass.inputs["Roughness"].default_value = cfg.roughness
     glass.inputs["IOR"].default_value = cfg.ior
+    glass.inputs["Color"].default_value = (cfg.color[0], cfg.color[1], cfg.color[2], 1.0)
     nt.links.new(glass.outputs["BSDF"], out.inputs["Surface"])
     sphere.data.materials.append(mat)
 

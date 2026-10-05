@@ -262,6 +262,17 @@ private:
         out = position + Vec3(float(k * st * std::cos(s.phi)),
                               float(k * std::cos(s.theta)),
                               float(k * st * std::sin(s.phi)));
+        // #1061: the escaping RK45 step (h up to 50 M) lands far past r_max, so
+        // a ray started at s.r skipped scene geometry between r_max and s.r.
+        // Back-project along the exit direction to where that straight line
+        // leaves the r_max sphere (its closest point if it misses).
+        const Vec3 d = sanitizedExitDirection(ir);
+        const Vec3 oc = out - position;
+        const double R = r_obs_M * 1.05 / worldToGR;
+        const double b = double(oc.dot(d));
+        const double disc = b * b - (double(oc.length2()) - R * R);
+        const double t = disc > 0.0 ? b - std::sqrt(disc) : b;  // distance back
+        if (t > 0.0) out = out - d * float(t);
         return true;
     }
 

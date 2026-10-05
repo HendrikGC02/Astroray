@@ -943,9 +943,9 @@ public:
                    float smooth = 1.0f, float exp = 0.5f, float rand = 1.0f,
                    bool norm = false, int dm = 0, int feat = 0,
                    const Vec3& c1 = Vec3(0), const Vec3& c2 = Vec3(1),
-                   bool colorOut = false)
+                   bool colorOut = false, int dims = 3, float w = 0.0f)
         : params_{sc, det, rough, lac, smooth, exp, rand, 0.0f, norm ? 1 : 0, colorOut ? 1 : 0,
-                  dm, feat, toProcVec(c1), toProcVec(c2)} {
+                  dm, feat, toProcVec(c1), toProcVec(c2), dims, w} {
         // Cycles svm_node_tex_voronoi conditioning + max_distance for normalize.
         astroray::proc::voronoi_condition(params_);
     }
@@ -959,7 +959,7 @@ public:
 
     // Full multi-output eval (distance, color, position, radius).
     VoronoiOutput evalFull(const Vec3& p) const {
-        astroray::proc::VoronoiOut o = astroray::proc::voronoi_eval_full(params_, toProcVec(p));
+        astroray::proc::VoronoiOut o = astroray::proc::voronoi_eval(params_, toProcVec(p));
         return VoronoiOutput{o.distance, fromProcVec(o.color), fromProcVec(o.position), o.radius};
     }
 };

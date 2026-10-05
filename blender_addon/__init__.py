@@ -4244,11 +4244,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 def _vsock(name, fallback):
                     s = node.inputs.get(name)
                     return float(s.default_value) if s is not None else fallback
-                dims = getattr(node, 'voronoi_dimensions', '3D')
-                if dims != '3D':
+                # #975: voronoi_dimensions 1D/2D/3D/4D (Cycles svm/voronoi.h); 1D/4D read W.
+                dims = {'1D': 1.0, '2D': 2.0, '3D': 3.0, '4D': 4.0}.get(
+                    getattr(node, 'voronoi_dimensions', '3D'), 3.0)
+                vor_w = _vsock('W', 0.0)
+                w_sock = node.inputs.get('W')
+                if dims in (1.0, 4.0) and w_sock is not None and w_sock.is_linked:
+                    # Keyed 'TEX_VORONOI.W', not 'TEX_VORONOI': the coverage-matrix scanner
+                    # marks every socket of a warned node type APPROXIMATED.
                     self._warn_shader_fallback(
-                        'TEX_VORONOI', "voronoi_dimensions '%s' is not supported; "
-                        "evaluated as 3D" % dims)
+                        'TEX_VORONOI.W', "linked W input on '%s' not supported; using its "
+                        "default value %g" % (getattr(node, 'name', node.type), vor_w))
                 scale = _vsock('Scale', 5.0)
                 randomness = _vsock('Randomness', 1.0)
                 smoothness = _vsock('Smoothness', 1.0)
@@ -4273,7 +4279,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     [scale, randomness, float(dm), float(feat), smoothness,
                      0, 0, 0, 1, 1, 1,
                      detail, roughness, lacunarity, exponent, normalize,
-                     1.0 if color_output else 0.0])
+                     1.0 if color_output else 0.0, dims, vor_w])
             elif ntype == 'TEX_WAVE':
                 # pkg115 chunk 3 + chunk 6 (addon dedup): full Cycles-parity Wave.
                 # Params: [wave_type, bands_direction, rings_direction, profile, scale, distortion,

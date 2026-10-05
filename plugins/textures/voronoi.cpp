@@ -16,7 +16,10 @@ public:
             static_cast<int>(p.getFloat("dist_metric", 0.0f)),
             static_cast<int>(p.getFloat("feature", 0.0f)),
             p.getVec3("color_low", Vec3(0.0f)),
-            p.getVec3("color_high", Vec3(1.0f))) {}
+            p.getVec3("color_high", Vec3(1.0f)),
+            static_cast<int>(p.getFloat("output_color", 0.0f)) != 0,
+            static_cast<int>(p.getFloat("dimensions", 3.0f)),  // #975
+            p.getFloat("w", 0.0f)) {}
 
     astroray::SampledSpectrum sampleSpectral(
             const Vec2& uv, const Vec3& p,

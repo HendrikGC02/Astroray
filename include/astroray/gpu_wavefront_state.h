@@ -847,7 +847,8 @@ void launchStageRestirPrimary(
     GVec3             backgroundColor, bool hasBackgroundColor,
     int               worldMaxBounces,
     bool              useLuminanceOutput,
-    float             clampDirect, float clampIndirect);  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    const GCurveSegment* d_curveSegments);               // #1042 (nullptr = no curves)
 
 // Initial RIS (Bitterli 2020, Algorithm 1) over the parked primary hits.
 void launchStageRestirInitialRIS(
@@ -898,7 +899,8 @@ void launchStageRestirResolve(
     const ::GMaterial* d_materials,
     int numPixels,
     bool              useLuminanceOutput,   // pkg157
-    float             clampDirect, float clampIndirect);  // pkg157
+    float             clampDirect, float clampIndirect,  // pkg157
+    const GCurveSegment* d_curveSegments);               // #1042 (nullptr = no curves)
 
 }  // namespace astroray::wavefront
 

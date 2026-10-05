@@ -563,7 +563,11 @@ __device__ int intersectPathSlotT(
             // pkg218: baked device SPD for non-RGB emission modes (gpu_nee_resolve twin).
             int profIdx = dedLights[lampIdx].emissionProfileIndex;
             GSampledSpectrum Le;
-            if (profIdx >= 0) {
+            if (dedLights[lampIdx].hasDiscProfile) {
+                // #946: Cycles sun-disc profile (CPU DistantLight::intersect twin),
+                // out of line (gpu_nee.cuh) so the intersect kernel stays at baseline.
+                Le = gpu_disc_profile_Le(&dedLights[lampIdx], ray.direction, &lambdas, lampScale);
+            } else if (profIdx >= 0) {
                 for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
                     Le.v[i] = gpu_emission_profile(profIdx, lambdas.lambda[i]) * lampScale;
             } else {

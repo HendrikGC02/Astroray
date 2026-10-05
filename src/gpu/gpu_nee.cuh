@@ -252,6 +252,59 @@ __device__ ASTRORAY_SHADE_NOINLINE inline GRectSA gpu_area_rect_solid_angle(
     return r;
 }
 
+// #946 - Nishita sun-disc profile (device twin of CPU discProfileFactors,
+// src/lights/distant_light.cpp; Cycles kernel/svm/sky.h sky_radiance_nishita,
+// Apache-2.0): bottom->top blend factor y and limb darkening limb/0.8 (0.8 = the
+// disc-area mean of the limb factor) for a unit direction D on a Distant lamp
+// with hasDiscProfile. d->discHalfAngle is the host-exact half angular diameter.
+// Plain __device__ inline: only the two __noinline__ wrappers below call it, so
+// the asin/atan2/sqrt temporaries never enter a register-saturated kernel's
+// allocation (the gpu_lamp_sample_ext pattern).
+__device__ inline void gpu_disc_profile_yk(const GDedicatedLight* d, GVec3 D,
+                                           float* y, float* k)
+{
+    const GVec3 toLight = d->axis * -1.f;
+    const float half = d->discHalfAngle;
+    const float angle = 2.f * atan2f((D - toLight).length(), (D + toLight).length());
+    const float q = angle / half;
+    const float dirElev = asinf(fmaxf(-1.f, fminf(1.f, D.z)));
+    const float sunElev = asinf(fmaxf(-1.f, fminf(1.f, toLight.z)));
+    *y = (dirElev - sunElev) / (2.f * half) + 0.5f;
+    *k = (1.f - 0.6f * (1.f - sqrtf(fmaxf(0.f, 1.f - q * q)))) / 0.8f;
+}
+
+// NEE twin: the disc's relative RGB at direction `dir` (lerp bottom->top by y) and
+// the limb factor k, by value as {r, g, b, k}. NEE and BSDF hits must see the SAME
+// disc or the MIS combine is biased by int f w (L_uniform - L_profile).
+struct GDiscNEE { float r, g, b, k; };
+
+__device__ ASTRORAY_SHADE_NOINLINE inline GDiscNEE gpu_disc_profile_nee(
+    const GDedicatedLight* d, GVec3 dir)
+{
+    float y, k;
+    gpu_disc_profile_yk(d, dir.normalized(), &y, &k);
+    GDiscNEE o;
+    o.r = d->discBottomRGB.x * (1.f - y) + d->discTopRGB.x * y;
+    o.g = d->discBottomRGB.y * (1.f - y) + d->discTopRGB.y * y;
+    o.b = d->discBottomRGB.z * (1.f - y) + d->discTopRGB.z * y;
+    o.k = k;
+    return o;
+}
+
+// BSDF-hit twin (CPU DistantLight::intersect): emission
+// lerp(up(bottom), up(top), y) * scale * limb/0.8, relative RGB upsampled per
+// lambda. Out of line so the lamp-hit pass of the intersect kernel carries one
+// call, not the profile math.
+__device__ ASTRORAY_SHADE_NOINLINE inline GSampledSpectrum gpu_disc_profile_Le(
+    const GDedicatedLight* d, GVec3 dir, const GSampledWavelengths* lambdas, float scale)
+{
+    float y, k;
+    gpu_disc_profile_yk(d, dir.normalized(), &y, &k);
+    return (gpu_rgbToSampledSpectrum(d->discBottomRGB, *lambdas, GSPEC_RGB_ILLUMINANT) * (1.f - y)
+            + gpu_rgbToSampledSpectrum(d->discTopRGB, *lambdas, GSPEC_RGB_ILLUMINANT) * y)
+           * (scale * k);
+}
+
 // segAnchor (pkg294): the volume-segment equiangular anchor, drawn area-uniform
 // as Cycles area_light_eval<true>; every other caller leaves it false.
 template <typename TRng>
@@ -398,6 +451,11 @@ __device__ inline GNEESample gpu_dedicated_sample(
         if (solidAngle > 0.f) {
             s.lightPdf    = (1.f / solidAngle) * selPdf;
             s.dedGeoScale = d.staticScale / solidAngle;
+            if (d.hasDiscProfile) {          // #946: NEE sees the profiled disc
+                const GDiscNEE pr = gpu_disc_profile_nee(&d, dir);
+                s.dedEmissionRGB = GVec3(pr.r, pr.g, pr.b);
+                s.dedGeoScale   *= pr.k;
+            }
         } else {
             // True delta sun: mirrors CPU sampleLi's isDelta branch -- forces
             // gpu_nee_resolve to use MIS weight 1 (pkg140).

@@ -50,6 +50,18 @@ public:
 
     bool fillDeviceParams(DeviceLightParams& out) const override;  // pkg89-GPU
 
+    // #946: Nishita sky-sun disc profile. Cycles draws the sun disc (svm/sky.h
+    // sky_radiance_nishita, Apache-2.0) as
+    //   L = mix(pixel_bottom, pixel_top, y) * limb,
+    //   y = (elevation(dir) - sun_elevation) / angular_diameter + 0.5,
+    //   limb = 1 - 0.6 * (1 - sqrt(1 - (angle_to_sun / half_angular)^2)),
+    // so a low sun is redder/dimmer at its lower limb. A ray hitting this lamp
+    // (camera or BSDF ray; NEE keeps the uniform mean) sees that profile.
+    // `bottomRGB`/`topRGB` are RELATIVE colours, pixel_{bottom,top}/lum(mean):
+    // their mean is the lamp's emission colour, so the disc average (limb mean
+    // 0.8) equals the NEE radiance S/Omega. World +Z is up (Blender world).
+    void setDiscProfile(const Vec3& bottomRGB, const Vec3& topRGB);
+
 private:
     Vec3             axis_;
     float            angularDiameter_;
@@ -57,6 +69,9 @@ private:
     float            intensity_;
     float            normalizeFactor_;
     Vec3             refRGB_;  // #878: wavelength-independent emission RGB
+    bool             hasDiscProfile_ = false;  // #946
+    Vec3             discBottomRGB_, discTopRGB_;
+    EmissionSpectrum discBottom_, discTop_;
 };
 
 } // namespace astroray

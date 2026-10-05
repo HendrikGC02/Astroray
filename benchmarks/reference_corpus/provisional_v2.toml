@@ -96,23 +96,7 @@ backend = "cpu"
 roi = "chrome_reflection"
 channels = ["r", "g", "L"]
 issue = "#946"
-reason = "reflection of the low-elevation sky reads 0.92-0.98 (b channel passes since the #953 fix: 0.981)"
-
-[[row]]
-scene = "v2_sky_sun"
-backend = "cpu"
-roi = "sun_disc"
-channels = ["r", "g", "b", "L"]
-issue = "#946"
-reason = "low-elevation sun disc too bright / too neutral"
-
-[[row]]
-scene = "v2_sky_sun"
-backend = "cpu"
-roi = "sun_glow"
-channels = ["r", "g", "b", "L"]
-issue = "#946"
-reason = "low-elevation sun glow reads 0.87-0.93"
+reason = "ROI = stone pillar base + chrome rim: the pillar half reads r 0.81 / g 0.91 of Cycles (rim 0.99), missing warm light at 512 spp too; not the sun disc (#946 profile fix landed); stone-pillar transport gap tracked in #1070"
 
 [[row]]
 scene = "v2_sky_sun"
@@ -120,23 +104,7 @@ backend = "gpu"
 roi = "chrome_reflection"
 channels = ["r", "g", "L"]
 issue = "#946"
-reason = "reflection of the low-elevation sky reads 0.92-0.98"
-
-[[row]]
-scene = "v2_sky_sun"
-backend = "gpu"
-roi = "sun_disc"
-channels = ["r", "g", "b", "L"]
-issue = "#946"
-reason = "low-elevation sun disc too bright / too neutral"
-
-[[row]]
-scene = "v2_sky_sun"
-backend = "gpu"
-roi = "sun_glow"
-channels = ["r", "g", "b", "L"]
-issue = "#946"
-reason = "low-elevation sun glow reads 0.87-0.93"
+reason = "ROI = stone pillar base + chrome rim: the pillar half reads r 0.81 / g 0.91 of Cycles (rim 0.99), missing warm light at 512 spp too; not the sun disc (#946 profile fix landed); stone-pillar transport gap tracked in #1070"
 
 [[row]]
 scene = "v2_textures_opvm"

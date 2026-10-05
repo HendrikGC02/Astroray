@@ -149,6 +149,7 @@ struct SceneUploadResult {
     // appended to textureTexels after the geometry walk (build-time only).
     std::vector<int>                attrLayers;
     std::vector<std::vector<GVec3>> attrCorners;
+    std::vector<float>              attrMissing;   // #1047: per-slot not-found value (pads corners)
 
     // pkg189 — true when ANY uploaded material is dispersive (Sellmeier dielectric
     // → GMAT_DIELECTRIC, or Cauchy Principled glass → GMAT_CLOSURE_GRAPH; both set

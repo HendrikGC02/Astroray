@@ -569,15 +569,21 @@ private:
 // ============================================================================
 class AttributeTexture : public Texture {
     int layer_;
+    float missing_;   // value where the layer is absent (all three channels)
 public:
-    explicit AttributeTexture(int layer) : layer_(layer) {}
+    // `missing` = Cycles' not-found value (kernel/svm/attribute.h
+    // svm_node_attr_surface_eval, Apache-2.0): 0, except the Attribute node's
+    // Alpha output, which reads 1 (the addon passes 1 for 'attr:*|alpha').
+    explicit AttributeTexture(int layer, float missing = 0.0f)
+        : layer_(layer), missing_(missing) {}
     int layer() const { return layer_; }
-    Vec3 value(const Vec2&, const Vec3&) const override { return Vec3(0.0f); }
+    float missing() const { return missing_; }
+    Vec3 value(const Vec2&, const Vec3&) const override { return Vec3(missing_); }
     Vec3 valueAtHit(const Vec2&, const Vec3&, const HitRecord& rec,
                     const Vec3&) const override {
         Vec3 v(0.0f);
         if (rec.hitObject && rec.hitObject->attributeValue(layer_, rec.point, v)) return v;
-        return Vec3(0.0f);
+        return Vec3(missing_);
     }
     astroray::SampledSpectrum sampleSpectralAtHit(
             const Vec2& uv, const Vec3& p, const HitRecord& rec, const Vec3& wo,

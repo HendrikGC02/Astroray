@@ -339,6 +339,24 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
     return g;
 }
 
+// #990 / #1047 — append triangle `tri`'s corners (uploaded triangle index
+// `triIndex`) to attribute-layer slots [firstSlot, attrLayers.size()), lazily
+// padding earlier triangles with the slot's missing value (like triGenerated).
+static void appendAttrCorners(const Triangle& tri, size_t triIndex, size_t firstSlot,
+                              SceneUploadResult& r)
+{
+    for (size_t k = firstSlot; k < r.attrLayers.size(); ++k) {
+        Vec3 c0, c1, c2;
+        if (!tri.attributeCorners(r.attrLayers[k], c0, c1, c2)) continue;
+        const float m = r.attrMissing[k];
+        auto& v = r.attrCorners[k];
+        v.resize(triIndex * 3, GVec3(m, m, m));
+        v.push_back(GVec3(c0.x, c0.y, c0.z));
+        v.push_back(GVec3(c1.x, c1.y, c1.z));
+        v.push_back(GVec3(c2.x, c2.y, c2.z));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Convert ONE CPU Hittable (Triangle/Sphere) → GPrimitive (+ GTriangle/GSphere)
 // appended to the target arrays. Factored from the single-level prim walk so
@@ -476,16 +494,9 @@ static void appendOnePrim(
             }
         }
         // #990 — corners of every attribute layer a GPU descriptor reads,
-        // padded with zeros (Cycles' missing attribute) for triangles without it.
-        for (size_t k = 0; k < r.attrLayers.size(); ++k) {
-            Vec3 c0, c1, c2;
-            if (!tri->attributeCorners(r.attrLayers[k], c0, c1, c2)) continue;
-            auto& v = r.attrCorners[k];
-            v.resize((size_t)gp.index * 3, GVec3(0.f, 0.f, 0.f));
-            v.push_back(GVec3(c0.x, c0.y, c0.z));
-            v.push_back(GVec3(c1.x, c1.y, c1.z));
-            v.push_back(GVec3(c2.x, c2.y, c2.z));
-        }
+        // padded with the layer's missing value (Cycles' not-found attribute:
+        // 0, or 1 for the Attribute node's Alpha) for triangles without it.
+        appendAttrCorners(*tri, (size_t)gp.index, 0, r);
         r.triangles.push_back(gt);
         std::string objName = tri->getName();
         if (objName.empty()) objName = "Unnamed_Triangle_" + std::to_string(r.triangles.size() - 1);
@@ -1140,6 +1151,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             slot = (int)r.attrLayers.size();
             r.attrLayers.push_back(at->layer());
             r.attrCorners.emplace_back();
+            r.attrMissing.push_back(at->missing());
         }
         const std::string k = "attr|" + std::to_string(slot);
         auto tit = texIdx.find(k);
@@ -1148,6 +1160,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         desc.offset = 0;           // patched after the geometry walk
         desc.width = desc.height = 1;
         desc.attrLayer = slot;
+        desc.attrMissing = at->missing();
         const int texId = (int)r.textures.size();
         texIdx[k] = texId;
         r.textures.push_back(desc);
@@ -2025,12 +2038,20 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     }
 
     // --- #990: attribute-layer corner slices (descriptor offsets patched) ---
-    if (r.attrLayers.size() > attrLayersWalked)
-        fprintf(stderr, "[#990] DEGRADED: a shading attribute read only by a Light Path "
-                        "switch child reads 0 on GPU\n");
+    // #1047: layers first met after the geometry walk (a Light Path switch child
+    // materialised in the lpPending loop) get their corners from a second pass over
+    // the flat scene's triangles. The flat scene is uploaded first in both layouts,
+    // so its ordered-prim Triangle order is the uploaded triangle index.
+    if (r.attrLayers.size() > attrLayersWalked && cpuBvh) {
+        size_t ti = 0;
+        for (const auto& h : cpuBvh->getPrimitives())
+            if (auto* tri = dynamic_cast<Triangle*>(h.get()))
+                appendAttrCorners(*tri, ti++, attrLayersWalked, r);
+    }
     for (size_t k = 0; k < r.attrLayers.size(); ++k) {
         auto& v = r.attrCorners[k];
-        v.resize(r.triangles.size() * 3, GVec3(0.f, 0.f, 0.f));
+        const float m = r.attrMissing[k];
+        v.resize(r.triangles.size() * 3, GVec3(m, m, m));
         const int offset = (int)r.textureTexels.size();
         r.textureTexels.insert(r.textureTexels.end(), v.begin(), v.end());
         for (auto& d : r.textures)

@@ -77,7 +77,8 @@ __device__ __noinline__ unsigned gpu_lpVolume(unsigned lpState)
 // corner values (scene_upload.cu, [offset + 3*triIndex + k]) interpolated with
 // barycentrics recomputed from the point (astroray/attribute_layers.h, the CPU
 // Triangle::attributeValue twin). A non-triangle hit reads 0 (Cycles' missing
-// attribute), as the CPU AttributeTexture does.
+// attribute; 1 for the Attribute node's Alpha, `attrMissing`), as the CPU
+// AttributeTexture does.
 extern __constant__ GWavefrontTextureBinding c_wfTexBinding;   // stage_advance.cu
 extern __constant__ int c_wfEmissionFlatPrims;                 // stage_advance.cu
 __device__ __noinline__ GVec3 gpu_attrTexel(int texId, GVec3 point, int primId,
@@ -87,7 +88,10 @@ __device__ __noinline__ GVec3 gpu_attrTexel(int texId, GVec3 point, int primId,
     // triangles are object-space while `point` is world-space, and scene_upload
     // gives them no attribute corners -> 0 (reported host-side).
     if (primId < 0 || primId >= c_wfEmissionFlatPrims ||
-        prims[primId].type != GPRIM_TRIANGLE) return GVec3(0.f, 0.f, 0.f);
+        prims[primId].type != GPRIM_TRIANGLE) {
+        const float m = c_wfTexBinding.textures[texId].attrMissing;
+        return GVec3(m, m, m);
+    }
     const int ti = prims[primId].index;
     const GVec3* c = c_wfTexBinding.texelBuf + c_wfTexBinding.textures[texId].offset + 3 * ti;
     const GTriangle& t = tris[ti];

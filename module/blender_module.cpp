@@ -399,8 +399,10 @@ public:
     }
 
     // #990 — a shading attribute layer as a texture (AttributeTexture).
-    void createAttributeTexture(const std::string& name, const std::string& layer) {
-        proceduralTextures[name] = std::make_shared<AttributeTexture>(astroray::attr::layer_id(layer));
+    void createAttributeTexture(const std::string& name, const std::string& layer,
+                                float missing = 0.0f) {
+        proceduralTextures[name] = std::make_shared<AttributeTexture>(
+            astroray::attr::layer_id(layer), missing);
     }
 
     // ---- pkg219b op-VM builder API -----------------------------------------
@@ -703,8 +705,9 @@ public:
     void createProgramTexture(const std::string& name, const std::string& coordMode) {
         textureManager.createProgramTexture(name, coordMode);
     }
-    void createAttributeTexture(const std::string& name, const std::string& layer) {
-        textureManager.createAttributeTexture(name, layer);  // #990
+    void createAttributeTexture(const std::string& name, const std::string& layer,
+                                float missing = 0.0f) {
+        textureManager.createAttributeTexture(name, layer, missing);  // #990
     }
     void programTextureAddInput(const std::string& name, const std::string& inputName) {
         textureManager.programTextureAddInput(name, inputName);
@@ -4193,9 +4196,10 @@ PYBIND11_MODULE(astroray, m) {
              "normals (N,3,3) or empty. Pixel-identical to add_triangle/add_triangle_layers. "
              "#990: attrs (len(attr_names),N,3,3) per-corner shading attribute layers.")
         .def("create_attribute_texture", &PyRenderer::createAttributeTexture,
-             "name"_a, "layer"_a,
+             "name"_a, "layer"_a, "missing"_a = 0.0f,
              "#990: register texture `name` reading per-corner attribute layer `layer` "
-             "(add_triangles_bulk attr_names) at the hit; 0 where the layer is absent.")
+             "(add_triangles_bulk attr_names) at the hit; `missing` (default 0) where the "
+             "layer is absent (Cycles: 1 for the Attribute node's Alpha output).")
         .def("add_triangles_bulk_motion", &PyRenderer::addTrianglesBulkMotion,
              "positions_start"_a, "positions_end"_a, "material_ids"_a, "material_pass_indices"_a,
              "object_pass_index"_a, "uvs"_a, "uv_layer_names"_a, "normals"_a,

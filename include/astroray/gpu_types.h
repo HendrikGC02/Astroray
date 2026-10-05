@@ -698,6 +698,10 @@ struct GImageTexture {
     // hit (gpu_attrTexel, shading_inputs_eval.cu). Only read in the
     // <HasProgram=true> shade kernel (scene_upload sets hasProgram).
     int   attrLayer = -1;
+    // #1047 - the layer's Cycles not-found value (all channels): read for a hit
+    // the uploaded slice cannot serve (non-triangle / instanced prim). 1 for the
+    // Attribute node's Alpha output, else 0.
+    float attrMissing = 0.f;
 };
 
 // pkg186 — wavefront image-texture binding. Published ONCE per frame into a

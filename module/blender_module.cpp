@@ -854,7 +854,7 @@ public:
             if (params.contains("texture"))
                 tex = textureManager.getTexture(params["texture"].cast<std::string>());
             if (!tex) tex = std::make_shared<SolidColor>(color);
-            return std::make_shared<TexturedLight>(tex, intensity);
+            return std::make_shared<TexturedLight>(tex, intensity, getFloat("two_sided", 0.0f) > 0.5f);
         }
         // All other types (metal, glass, dielectric, disney, subsurface, phong,
         // normal_mapped, mirror) are handled by the registry in createMaterial before this fallback.

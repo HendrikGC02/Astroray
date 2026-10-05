@@ -1182,8 +1182,11 @@ public:
 class TexturedLight : public Material {
     std::shared_ptr<Texture> emission;
     float intensity_;
+    bool twoSided_;  // #1099: Cycles Emission shader emits from both faces
 public:
-    TexturedLight(std::shared_ptr<Texture> e, float intensity) : emission(e), intensity_(intensity) {}
+    TexturedLight(std::shared_ptr<Texture> e, float intensity, bool twoSided = false)
+        : emission(e), intensity_(intensity), twoSided_(twoSided) {}
+    bool emitsFromBothFaces() const override { return twoSided_; }
     // Mirrors TexturedLambertian::getTexture(). #962: scene_upload.cu bakes it
     // (+ getIntensity()) for the GPU wavefront's per-hit emission fetch.
     std::shared_ptr<Texture> getTexture() const { return emission; }
@@ -1207,13 +1210,13 @@ public:
         return caps;
     }
     Vec3 emitted(const HitRecord& rec) const override {
-        if (!rec.frontFace) return Vec3(0);
+        if (!rec.frontFace && !twoSided_) return Vec3(0);
         return emission->value(rec, Vec3(0)) * intensity_;
     }
     astroray::SampledSpectrum emittedSpectral(
             const HitRecord& rec,
             const astroray::SampledWavelengths& lambdas) const override {
-        if (!rec.frontFace) return astroray::SampledSpectrum(0.0f);
+        if (!rec.frontFace && !twoSided_) return astroray::SampledSpectrum(0.0f);
         Vec3 c = emission->value(rec, Vec3(0)) * intensity_;
         return astroray::RGBIlluminantSpectrum({c.x, c.y, c.z}).sample(lambdas);
     }

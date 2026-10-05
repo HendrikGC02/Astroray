@@ -577,6 +577,10 @@ public:
     virtual Vec3 emitted(const HitRecord& rec) const { return Vec3(0); }
     virtual Vec3 getEmission() const { return Vec3(0); }
     virtual bool isEmissive() const { return false; }
+    // #1099: true when emission leaves BOTH faces (Cycles Emission shader; EmissivePlugin).
+    // DiffuseLight/TexturedLight default to front-face-only. Read by scene_upload.cu so the
+    // GPU diffuse_light gate matches the CPU emitted()/emittedSpectral() face rule.
+    virtual bool emitsFromBothFaces() const { return false; }
     virtual bool isTransmissive() const { return false; }
     virtual bool isGlossy() const { return false; }
     // #1045: true when every reflective lobe is a delta (smooth mirror / metal). Such a

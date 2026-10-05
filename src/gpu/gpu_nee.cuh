@@ -92,7 +92,8 @@ __device__ inline float gpu_reconstruct_light_pdf(
     const GLight* lights, int numLights, float totalLightPower,
     const GPrimitive* prims, const GTriangle* tris, const GSphere* spheres,
     const GLightTreeView& lightTree, const GVec3& prevNormal,
-    float misSegT = 0.f)  // #961: > 0 = medium vertex, prevNormal = P - segment origin
+    float misSegT = 0.f,  // #961: > 0 = medium vertex, prevNormal = P - segment origin
+    float passDist = 0.f) // #1033: distance from prevPoint to the ray origin (transparent passes)
 {
     if (numLights <= 0 || totalLightPower <= 0.f) return 0.f;
 
@@ -137,7 +138,8 @@ __device__ inline float gpu_reconstruct_light_pdf(
         float area = ng.length() * 0.5f;
         float cosLight = fabsf(dir.dot(ng)) / fmaxf(2.f * area, 1e-20f);
         if (cosLight <= 0.f || area <= 0.f) return 0.f;
-        saPdf = (rec.t * rec.t) / (cosLight * area);
+        const float d = rec.t + passDist;  // #1033: from the last real vertex
+        saPdf = (d * d) / (cosLight * area);
     }
     return selPdf * saPdf;
 }

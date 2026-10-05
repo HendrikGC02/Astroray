@@ -1072,7 +1072,7 @@ __device__ int intersectPathSlotT(
             float lp = gpu_reconstruct_light_pdf(
                 rec, misOrigin, ray.direction,
                 lights, numLights, totalLightPower,
-                prims, tris, spheres, lightTree, misNormalPrev, misSegT);
+                prims, tris, spheres, lightTree, misNormalPrev, misSegT, passDist);
             float wB = gpu_mw_powerHeuristic(bsdfPdfPrev, lp);
             GSampledSpectrum contrib = throughput * Le;
             contrib *= wB;

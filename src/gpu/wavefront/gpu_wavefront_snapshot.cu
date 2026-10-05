@@ -1834,6 +1834,9 @@ std::vector<float> cuda_wavefront_render(
         C.cachedScene = buildSceneArrays(renderer, &cam);
         C.cachedOwner = sceneOwnerId;
     }
+    // pkg315: the material re-uploads below can throw after wfEnsure freed a
+    // buffer; keep the cache invalid until they all succeed (restored below).
+    if (materialUpdated) C.sceneCached = false;
     const auto pkg298T1 = std::chrono::steady_clock::now();
     SceneUploadResult& res = C.cachedScene;
     GBVHNode*   d_bvhNodes  = wfSync(reuse, C.nodes, res.nodes);
@@ -2221,6 +2224,7 @@ std::vector<float> cuda_wavefront_render(
         // pkg315: as the full upload does, drop the bulk texel arrays once on the device.
         res.textures.clear(); res.textures.shrink_to_fit();
         res.textureTexels.clear(); res.textureTexels.shrink_to_fit();
+        C.sceneCached = true;   // every material-domain upload succeeded
     }
     if (astroray::gpu_profile::enabled()) {
         const auto t2 = std::chrono::steady_clock::now();

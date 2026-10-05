@@ -122,7 +122,7 @@ def _payload()->str:
 from pathlib import Path
 root=Path(os.environ["BLENDER_USER_EXTENSIONS"]).resolve(); evidence=Path(os.environ["PKG278_EVIDENCE"]).resolve(); run_id=os.environ["PKG278_RUN_ID"]; zip_sha=os.environ["PKG278_ZIP_SHA256"]
 def write(name,value):
- value.update({"schema":"pkg278.clean_install_probe.v2","run_id":run_id,"zip_sha256":zip_sha,"profile_root":str(root.parent)}); (evidence/name).write_text(json.dumps(value,indent=2),encoding="utf-8")
+ value.update({"schema":"pkg278.clean_install_probe.v2","run_id":run_id,"zip_sha256":zip_sha,"profile_root":str(root.parent)}); value.update({"rehearsal":True} if os.environ.get("PKG278_REHEARSAL") else {}); (evidence/name).write_text(json.dumps(value,indent=2),encoding="utf-8")
 phase=sys.argv[sys.argv.index("--")+1] if "--" in sys.argv else ""
 addons=sorted(bpy.context.preferences.addons.keys()); astr=[x for x in addons if x=="astroray" or x.endswith(".astroray")]
 if phase=="profile":
@@ -135,14 +135,26 @@ bpy.ops.preferences.addon_enable(module="bl_ext.user_default.astroray")
 if "bl_ext.user_default.astroray" not in bpy.context.preferences.addons: raise RuntimeError("isolated extension was not enabled")
 scene=bpy.context.scene; scene.render.engine="CUSTOM_RAYTRACER"
 if scene.render.engine != "CUSTOM_RAYTRACER": raise RuntimeError("custom render engine was not selected")
+native=None
+if os.environ.get("PKG278_REHEARSAL"):
+ scene.custom_raytracer.device_mode=os.environ["PKG278_DEVICE_MODE"]; native=Path(mod.astroray.__file__).resolve() if getattr(mod,"RAYTRACER_AVAILABLE",False) else None
+ if native is None or expected not in native.parents: raise RuntimeError("native astroray module not loaded from the installed extension: "+str(native))
 scene.render.resolution_x=64; scene.render.resolution_y=64; scene.render.resolution_percentage=100; scene.render.filepath=str(evidence/"f12.png")
 bpy.ops.mesh.primitive_cube_add(); bpy.ops.object.light_add(type="POINT",location=(4,-4,5)); bpy.context.object.data.energy=1000; bpy.ops.object.camera_add(location=(7,-7,5)); scene.camera=bpy.context.object; bpy.context.object.rotation_euler=(0.9,0,0.78); bpy.ops.render.render(write_still=True)
 image=Path(scene.render.filepath)
 if not image.is_file(): raise RuntimeError("F12 did not write PNG")
-write("f12_result.probe.json",{"check":"f12_exit_zero","loaded_module_path":str(installed),"installed_module_root":str(expected),"enabled_extension":"bl_ext.user_default.astroray","extension_listing":sorted(x for x in sys.modules if x.endswith("astroray")),"engine_id":scene.render.engine,"image":{"path":image.name,"sha256":hashlib.sha256(image.read_bytes()).hexdigest()},"f12_sentinel":"PKG278_CLEAN_F12 PASS"}); print("PKG278_CLEAN_F12 PASS")
+write("f12_result.probe.json",{"check":"f12_exit_zero","loaded_module_path":str(installed),"installed_module_root":str(expected),"enabled_extension":"bl_ext.user_default.astroray","native_module_path":str(native) if native else None,"extension_listing":sorted(x for x in sys.modules if x.endswith("astroray")),"engine_id":scene.render.engine,"image":{"path":image.name,"sha256":hashlib.sha256(image.read_bytes()).hexdigest()},"f12_sentinel":"PKG278_CLEAN_F12 PASS"}); print("PKG278_CLEAN_F12 PASS")
 '''
 def _ref(path:Path,evidence:Path)->dict[str,str]: return {"path":str(path.relative_to(evidence)),"sha256":sha256_file(path)}
-def capture(blender:Path,zip_path:Path,evidence:Path)->dict[str,Any]:
+REHEARSAL_ENV_KEEP=("SystemRoot","SystemDrive","windir","COMSPEC","PATHEXT","TEMP","TMP","USERPROFILE","APPDATA","LOCALAPPDATA","ProgramFiles","ProgramFiles(x86)","ProgramData","PROCESSOR_ARCHITECTURE","NUMBER_OF_PROCESSORS","OMP_NUM_THREADS")
+def _rehearsal_env(env:Mapping[str,str],blender:Path,no_gpu:bool)->dict[str,str]:
+    """pkg319: whitelist env for the ineligible-host rehearsal: PATH = System32 + Blender only (no CUDA/MinGW/VS/Python)."""
+    keep={k:v for k,v in env.items() if k in REHEARSAL_ENV_KEEP or k.startswith(("BLENDER_USER_","PKG278_"))}
+    keep["PATH"]=os.pathsep.join([str(Path(env.get("SystemRoot",r"C:\Windows"))/"System32"),str(blender.resolve().parent)])
+    keep.update({"PKG278_REHEARSAL":"1","PKG278_DEVICE_MODE":"auto" if no_gpu else "cpu"})
+    if no_gpu: keep["CUDA_VISIBLE_DEVICES"]="-1"
+    return keep
+def capture(blender:Path,zip_path:Path,evidence:Path,rehearse:str|None=None)->dict[str,Any]:
     if not blender.is_file(): raise ValueError("Blender executable is missing")
     if not zip_path.is_file(): raise ValueError("release ZIP is missing")
     if evidence.exists(): raise ValueError("evidence directory must not already exist")
@@ -150,9 +162,12 @@ def capture(blender:Path,zip_path:Path,evidence:Path)->dict[str,Any]:
     # is merely the parent directory, which is exactly the source-fallback area
     # that must be absent on an eligible host.
     host=machine_eligibility(REPO_ROOT)
-    if not host["eligible"]: raise ValueError("host is ineligible; no Blender subprocess was launched")
-    evidence.mkdir(parents=True); run_id=str(uuid.uuid4()); env,profile=_profile_env(evidence); copied=evidence/"release.zip"; shutil.copyfile(zip_path,copied); digest=sha256_file(copied); env.update({"PKG278_EVIDENCE":str(evidence.resolve()),"PKG278_RUN_ID":run_id,"PKG278_ZIP_SHA256":digest}); payload=evidence/"clean_install_probe.py"; payload.write_text(_payload(),encoding="utf-8")
-    base={"schema":SCHEMA,"run_id":run_id,"zip_sha256":digest,"profile_root":str((evidence/"isolated_profile").resolve())}; host.update(base); _write(evidence/CHECK_ARTIFACTS["no_toolchain"],{**host,"check":"no_toolchain","loaded_module_path":None})
+    if not host["eligible"] and not rehearse: raise ValueError("host is ineligible; no Blender subprocess was launched")
+    stamp={"rehearsal":True} if rehearse else {}
+    evidence.mkdir(parents=True); run_id=str(uuid.uuid4()); env,profile=_profile_env(evidence)
+    if rehearse: env=_rehearsal_env(env,blender,rehearse=="no-gpu")
+    copied=evidence/"release.zip"; shutil.copyfile(zip_path,copied); digest=sha256_file(copied); env.update({"PKG278_EVIDENCE":str(evidence.resolve()),"PKG278_RUN_ID":run_id,"PKG278_ZIP_SHA256":digest}); payload=evidence/"clean_install_probe.py"; payload.write_text(_payload(),encoding="utf-8")
+    base={"schema":SCHEMA,"run_id":run_id,"zip_sha256":digest,"profile_root":str((evidence/"isolated_profile").resolve()),**stamp}; host.update(base); _write(evidence/CHECK_ARTIFACTS["no_toolchain"],{**host,"check":"no_toolchain","loaded_module_path":None})
     pre=_run([str(blender),"--background","--factory-startup","--python",str(payload),"--","profile"],env,evidence/"profile.log")
     if pre["exit_code"]!=0 or "PKG278_CLEAN_PROFILE PASS" not in (evidence/"profile.log").read_text(encoding="utf-8"): raise RuntimeError("fresh isolated-profile probe failed")
     profile_doc=json.loads((evidence/CHECK_ARTIFACTS["fresh_profile"]).read_text(encoding="utf-8")); profile_doc["command"]=pre; _write(evidence/CHECK_ARTIFACTS["fresh_profile"],profile_doc)
@@ -162,7 +177,7 @@ def capture(blender:Path,zip_path:Path,evidence:Path)->dict[str,Any]:
     post=_run([str(blender),"--background","--factory-startup","--python",str(payload),"--","render"],env,evidence/"f12.log"); f12=evidence/CHECK_ARTIFACTS["f12_exit_zero"]
     if post["exit_code"]!=0 or not f12.is_file() or "PKG278_CLEAN_F12 PASS" not in (evidence/"f12.log").read_text(encoding="utf-8"): raise RuntimeError("F12 probe failed")
     f12_doc=json.loads(f12.read_text(encoding="utf-8")); f12_doc["external_command"]=post; _write(f12,f12_doc)
-    checks={name:{"evidence_path":CHECK_ARTIFACTS[name],"evidence_sha256":sha256_file(evidence/CHECK_ARTIFACTS[name])} for name in MANDATORY_CHECKS}; doc={"schema":CHECKS_SCHEMA,"generated":dt.datetime.now(dt.timezone.utc).isoformat(),"run_id":run_id,"zip":_ref(copied,evidence),"profile":profile,"machine":host,"checks":checks}; _write(evidence/"checks.json",doc); return evaluate(doc,evidence)
+    checks={name:{"evidence_path":CHECK_ARTIFACTS[name],"evidence_sha256":sha256_file(evidence/CHECK_ARTIFACTS[name])} for name in MANDATORY_CHECKS}; doc={**stamp,"schema":CHECKS_SCHEMA,"generated":dt.datetime.now(dt.timezone.utc).isoformat(),"run_id":run_id,"zip":_ref(copied,evidence),"profile":profile,"machine":host,"checks":checks}; _write(evidence/"checks.json",doc); return evaluate(doc,evidence)
 def _check(name:str,probe:Mapping[str,Any],doc:Mapping[str,Any],evidence:Path)->tuple[bool,str]:
     common=probe.get("schema")==SCHEMA and probe.get("check")==name and probe.get("run_id")==doc.get("run_id") and probe.get("zip_sha256")==(doc.get("zip") or {}).get("sha256") and probe.get("profile_root")==str((evidence/"isolated_profile").resolve())
     if not common: return False,"probe identity does not bind run/ZIP/profile"
@@ -209,16 +224,22 @@ def evaluate(doc:Mapping[str,Any],evidence:Path)->dict[str,Any]:
     if probes and not linked and "installer_path" in results: results["installer_path"]={"pass":False,"status":"red","reason":"missing, duplicate, stale, or mismatched run ID"}
     green=linked and all(x["pass"] for x in results.values())
     machine = doc.get("machine", {})
+    if doc.get("rehearsal") is True or any(p.get("rehearsal") for p in probes.values()):
+        # pkg319: a rehearsal runs on a non-clean host with a scrubbed PATH; it can never be gate evidence.
+        return {"status":"rehearsal","reason":"rehearsal","all_green":False,"rehearsal_pass":all(results.get(n,{}).get("pass") for n in MANDATORY_CHECKS if n!="no_toolchain"),"checks":results,"machine":machine}
     status = "green" if green else ("ineligible" if machine.get("eligible") is False else ("red" if probes else "unmeasured"))
     return {"status":status,"all_green":green,"checks":results,"machine":machine}
 def main(argv:list[str]|None=None)->int:
-    p=argparse.ArgumentParser(); p.add_argument("--capture",action="store_true"); p.add_argument("--validate",action="store_true"); p.add_argument("--blender",type=Path); p.add_argument("--zip",type=Path); p.add_argument("--evidence-dir",type=Path,default=DEFAULT_EVIDENCE_DIR); p.add_argument("--json",action="store_true"); args=p.parse_args(argv)
+    p=argparse.ArgumentParser(); p.add_argument("--capture",action="store_true"); p.add_argument("--validate",action="store_true"); p.add_argument("--blender",type=Path); p.add_argument("--zip",type=Path); p.add_argument("--evidence-dir",type=Path,default=DEFAULT_EVIDENCE_DIR); p.add_argument("--json",action="store_true"); p.add_argument("--rehearse",action="store_true",help="pkg319: capture on an ineligible host (fresh profile, PATH=System32+Blender); output is stamped rehearsal and never validates as gate evidence"); p.add_argument("--rehearse-no-gpu",action="store_true",help="with --rehearse: CUDA_VISIBLE_DEVICES=-1 and device_mode=auto (no-GPU fallback leg)"); args=p.parse_args(argv)
+    if args.rehearse_no_gpu and not args.rehearse: p.error("--rehearse-no-gpu requires --rehearse")
+    if args.rehearse and not args.capture: p.error("--rehearse is a --capture mode")
     if args.capture==args.validate: p.error("choose exactly one of --capture or --validate")
     try:
         if args.capture:
             if not args.blender or not args.zip: p.error("--capture requires --blender and --zip")
-            result=capture(args.blender,args.zip,args.evidence_dir)
+            if args.rehearse and (args.evidence_dir.resolve()==DEFAULT_EVIDENCE_DIR.resolve() or DEFAULT_EVIDENCE_DIR.resolve() in args.evidence_dir.resolve().parents): p.error("--rehearse needs an --evidence-dir outside docs/blender_parity/evidence/install-clean-machine")
+            result=capture(args.blender,args.zip,args.evidence_dir,("no-gpu" if args.rehearse_no_gpu else "cpu") if args.rehearse else None)
         else: result=evaluate(json.loads((args.evidence_dir/"checks.json").read_text(encoding="utf-8")),args.evidence_dir)
     except (OSError,ValueError,RuntimeError,json.JSONDecodeError) as exc: print(f"clean-install: {exc}",file=sys.stderr); return 2
-    print(json.dumps(result,indent=2) if args.json else f"clean-install status: {result['status'].upper()}"); return 0 if result["status"]=="green" else 1
+    print(json.dumps(result,indent=2) if args.json else f"clean-install status: {result['status'].upper()}"); return 0 if result["status"]=="green" or (args.capture and args.rehearse and result.get("rehearsal_pass")) else 1
 if __name__=="__main__": raise SystemExit(main())

@@ -225,8 +225,9 @@ __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_curve_intersect(
 
         float dist = sqrtf(distSq);
         float edgeFunc = dpcdw.x * -pc.y + pc.x * dpcdw.y;
-        float v = (edgeFunc > 0.f) ? 0.5f + dist / (2.f * hitRadius)
-                                   : 0.5f - dist / (2.f * hitRadius);
+        // #1051 (pkg316): sign matches the true outward normal / Cycles h (curves.h).
+        float v = (edgeFunc > 0.f) ? 0.5f - dist / (2.f * hitRadius)
+                                   : 0.5f + dist / (2.f * hitRadius);
 
         // Accept — narrow tMax so a farther half can't overwrite.
         hitAny = true;

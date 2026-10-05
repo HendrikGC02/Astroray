@@ -249,8 +249,13 @@ private:
 
         float dist = std::sqrt(distSq);
         float edgeFunc = dpcdw.x * -pc.y + pc.x * dpcdw.y;
-        float v = (edgeFunc > 0.0f) ? 0.5f + dist / (2.0f * hitRadius)
-                                     : 0.5f - dist / (2.0f * hitRadius);
+        // #1051 (pkg316): v grows toward the side of the axis the hit lies on, so
+        // the -theta rotation below yields the true outward normal and the hair
+        // BSDF's h = 2v-1 equals Cycles' sin(gamma_o) = dot(cross(Ng, X), Z)
+        // (bsdf_principled_hair_chiang.h). pbrt-v3's `edgeFunc > 0 ? 0.5 + ...`
+        // mirrored both: the lit side of a thick curve rendered dark.
+        float v = (edgeFunc > 0.0f) ? 0.5f - dist / (2.0f * hitRadius)
+                                     : 0.5f + dist / (2.0f * hitRadius);
 
         Vec3 dpdu;
         evalBezier(bezier_, u, &dpdu);  // full-hull (world-space) tangent at global u

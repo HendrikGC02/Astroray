@@ -3734,22 +3734,26 @@ public:
     // table) to the GPU. Geometry / BVH / lights / env are untouched.
     // Cycles equivalent: Shader::tag_update() → ShaderManager::device_update.
     void uploadMaterials() {
-#ifdef ASTRORAY_CUDA_ENABLED
+#if defined(ASTRORAY_CUDA_ENABLED) && !defined(ASTRORAY_WAVEFRONT_CUDA_N3)
         if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
             cudaRenderer->uploadMaterials(renderer);
         }
 #endif
+        // Gate (a): with the wavefront, the legacy upload above re-flattened the
+        // whole scene (~35 ms at 100k tris) into buffers no render reads; the
+        // wavefront re-uploads materials itself after this invalidation.
         invalidateWavefrontScene();  // #801
     }
 
     // Push only light buffer + power CDF to the GPU. Geometry / materials /
     // env are untouched. Cycles equivalent: LightManager::device_update.
     void uploadLights() {
-#ifdef ASTRORAY_CUDA_ENABLED
+#if defined(ASTRORAY_CUDA_ENABLED) && !defined(ASTRORAY_WAVEFRONT_CUDA_N3)
         if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
             cudaRenderer->uploadLights(renderer);
         }
 #endif
+        // Gate (a): as uploadMaterials — the wavefront re-uploads lights itself.
         invalidateWavefrontScene();  // #801
         // CPU path: light data lives inside Renderer::lights, which the
         // path tracer reads on the fly from buildAcceleration()'s output.

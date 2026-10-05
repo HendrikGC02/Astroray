@@ -3536,7 +3536,10 @@ __device__ inline GVec3 gpu_principled_emitted(const GMaterial& mat) {
 __device__ inline GVec3 gpu_material_emitted(
     const GMaterial& mat, bool frontFace)
 {
-    if (mat.type == GMAT_DIFFUSE_LIGHT && frontFace)
+    // #1099: a Cycles Emission shader emits from BOTH faces; scene_upload.cu stamps
+    // anisotropicRotation = 1 on such a diffuse_light (a Disney-only field, unused by
+    // lights; no GMaterial growth). Default (0) keeps the front-face-only DiffuseLight.
+    if (mat.type == GMAT_DIFFUSE_LIGHT && (frontFace || mat.anisotropicRotation > 0.5f))
         return mat.baseColor * mat.emissionIntensity;
     if (mat.type == GMAT_CLOSURE_GRAPH)
         return gpu_closure_graph_emitted(mat, frontFace) + gpu_principled_emitted(mat);

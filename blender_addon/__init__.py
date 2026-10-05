@@ -5755,7 +5755,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 children.append(self._create_material_from_shader_spec(child, renderer))
             return renderer.create_add_material(children[0], children[1])
         if kind == 'emission':
-            params = {'intensity': float(spec.get('emission_strength', 1.0))}
+            # #1099: a Cycles Emission shader emits from BOTH faces (a one-sided emitter
+            # needs a Mix with Geometry Backfacing); the engine 'light' default is front-only.
+            params = {'intensity': float(spec.get('emission_strength', 1.0)), 'two_sided': 1.0}
             color_tex = spec.get('emission_color_texture')
             if color_tex is not None:
                 # #762 CPU / #962 GPU: sampled per texel (TexturedLight).

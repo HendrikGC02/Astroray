@@ -309,6 +309,9 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         // Store color and intensity separately: emissionIntensity=1, baseColor=full emission
         g.baseColor = GVec3(em.x, em.y, em.z);
         g.emissionIntensity = 1.f;
+        // #1099: both-face emitter (Cycles Emission shader / EmissivePlugin), read by
+        // gpu_material_emitted via the Disney-only anisotropicRotation slot.
+        if (mat->emitsFromBothFaces()) g.anisotropicRotation = 1.f;
     } else if (gpuType == "principled_hair") {
         // pkg225 Stage 4 — standalone Chiang 2016 hair BSDF. No GMaterial growth
         // (640 B lock): the hair params reuse existing scalar fields, filled from
@@ -2354,7 +2357,8 @@ bool buildMaterialDomain(const Renderer& cpu, const SceneUploadResult& cached,
         if (a.emissive || b.emissive) {                    // light list / GAreaLight emission
             if (a.emissive != b.emissive || ga.baseColor.x != gb.baseColor.x ||
                 ga.baseColor.y != gb.baseColor.y || ga.baseColor.z != gb.baseColor.z ||
-                ga.emissionIntensity != gb.emissionIntensity)
+                ga.emissionIntensity != gb.emissionIntensity ||
+                ga.anisotropicRotation != gb.anisotropicRotation)  // #1099 two-sided flag
                 return false;
         }
     }

@@ -500,14 +500,17 @@ def tile_black_hole_lensing(astroray_module, *, spp: int = 128,
         r.load_environment_map(str(sky), 1.0)
 
         # Emissive spheres behind the hole at varied offsets — lensing
-        # doubles/stretches them into arcs near the photon ring.
+        # doubles/stretches them into arcs near the photon ring. They must
+        # sit outside the GR region (r_max = 1.05 x influence 8.0): the
+        # geodesic march does not intersect scene geometry (#1061).
         for pos, col, inten, rad in [
             ([1.6, 0.6, -7.0], [0.55, 0.8, 1.0], 3.6, 0.45),
             ([-2.2, -0.5, -9.0], [1.0, 0.62, 0.3], 4.2, 0.55),
             ([0.6, -1.4, -6.0], [0.9, 0.5, 0.9], 3.2, 0.35),
         ]:
+            k = max(1.0, 10.0 / float(np.linalg.norm(pos)))
             m = r.create_material("light", col, {"intensity": inten})
-            r.add_sphere(pos, rad, m)
+            r.add_sphere([k * c for c in pos], k * rad, m)
 
         dist = 12.0
         W, H = (640, 360) if preview else (1920, 1080)

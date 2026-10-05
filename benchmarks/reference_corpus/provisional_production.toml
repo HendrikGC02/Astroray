@@ -101,7 +101,7 @@ scene = "prod_curves_geometry"
 backend = "gpu"
 kind = "parity"
 issue = "#989"
-reason = "same residual as CPU after pkg322 (see the CPU row)"
+reason = "pkg322 landed Pointiness (GPU 3/16 -> 15/16 channels in band); residual inner_backface R 0.85 (tol 0.067)"
 
 # ---- silent drops (silent_drop_audit.py) --------------------------------------------------------------------
 # None. pkg320 (#1039, #1088) deleted the six rows the scanner gap produced: prod_attributes and prod_light_path

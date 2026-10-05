@@ -127,6 +127,117 @@ def test_gpu_disc_follows_cycles_profile():
 
 
 # --------------------------------------------------------------------------- #
+# NEE sees the same profiled disc the BSDF-hit path does (Opus parity review).
+# --------------------------------------------------------------------------- #
+BIG_SIZE, BIG_ELEV = math.radians(20.0), math.radians(12.0)
+
+
+def _expected_irradiance_ratio():
+    """E_profiled / E_uniform on a +z ground for the large dark-bottom/bright-top sun
+    below, by Monte Carlo over the disc (area-uniform) with Cycles' profile; both
+    discs have unit mean radiance by construction. The profile pushes radiance to the
+    high-cos upper limb, so the ratio is > 1."""
+    w = np.array([0.0, math.cos(BIG_ELEV), math.sin(BIG_ELEV)])
+    u = np.cross(w, [0.0, 0.0, 1.0])
+    u /= np.linalg.norm(u)
+    v = np.cross(w, u)
+    rng = np.random.default_rng(1)
+    n, half = 1_000_000, BIG_SIZE / 2
+    ct = 1.0 - rng.random(n) * (1.0 - math.cos(half))
+    st = np.sqrt(1.0 - ct * ct)
+    ph = 2.0 * np.pi * rng.random(n)
+    d = w * ct[:, None] + (u * np.cos(ph)[:, None] + v * np.sin(ph)[:, None]) * st[:, None]
+    q = np.arccos(np.clip(d @ w, -1, 1)) / half
+    y = (np.arcsin(d[:, 2]) - BIG_ELEV) / BIG_SIZE + 0.5
+    limb = 1.0 - 0.6 * (1.0 - np.sqrt(np.clip(1.0 - q * q, 0, 1)))
+    lp = (0.1 * (1.0 - y) + 1.9 * y) * limb / 0.8
+    return float((lp * d[:, 2]).mean() / d[:, 2].mean())
+
+
+def _ground_mean(gpu, profile):
+    """Mean radiance of a lambertian ground lit by a 20 deg sun at 12 deg elevation
+    (not smaller: the ratio needs a visible profile; not larger: the CPU/GPU cone
+    sampler is a planar-disc approximation, 2 % off in radius at 24 deg). The disc has unit
+    mean radiance with or without the profile, so the render ratio isolates what NEE
+    delivers (BSDF-hit and NEE are MIS-combined: a NEE disc that differs from the hit
+    disc is biased by int f w (L_uniform - L_profile))."""
+    import base_helpers as bh
+    r = bh.create_renderer()
+    r.set_integrator("path_tracer")
+    if gpu:
+        try:
+            r.set_use_gpu(True)
+        except Exception as e:  # noqa: BLE001 - CPU-only build
+            pytest.skip("GPU unavailable: %s" % e)
+        if not getattr(r, "gpu_available", False):
+            pytest.skip("gpu_available is False")
+    else:
+        r.set_use_gpu(False)
+    r.set_seed(947)
+    r.set_background_color([0.0, 0.0, 0.0])
+    grey = r.create_material("lambertian", [0.5, 0.5, 0.5], {})
+    r.add_triangle([-30, -30, 0], [30, -30, 0], [30, 30, 0], grey)   # ground, normal +z
+    r.add_triangle([-30, -30, 0], [30, 30, 0], [-30, 30, 0], grey)
+    toward = (0.0, math.cos(BIG_ELEV), math.sin(BIG_ELEV))
+    omega = 2.0 * math.pi * (1.0 - math.cos(0.5 * BIG_SIZE))
+    kw = dict(disc_bottom=[0.1] * 3, disc_top=[1.9] * 3) if profile else {}
+    r.add_sun_light_dedicated([-toward[0], -toward[1], -toward[2]], BIG_SIZE,
+                              {'mode': 'rgb', 'color': [1.0, 1.0, 1.0]}, K * omega, 0, 0, **kw)
+    bh.setup_camera(r, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0],
+                    vfov=20.0, width=32, height=32)
+    img = np.asarray(bh.render_image(r, samples=256, max_depth=2, apply_gamma=False),
+                     dtype=np.float64)
+    return float((img @ LUM).mean())
+
+
+def _check_nee_sees_profile(gpu):
+    got = _ground_mean(gpu, profile=True) / _ground_mean(gpu, profile=False)
+    assert got == pytest.approx(_expected_irradiance_ratio(), rel=0.03), got
+
+
+@pytest.mark.cpu
+def test_cpu_nee_sees_disc_profile():
+    _check_nee_sees_profile(gpu=False)
+
+
+@pytest.mark.gpu
+@pytest.mark.serial
+def test_gpu_nee_sees_disc_profile():
+    _check_nee_sees_profile(gpu=True)
+
+
+# --------------------------------------------------------------------------- #
+# The profile is RGB-emission-mode only on BOTH backends (GPU fillDeviceParams
+# gates it on exactIlluminant; the CPU used to apply it in any emission mode).
+# --------------------------------------------------------------------------- #
+@pytest.mark.cpu
+def test_cpu_disc_profile_only_for_rgb_emission():
+    import base_helpers as bh
+    r = bh.create_renderer()
+    r.set_integrator("path_tracer")
+    r.set_use_gpu(False)
+    r.set_seed(946)
+    r.set_background_color([0.0, 0.0, 0.0])
+    grey = r.create_material("lambertian", [0.5, 0.5, 0.5], {})
+    r.add_sphere([0.0, 0.0, -1000.0], 1.0, grey)
+    toward = (0.0, math.cos(E4), math.sin(E4))
+    omega = 2.0 * math.pi * (1.0 - math.cos(0.5 * SUN_SIZE))
+    r.add_sun_light_dedicated([-toward[0], -toward[1], -toward[2]], SUN_SIZE,
+                              {'mode': 'blackbody', 'temperature_K': 5800.0}, K * omega, 0, 0,
+                              camera_visible=True,
+                              disc_bottom=BOTTOM.tolist(), disc_top=TOP.tolist())
+    bh.setup_camera(r, look_from=[0, 0, 0], look_at=list(toward), vup=[0, 0, 1],
+                    vfov=6.0, width=48, height=48)
+    img = np.asarray(bh.render_image(r, samples=8, max_depth=3, apply_gamma=False),
+                     dtype=np.float64)
+    _, q = _model_image(48, 48, 6.0, toward)
+    lum = img @ LUM
+    top = lum[:24][q[:24] < 0.6].mean()
+    bottom = lum[24:][q[24:] < 0.6].mean()
+    assert top / bottom == pytest.approx(1.0, abs=0.05), (top, bottom)  # uniform in y
+
+
+# --------------------------------------------------------------------------- #
 # Addon: the sky sun hands the engine the relative bottom/top colours.
 # --------------------------------------------------------------------------- #
 def _load_addon(monkeypatch):

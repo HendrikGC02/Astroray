@@ -73,6 +73,12 @@ constexpr float kDiscLimbMean = 0.8f;
 }  // namespace
 
 void DistantLight::setDiscProfile(const Vec3& bottomRGB, const Vec3& topRGB) {
+    // The profile is RGB-emission-mode only (the sky sun is always an RGB lamp);
+    // GPU fillDeviceParams applies the same gate (exactIlluminant).
+    Vec3 ref;
+    bool exactRGB = false;
+    emission_.deviceReference(ref, exactRGB);
+    if (!exactRGB) return;
     hasDiscProfile_ = true;
     discBottomRGB_ = bottomRGB;
     discTopRGB_ = topRGB;
@@ -145,9 +151,22 @@ void DistantLight::sampleLi(LiSample& sample,
 
     SampledSpectrum emissionSpec = emission_.eval(lambdas);
     float scale = intensity_ * normalizeFactor_;
+    Vec3 emissionRGB = refRGB_;  // #878
     if (solidAngle > 0.0f) {
         scale /= solidAngle;
         emissionSpec *= scale;  // radiance = S/Ω
+        if (hasDiscProfile_) {
+            // #946: NEE evaluates the same bottom->top blend + limb darkening a
+            // BSDF ray sees on the disc (intersect), as Cycles' NEE evaluates the
+            // background shader at the sampled direction. The uniform mean here
+            // would bias the MIS-combined estimate by int f w (L_uniform - L_profile).
+            float y, limb;
+            discProfileFactors(dir, -axis_, angularDiameter_, y, limb);
+            const float k = limb / kDiscLimbMean;
+            emissionSpec = (discBottom_.eval(lambdas) * (1.0f - y) +
+                            discTop_.eval(lambdas) * y) * (scale * k);
+            emissionRGB = (discBottomRGB_ * (1.0f - y) + discTopRGB_ * y) * k;
+        }
         sample.pdf = 1.0f / solidAngle;                                 // solid-angle pdf
         sample.isDelta = false;
     } else {
@@ -165,7 +184,7 @@ void DistantLight::sampleLi(LiSample& sample,
 
     sample.emission_spec = emissionSpec;
 
-    sample.emission_rgb = refRGB_ * scale;  // #878
+    sample.emission_rgb = emissionRGB * scale;  // #878
 }
 
 float DistantLight::pdfLi(const Vec3& shadingPoint, const Vec3& direction) const {

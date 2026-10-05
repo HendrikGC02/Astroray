@@ -1,0 +1,32 @@
+{
+  "artifact": {
+    "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/astroray.npy",
+    "sha256": "74676f5785edceeb9aa0a0f0b2decac25bdec6b2897a9fb8cea94489f53a00aa"
+  },
+  "backend": "CPU",
+  "build_id": "132c974+20261004T124622Z",
+  "case_id": "56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67",
+  "identity": "ShaderNodeTexChecker|input:Color1",
+  "result_kind": "render",
+  "scene_id": "textures_mapping",
+  "schema": "pkg278.gate_b.evidence.v2",
+  "variant": "textures_mapping",
+  "variant_digest": "35ff18873b07e2120a2556a973fe831021dd6c1e1714c8fce90208e5d37f83c2",
+  "verdict": {
+    "backend": "CPU",
+    "build_id": "132c974+20261004T124622Z",
+    "identity": "ShaderNodeTexChecker|input:Color1",
+    "pass": false,
+    "result": {
+      "artifact_sha256": "b8d47811923ab81b7b490cb8f4c4d10985eddd23ba986d4bfb74d3b78c885701",
+      "kind": "render"
+    },
+    "scene_id": "textures_mapping",
+    "schema": "pkg278.gate_b.verdict.v1",
+    "variant_digest": "35ff18873b07e2120a2556a973fe831021dd6c1e1714c8fce90208e5d37f83c2"
+  },
+  "verifier_result": {
+    "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/runner_result.json",
+    "sha256": "b8d47811923ab81b7b490cb8f4c4d10985eddd23ba986d4bfb74d3b78c885701"
+  }
+}

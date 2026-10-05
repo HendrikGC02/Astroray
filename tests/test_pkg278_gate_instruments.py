@@ -661,7 +661,7 @@ def test_v4_provisional_empty_case_map_verifies_and_cannot_validate_evidence(tmp
 def test_population_manifest_is_a_verbatim_subset_and_freeze_records_its_path(tmp_path, monkeypatch):
     """pkg318: --population writes a derived manifest whose entries are the source entries verbatim, and the
     freeze records that path (not the hard-coded scenes manifest) so verify re-reads the same population."""
-    frozen0, snapshot0, hashes, matrix = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
+    _frozen0, snapshot0, _hashes, matrix = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
     scenes = tmp_path / "benchmarks" / "reference_corpus" / "scenes"
     prod = tmp_path / "benchmarks" / "reference_corpus" / "production"
     prod.mkdir(parents=True)

@@ -1674,7 +1674,9 @@ public:
             int objectPassIndex,
             py::array_t<float, py::array::c_style | py::array::forcecast> uvs,
             std::vector<std::string> uvLayerNames,
-            py::array_t<float, py::array::c_style | py::array::forcecast> normals) {
+            py::array_t<float, py::array::c_style | py::array::forcecast> normals,
+            py::array_t<float, py::array::c_style | py::array::forcecast> normalsEnd =
+                py::array_t<float, py::array::c_style | py::array::forcecast>()) {
         auto pos_start = positions_start.unchecked<3>();              // (Nt, 3, 3)
         auto pos_end   = positions_end.unchecked<3>();                // (Nt, 3, 3)
         const py::ssize_t nt = pos_start.shape(0);
@@ -1691,6 +1693,11 @@ public:
         const bool hasNormals = normals.size() > 0;
         if (hasNormals && normals.shape(0) != nt)
             throw std::runtime_error("add_triangles_bulk_motion: normals must be (N,3,3)");
+        // #947: shutter-close vertex normals (a rotating mesh's shading normals follow
+        // the pose); absent -> the start normals are reused (the pre-#947 static behaviour).
+        const bool hasNormalsEnd = hasNormals && normalsEnd.size() > 0;
+        if (hasNormalsEnd && normalsEnd.shape(0) != nt)
+            throw std::runtime_error("add_triangles_bulk_motion: normals_end must be (N,3,3)");
         std::vector<std::string> names;
         for (py::ssize_t l = 0; l < nLayers; ++l) {
             std::string nm = (l < (py::ssize_t)uvLayerNames.size()) ? uvLayerNames[l] : std::string();
@@ -1698,6 +1705,7 @@ public:
         }
         const float* uvPtr = (nLayers > 0) ? uvs.data() : nullptr;
         const float* nPtr  = hasNormals ? normals.data() : nullptr;
+        const float* nEndPtr = hasNormalsEnd ? normalsEnd.data() : nPtr;
         auto uvAt = [&](py::ssize_t l, py::ssize_t t, int c) -> Vec2 {
             const float* p = uvPtr + (((l * nt + t) * 3 + c) * 2);
             return Vec2(p[0], p[1]);
@@ -1705,11 +1713,19 @@ public:
 
         // Append all motion vertices in one batch, then assign per-triangle offsets
         std::vector<Vec3> motionBatch;
-        motionBatch.reserve(nt * 3);  // 3 verts per triangle at shutter close
+        motionBatch.reserve(nt * 6);  // 3 verts + 3 vertex normals per triangle at shutter close (#947)
         for (py::ssize_t t = 0; t < nt; ++t) {
             motionBatch.emplace_back(pos_end(t, 0, 0), pos_end(t, 0, 1), pos_end(t, 0, 2));
             motionBatch.emplace_back(pos_end(t, 1, 0), pos_end(t, 1, 1), pos_end(t, 1, 2));
             motionBatch.emplace_back(pos_end(t, 2, 0), pos_end(t, 2, 1), pos_end(t, 2, 2));
+            if (nEndPtr) {
+                const float* n = nEndPtr + (t * 9);
+                motionBatch.emplace_back(n[0], n[1], n[2]);
+                motionBatch.emplace_back(n[3], n[4], n[5]);
+                motionBatch.emplace_back(n[6], n[7], n[8]);
+            } else {  // flat triangle: the normals are recomputed from the vertices at the hit
+                for (int c = 0; c < 3; ++c) motionBatch.emplace_back(0.0f, 0.0f, 0.0f);
+            }
         }
         // pkg98 review fix: appendMotionVertices stores the batch in stable
         // per-batch storage and returns a lifetime-stable pointer (a second
@@ -1745,7 +1761,7 @@ public:
             tri->setObjectPassIndex(objectPassIndex);
             tri->setMaterialPassIndex(mpi(t));
             // pkg88-C.0: attach motion data. motionSteps=2 means buffer has center+end.
-            tri->setMotionData(motionBase + t * 3, 2);
+            tri->setMotionData(motionBase + t * 6, 2);  // stride 6 (#947: verts + normals)
             renderer.addObject(tri);
         }
     }
@@ -2500,6 +2516,10 @@ public:
     // first hit on a holdout object writes color 0 / alpha 0 (a transparent hole).
     bool setObjectHoldout(int objectId, bool enabled) {
         return renderer.setObjectHoldout(objectId, enabled);
+    }
+    // #36 — per-object indirect-only flag (invisible to primary camera rays).
+    bool setObjectIndirectOnly(int objectId, bool enabled) {
+        return renderer.setObjectIndirectOnly(objectId, enabled);
     }
 
     // #847 — per-object Generated frame. `m` is the row-major 3x4 world ->
@@ -4314,9 +4334,12 @@ PYBIND11_MODULE(astroray, m) {
         .def("add_triangles_bulk_motion", &PyRenderer::addTrianglesBulkMotion,
              "positions_start"_a, "positions_end"_a, "material_ids"_a, "material_pass_indices"_a,
              "object_pass_index"_a, "uvs"_a, "uv_layer_names"_a, "normals"_a,
+             "normals_end"_a = py::array_t<float, py::array::c_style | py::array::forcecast>(),
              "pkg88-C.0: bulk motion triangle ingest. positions_start (N,3,3) is center step, "
              "positions_end (N,3,3) is shutter close. Linear interpolation per Cycles (Apache-2.0). "
-             "motionSteps=2 (pre+post). uvs/normals same as add_triangles_bulk.")
+             "motionSteps=2 (pre+post). uvs/normals same as add_triangles_bulk; normals are the "
+             "shutter-open corner normals and normals_end (#947, optional (N,3,3)) the shutter-close "
+             "ones, interpolated by ray time (omitted: normals stay static).")
         .def("add_curves_bulk", &PyRenderer::addCurvesBulk,
              "positions"_a, "radii"_a, "strand_point_counts"_a, "material_id"_a,
              "object_pass_index"_a = 0, "material_pass_index"_a = 0,
@@ -4469,6 +4492,11 @@ PYBIND11_MODULE(astroray, m) {
              "pkg274 (#36) — flag an object (by addObject order) as holdout. The "
              "primary camera ray's first hit on it writes color 0 / alpha 0 "
              "(a transparent hole); indirect rays are untouched. CPU only.")
+        .def("set_object_indirect_only", &PyRenderer::setObjectIndirectOnly,
+             "object_id"_a, "enabled"_a,
+             "#36 — flag an object (by addObject order) as indirect-only (Blender "
+             "LayerCollection.indirect_only): primary camera rays pass through it; "
+             "reflections, GI, shadows and NEE still see it.")
         .def("set_objects_generated_transform", &PyRenderer::setObjectsGeneratedTransform,
              "begin"_a, "end"_a, "matrix"_a,
              "#847 — bake a row-major 3x4 world->Generated affine onto the "

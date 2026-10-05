@@ -166,3 +166,20 @@ def test_mesh_world_positions_reflects_different_matrix():
     np.testing.assert_allclose(end - start,
                                np.full((2, 3, 3), [1.2, 0.0, 0.0], dtype=np.float32),
                                rtol=0, atol=1e-5)
+
+
+def test_mesh_world_corner_normals_matches_mesh_to_bulk_arrays_normals():
+    """#947: the per-pose corner normals the addon feeds as `normals` /
+    `normals_end` are exactly mesh_to_bulk_arrays' normals for the same pose, and
+    differ between two rotated poses (a moving object's shading normals follow it)."""
+    mesh, *_ = _make_mesh()
+    M, NM = _transform()
+    *_head, normals = _bulk_geometry.mesh_to_bulk_arrays(mesh, M, NM, {0: 10, 1: 20}, 10, [])
+    np.testing.assert_allclose(_bulk_geometry.mesh_world_corner_normals(mesh, NM),
+                               normals, rtol=0, atol=1e-6)
+    th = 0.3
+    Rz = np.array([[np.cos(th), -np.sin(th), 0], [np.sin(th), np.cos(th), 0], [0, 0, 1]],
+                  dtype=np.float32)
+    rotated = _bulk_geometry.mesh_world_corner_normals(mesh, Rz @ NM)
+    assert not np.allclose(rotated, normals, atol=1e-3)
+    np.testing.assert_allclose(rotated, normals @ Rz.T, rtol=0, atol=1e-5)

@@ -560,6 +560,10 @@ static void appendOnePrim(
         gp.type  = GPRIM_SKIP;
         gp.index = -1;
     }
+    if (hittable->isIndirectOnly()) {  // #36
+        gp.flags |= GPRIM_FLAG_INDIRECT_ONLY;
+        r.hasIndirectOnly = true;
+    }
     r.prims.push_back(gp);
 }
 
@@ -1815,6 +1819,12 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
                 r.hasLightPath = true;
         }
     }
+    // #36 — an indirect-only object hides from camera rays only while the path still
+    // carries LPF_CAMERA (Cycles PATH_RAY_CAMERA survives transparent passes), which
+    // the intersect stage reads from lp_state: have the shade kernel maintain it. Only
+    // scenes with an indirect-only object take the HasProgram variant; every other
+    // scene's kernels are untouched (the intersect/shade kernels gain no code for it).
+    if (r.hasIndirectOnly) r.hasLightPath = true;
     // The lp_state update lives in the HasProgram shade kernel (which also reads
     // the texture binding: publish it too, with all-(-1) material tables).
     if (r.hasLightPath) {

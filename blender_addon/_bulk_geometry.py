@@ -199,6 +199,32 @@ def mesh_world_positions(mesh, matrix):
     return np.ascontiguousarray(world[vidx], dtype=np.float32)
 
 
+def mesh_world_corner_normals(mesh, normal_matrix):
+    """Return (Nt,3,3) world-space corner normals for `mesh` under
+    `normal_matrix` (the 3x3 inverse-transpose of a pose's model matrix), using
+    the SAME corner-normal indexing as ``mesh_to_bulk_arrays``. #947: the
+    shutter-open / shutter-close normals of a moving object, so its shading
+    normals follow the pose (``Renderer.add_triangles_bulk_motion``'s ``normals``
+    / ``normals_end``). Empty array when ``mesh.corner_normals`` is unavailable
+    (the engine then derives face normals from the interpolated vertices).
+    """
+    n_tri = len(mesh.loop_triangles)
+    try:
+        lidx = np.empty(n_tri * 3, dtype=np.int32)
+        mesh.loop_triangles.foreach_get("loops", lidx)
+        lidx = lidx.reshape(n_tri, 3)
+        n_loop = len(mesh.loops)
+        cn = np.empty(n_loop * 3, dtype=np.float32)
+        mesh.corner_normals.foreach_get("vector", cn)
+        cn = cn.reshape(n_loop, 3)[lidx]
+        cn = cn @ np.asarray(normal_matrix, dtype=np.float32).T
+        ln = np.linalg.norm(cn, axis=2, keepdims=True)
+        ln[ln == 0.0] = 1.0
+        return np.ascontiguousarray(cn / ln, dtype=np.float32)
+    except (AttributeError, KeyError, RuntimeError, TypeError, ValueError):
+        return np.zeros((0,), dtype=np.float32)
+
+
 # ---------------------------------------------------------------------------
 # #990 — per-corner shading attribute layers (Attribute / Color Attribute /
 # Object Info). Each layer key (shader_vm_compiler.attribute_layer_key) becomes a

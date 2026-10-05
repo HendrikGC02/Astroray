@@ -38,6 +38,7 @@ from native_settings import resolve_native_settings, report_unsupported_native_c
 from degradation import DegradationReport
 from _bulk_geometry import mesh_to_bulk_arrays  # pkg112 batched geometry upload
 from _bulk_geometry import mesh_world_positions  # pkg88-B object motion blur bake
+from _bulk_geometry import mesh_world_corner_normals  # #947 motion-blur shading normals
 from _bulk_geometry import extract_curves_bulk   # pkg225 Stage 6 hair/curves export
 from _bulk_geometry import mesh_attribute_layers  # #990 Attribute / Object Info layers
 
@@ -54,6 +55,14 @@ def _matrices_differ(m1, m2, eps=1e-6):
             if abs(m1[r][c] - m2[r][c]) > eps:
                 return True
     return False
+
+def _pose_normal_matrix(matrix):
+    """3x3 inverse-transpose of a pose's model matrix (the `normal_matrix`
+    convert_objects builds for the current frame), for #947 motion normals."""
+    try:
+        return matrix.to_3x3().inverted_safe().transposed()
+    except Exception:
+        return matrix.to_3x3()
 
 # pkg116: scene exporter and per-domain caches. Defensive import handles both
 # package-relative (Blender loads us as bl_ext.user_default.astroray) and
@@ -6149,6 +6158,30 @@ class CustomRaytracerRenderEngine(RenderEngine):
             cache[mat.name] = bool(getattr(mat, 'use_nodes', False)) and                 _tree_uses_object_coords(getattr(mat, 'node_tree', None))
         return cache[mat.name]
 
+    def _warn_indirect_only_integrator(self, depsgraph):
+        """#36: only the spectral path tracer family honours Indirect Only; ReSTIR DI and
+        the multiwavelength tracer trace camera rays straight through the BVH."""
+        settings = getattr(getattr(depsgraph, "scene", None), "custom_raytracer", None)
+        if settings is None:
+            return
+        try:
+            name = _effective_integrator_name(settings)
+        except Exception:
+            return
+        if name in ("restir_di", "multiwavelength_path_tracer"):
+            self._degradation_report().ignore(
+                "INDIRECT_ONLY", "Indirect Only collections are ignored by the '%s' "
+                "integrator (camera rays still see the objects)" % name)
+
+    @staticmethod
+    def _object_indirect_only(obj, depsgraph):
+        """#36: the collection's Indirect Only flag for `obj` (Cycles BASE_INDIRECT_ONLY).
+        It lives on the ORIGINAL object's view-layer base; absent API -> False."""
+        try:
+            return bool(obj.original.indirect_only_get(view_layer=depsgraph.view_layer))
+        except (AttributeError, TypeError, RuntimeError):
+            return False
+
     def _object_instanceable(self, obj):
         """A mesh object is eligible for the two-level instancing fast-path only
         when it is a plain MESH with no instancing-deferred feature: no emissive
@@ -6236,6 +6269,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     if getattr(obj, 'instance_type', 'NONE') not in ('NONE', None, ''):
                         instancer_nested.add(pname)
             if not self._object_instanceable(obj):
+                continue
+            # #36: the indirect-only flag is per flat object (the shared BLAS has no
+            # per-instance flag): an indirect-only object is flattened instead.
+            if self._object_indirect_only(obj, depsgraph):
                 continue
             key = (obj.data, obj.name)
             groups.setdefault(key, []).append((i, obj, inst.matrix_world.copy()))
@@ -6774,6 +6811,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # pkg274 (#36): Cycles holdout (object.is_holdout) -> camera-ray alpha
             # hole. Mirrors the is_caustic_caster flag on the same [pre, post) range.
             is_holdout = bool(getattr(obj, "is_holdout", False))
+            # #36 — Indirect Only (LayerCollection.indirect_only). Cycles reads the base
+            # flag (BASE_INDIRECT_ONLY) and, unless the object is a holdout, clears the
+            # camera visibility bit (intern/cycles/blender/object.cpp, Apache-2.0).
+            # The flag lives on the ORIGINAL object's view-layer base; the evaluated
+            # copy reads False. Absent API / fake objects -> not indirect-only.
+            is_indirect_only = (not is_holdout) and self._object_indirect_only(obj, depsgraph)
             scene_count_before = (renderer.scene_object_count()
                                   if hasattr(renderer, "scene_object_count") else 0)
 
@@ -6837,13 +6880,24 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     positions_start = mesh_world_positions(mesh, motion_start_matrix)
                     positions_end = mesh_world_positions(mesh, motion_end_matrix)
                     gen_matrix = motion_start_matrix  # #847: stored verts' pose
+                    # #947: shading normals follow the pose. `normals` (built from the
+                    # current-frame matrix above) is replaced by the shutter-open pose and
+                    # the shutter-close pose is passed as normals_end; the engine
+                    # interpolates them by ray time (Cycles motion_triangle_smooth_normal).
+                    normals_end = np.zeros((0,), dtype=np.float32)
+                    if len(normals):
+                        normals = mesh_world_corner_normals(
+                            mesh, _pose_normal_matrix(motion_start_matrix))
+                        normals_end = mesh_world_corner_normals(
+                            mesh, _pose_normal_matrix(motion_end_matrix))
                     if attr_kw:
                         self._warn_shader_fallback(
                             'ATTRIBUTE', "attribute / Object Info layers on the "
                             "motion-blurred '%s' are unsupported: read 0" % obj.name)
                     renderer.add_triangles_bulk_motion(
                         positions_start, positions_end, material_ids, mat_pass,
-                        int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals)
+                        int(getattr(obj, "pass_index", 0)), uvs, uv_names, normals,
+                        normals_end)
                 else:
                     renderer.add_triangles_bulk(
                         positions, material_ids, mat_pass,
@@ -6943,6 +6997,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 # pkg274 (#36) — holdout flag (camera-ray alpha hole, no shading)
                 if is_holdout and hasattr(renderer, "set_object_holdout"):
                     renderer.set_object_holdout(oid, True)
+                # #36 — indirect-only flag (camera rays pass through; see above)
+                if is_indirect_only and hasattr(renderer, "set_object_indirect_only"):
+                    renderer.set_object_indirect_only(oid, True)
+                    self._warn_indirect_only_integrator(depsgraph)
                 # pkg87c — Cryptomatte object name
                 if hasattr(renderer, "set_object_name"):
                     renderer.set_object_name(oid, obj.name)

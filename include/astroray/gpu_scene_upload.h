@@ -130,6 +130,10 @@ struct SceneUploadResult {
     std::vector<int>                            materialProgramId;
     std::vector<int>                            materialProgInputTexId;
     bool                                        hasProgram = false;
+    // #36 — some primitive is indirect-only (GPRIM_FLAG_INDIRECT_ONLY): the wavefront
+    // intersect stage skips it for camera rays, and OptiX hardware traversal (which has
+    // no per-prim visibility) is not used for this scene.
+    bool                                        hasIndirectOnly = false;
     // pkg219d — scalar BSDF-param op-VM programs. Flattened [mat*VM_SCALAR_SLOTS +
     // slot] tables parallel to `materials` (slots per astroray::svm::ScalarSlot):
     // materialScalarProgId = program index into `programs` (-1 = none);

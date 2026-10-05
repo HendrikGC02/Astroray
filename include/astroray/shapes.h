@@ -194,19 +194,32 @@ public:
         // pkg88-C.0 — time-aware vertex interpolation. Per Cycles motion_triangle.h (Apache-2.0):
         // bracket ray.time into [step, step+1], then linear blend: v = (1-t)*v[step] + t*v[step+1].
         Vec3 p0 = v0, p1 = v1, p2 = v2;
-        if (motionVertexBuffer != nullptr && motionSteps > 1) {
+        const bool moving = motionVertexBuffer != nullptr && motionSteps > 1;
+        // #947 — shading normals at ray time (assigned only when `moving`).
+        Vec3 nm0, nm1, nm2;
+        if (moving) {
             float time = r.time;  // Phase A already samples and carries time in Ray
             int maxStep = motionSteps - 1;
             int step = std::min(static_cast<int>(time * maxStep), maxStep - 1);
             float t = time * maxStep - step;
             // Center step (step=0) uses v0/v1/v2; additional steps read motionVertexBuffer.
-            // Buffer layout: [v0_step1, v1_step1, v2_step1, v0_step2, v1_step2, v2_step2, ...]
+            // Buffer layout (#947, the only layout in use: motionSteps == 2): per triangle
+            // [v0_end, v1_end, v2_end, n0_end, n1_end, n2_end]; the n entries are the
+            // shutter-close vertex normals, meaningful only when hasVertexNormals.
             if (step == 0) {
                 // Blend between center (v0/v1/v2) and first motion step
                 const Vec3* nextVerts = motionVertexBuffer;  // step 1 starts at offset 0
                 p0 = v0 * (1.0f - t) + nextVerts[0] * t;
                 p1 = v1 * (1.0f - t) + nextVerts[1] * t;
                 p2 = v2 * (1.0f - t) + nextVerts[2] * t;
+                if (hasVertexNormals) {
+                    // Cycles motion_triangle_smooth_normal (Apache-2.0): lerp the motion
+                    // vertex normals by time and normalise each BEFORE the barycentric
+                    // blend (a rotation shortens a lerped unit normal).
+                    nm0 = (vn0 * (1.0f - t) + nextVerts[3] * t).normalized();
+                    nm1 = (vn1 * (1.0f - t) + nextVerts[4] * t).normalized();
+                    nm2 = (vn2 * (1.0f - t) + nextVerts[5] * t).normalized();
+                }
             } else {
                 // Blend between two motion steps
                 const Vec3* currVerts = motionVertexBuffer + (step - 1) * 3;
@@ -223,8 +236,17 @@ public:
         rec.objectPoint = rec.point;
         float w = 1 - u - v;
         if (hasVertexNormals) {
-            Vec3 nInterp = (vn0 * w + vn1 * u + vn2 * v).normalized();
+            Vec3 nInterp = moving ? (nm0 * w + nm1 * u + nm2 * v).normalized()
+                                  : (vn0 * w + vn1 * u + vn2 * v).normalized();
+            // Cycles: is_zero(N) ? Ng : N (a blend that cancels falls back to the
+            // facet normal of the time-interpolated vertices).
+            if (moving && nInterp.length2() == 0.0f)
+                nInterp = (p1 - p0).cross(p2 - p0).normalized();
             rec.setFaceNormal(r, nInterp);
+        } else if (moving) {
+            // #947 — a moving flat triangle: the facet normal follows the interpolated
+            // vertices (Cycles motion_triangle_normal), not the shutter-open pose.
+            rec.setFaceNormal(r, (p1 - p0).cross(p2 - p0).normalized());
         } else {
             rec.setFaceNormal(r, normal);
         }
@@ -353,8 +375,13 @@ public:
     }
     // pkg88-C.0 — attach motion data to this triangle. The buffer pointer must
     // remain valid for the triangle's lifetime (typically points into Renderer::motionVertices_).
-    // steps = 2 means buffer has 3 Vec3s [v0_end, v1_end, v2_end] for shutter close.
+    // steps = 2 means buffer has 6 Vec3s [v0_end, v1_end, v2_end, n0_end, n1_end, n2_end]
+    // for shutter close (#947 added the three end normals; the GPU upload reads the same layout).
     void setMotionData(const Vec3* buffer, int steps) {
+        // The 6-Vec3 per-triangle stride (verts + normals, #947) is baked into the
+        // hit() / GPU twin step>0 branches' indexing only for the 2-step layout.
+        if (steps != 2 && steps != 1)
+            throw std::invalid_argument("Triangle::setMotionData: only motionSteps 1 or 2 is supported");
         motionVertexBuffer = buffer;
         motionSteps = steps;
     }

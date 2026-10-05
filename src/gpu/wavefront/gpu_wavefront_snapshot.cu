@@ -1839,6 +1839,11 @@ std::vector<float> cuda_wavefront_render(
     if (materialUpdated) C.sceneCached = false;
     const auto pkg298T1 = std::chrono::steady_clock::now();
     SceneUploadResult& res = C.cachedScene;
+    if (res.hasIndirectOnly) {  // #36: camera rays skip indirect-only prims (intersect stage)
+        GWavefrontPrimaryClip clip = primaryClip;
+        clip.indirectOnly = 1;
+        setWavefrontPrimaryClip(clip);
+    }
     GBVHNode*   d_bvhNodes  = wfSync(reuse, C.nodes, res.nodes);
     GPrimitive* d_prims     = wfSync(reuse, C.prims, res.prims);
     GTriangle*  d_tris      = wfSync(reuse, C.tris, res.triangles);
@@ -2162,9 +2167,10 @@ std::vector<float> cuda_wavefront_render(
     bool hwTrav = false;
     astroray::optix_trav::HwHitBuffers hwBufs{};
     {
+        // #36: no per-prim camera visibility in the OptiX path -> software BVH.
         const bool hwEligible = d_prims != nullptr && d_tris != nullptr &&
                                 d_spheres == nullptr && d_curveSegments == nullptr &&
-                                d_motionVerts == nullptr;
+                                d_motionVerts == nullptr && !res.hasIndirectOnly;
         const bool hwWanted = hwEligible && astroray::optix_trav::requested() !=
                                                 astroray::optix_trav::Request::Software;
         if (!reuse || (patched && C.hwAccelForCache)) {

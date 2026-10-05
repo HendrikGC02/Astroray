@@ -333,6 +333,14 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
         g.specular = h.melaninMode ? 1.0f : 0.0f;
         g.metallic = h.eumelanin;
         g.subsurface = h.pheomelanin;
+        // pkg316 — reflectance mode: specular = 2 flags the per-lambda inversion of
+        // the colour's JH sigmoid (coefficients in metallic/subsurface/specularTint).
+        if (h.reflectanceJH) {
+            g.specular = 2.0f;
+            g.metallic = h.jh[0];
+            g.subsurface = h.jh[1];
+            g.specularTint = h.jh[2];
+        }
     } else {
         throw std::runtime_error("Material declares unsupported GPU type: " + gpuType);
     }

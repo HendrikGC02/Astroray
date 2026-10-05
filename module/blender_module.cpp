@@ -1573,6 +1573,7 @@ public:
             }
             auto segments = strip.buildCurveSegments(mat);
             for (auto& seg : segments) {
+                seg->setThickModeSource(renderer.curveThickModeSource());  // pkg316
                 seg->setObjectPassIndex(objectPassIndex);
                 seg->setMaterialPassIndex(materialPassIndex);
                 renderer.addObject(seg);

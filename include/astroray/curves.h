@@ -118,8 +118,14 @@ public:
             }
         }
 
-        return recursiveIntersect(r, tMin, tMax, cp, xAxis, yAxis, zAxis, 0.0f, 1.0f, maxDepth, rec);
+        if (!recursiveIntersect(r, tMin, tMax, cp, xAxis, yAxis, zAxis, 0.0f, 1.0f, maxDepth, rec))
+            return false;
+        if (thickMode_ && *thickMode_) moveToThickSurface(r, tMin, rec);
+        return true;
     }
+
+    // pkg316: Renderer::curveThickMode (Cycles Curves > Shape), read at hit time.
+    void setThickModeSource(const bool* src) { thickMode_ = src; }
 
     bool boundingBox(AABB& box) const override {
         Vec3 minP = bezier_[0], maxP = bezier_[0];
@@ -147,6 +153,31 @@ private:
     float radius0_, radius1_;
     std::shared_ptr<Material> material_;
     bool emissive_;
+    const bool* thickMode_ = nullptr;  // null / false: ribbon depth (axis plane)
+
+    // #1051 (pkg316): a THICK curve shades where the ray enters the tube, as
+    // Cycles' swept-circle intersector does (sd->P on the surface); a ribbon
+    // shades on its ray-facing plane through the axis (the leaf's pc.z). The
+    // entry is the front root of the ray vs the local cylinder (axis = tangent
+    // at u, radius at u); grazing/parallel rays keep the axis depth. Shading at
+    // the axis put NEE origins up to one radius behind the lit surface, so
+    // close neighbours shadowed them (melanin tuft 0.81 of Cycles, direct sun).
+    void moveToThickSurface(const Ray& r, float tMin, HitRecord& rec) const {
+        const float u = rec.hair_u;
+        const Vec3 T = rec.uvTangent;
+        const Vec3 w = r.origin - evalBezier(bezier_, u);
+        const Vec3 dp = r.direction - T * r.direction.dot(T);
+        const Vec3 wp = w - T * w.dot(T);
+        const float rad = lerpRadius(u);
+        const float a = dp.dot(dp), b = 2.0f * wp.dot(dp), c = wp.dot(wp) - rad * rad;
+        const float disc = b * b - 4.0f * a * c;
+        if (a < 1e-6f || disc < 0.0f) return;
+        const float t = (-b - std::sqrt(disc)) / (2.0f * a);
+        if (t < tMin || t >= rec.t) return;
+        rec.t = t;
+        rec.point = r.at(t);
+        rec.objectPoint = rec.point;
+    }
 
     float lerpRadius(float u) const { return radius0_ + (radius1_ - radius0_) * u; }
 

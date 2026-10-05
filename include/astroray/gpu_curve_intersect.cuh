@@ -241,7 +241,7 @@ __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_curve_intersect(
     // ---- Shading frame at the accepted hit (recompute from the global hull at
     // best_u, exactly like CurveSegment::recursiveIntersect's tail). ----
     GVec3 dpdu;
-    gEvalBezier(bez, best_u, &dpdu);
+    const GVec3 axisP = gEvalBezier(bez, best_u, &dpdu);
     if (dpdu.length2() == 0.f) return false;
 
     GVec3 outwardNormal;
@@ -269,6 +269,21 @@ __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_curve_intersect(
     // ---- Fill the hit record (setFaceNormal convention: orient the normal to
     // face the incoming ray; the curve's own tangent overrides uvTangent). ----
     float tHit = bestT;
+    if (thick) {
+        // #1051 (pkg316): thick curves shade at the tube entry (curves.h
+        // moveToThickSurface twin): front root of the ray vs the local cylinder.
+        const GVec3 T = dpdu.normalized();
+        const GVec3 w = ray.origin - axisP;
+        const GVec3 dp = ray.direction - T * ray.direction.dot(T);
+        const GVec3 wp = w - T * w.dot(T);
+        const float a = dp.dot(dp), b = 2.f * wp.dot(dp);
+        const float c = wp.dot(wp) - hitRadius * hitRadius;
+        const float disc = b * b - 4.f * a * c;
+        if (a >= 1e-6f && disc >= 0.f) {
+            const float t = (-b - sqrtf(disc)) / (2.f * a);
+            if (t >= tMin && t < tHit) tHit = t;
+        }
+    }
     rec.t = tHit;
     rec.point = ray.at(tHit);
     rec.frontFace = ray.direction.dot(outwardNormal) < 0.f;

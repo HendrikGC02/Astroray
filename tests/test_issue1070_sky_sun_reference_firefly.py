@@ -9,11 +9,14 @@ agrees with Astroray to 0.99; the pillar face agrees per pixel. The ROI is trimm
 Gate: no pixel of a gated v2_sky_sun ROI may be an isolated reference outlier (> 8x the median of
 its 8 neighbours and > 0.5), otherwise the ROI mean measures one reference sample, not transport.
 """
+import os
 from pathlib import Path
 
 import numpy as np
 import pytest
 import tomllib
+
+os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")  # before anything imports cv2
 
 from benchmarks.reference_corpus import mc_tolerance as MC
 

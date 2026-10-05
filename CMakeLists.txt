@@ -583,6 +583,7 @@ if(ASTRORAY_CUDA_FOUND)
             src/gpu/wavefront/stage_shade_reference.cu  # pkg300 equivalence reference kernel
             src/gpu/wavefront/stage_shade_fleet_p1.cu  # pkg300 fleet shade kernel (Principled)
             src/gpu/wavefront/stage_shade_fleet_p0.cu  # pkg300 fleet shade kernel
+            src/gpu/wavefront/stage_shade_add.cu  # #1072 Add Shader shade variants (8)
             src/gpu/wavefront/stage_shade_part11.cu
             src/gpu/wavefront/stage_shade_part10.cu
             src/gpu/wavefront/stage_shade_part9.cu

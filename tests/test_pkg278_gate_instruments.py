@@ -637,6 +637,54 @@ def test_freeze_v4_emits_only_registered_witness_cases(tmp_path, monkeypatch):
     assert not ok and "v4 runner case map is not ready" in verify_errors
 
 
+def test_v4_provisional_empty_case_map_verifies_and_cannot_validate_evidence(tmp_path, monkeypatch):
+    """pkg318: a population with no registered witness freezes a provisional empty v4 map; it verifies, and
+    with no allowed case no sidecar can validate (the score can only stay 0)."""
+    _frozen, snapshot, _hashes, matrix = _freeze_and_verify(tmp_path, ["S1"])
+    manifest_file = tmp_path / "benchmarks" / "reference_corpus" / "scenes" / "manifest.json"
+    corpus = json.loads(manifest_file.read_text(encoding="utf-8"))
+    corpus["scenes"]["S1"]["settings"] = {"res_x": 16, "res_y": 16, "samples": 1}
+    manifest_file.write_text(json.dumps(corpus), encoding="utf-8")
+    monkeypatch.setattr(CR, "CASE_WITNESS_REGISTRY", {})
+    candidate = {"build_id": "b", "module_sha256": "m", "addon_sha256": "a"}
+    frozen, errors = CR.freeze_coverage_input_v4(corpus, matrix, snapshot, candidate_build=candidate)
+    assert not errors and frozen["evidence"]["runner_case_map"]["cases"] == []
+    assert frozen["evidence"]["runner_case_map"]["status"] == "provisional"
+    ok, verify_errors, verified = CR.verify_frozen_input(frozen, tmp_path, snapshot)
+    assert ok, verify_errors
+    assert verified["allowed_cases"] == {}
+    frozen["evidence"]["runner_case_map"]["status"] = "bogus"
+    ok, verify_errors, _ = CR.verify_frozen_input(frozen, tmp_path, snapshot)
+    assert not ok and "v4 runner case map is not ready" in verify_errors
+
+
+def test_population_manifest_is_a_verbatim_subset_and_freeze_records_its_path(tmp_path, monkeypatch):
+    """pkg318: --population writes a derived manifest whose entries are the source entries verbatim, and the
+    freeze records that path (not the hard-coded scenes manifest) so verify re-reads the same population."""
+    frozen0, snapshot0, hashes, matrix = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
+    scenes = tmp_path / "benchmarks" / "reference_corpus" / "scenes"
+    prod = tmp_path / "benchmarks" / "reference_corpus" / "production"
+    prod.mkdir(parents=True)
+    (prod / "manifest.json").write_text(json.dumps({"scenes": {"P1": {"blend_path": "p1.blend",
+                                                                      "sha256": "0" * 64}}}), encoding="utf-8")
+    monkeypatch.setattr(CR, "POPULATIONS", {"pop": (("benchmarks/reference_corpus/scenes/manifest.json",
+                                                      ("S1", "S3")),
+                                                     ("benchmarks/reference_corpus/production/manifest.json", None))})
+    out = CR.write_population_manifest("pop", tmp_path)
+    derived = json.loads(out.read_text(encoding="utf-8"))
+    source = json.loads((scenes / "manifest.json").read_text(encoding="utf-8"))
+    assert sorted(derived["scenes"]) == ["P1", "S1", "S3"]
+    assert derived["scenes"]["S1"] == source["scenes"]["S1"] and "S2" not in derived["scenes"]
+    with pytest.raises(ValueError):
+        CR.write_population_manifest("nope", tmp_path)
+    snapshot = {"schema": CR.NODE_USES_SCHEMA,
+                "scenes": {sid: snapshot0["scenes"][sid] for sid in ("S1", "S3")}}
+    corpus = {"scenes": {sid: derived["scenes"][sid] for sid in ("S1", "S3")}}
+    frozen, errors = CR.freeze_coverage_input(corpus, matrix, snapshot, manifest_path=out.relative_to(tmp_path).as_posix())
+    assert not errors, errors
+    assert frozen["corpus"]["manifest_path"] == "benchmarks/reference_corpus/populations/pop.json"
+
+
 def test_freeze_and_verify_roundtrip(tmp_path):
     frozen, _, _, matrix = _freeze_and_verify(tmp_path, ["S1", "S2", "S3"])
     assert frozen["population"]["ratified"] is False

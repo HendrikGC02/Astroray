@@ -1,0 +1,6 @@
+{
+  "addon_sha256": "002c7c43a1a547d7c157dffc9b9d6d7ef8e9470d53c38b8d60075fe14fdc736e",
+  "build_id": "132c974+20261004T124622Z",
+  "module_sha256": "93cc14f028f20d64ab315873e8a04f6d6cc80cb13f76d5a4e943f1c850915aac",
+  "note": "PROVISIONAL pkg318. module = staged CUDA pyd built at 132c974 (2026-10-04, predates #1069/#1071); addon = blender_addon/__init__.py at worktree HEAD a52f0e07."
+}

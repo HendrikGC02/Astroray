@@ -1,0 +1,1452 @@
+{
+  "scenes": {
+    "prod_attributes": {
+      "assets": [
+        {
+          "license": "CC0 1.0",
+          "path": "benchmarks/reference_corpus/assets/syferfontein_18d_clear_1k.hdr",
+          "sha256": "6f81c4b48dcb79555d7e8a8839e59e75d76fd34f1e07e070f6dd923df5c119a0",
+          "source_url": "https://polyhaven.com/a/syferfontein_18d_clear"
+        }
+      ],
+      "blend_path": "benchmarks/reference_corpus/production/prod_attributes.blend",
+      "builder_fn": "_prod_attributes",
+      "crops": {
+        "instance0": [
+          0.1279,
+          0.4651,
+          0.1879,
+          0.5451
+        ],
+        "instance1": [
+          0.4389,
+          0.4651,
+          0.4989,
+          0.5451
+        ],
+        "instance1_lower": [
+          0.4905,
+          0.5737,
+          0.5505,
+          0.6537
+        ],
+        "instance2": [
+          0.7499,
+          0.4651,
+          0.8099,
+          0.5451
+        ]
+      },
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "prod_attributes",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeAttribute",
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeHueSaturation",
+        "ShaderNodeMapRange",
+        "ShaderNodeObjectInfo",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeTexEnvironment",
+        "ShaderNodeVertexColor"
+      ],
+      "object_counts": {
+        "CAMERA": 1,
+        "LIGHT": 2,
+        "MESH": 4
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 320,
+        "res_y": 240,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "b489d370579e33ba9b6d5705d4a6ea8f03ade0f6a106fbc551f8d954f512f047",
+      "triangle_count": 11906,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam"
+        ],
+        "divergence": {},
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "color_attribute",
+          "attribute_float_geometry",
+          "object_info_random",
+          "hue_saturation",
+          "map_range",
+          "linked_instances"
+        ]
+      }
+    },
+    "prod_car_paint": {
+      "assets": [
+        {
+          "license": "CC0 1.0",
+          "path": "benchmarks/reference_corpus/assets/syferfontein_18d_clear_1k.hdr",
+          "sha256": "6f81c4b48dcb79555d7e8a8839e59e75d76fd34f1e07e070f6dd923df5c119a0",
+          "source_url": "https://polyhaven.com/a/syferfontein_18d_clear"
+        }
+      ],
+      "blend_path": "benchmarks/reference_corpus/production/prod_car_paint.blend",
+      "builder_fn": "_prod_car_paint",
+      "crops": {
+        "limb_grazing": [
+          0.6228,
+          0.4684,
+          0.6828,
+          0.5484
+        ],
+        "lit_front": [
+          0.4268,
+          0.3967,
+          0.4868,
+          0.4767
+        ],
+        "lower_shadowed": [
+          0.495,
+          0.6675,
+          0.555,
+          0.7475
+        ],
+        "upper_flake": [
+          0.3732,
+          0.308,
+          0.4332,
+          0.388
+        ]
+      },
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "prod_car_paint",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeBump",
+        "ShaderNodeFresnel",
+        "ShaderNodeLayerWeight",
+        "ShaderNodeMath",
+        "ShaderNodeMix",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeTexCoord",
+        "ShaderNodeTexEnvironment",
+        "ShaderNodeTexVoronoi"
+      ],
+      "object_counts": {
+        "CAMERA": 1,
+        "LIGHT": 2,
+        "MESH": 2
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 320,
+        "res_y": 240,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "5aa952a47707eda8d9b43257031f61d2f66428f66e8c0e949579ff5417fbec7f",
+      "triangle_count": 9026,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam"
+        ],
+        "divergence": {},
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "principled_coat",
+          "voronoi_bump_flakes",
+          "layer_weight_facing",
+          "fresnel_node",
+          "mix_rgba"
+        ]
+      }
+    },
+    "prod_curves_geometry": {
+      "assets": [
+        {
+          "license": "CC0 1.0",
+          "path": "benchmarks/reference_corpus/assets/syferfontein_18d_clear_1k.hdr",
+          "sha256": "6f81c4b48dcb79555d7e8a8839e59e75d76fd34f1e07e070f6dd923df5c119a0",
+          "source_url": "https://polyhaven.com/a/syferfontein_18d_clear"
+        }
+      ],
+      "blend_path": "benchmarks/reference_corpus/production/prod_curves_geometry.blend",
+      "builder_fn": "_prod_curves_geometry",
+      "crops": {
+        "inner_backface": [
+          0.46,
+          0.2663,
+          0.54,
+          0.373
+        ],
+        "outer_front": [
+          0.465,
+          0.626,
+          0.535,
+          0.7193
+        ],
+        "outer_left": [
+          0.2479,
+          0.5061,
+          0.3079,
+          0.5861
+        ],
+        "outer_upper_rim": [
+          0.2851,
+          0.4022,
+          0.3451,
+          0.4822
+        ]
+      },
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "prod_curves_geometry",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeFloatCurve",
+        "ShaderNodeMapRange",
+        "ShaderNodeMath",
+        "ShaderNodeMix",
+        "ShaderNodeNewGeometry",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeRGBCurve",
+        "ShaderNodeTexCoord",
+        "ShaderNodeTexEnvironment",
+        "ShaderNodeTexNoise"
+      ],
+      "object_counts": {
+        "CAMERA": 1,
+        "LIGHT": 2,
+        "MESH": 2
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 320,
+        "res_y": 240,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "ec98449f058378c85afbaa48eb49b6468db7f2e4e9952f3c27ebcb7602a1a6ed",
+      "triangle_count": 3527,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam"
+        ],
+        "divergence": {},
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "float_curve",
+          "map_range_clamp",
+          "math_power",
+          "rgb_curves",
+          "geometry_backfacing",
+          "geometry_pointiness",
+          "mix_rgba"
+        ]
+      }
+    },
+    "prod_light_path": {
+      "assets": [
+        {
+          "license": "CC0 1.0",
+          "path": "benchmarks/reference_corpus/assets/syferfontein_18d_clear_1k.hdr",
+          "sha256": "6f81c4b48dcb79555d7e8a8839e59e75d76fd34f1e07e070f6dd923df5c119a0",
+          "source_url": "https://polyhaven.com/a/syferfontein_18d_clear"
+        }
+      ],
+      "blend_path": "benchmarks/reference_corpus/production/prod_light_path.blend",
+      "builder_fn": "_prod_light_path",
+      "crops": {
+        "emitter_hidden_region": [
+          0.778,
+          0.2167,
+          0.848,
+          0.31
+        ],
+        "floor_far": [
+          0.4839,
+          0.4088,
+          0.5839,
+          0.5421
+        ],
+        "floor_near": [
+          0.5293,
+          0.7367,
+          0.6293,
+          0.87
+        ],
+        "glass_ball_centre": [
+          0.2107,
+          0.4938,
+          0.2807,
+          0.5871
+        ],
+        "glass_sun_shadow_floor": [
+          0.1513,
+          0.6191,
+          0.2313,
+          0.7258
+        ]
+      },
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "prod_light_path",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfGlass",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeBsdfTransparent",
+        "ShaderNodeEmission",
+        "ShaderNodeLightPath",
+        "ShaderNodeMath",
+        "ShaderNodeMixShader",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeTexEnvironment",
+        "ShaderNodeValToRGB"
+      ],
+      "object_counts": {
+        "CAMERA": 1,
+        "LIGHT": 2,
+        "MESH": 4
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 320,
+        "res_y": 240,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "d0145a848655da6360eaf396aa41976c9580b40fb435f3f75742b503ebaced12",
+      "triangle_count": 4942,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam"
+        ],
+        "divergence": {},
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "light_path_is_camera_ray",
+          "light_path_is_shadow_ray",
+          "light_path_ray_length",
+          "transparent_bsdf",
+          "glass_in_mix"
+        ]
+      }
+    },
+    "prod_marble": {
+      "assets": [
+        {
+          "license": "CC0 1.0",
+          "path": "benchmarks/reference_corpus/assets/syferfontein_18d_clear_1k.hdr",
+          "sha256": "6f81c4b48dcb79555d7e8a8839e59e75d76fd34f1e07e070f6dd923df5c119a0",
+          "source_url": "https://polyhaven.com/a/syferfontein_18d_clear"
+        }
+      ],
+      "blend_path": "benchmarks/reference_corpus/production/prod_marble.blend",
+      "builder_fn": "_prod_marble",
+      "crops": {
+        "left": [
+          0.3295,
+          0.4863,
+          0.3895,
+          0.5663
+        ],
+        "lower": [
+          0.4826,
+          0.6683,
+          0.5426,
+          0.7483
+        ],
+        "right": [
+          0.5981,
+          0.4017,
+          0.6581,
+          0.4817
+        ],
+        "vein_zone": [
+          0.47,
+          0.4345,
+          0.53,
+          0.5145
+        ]
+      },
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "prod_marble",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeMapping",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeTexCoord",
+        "ShaderNodeTexEnvironment",
+        "ShaderNodeTexNoise",
+        "ShaderNodeTexWave",
+        "ShaderNodeValToRGB",
+        "ShaderNodeVectorMath"
+      ],
+      "object_counts": {
+        "CAMERA": 1,
+        "LIGHT": 2,
+        "MESH": 2
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 320,
+        "res_y": 240,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "689449e30f39215e3ba6628dbf2df5db332476488d8c20a3ab8b6331f8bbe7fb",
+      "triangle_count": 9026,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam"
+        ],
+        "divergence": {},
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "noise_vector_warp",
+          "vector_math_scale_add",
+          "mapping_after_warp",
+          "wave_bands_saw",
+          "color_ramp_4stop",
+          "object_coords"
+        ]
+      }
+    },
+    "prod_pbr_group": {
+      "assets": [
+        {
+          "license": "CC0 1.0",
+          "path": "benchmarks/reference_corpus/assets/syferfontein_18d_clear_1k.hdr",
+          "sha256": "6f81c4b48dcb79555d7e8a8839e59e75d76fd34f1e07e070f6dd923df5c119a0",
+          "source_url": "https://polyhaven.com/a/syferfontein_18d_clear"
+        }
+      ],
+      "blend_path": "benchmarks/reference_corpus/production/prod_pbr_group.blend",
+      "builder_fn": "_prod_pbr_group",
+      "crops": {
+        "centre": [
+          0.465,
+          0.4675,
+          0.535,
+          0.5608
+        ],
+        "left": [
+          0.3383,
+          0.3787,
+          0.4083,
+          0.4721
+        ],
+        "lower": [
+          0.4267,
+          0.6485,
+          0.4967,
+          0.7418
+        ],
+        "right": [
+          0.595,
+          0.5147,
+          0.665,
+          0.6081
+        ]
+      },
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "prod_pbr_group",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeGroup",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeTexEnvironment"
+      ],
+      "object_counts": {
+        "CAMERA": 1,
+        "LIGHT": 2,
+        "MESH": 2
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 320,
+        "res_y": 240,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "28be1271813aa310a082b1defbcb0de39bd7a9849749cbf1697d9faee99248e4",
+      "triangle_count": 9026,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam"
+        ],
+        "divergence": {},
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "node_group",
+          "tex_image_srgb_and_data",
+          "mapping_uv_rotation",
+          "normal_map_tangent",
+          "bump_chained_on_normal_map"
+        ]
+      }
+    },
+    "prod_shader_stack": {
+      "assets": [
+        {
+          "license": "CC0 1.0",
+          "path": "benchmarks/reference_corpus/assets/syferfontein_18d_clear_1k.hdr",
+          "sha256": "6f81c4b48dcb79555d7e8a8839e59e75d76fd34f1e07e070f6dd923df5c119a0",
+          "source_url": "https://polyhaven.com/a/syferfontein_18d_clear"
+        }
+      ],
+      "blend_path": "benchmarks/reference_corpus/production/prod_shader_stack.blend",
+      "builder_fn": "_prod_shader_stack",
+      "crops": {
+        "lit_front": [
+          0.4138,
+          0.3792,
+          0.4738,
+          0.4592
+        ],
+        "lower": [
+          0.47,
+          0.6574,
+          0.53,
+          0.7374
+        ],
+        "right": [
+          0.601,
+          0.4701,
+          0.661,
+          0.5501
+        ],
+        "upper_left": [
+          0.351,
+          0.3259,
+          0.411,
+          0.4059
+        ]
+      },
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "prod_shader_stack",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeAddShader",
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfGlass",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeEmission",
+        "ShaderNodeMixShader",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeTexCoord",
+        "ShaderNodeTexEnvironment",
+        "ShaderNodeTexNoise",
+        "ShaderNodeValToRGB"
+      ],
+      "object_counts": {
+        "CAMERA": 1,
+        "LIGHT": 2,
+        "MESH": 2
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 320,
+        "res_y": 240,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "683e0eeefbc1a81f6cf3089020e56b4e4453dd3087762a96472fa1d8c0d43a71",
+      "triangle_count": 9026,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam"
+        ],
+        "divergence": {},
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "mix_shader_3_deep",
+          "add_shader_bsdf_emission",
+          "glass_in_stack",
+          "principled_x2",
+          "noise_masks"
+        ]
+      }
+    },
+    "prod_wood": {
+      "assets": [
+        {
+          "license": "CC0 1.0",
+          "path": "benchmarks/reference_corpus/assets/syferfontein_18d_clear_1k.hdr",
+          "sha256": "6f81c4b48dcb79555d7e8a8839e59e75d76fd34f1e07e070f6dd923df5c119a0",
+          "source_url": "https://polyhaven.com/a/syferfontein_18d_clear"
+        }
+      ],
+      "blend_path": "benchmarks/reference_corpus/production/prod_wood.blend",
+      "builder_fn": "_prod_wood",
+      "crops": {
+        "grain_center": [
+          0.47,
+          0.4543,
+          0.53,
+          0.5343
+        ],
+        "grain_left": [
+          0.3312,
+          0.419,
+          0.3912,
+          0.499
+        ],
+        "grain_right": [
+          0.599,
+          0.5379,
+          0.659,
+          0.6179
+        ],
+        "lower": [
+          0.4443,
+          0.6564,
+          0.5043,
+          0.7364
+        ]
+      },
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "prod_wood",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeBump",
+        "ShaderNodeMapping",
+        "ShaderNodeMath",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeTexCoord",
+        "ShaderNodeTexEnvironment",
+        "ShaderNodeTexNoise",
+        "ShaderNodeTexWave",
+        "ShaderNodeValToRGB"
+      ],
+      "object_counts": {
+        "CAMERA": 1,
+        "LIGHT": 2,
+        "MESH": 2
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 320,
+        "res_y": 240,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "057afee8544fdd4a379431847d51c533715e312c0dd7b8f05159ebd4a920081f",
+      "triangle_count": 9026,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam"
+        ],
+        "divergence": {},
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "wave_rings_distortion",
+          "noise",
+          "color_ramp_multi",
+          "math_chain",
+          "bump_from_chain",
+          "mapping_rotation",
+          "object_coords"
+        ]
+      }
+    },
+    "v2_camera_geometry": {
+      "assets": [],
+      "blend_path": "benchmarks/reference_corpus/scenes/v2_camera_geometry.blend",
+      "builder_fn": "_v2_camera_geometry",
+      "crops": {
+        "hair_tuft": [
+          0.3234,
+          0.4529,
+          0.4234,
+          0.6307
+        ],
+        "instances": [
+          0.1115,
+          0.5082,
+          0.2115,
+          0.686
+        ],
+        "mesh_volume": [
+          0.7243,
+          0.4479,
+          0.8143,
+          0.6079
+        ],
+        "motion_vane": [
+          0.5134,
+          0.4251,
+          0.6134,
+          0.6029
+        ],
+        "near_clip_column": [
+          0.47,
+          0.04,
+          0.53,
+          0.145
+        ],
+        "post_far_clipped_region": [
+          0.4415,
+          0.3302,
+          0.4655,
+          0.3729
+        ],
+        "post_far_visible": [
+          0.2752,
+          0.36,
+          0.2992,
+          0.4026
+        ]
+      },
+      "curve_count": 400,
+      "curve_point_count": 2400,
+      "family": "v2_camera_geometry",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfHairPrincipled",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeVolumePrincipled"
+      ],
+      "object_counts": {
+        "CAMERA": 2,
+        "CURVES": 1,
+        "EMPTY": 5,
+        "LIGHT": 3,
+        "MESH": 8
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 480,
+        "res_y": 270,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "949f305faeff992bb8fe895819c13cfda6d4acfac3ab235ea900ceea2582ea3d",
+      "triangle_count": 1024,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam",
+          "CamOrtho"
+        ],
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "camera_clip_perspective#873",
+          "camera_ortho_object",
+          "collection_instancing",
+          "negative_scale_instance",
+          "hair_curves#853",
+          "motion_blur",
+          "mesh_volume#833"
+        ]
+      }
+    },
+    "v2_dispersion_caustics": {
+      "assets": [],
+      "blend_path": "benchmarks/reference_corpus/scenes/v2_dispersion_caustics.blend",
+      "builder_fn": "_v2_dispersion_caustics",
+      "crops": {
+        "background_firefly": [
+          0.65,
+          0.05,
+          0.85,
+          0.228
+        ],
+        "beam_through_prism": [
+          0.271,
+          0.3087,
+          0.351,
+          0.4509
+        ],
+        "prism_sun_caustic_floor": [
+          0.6862,
+          0.7564,
+          0.7662,
+          0.8986
+        ],
+        "sphere_limb": [
+          0.6892,
+          0.5855,
+          0.7292,
+          0.6566
+        ],
+        "sphere_spot_caustic_floor": [
+          0.5161,
+          0.602,
+          0.5961,
+          0.7442
+        ]
+      },
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "v2_dispersion_caustics",
+      "feature_tags": [],
+      "node_ids": [
+        "AstrorayOutputNode",
+        "AstrorayShaderNodeSellmeierGlass",
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfGlass",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld"
+      ],
+      "object_counts": {
+        "CAMERA": 1,
+        "LIGHT": 2,
+        "MESH": 7
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 320,
+        "res_y": 180,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "849f883f6cb49929dc133100f88781615a5e048cfba46ad74d0a73bb1c466ee5",
+      "triangle_count": 9108,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam"
+        ],
+        "divergence": {
+          "beam_through_prism": "Sellmeier SF11 (dispersive) vs Cycles constant-IOR Glass BSDF: colour fringes differ.",
+          "prism_sun_caustic_floor": "Documented divergence (owner 2026-09-29): Cycles has no dispersion and no sun/spot caustics through glass; Astroray adds them (caustic boost 1.0 after Batch AK). Phase 2 pins the Astroray-side expectation, this is not a failure.",
+          "sphere_spot_caustic_floor": "Documented divergence (owner 2026-09-29): Cycles has no dispersion and no sun/spot caustics through glass; Astroray adds them (caustic boost 1.0 after Batch AK). Phase 2 pins the Astroray-side expectation, this is not a failure."
+        },
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "dispersion_sellmeier",
+          "sun_caustics",
+          "spot_caustics#910",
+          "glass_bsdf",
+          "photon_firefly_bg"
+        ]
+      }
+    },
+    "v2_light_tree": {
+      "assets": [],
+      "blend_path": "benchmarks/reference_corpus/scenes/v2_light_tree.blend",
+      "builder_fn": "_v2_light_tree",
+      "crops": {
+        "back_wall": [
+          0.42,
+          0.1813,
+          0.58,
+          0.4657
+        ],
+        "closed_emitter_sphere": [
+          0.7938,
+          0.5791,
+          0.8438,
+          0.668
+        ],
+        "emitter_bright_face": [
+          0.6863,
+          0.1309,
+          0.7163,
+          0.1843
+        ],
+        "emitter_dim_face": [
+          0.1203,
+          0.0235,
+          0.1503,
+          0.0768
+        ],
+        "floor_sun_patch": [
+          0.5152,
+          0.5651,
+          0.5952,
+          0.7073
+        ],
+        "floor_under_area": [
+          0.1878,
+          0.5986,
+          0.2678,
+          0.7408
+        ],
+        "floor_under_pendant_bright": [
+          0.6384,
+          0.5438,
+          0.7184,
+          0.686
+        ],
+        "floor_under_pendant_dim": [
+          0.1609,
+          0.7224,
+          0.2409,
+          0.8646
+        ],
+        "floor_under_point": [
+          0.8422,
+          0.7224,
+          0.9222,
+          0.8646
+        ]
+      },
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "v2_light_tree",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeEmission",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld"
+      ],
+      "object_counts": {
+        "CAMERA": 1,
+        "LIGHT": 3,
+        "MESH": 16
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 320,
+        "res_y": 180,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "a0409196a20ca374fdb5fd46275bd6d9a0789224bd9804fa3a09cd17fc65bd43",
+      "triangle_count": 1140,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam"
+        ],
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "light_tree",
+          "mis_emitters",
+          "dedicated_lamps",
+          "spot_area_spread",
+          "sun",
+          "closed_emitter#886",
+          "colour_bleed"
+        ]
+      }
+    },
+    "v2_media": {
+      "assets": [
+        {
+          "license": "CC0 1.0 (synthetic, generated by scene_library.write_volumes_vdbs)",
+          "path": "benchmarks/reference_corpus/assets/volumes_smoke_plume.vdb",
+          "sha256": "a7be1d09b24efee0a5ef90652e1cf0e8c2c1e726f64601c100580e7bbc6ec21f",
+          "source_url": ""
+        },
+        {
+          "license": "CC0 1.0 (synthetic, generated by scene_library.write_volumes_vdbs)",
+          "path": "benchmarks/reference_corpus/assets/volumes_fire.vdb",
+          "sha256": "b24179e4327e9a2fef329999fa80991ca8f7b22bace94baffaecbb75ee2e3728",
+          "source_url": ""
+        }
+      ],
+      "blend_path": "benchmarks/reference_corpus/scenes/v2_media.blend",
+      "builder_fn": "_v2_media",
+      "crops": {
+        "emitter_cool_glow": [
+          0.6567,
+          0.4014,
+          0.7167,
+          0.508
+        ],
+        "emitter_warm_glow": [
+          0.352,
+          0.4914,
+          0.412,
+          0.5981
+        ],
+        "fire_core": [
+          0.163,
+          0.6384,
+          0.263,
+          0.8161
+        ],
+        "fog_floor_lit": [
+          0.4102,
+          0.6417,
+          0.5102,
+          0.8195
+        ],
+        "shaft": [
+          0.4927,
+          0.2905,
+          0.5927,
+          0.4683
+        ],
+        "smoke_plume": [
+          0.5803,
+          0.4991,
+          0.6803,
+          0.6769
+        ]
+      },
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "v2_media",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeEmission",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeVolumePrincipled"
+      ],
+      "object_counts": {
+        "CAMERA": 1,
+        "LIGHT": 2,
+        "MESH": 4,
+        "VOLUME": 2
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 320,
+        "res_y": 180,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "78c84ca7a22acf6ec2e78c565326afdb648b182dfc61e69f733576e45d26c411",
+      "triangle_count": 1960,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam"
+        ],
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "heterogeneous_volume",
+          "principled_volume_blackbody",
+          "fog_box_sunk#926",
+          "emitters_in_medium",
+          "spot_shaft",
+          "delta_ratio_tracking"
+        ]
+      }
+    },
+    "v2_sky_sun": {
+      "assets": [],
+      "blend_path": "benchmarks/reference_corpus/scenes/v2_sky_sun.blend",
+      "builder_fn": "_v2_sky_sun",
+      "crops": {
+        "chrome_reflection": [
+          0.378,
+          0.6891,
+          0.418,
+          0.7602
+        ],
+        "ground_foreground": [
+          0.25,
+          0.8,
+          0.75,
+          0.97
+        ],
+        "sky_upper": [
+          0.4608,
+          0.1953,
+          0.5808,
+          0.4086
+        ],
+        "stone_sky_lit_face": [
+          0.345,
+          0.52,
+          0.39,
+          0.8
+        ],
+        "sun_disc": [
+          0.5012,
+          0.5301,
+          0.5412,
+          0.6012
+        ],
+        "sun_glow": [
+          0.4711,
+          0.3768,
+          0.5711,
+          0.5546
+        ]
+      },
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "v2_sky_sun",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeTexSky"
+      ],
+      "object_counts": {
+        "CAMERA": 1,
+        "MESH": 12
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 320,
+        "res_y": 180,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "b02640204f7a5c911fae092845103f85420ea1b730c9d70fc52a85b100e2579d",
+      "triangle_count": 18158,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam"
+        ],
+        "divergence": {},
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "nishita_sky",
+          "sun_disc_4deg",
+          "sky_nee",
+          "chrome_env_reflection",
+          "diffuse_ground"
+        ]
+      }
+    },
+    "v2_textures_opvm": {
+      "assets": [],
+      "blend_path": "benchmarks/reference_corpus/scenes/v2_textures_opvm.blend",
+      "builder_fn": "_v2_textures_opvm",
+      "crops": {
+        "card_Checker": [
+          0.2332,
+          0.3961,
+          0.3232,
+          0.5561
+        ],
+        "card_Image": [
+          0.2332,
+          0.1333,
+          0.3232,
+          0.2933
+        ],
+        "card_MapAfterWarp": [
+          0.5289,
+          0.3961,
+          0.6189,
+          0.5561
+        ],
+        "card_MapBeforeWarp": [
+          0.3811,
+          0.3961,
+          0.4711,
+          0.5561
+        ],
+        "card_Noise": [
+          0.3811,
+          0.1333,
+          0.4711,
+          0.2933
+        ],
+        "card_Voronoi": [
+          0.5289,
+          0.1333,
+          0.6189,
+          0.2933
+        ],
+        "card_VoronoiEdge": [
+          0.6768,
+          0.3961,
+          0.7668,
+          0.5561
+        ],
+        "card_Wave": [
+          0.6768,
+          0.1333,
+          0.7668,
+          0.2933
+        ],
+        "sphere_MetallicProg": [
+          0.2432,
+          0.7245,
+          0.3132,
+          0.849
+        ],
+        "sphere_MixShaderProg": [
+          0.5389,
+          0.7245,
+          0.6089,
+          0.849
+        ],
+        "sphere_PlainRef": [
+          0.6868,
+          0.7245,
+          0.7568,
+          0.849
+        ],
+        "sphere_RoughnessProg": [
+          0.3911,
+          0.7245,
+          0.4611,
+          0.849
+        ]
+      },
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "v2_textures_opvm",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeEmission",
+        "ShaderNodeMapping",
+        "ShaderNodeMixShader",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld",
+        "ShaderNodeTexChecker",
+        "ShaderNodeTexCoord",
+        "ShaderNodeTexImage",
+        "ShaderNodeTexNoise",
+        "ShaderNodeTexVoronoi",
+        "ShaderNodeTexWave",
+        "ShaderNodeValToRGB",
+        "ShaderNodeVectorMath"
+      ],
+      "object_counts": {
+        "CAMERA": 1,
+        "LIGHT": 2,
+        "MESH": 12
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 480,
+        "res_y": 270,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "6a410d2e701bb99f1c3d4c197af3f70a807b15f438158eaf5059a535d651a530",
+      "triangle_count": 8848,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam"
+        ],
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "tex_image",
+          "tex_noise#881",
+          "tex_voronoi#881",
+          "tex_wave#890",
+          "tex_checker",
+          "mapping_pre_warp",
+          "mapping_post_warp#891",
+          "principled_metallic_program#889",
+          "principled_roughness_program#889",
+          "mix_shader_program#889"
+        ]
+      }
+    },
+    "v2_thin_film_metals": {
+      "assets": [],
+      "blend_path": "benchmarks/reference_corpus/scenes/v2_thin_film_metals.blend",
+      "builder_fn": "_v2_thin_film_metals",
+      "crops": {
+        "sphere_Copper": [
+          0.2294,
+          0.5487,
+          0.3094,
+          0.6909
+        ],
+        "sphere_Gold": [
+          0.0757,
+          0.5487,
+          0.1557,
+          0.6909
+        ],
+        "sphere_RoughGlassFilm": [
+          0.8443,
+          0.5487,
+          0.9243,
+          0.6909
+        ],
+        "sphere_Ti160": [
+          0.3831,
+          0.5487,
+          0.4631,
+          0.6909
+        ],
+        "sphere_Ti260": [
+          0.5369,
+          0.5487,
+          0.6169,
+          0.6909
+        ],
+        "sphere_Ti380": [
+          0.6906,
+          0.5487,
+          0.7706,
+          0.6909
+        ]
+      },
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "v2_thin_film_metals",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfMetallic",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld"
+      ],
+      "object_counts": {
+        "CAMERA": 1,
+        "LIGHT": 3,
+        "MESH": 7
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 320,
+        "res_y": 180,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "de57ad3b60a5886b23b2e13aa4467fa63359ad0f8f151e6eb182b20c0c89a857",
+      "triangle_count": 54172,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam"
+        ],
+        "render_gate": true,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "metallic_f82_conductor",
+          "thin_film_metal",
+          "thin_film_rough_glass#783",
+          "area_light_soft"
+        ]
+      }
+    },
+    "v2_viewport": {
+      "assets": [],
+      "blend_path": "benchmarks/reference_corpus/scenes/v2_viewport.blend",
+      "builder_fn": "_v2_viewport",
+      "crops": {},
+      "curve_count": 0,
+      "curve_point_count": 0,
+      "family": "v2_viewport",
+      "feature_tags": [],
+      "node_ids": [
+        "ShaderNodeBackground",
+        "ShaderNodeBsdfPrincipled",
+        "ShaderNodeOutputMaterial",
+        "ShaderNodeOutputWorld"
+      ],
+      "object_counts": {
+        "CAMERA": 3,
+        "MESH": 2
+      },
+      "reopen_verified": true,
+      "settings": {
+        "res_x": 640,
+        "res_y": 360,
+        "samples": 64,
+        "saved_default_engine": "CYCLES"
+      },
+      "sha256": "32944dc895951dba3d0bbbf0fb56712d5857d1360e8a6424b0debb6d52cc35df",
+      "triangle_count": 104320,
+      "v2": {
+        "blender_version": "5.2.0 LTS",
+        "cameras": [
+          "Cam",
+          "CamGrid",
+          "CamHero"
+        ],
+        "render_gate": false,
+        "seed": 278,
+        "spp_gate": 64,
+        "spp_reference": 1024,
+        "v2_tags": [
+          "viewport_metal_sweep",
+          "viewport_100k_tris",
+          "two_named_cameras"
+        ]
+      }
+    }
+  }
+}

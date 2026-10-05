@@ -238,6 +238,25 @@ __device__ inline bool gpu_sphere_hit(
     return true;
 }
 
+// #1092 — curve self-intersection skip. Cycles intersection_skip_self compares
+// the primitive's prim_index, which for curves is the CURVE (strand) index
+// (intern/cycles/bvh/build.cpp add_reference_curves; kernel/bvh/util.h), so a ray
+// leaving a strand skips all of its segments. `skipPrim` = ordered-prim index of
+// the segment the ray leaves (-1 none; may be a non-curve prim -> no skip);
+// `seg` = the candidate segment at ordered-prim index `primIdx`. Called on curve
+// leaf candidates only: one load of the skipped prim + its segment's strandId.
+__device__ inline bool gpu_curve_skip_self(const GPrimitive* prims,
+                                           const GCurveSegment* curves,
+                                           int primIdx, int skipPrim,
+                                           const GCurveSegment& seg)
+{
+    if (skipPrim < 0) return false;
+    if (primIdx == skipPrim) return true;
+    if (seg.strandId < 0) return false;
+    const GPrimitive& sp = prims[skipPrim];
+    return sp.type == GPRIM_CURVE && curves[sp.index].strandId == seg.strandId;
+}
+
 // ---------------------------------------------------------------------------
 // Iterative BVH traversal — direct port of BVHAccel::hit()
 // Thread-local stack[64] matches the CPU implementation.
@@ -308,9 +327,10 @@ __device__ inline bool gpu_bvh_hit(
                         // so the __noinline__ gpu_curve_intersect call never enters
                         // the non-curve intersect kernel's register/stack budget.
                         if (curves != nullptr && p.type == GPRIM_CURVE &&
-                            (int)(n.primitivesOffset + i) != skipPrim)
+                            !gpu_curve_skip_self(prims, curves, (int)(n.primitivesOffset + i),
+                                                 skipPrim, curves[p.index]))
                             isHit = gpu_curve_intersect(curves[p.index], ray, tMin, tMax, tmpRec);
-                        // else GPRIM_SKIP / own segment (#1037) → isHit stays false
+                        // else GPRIM_SKIP / own strand (#1037, #1092) → isHit stays false
                     }
                     // (HasCurves=false: GPRIM_CURVE/SKIP fall through, isHit stays false)
                     if (isHit) {
@@ -398,7 +418,8 @@ __device__ inline bool gpu_bvh_occluded(
                         isHit = gpu_sphere_hit(spheres[p.index], ray, tMin, tMax, tmpRec);
                     } else if constexpr (HasCurves) {
                         if (curves != nullptr && p.type == GPRIM_CURVE &&
-                            (int)(n.primitivesOffset + i) != skipPrim)  // #1037
+                            !gpu_curve_skip_self(prims, curves, (int)(n.primitivesOffset + i),
+                                                 skipPrim, curves[p.index]))  // #1037, #1092
                             isHit = gpu_curve_intersect(curves[p.index], ray, tMin, tMax, tmpRec);
                     }
                     if (isHit) return true;  // any hit occludes

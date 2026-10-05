@@ -4,7 +4,8 @@ Thick-curve hits (pbrt-v3 flattened test) sit at the centreline depth, INSIDE
 the tube, so before #1037 every continuation/shadow ray whose closest approach
 lay ahead re-entered the same fibre. Cycles skips the originating primitive
 (kernel/bvh/util.h intersection_skip_self); Astroray now does the same on the
-CPU (Ray::self) and the GPU software BVH (skipPrim). See
+CPU (Ray::self) and the GPU software BVH (skipPrim); #1092 widened the skip to
+the whole strand (Cycles prim_index is the curve). See
 .astroray_plan/docs/1037-curve-self-intersection-research.md.
 
 Gates (single straight one-segment strand, so no other geometry can be hit):
@@ -91,14 +92,17 @@ def test_continuation_does_not_re_enter_own_segment(gpu):
 
 
 @pytest.mark.parametrize("gpu", BACKENDS, ids=lambda g: "gpu" if g else "cpu")
-def test_adjacent_segment_of_same_strand_still_hit(gpu):
-    # Only the originating segment is skipped (Cycles skips one primitive): on a
-    # bent two-segment strand a continuation off one segment still reaches the
-    # other. Measured depth2/depth1 = 1.11-1.16 (CPU); a lone segment reads 1.000.
+def test_adjacent_segment_of_same_strand_skipped(gpu):
+    # #1092: Cycles' intersection_skip_self compares prim_index, which for a curve is
+    # the CURVE index (bvh/build.cpp add_reference_curves), so a ray leaving one segment
+    # of a bent strand never re-hits the strand's other segments either. Re-pinned from
+    # the #1037 assertion "adjacent segment stays hittable" (depth2/depth1 = 1.11-1.16),
+    # which encoded the segment-only skip; the strand-level gate vs Cycles 5.2 is in
+    # test_issue1092_strand_self_skip.py.
     d1 = float(_scene(gpu, False, 1, VEE).sum())
     d2 = float(_scene(gpu, False, 2, VEE).sum())
     print(f"  vee depth1={d1:.4f} depth2={d2:.4f} ratio={d2 / d1:.4f}")
-    assert d2 / d1 > 1.05, "adjacent segment of the same strand must stay hittable"
+    assert d2 / d1 < 1.01, "continuation off a bent strand must not re-hit the same strand"
 
 
 @pytest.mark.parametrize("gpu", BACKENDS, ids=lambda g: "gpu" if g else "cpu")

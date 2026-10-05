@@ -51,6 +51,7 @@
 // nearest real endpoint, not a mirrored extrapolation.
 #include "raytracer.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <vector>
 
@@ -77,7 +78,13 @@ public:
         // centreline depth INSIDE the tube, so without this every spawned ray
         // whose closest approach lies ahead re-enters the fibre the Chiang BSDF
         // already scattered through.
+        // #1092: Cycles' prim_index is the CURVE index (bvh/build.cpp
+        // add_reference_curves: BVHReference(bounds, j = curve, ..., segment k
+        // packed into the type), so the skip drops every segment of the strand the
+        // ray leaves, not just the one it left. Segments with no strand id (-1)
+        // keep the exact-segment skip.
         if (r.self == this) return false;
+        if (strandId_ >= 0 && r.self && r.self->curveStrandId() == strandId_) return false;
         Vec3 zAxis = r.direction;  // already normalized (Ray ctor)
         Vec3 chord = bezier_[3] - bezier_[0];
         Vec3 dxHint = zAxis.cross(chord);
@@ -140,6 +147,10 @@ public:
     // pkg316: Renderer::curveThickMode (Cycles Curves > Shape), read at hit time.
     void setThickModeSource(const bool* src) { thickMode_ = src; }
 
+    // #1092: strand (curve) id shared by every segment of one strand; -1 = none.
+    void setStrandId(int id) { strandId_ = id; }
+    int curveStrandId() const override { return strandId_; }
+
     bool boundingBox(AABB& box) const override {
         Vec3 minP = bezier_[0], maxP = bezier_[0];
         for (int i = 1; i < 4; ++i) {
@@ -167,6 +178,7 @@ private:
     std::shared_ptr<Material> material_;
     bool emissive_;
     const bool* thickMode_ = nullptr;  // null / false: ribbon depth (axis plane)
+    int strandId_ = -1;                // #1092
 
     // #1051 (pkg316): a THICK curve shades where the ray enters the tube, as
     // Cycles' swept-circle intersector does (sd->P on the surface); a ribbon
@@ -357,6 +369,9 @@ public:
         int n = static_cast<int>(points.size());
         if (n < 2 || static_cast<int>(radii.size()) != n) return segments;
         segments.reserve(n - 1);
+        // #1092: process-unique strand id, equal across this strand's segments.
+        static std::atomic<int> nextStrandId{0};
+        const int strandId = nextStrandId.fetch_add(1, std::memory_order_relaxed);
         for (int i = 0; i < n - 1; ++i) {
             const Vec3& p1 = points[i];
             const Vec3& p2 = points[i + 1];
@@ -364,6 +379,7 @@ public:
             const Vec3& p3 = (i == n - 2) ? points[i + 1] : points[i + 2];
             segments.push_back(std::make_shared<CurveSegment>(
                 p0, p1, p2, p3, radii[i], radii[i + 1], material));
+            segments.back()->setStrandId(strandId);
         }
         return segments;
     }

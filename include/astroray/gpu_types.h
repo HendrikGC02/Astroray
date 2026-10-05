@@ -339,6 +339,9 @@ struct GCurveSegment {
     // identically for every segment at upload from Renderer::getCurveThickMode()
     // (avoids threading a runtime flag through every intersect signature).
     int   thick;
+    // #1092: strand (curve) id shared by every segment of one strand, -1 = none.
+    // A ray leaving a curve skips the whole strand (Cycles prim_index = curve).
+    int   strandId = -1;
 };
 
 // ---------------------------------------------------------------------------

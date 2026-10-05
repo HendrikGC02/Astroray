@@ -12,14 +12,15 @@
     "rows": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["a", "b", "c", "d", "e", "f"],
+      "required": ["a", "b", "c", "d", "e", "f", "g"],
       "properties": {
         "a": { "$ref": "#/$defs/row" },
         "b": { "$ref": "#/$defs/row" },
         "c": { "$ref": "#/$defs/row" },
         "d": { "$ref": "#/$defs/row" },
         "e": { "$ref": "#/$defs/row" },
-        "f": { "$ref": "#/$defs/row" }
+        "f": { "$ref": "#/$defs/row" },
+        "g": { "$ref": "#/$defs/row" }
       }
     }
   },
@@ -48,8 +49,8 @@
         "date"
       ],
       "properties": {
-        "row": { "enum": ["a", "b", "c", "d", "e", "f"] },
-        "instrument": { "enum": ["viewport_latency", "coverage_report", "trio_parity", "native_panel_smoke", "issue_triage", "clean_install"] },
+        "row": { "enum": ["a", "b", "c", "d", "e", "f", "g"] },
+        "instrument": { "enum": ["viewport_latency", "coverage_report", "trio_parity", "native_panel_smoke", "issue_triage", "clean_install", "production_node_score"] },
         "status": { "enum": ["green", "red", "unmeasured"] },
         "scene_sha256": {
           "type": "array",
@@ -86,7 +87,7 @@
           }
         },
         {
-          "if": { "properties": { "status": { "const": "green" }, "row": { "enum": ["a", "b", "c", "d"] } }, "required": ["status", "row"] },
+          "if": { "properties": { "status": { "const": "green" }, "row": { "enum": ["a", "b", "c", "d", "g"] } }, "required": ["status", "row"] },
           "then": { "properties": { "scene_sha256": { "minItems": 1 } } }
         }
       ]

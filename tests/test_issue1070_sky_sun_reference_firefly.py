@@ -45,6 +45,7 @@ def test_reference_roi_has_no_isolated_firefly(roi_name):
     gates = tomllib.loads((CORPUS / "gates_v2.toml").read_text(encoding="utf-8"))
     scene = gates["scenes"][SCENE]
     roi = next(r for r in scene["roi"] if r["name"] == roi_name)
+    pytest.importorskip("cv2")  # MC.read_exr reads EXR through OpenCV (absent on CI)
     ref = MC.read_exr(CORPUS.parents[1] / scene["reference"])
     assert not _outliers(ref, roi["rect"]), f"{SCENE}/{roi_name}: reference firefly inside the ROI"
 
@@ -53,6 +54,7 @@ def test_reference_roi_has_no_isolated_firefly(roi_name):
 def test_outlier_detector_flags_the_old_rect():
     """The detector fires on the pre-#1070 rect (last row included) and on nothing else."""
     scene = tomllib.loads((CORPUS / "gates_v2.toml").read_text(encoding="utf-8"))["scenes"][SCENE]
+    pytest.importorskip("cv2")  # MC.read_exr reads EXR through OpenCV (absent on CI)
     ref = MC.read_exr(CORPUS.parents[1] / scene["reference"])
     bad = _outliers(ref, [0.378, 0.6891, 0.418, 0.7602])
     assert [(y, x) for y, x, _, _ in bad] == [(136, 127)]

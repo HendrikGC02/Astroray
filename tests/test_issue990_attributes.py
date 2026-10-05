@@ -139,10 +139,11 @@ def _wall(r, mat, corner_colours=None):
                          np.zeros((0,), np.float32), [], np.zeros((0,), np.float32), **kw)
 
 
-def _attr_material(r):
+def _attr_material(r, key='attr:Col|rgb'):
     node = Node('ATTRIBUTE', attribute_type='GEOMETRY', attribute_name='Col')
     compiled = C.compile_chain(_base(node, 'Color'))
-    r.create_attribute_texture('_attr_col', 'attr:Col|rgb')
+    # The addon passes the layer's Cycles not-found value (#1047).
+    r.create_attribute_texture('_attr_col', key, C.attribute_layer_missing(key))
     r.create_program_texture('acol', 'UV')
     r.program_texture_add_input('acol', '_attr_col')
     r.set_program_texture_program('acol', compiled['num_tex'], compiled['out_slot'],
@@ -187,3 +188,32 @@ def test_attribute_missing_reads_zero_on_cpu():
     _wall(r, _attr_material(r))  # no layer uploaded
     img = _render(r)
     assert img[20:28, 20:28].mean() < 0.01
+
+
+def test_attribute_layer_missing_value_follows_cycles():
+    # Cycles svm_node_attr_surface_eval: a not-found Attribute node reads 0 except
+    # its Alpha output (1); Color Attribute (svm/vertex_color.h) reads 0 throughout.
+    assert C.attribute_layer_missing('attr:Col|alpha') == 1.0
+    assert C.attribute_layer_missing('attr:Col|rgb') == 0.0
+    assert C.attribute_layer_missing('attr:Col|fac') == 0.0
+    assert C.attribute_layer_missing('color:Col|alpha') == 0.0
+    assert C.attribute_layer_missing('objinfo:Alpha') == 0.0
+
+
+@pytest.mark.parametrize("use_gpu", BACKENDS)
+def test_missing_attribute_alpha_reads_one(use_gpu):
+    """#1047 item 2: a wall that has no 'attr:Col|alpha' layer reads the Attribute
+    alpha as 1 (Cycles) -> same albedo as a constant-1 material; rgb stays 0."""
+    r = _renderer(use_gpu)
+    _wall(r, _attr_material(r, 'attr:Col|alpha'))   # no layer uploaded
+    alpha = _render(r)
+    r = _renderer(use_gpu)
+    _wall(r, r.create_material('principled', [1.0, 1.0, 1.0],
+                               {'roughness': 1.0, 'specular_ior_level': 0.0}))
+    ref = _render(r)
+    a, b = alpha[20:28, 20:28].reshape(-1, 3).mean(0), ref[20:28, 20:28].reshape(-1, 3).mean(0)
+    assert b.mean() > 0.3
+    np.testing.assert_allclose(a, b, rtol=0.03)
+    r = _renderer(use_gpu)
+    _wall(r, _attr_material(r, 'attr:Col|rgb'))
+    assert _render(r)[20:28, 20:28].mean() < 0.01

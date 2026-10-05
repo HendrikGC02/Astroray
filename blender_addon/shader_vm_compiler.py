@@ -49,6 +49,14 @@ ATTRIBUTE_NODE_TYPES = ('ATTRIBUTE', 'VERTEX_COLOR', 'OBJECT_INFO')
 OBJECT_INFO_OUTPUTS = ('Location', 'Color', 'Alpha', 'Object Index', 'Material Index', 'Random')
 
 
+def attribute_layer_missing(key):
+    """Cycles' not-found value of an attribute layer key (kernel/svm/attribute.h
+    svm_node_attr_surface_eval, Apache-2.0): 1 for the Attribute node's Alpha output
+    ('attr:<name>|alpha'), 0 otherwise (svm/vertex_color.h reads 0 for Color
+    Attribute). The engine returns it where a hit has no such layer (#1047)."""
+    return 1.0 if key.startswith('attr:') and key.endswith('|alpha') else 0.0
+
+
 def attribute_layer_key(node, variant):
     """Layer key for an attribute input (variant from the compiler's push_tex):
     'objinfo:<Output>', 'color:<layer>|<rgb|fac|alpha>' (Color Attribute; '' =

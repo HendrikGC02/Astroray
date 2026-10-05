@@ -4770,7 +4770,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if made is None or made[0] is not renderer:
             made = self._attr_textures_made = (renderer, set())
         if name not in made[1]:
-            renderer.create_attribute_texture(name, key)
+            try:
+                from . import shader_vm_compiler as svm
+            except Exception:
+                import shader_vm_compiler as svm
+            renderer.create_attribute_texture(
+                name, key, svm.attribute_layer_missing(key))  # #1047
             made[1].add(name)
         mat_name = getattr(self, "_current_material_name", "") or ""
         layers = getattr(self, '_material_attr_layers', None)

@@ -434,7 +434,8 @@ def _annotate_and_contact_sheet(renders_dir: Path, cfg_name: str, roi_masks,
 
 
 def run_glass(out_dir: Path, *, res: int = 256, samples: int = 128,
-             astroray_samples: int | None = None, timeout: int = 900) -> int:
+             astroray_samples: int | None = None, timeout: int = 900,
+             configs: list[str] | None = None) -> int:
     import numpy as np
 
     blender = _find_blender()
@@ -467,7 +468,9 @@ def run_glass(out_dir: Path, *, res: int = 256, samples: int = 128,
     roi_masks, r_px, center = _roi_masks(res)
 
     results: list[GlassConfigResult] = []
-    for cfg in _scenes.glass_sweep():
+    cfg_list = ([_scenes.glass_config_by_name(n) for n in configs] if configs
+                else _scenes.glass_sweep())
+    for cfg in cfg_list:
         print(f"[pkg263] {cfg.name} (r={cfg.roughness}) ...", flush=True)
         arrays: dict[str, Any] = {}
         crash = None
@@ -559,6 +562,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--samples", type=int, default=None)
     p.add_argument("--astroray-samples", type=int, default=None,
                    help="glass only: Astroray sample count if it must differ from --samples")
+    p.add_argument("--glass-configs", nargs="+", default=None,
+                   help="glass only: config names (default: the roughness sweep; "
+                        "#1038 adds glass_tint)")
     p.add_argument("--timeout", type=int, default=900)
     p.add_argument("--ratio-low", type=float, default=DEFAULT_RATIO_LOW)
     p.add_argument("--ratio-high", type=float, default=DEFAULT_RATIO_HIGH)
@@ -567,7 +573,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.material == "glass":
         out = args.out or results_dir("materials", "rough-glass-cycles-ab", create=False)
         return run_glass(out, res=args.res or 256, samples=args.samples or 128,
-                         astroray_samples=args.astroray_samples, timeout=args.timeout)
+                         astroray_samples=args.astroray_samples, timeout=args.timeout,
+                         configs=args.glass_configs)
 
     out = args.out or results_dir("materials", "metal-cycles-ab", create=False)
     return run(out, res=args.res or 128, samples=args.samples or 256,

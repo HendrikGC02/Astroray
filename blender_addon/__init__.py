@@ -5435,7 +5435,19 @@ class CustomRaytracerRenderEngine(RenderEngine):
             rough = self.get_float_input(node, 'Roughness', 0.0)
             ior = self.get_float_input(node, 'IOR', 1.5)
             _warn_color_texture_unsupported('BSDF_GLASS')
-            return {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'ior': ior, 'roughness': rough}}
+            spec = {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'ior': ior, 'roughness': rough}}
+            if self._use_native_principled():
+                # #1038: Cycles' Glass BSDF tints BOTH lobes by Color (svm/closure.h
+                # CLOSURE_BSDF_MICROFACET_GGX_GLASS_ID: fresnel->tint = {color, color};
+                # reflection = color*F, transmission = color*(1-F)). The native Principled
+                # transmission lobe tints reflection by specular_tint (post-multiply) and
+                # transmission by sqrt(base_color) (Cycles' Principled semantics). So a
+                # Glass BSDF is encoded as specular_tint = Color, base_color = Color^2:
+                # no engine/GPU change, Principled glass untouched (.astroray_plan/docs/
+                # issue1038-glass-tint-research.md).
+                spec['base_color'] = [max(float(c), 0.0) ** 2 for c in color]
+                spec['native_params'] = {'specular_tint': [max(float(c), 0.0) for c in color]}
+            return spec
         if ntype == 'BSDF_TRANSLUCENT':
             color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])
             _warn_color_texture_unsupported('BSDF_TRANSLUCENT')

@@ -313,9 +313,25 @@ def _cycles_script(scene: Scene, output: Path, device: str) -> str:
     if scene.scene_id == "cornell":
         setup = """
 import bpy
+import math
+# #1060 — match the Astroray cornell scene (run_parity._astroray_script). The
+# harness previously left the default scene's 1000 W point light (the Cube was
+# the only selected object), the grey 0.05 world node, a 39.6 deg camera, a
+# two-sided light mesh and an Oren-Nayar (Roughness 1.0) diffuse in the Cycles
+# scene; Astroray has none of those, hence mean ratio ~0.67 and SSIM 0.93.
+bpy.ops.object.select_all(action='SELECT')
 bpy.ops.object.delete()
 scene = bpy.context.scene
 scene.world.color = (0.0, 0.0, 0.0)
+if scene.world.use_nodes:
+    for n in scene.world.node_tree.nodes:
+        if n.type == 'BACKGROUND':
+            n.inputs['Color'].default_value = (0.0, 0.0, 0.0, 1.0)
+            n.inputs['Strength'].default_value = 0.0
+scene.cycles.max_bounces = 8  # Astroray: render(spp, 8, ...)
+scene.cycles.diffuse_bounces = 8
+scene.cycles.glossy_bounces = 8
+scene.cycles.transmission_bounces = 8
 def mat(name, color, emit=0.0):
     m = bpy.data.materials.new(name)
     m.use_nodes = True
@@ -326,11 +342,21 @@ def mat(name, color, emit=0.0):
         shader = nodes.new(type='ShaderNodeEmission')
         shader.inputs['Color'].default_value = color
         shader.inputs['Strength'].default_value = emit
-        m.node_tree.links.new(shader.outputs['Emission'], out.inputs['Surface'])
+        # Astroray's "light" material emits from the front face only; Cycles mesh
+        # emission is two-sided. Mask the back face (Geometry.Backfacing).
+        geo = nodes.new(type='ShaderNodeNewGeometry')
+        mix = nodes.new(type='ShaderNodeMixShader')
+        black = nodes.new(type='ShaderNodeEmission')
+        black.inputs['Color'].default_value = (0.0, 0.0, 0.0, 1.0)
+        black.inputs['Strength'].default_value = 0.0
+        m.node_tree.links.new(geo.outputs['Backfacing'], mix.inputs['Fac'])
+        m.node_tree.links.new(shader.outputs['Emission'], mix.inputs[1])
+        m.node_tree.links.new(black.outputs['Emission'], mix.inputs[2])
+        m.node_tree.links.new(mix.outputs['Shader'], out.inputs['Surface'])
     else:
         shader = nodes.new(type='ShaderNodeBsdfDiffuse')
         shader.inputs['Color'].default_value = color
-        shader.inputs['Roughness'].default_value = 1.0
+        shader.inputs['Roughness'].default_value = 0.0  # Lambertian (Roughness>0 = Oren-Nayar)
         m.node_tree.links.new(shader.outputs['BSDF'], out.inputs['Surface'])
     return m
 white = mat('white', (0.73, 0.73, 0.73, 1))
@@ -360,6 +386,9 @@ tri('light_0', [(-0.5, 1.98, -0.5), (0.5, 1.98, -0.5), (0.5, 1.98, 0.5)], light_
 tri('light_1', [(-0.5, 1.98, -0.5), (0.5, 1.98, 0.5), (-0.5, 1.98, 0.5)], light_mat)
 bpy.ops.object.camera_add(location=(0, 0, 5.5), rotation=(0, 0, 0))
 scene.camera = bpy.context.object
+# Astroray setup_camera(..., fov=38 deg, aspect 1): the Blender default lens is 39.6 deg.
+scene.camera.data.sensor_fit = 'VERTICAL'
+scene.camera.data.angle_y = math.radians(38.0)
 """
     else:
         setup = f"bpy.ops.wm.open_mainfile(filepath={str(scene.blend_path)!r})"
@@ -489,6 +518,7 @@ r = astroray.Renderer()
 if {device == 'gpu'!r}:
     r.set_use_gpu(True)
 r.set_seed(1)
+r.set_background_color([0.0, 0.0, 0.0])  # #1060: Astroray's default world is a lit sky; Cycles leg uses a black world
 red = r.create_material('lambertian', [0.65, 0.05, 0.05], {{}})
 green = r.create_material('lambertian', [0.12, 0.45, 0.15], {{}})
 white = r.create_material('lambertian', [0.73, 0.73, 0.73], {{}})

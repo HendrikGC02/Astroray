@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** done (PR pending, 2026-10-06 -- per-vertex max |diff| vs Cycles 5.2 bake 1.2e-5; prod_curves_geometry CPU 0/16 -> 13/16)
+**Status:** done — PR #1105, 2026-10-06; per-vertex max |diff| vs Cycles 5.2 bake 1.2e-5; prod_curves_geometry CPU 0/16 -> 13/16, GPU 3/16 -> 15/16
 **Estimated effort:** 1 session (~3 h); addon + op-VM compile; CUDA build only to confirm the GPU leg
 **Depends on:** pkg310, pkg314
 

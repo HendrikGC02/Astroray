@@ -158,7 +158,9 @@ def test_grid_reuse_is_cheaper_than_upload():
     def run_cold():
         # #981: an unchanged scene is cached for skip_upload=False too; a
         # domain-uploader call (outside the timed render) forces the upload path.
-        r.upload_materials()
+        # pkg315: upload_materials() rebuilds only the material domain (the grid
+        # buffers stay cached), so the cold leg uses upload_lights().
+        r.upload_lights()
 
     run(False)  # warm-up (first upload, LUT upload, kernel load)
 

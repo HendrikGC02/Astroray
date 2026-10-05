@@ -16,7 +16,9 @@
 #include "../profile.h"          // pkg298: host flatten/upload timers
 #include "astroray/gpu_optix_traversal.h"  // pkg299: OptiX hardware traversal
 #include "../optix/optix_launch_params.h"   // pkg299: ClosestLaunch / ShadowLaunch
+#include <atomic>
 #include <chrono>
+#include <mutex>
 #include <unordered_map>
 #include <cuda_runtime.h>
 #include <cstring>
@@ -1116,6 +1118,13 @@ struct WfContext {
     bool hwAccelForCache = false;
     bool sceneCached = false;
     bool sceneInvalidated = false;
+    // pkg315 (#1067): material-domain edit since the cached upload; the rebinds
+    // (old material pointer -> new) the owner reported, in order.
+    // (the viewport edits on the host thread while a render may be starting)
+    std::atomic<bool> materialsInvalidated{false};
+    std::mutex swapMutex;
+    std::vector<MaterialSwap> pendingSwaps;
+    uint64_t swapOwner = 0;
     uint64_t cachedOwner = 0;   // sceneOwnerId of the renderer that uploaded it
     // #981: Renderer::getSceneVersion() at upload (process-unique per scene
     // state) and the ASTRORAY_GPU_TRAVERSAL request the OptiX accel was built
@@ -1198,6 +1207,26 @@ void cuda_wavefront_invalidate_scene() {
     wfCtx().sceneInvalidated = true;
 }
 
+// pkg315 (#1067): see the header.
+void cuda_wavefront_invalidate_materials() {
+    wfCtx().materialsInvalidated = true;
+}
+void cuda_wavefront_note_material_swap(uint64_t ownerId, const Material* oldKey,
+                                       std::weak_ptr<Material> newMat) {
+    WfContext& C = wfCtx();
+    {
+        std::lock_guard<std::mutex> lk(C.swapMutex);
+        if (C.swapOwner != ownerId) {
+            C.pendingSwaps.clear();
+            C.swapOwner = ownerId;
+        }
+        C.pendingSwaps.push_back(MaterialSwap{oldKey, std::move(newMat)});
+    }
+    C.materialsInvalidated = true;
+}
+static int s_lastMaterialUpdate = 0;
+int cuda_wavefront_last_material_update() { return s_lastMaterialUpdate; }
+
 // #828: grid buffers uploaded by the last cuda_wavefront_render (see header).
 static int s_lastGridUploads = 0;
 int cuda_wavefront_last_grid_uploads() { return s_lastGridUploads; }
@@ -1210,6 +1239,22 @@ static int s_lastScenePatched = 0;  // pkg291
 int cuda_wavefront_last_scene_patched() { return s_lastScenePatched; }
 
 namespace {
+// pkg315 (#1067): rebuild the material domain of the cached scene in place
+// (host side). False, nothing changed, when the edit needs the full re-flatten
+// (see buildMaterialDomain's guards). The device upload happens in the render
+// body through wfSync(matReuse=false, ...).
+bool wfMaterialDomainUpdate(WfContext& C, const Renderer& renderer,
+                            const std::vector<MaterialSwap>& swaps) {
+    SceneUploadResult m;
+    try {
+        if (!buildMaterialDomain(renderer, C.cachedScene, swaps, m)) return false;
+    } catch (const std::exception&) {
+        return false;   // the full path re-runs the same producer and reports a real error
+    }
+    adoptMaterialDomain(C.cachedScene, std::move(m));
+    return true;
+}
+
 // pkg291 (#875): geometry of one moved triangle, scattered into d_tris on the
 // device (a ~76 B upload per moved triangle instead of a round trip of the
 // whole GTriangle array).
@@ -1745,15 +1790,42 @@ std::vector<float> cuda_wavefront_render(
     // the host arrays it needs are released after upload.
     (void)reuseDeviceScene;   // subsumed by the version check (a stale assertion cannot serve)
     const int traversalKey = static_cast<int>(astroray::optix_trav::requested());
-    const bool cacheValid = C.sceneCached && !C.sceneInvalidated
-                            && C.cachedOwner == sceneOwnerId
-                            && C.cachedTraversal == traversalKey;
-    const bool fullReuse = cacheValid && C.cachedVersion == renderer.getSceneVersion();
+    bool cacheValid = C.sceneCached && !C.sceneInvalidated
+                      && C.cachedOwner == sceneOwnerId
+                      && C.cachedTraversal == traversalKey;
+    bool fullReuse = cacheValid && C.cachedVersion == renderer.getSceneVersion();
+    // pkg315 (#1067): a material-only edit on an otherwise unchanged scene
+    // rebuilds just the material domain; geometry, lights, env and the OptiX
+    // accel stay on the device. Anything the guards cannot prove material-only
+    // (or a scene version bump alongside) takes the full path below.
+    bool materialUpdated = false;
+    if (C.materialsInvalidated.exchange(false)) {
+        std::vector<MaterialSwap> swaps;   // the rebinds this owner reported since the last render
+        {
+            std::lock_guard<std::mutex> lk(C.swapMutex);
+            if (C.swapOwner == sceneOwnerId) swaps = std::move(C.pendingSwaps);
+            C.pendingSwaps.clear();
+        }
+        if (fullReuse) {
+            const auto m0 = std::chrono::steady_clock::now();
+            materialUpdated = wfMaterialDomainUpdate(C, renderer, swaps);
+            if (materialUpdated && astroray::gpu_profile::enabled())
+                astroray::gpu_profile::Aggregator::instance().record(
+                    "host:materialDomain",
+                    std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - m0).count(), 0, 0, nullptr, -1);
+        }
+        if (!materialUpdated) { cacheValid = false; fullReuse = false; }
+    }
     // pkg291 (#875): an object move since the cached upload is patched in place
     // (moved triangles + refit node bounds), then the cache serves the rest.
     const bool patched = cacheValid && !fullReuse && wfPatchRefit(C, renderer);
     const bool reuse = fullReuse || patched;
-    s_lastSceneReused = fullReuse ? 1 : 0;
+    // pkg315: the material-domain arrays are re-uploaded even though the rest of
+    // the scene is served from the cache.
+    const bool matReuse = reuse && !materialUpdated;
+    s_lastSceneReused = (fullReuse && !materialUpdated) ? 1 : 0;
+    s_lastMaterialUpdate = materialUpdated ? 1 : 0;
     s_lastScenePatched = patched ? 1 : 0;
     // pkg298 Phase 0: host-side flatten / upload attribution (ASTRORAY_PROFILE).
     const auto pkg298T0 = std::chrono::steady_clock::now();
@@ -1779,27 +1851,27 @@ std::vector<float> cuda_wavefront_render(
     GBLAS*      d_blas      = wfSync(reuse, C.blas, res.blas);
     // pkg55-C4 / pkg88-C.0: deformation-motion vertices (nullptr for static scenes).
     GVec3*      d_motionVerts = wfSync(reuse, C.motionVertices, res.motionVertices);
-    ::GMaterial* d_materials = wfSync(reuse, C.materials, res.materials);
+    ::GMaterial* d_materials = wfSync(matReuse, C.materials, res.materials);
     // pkg186 — image-texture device arrays. All null for untextured scenes
     // (wfUpload returns nullptr on empty), and res.hasTexture=false then selects
     // the <*,false> shade kernel, so untextured renders pay nothing. The three
     // pointers are published ONCE per frame into the shade kernel's __constant__
     // binding (setWavefrontTextureBinding) — NOT threaded through the per-launch
     // signature — so the untextured fleet kernel keeps its pre-pkg186 footprint.
-    GImageTexture* d_textures  = wfSync(reuse, C.textures, res.textures);
-    GVec3*         d_texelBuf  = wfSync(reuse, C.textureTexels, res.textureTexels);
-    int*           d_matTexId  = wfSync(reuse, C.materialTextureId, res.materialTextureId);
+    GImageTexture* d_textures  = wfSync(matReuse, C.textures, res.textures);
+    GVec3*         d_texelBuf  = wfSync(matReuse, C.textureTexels, res.textureTexels);
+    int*           d_matTexId  = wfSync(matReuse, C.materialTextureId, res.materialTextureId);
     GVec3*         d_triGen    = wfSync(reuse, C.triGenerated, res.triGenerated);  // #847
     GVec3*         d_triObj    = wfSync(reuse, C.triObjectLocal, res.triObjectLocal);  // #1006
     // pkg223 — normal-map side arrays, published on the SAME binding. Set the
     // binding when EITHER a base-colour texture OR a normal map is present (a
     // normal map on a non-textured Principled/Disney BSDF has hasTexture=false).
-    int*   d_matNormalTexId   = wfSync(reuse, C.materialNormalTexId, res.materialNormalTexId);
-    float* d_matNormalStrength = wfSync(reuse, C.materialNormalStrength, res.materialNormalStrength);
+    int*   d_matNormalTexId   = wfSync(matReuse, C.materialNormalTexId, res.materialNormalTexId);
+    float* d_matNormalStrength = wfSync(matReuse, C.materialNormalStrength, res.materialNormalStrength);
     // pkg223b — bump side arrays (same axis as normal maps).
-    int*   d_matBumpTexId    = wfSync(reuse, C.materialBumpTexId, res.materialBumpTexId);
-    float* d_matBumpStrength = wfSync(reuse, C.materialBumpStrength, res.materialBumpStrength);
-    float* d_matBumpDistance = wfSync(reuse, C.materialBumpDistance, res.materialBumpDistance);
+    int*   d_matBumpTexId    = wfSync(matReuse, C.materialBumpTexId, res.materialBumpTexId);
+    float* d_matBumpStrength = wfSync(matReuse, C.materialBumpStrength, res.materialBumpStrength);
+    float* d_matBumpDistance = wfSync(matReuse, C.materialBumpDistance, res.materialBumpDistance);
     if (res.hasTexture || res.hasNormalPerturb)
         setWavefrontTextureBinding(GWavefrontTextureBinding{
             d_textures, d_texelBuf, d_matTexId, d_matNormalTexId, d_matNormalStrength,
@@ -1807,19 +1879,19 @@ std::vector<float> cuda_wavefront_render(
     // pkg219b — op-VM program device arrays (all null when no material carries a
     // program; res.hasProgram=false then selects the <…,false> shade kernel).
     astroray::svm::ShaderVMProgram* d_programs =
-        wfSync(reuse, C.programs, res.programs);
-    int* d_matProgId = wfSync(reuse, C.materialProgramId, res.materialProgramId);
+        wfSync(matReuse, C.programs, res.programs);
+    int* d_matProgId = wfSync(matReuse, C.materialProgramId, res.materialProgramId);
     // pkg219d — scalar BSDF-param side arrays ([mat*VM_SCALAR_SLOTS+slot]). Null
     // when no material carries a scalar program; the <…,false> shade kernel never
     // reads them. Their source images ride the SAME c_wfTexBinding texture arrays
     // uploaded above (res.hasTexture is set for a scalar-program material).
-    int* d_matScalarProgId = wfSync(reuse, C.materialScalarProgId, res.materialScalarProgId);
-    int* d_matScalarTexId  = wfSync(reuse, C.materialScalarTexId,  res.materialScalarTexId);
+    int* d_matScalarProgId = wfSync(matReuse, C.materialScalarProgId, res.materialScalarProgId);
+    int* d_matScalarTexId  = wfSync(matReuse, C.materialScalarTexId,  res.materialScalarTexId);
     // #826 — per-material program input texIds (inputs t >= 1 of a multi-input
     // program ride here; t = 0 is d_matTexId).
-    int* d_matProgInTexId = wfSync(reuse, C.materialProgInputTexId, res.materialProgInputTexId);
+    int* d_matProgInTexId = wfSync(matReuse, C.materialProgInputTexId, res.materialProgInputTexId);
     // #1007 — per-hit procedural evaluators (GImageTexture::procId), null when none.
-    astroray::proc::GProcTexture* d_procs = wfSync(reuse, C.procTextures, res.procTextures);
+    astroray::proc::GProcTexture* d_procs = wfSync(matReuse, C.procTextures, res.procTextures);
     // pkg314 — graph value programs: immutable arenas (scene slices) + the
     // dedicated kernel's per-path output buffer and batched scratch. The scratch
     // holds `graphBatch` threads x the scene's largest slot count; the batch is
@@ -1830,13 +1902,13 @@ std::vector<float> cuda_wavefront_render(
     const int* d_matGraphProg = nullptr;
     if (res.hasGraph) {
         using namespace astroray::sgraph;
-        const GraphInstr* d_gInstrs = wfSync(reuse, C.graphInstrs, res.graphInstrs);
-        const GVec3* d_gConsts = wfSync(reuse, C.graphConsts, res.graphConsts);
-        const GraphTable* d_gTables = wfSync(reuse, C.graphTables, res.graphTables);
-        const GVec3* d_gTableData = wfSync(reuse, C.graphTableData, res.graphTableData);
-        const int* d_gTexRefs = wfSync(reuse, C.graphTexRefs, res.graphTexRefs);
-        const GraphProgramDesc* d_gPrograms = wfSync(reuse, C.graphPrograms, res.graphPrograms);
-        d_matGraphProg = wfSync(reuse, C.materialGraphProg, res.materialGraphProg);
+        const GraphInstr* d_gInstrs = wfSync(matReuse, C.graphInstrs, res.graphInstrs);
+        const GVec3* d_gConsts = wfSync(matReuse, C.graphConsts, res.graphConsts);
+        const GraphTable* d_gTables = wfSync(matReuse, C.graphTables, res.graphTables);
+        const GVec3* d_gTableData = wfSync(matReuse, C.graphTableData, res.graphTableData);
+        const int* d_gTexRefs = wfSync(matReuse, C.graphTexRefs, res.graphTexRefs);
+        const GraphProgramDesc* d_gPrograms = wfSync(matReuse, C.graphPrograms, res.graphPrograms);
+        d_matGraphProg = wfSync(matReuse, C.materialGraphProg, res.materialGraphProg);
         const size_t slots = (size_t)std::max(res.graphMaxSlots, 1);
         const size_t kScratchBudget = size_t(64) << 20;
         size_t batch = kScratchBudget / (slots * sizeof(GVec3));
@@ -1857,7 +1929,7 @@ std::vector<float> cuda_wavefront_render(
     // #991 — Light Path: switch side table (null when no Mix Shader has a Light
     // Path Fac) + lp_state maintenance (any switch or Light Path program).
     {
-        auto* d_lpSwitch = wfSync(reuse, C.lightPathSwitch, res.lightPathSwitch);
+        auto* d_lpSwitch = wfSync(matReuse, C.lightPathSwitch, res.lightPathSwitch);
         setWavefrontLightPathBinding(GWavefrontLightPathBinding{
             d_lpSwitch, res.hasLightPath ? 1 : 0 });
     }
@@ -2145,6 +2217,11 @@ std::vector<float> cuda_wavefront_render(
         C.cachedTraversal = traversalKey;
     }
     if (patched) C.cachedVersion = renderer.getSceneVersion();  // pkg291
+    if (materialUpdated) {
+        // pkg315: as the full upload does, drop the bulk texel arrays once on the device.
+        res.textures.clear(); res.textures.shrink_to_fit();
+        res.textureTexels.clear(); res.textureTexels.shrink_to_fit();
+    }
     if (astroray::gpu_profile::enabled()) {
         const auto t2 = std::chrono::steady_clock::now();
         auto ms = [](auto a, auto b) {

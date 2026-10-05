@@ -140,10 +140,12 @@ def test_reuse_is_cheaper_than_upload_on_a_large_scene():
     def best(skip):
         # #981: an unchanged scene is cached for skip_upload=False too, so the
         # upload leg forces a cold render with a domain-uploader invalidation.
+        # pkg315: upload_materials() now rebuilds only the material domain (it is
+        # no longer a full re-flatten), so the cold leg uses upload_lights().
         ts = []
         for _ in range(5):
             if not skip:
-                r.upload_materials()
+                r.upload_lights()
             t = time.perf_counter()
             _render(r, spp=1, skip_upload=skip)
             ts.append(time.perf_counter() - t)

@@ -644,6 +644,7 @@ class PyRenderer {
     bool lastRenderInfoOptix_ = false;  // pkg299: last GPU render used OptiX traversal
     bool lastRenderInfoSceneReused_ = false;  // #981: last GPU render served the device scene cache
     bool lastRenderInfoScenePatched_ = false;  // pkg291: last GPU render patched an object move in place
+    bool lastRenderInfoMaterialUpdate_ = false;  // pkg315: last GPU render re-uploaded only the material domain
     // pkg89 Phase B: IES profile cache (shared_ptr keeps profiles alive).
     std::unordered_map<std::string, std::shared_ptr<IESProfile>> iesProfiles_;
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -676,30 +677,30 @@ public:
                                  const std::vector<float>& bmin,
                                  const std::vector<float>& bsize) {
         textureManager.setTextureGeneratedBBox(name, bmin, bsize);
-        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
+        invalidateWavefrontMaterials();  // #981 / pkg315: texture edit, material domain
     }
     void setTextureCoordMode(const std::string& name, const std::string& coordMode) {
         textureManager.setTextureCoordMode(name, coordMode);
-        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
+        invalidateWavefrontMaterials();  // #981 / pkg315: texture edit, material domain
     }
     void setTextureUVTransform(const std::string& name,
                                float sx, float sy, float ox, float oy,
                                float rotZRad = 0.0f) {
         textureManager.setTextureUVTransform(name, sx, sy, ox, oy, rotZRad);
-        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
+        invalidateWavefrontMaterials();  // #981 / pkg315: texture edit, material domain
     }
     void setTextureUVLayerName(const std::string& name, const std::string& layerName) {
         textureManager.setTextureUVLayerName(name, layerName);
-        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
+        invalidateWavefrontMaterials();  // #981 / pkg315: texture edit, material domain
     }
     void setTextureExtension(const std::string& name, const std::string& ext) {
         textureManager.setTextureExtension(name, ext);
-        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
+        invalidateWavefrontMaterials();  // #981 / pkg315: texture edit, material domain
     }
     void setTextureMappingMatrix(const std::string& name,
                                  const std::vector<float>& m) {
         textureManager.setTextureMappingMatrix(name, m);
-        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
+        invalidateWavefrontMaterials();  // #981 / pkg315: texture edit, material domain
     }
     // pkg219b op-VM builder forwarders.
     void createProgramTexture(const std::string& name, const std::string& coordMode) {
@@ -711,7 +712,7 @@ public:
     }
     void programTextureAddInput(const std::string& name, const std::string& inputName) {
         textureManager.programTextureAddInput(name, inputName);
-        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
+        invalidateWavefrontMaterials();  // #981 / pkg315: texture edit, material domain
     }
     void setProgramTextureProgram(const std::string& name, int numTex, int outSlot,
                                   const std::vector<int>& code_flat,
@@ -719,7 +720,7 @@ public:
                                   const std::vector<float>& ramps_flat) {
         textureManager.setProgramTextureProgram(name, numTex, outSlot,
                                                 code_flat, consts_flat, ramps_flat);
-        invalidateWavefrontScene();  // #981: in-place edit read by buildSceneArrays
+        invalidateWavefrontMaterials();  // #981 / pkg315: texture edit, material domain
     }
     void createGraphProgramTexture(const std::string& name, int version, int numSlots,
                                    int outSlot, const std::vector<int>& code,
@@ -731,7 +732,7 @@ public:
         textureManager.createGraphProgramTexture(name, version, numSlots, outSlot, code,
                                                  consts, tables, tableData, inputNames,
                                                  inputKinds);
-        invalidateWavefrontScene();  // #981: new texture read by buildSceneArrays
+        invalidateWavefrontMaterials();  // #981 / pkg315: texture, material domain
     }
     void createCoordProgramTexture(const std::string& name, const std::string& childName,
                                    const std::string& coordMode, int outSlot,
@@ -2551,10 +2552,21 @@ public:
         return ok;
     }
 
+    // pkg315: a material only this map holds (use_count 1: no primitive, decorator
+    // or Light Path switch references it) cannot reach the device scene, so editing
+    // it needs no invalidation — the viewport names / profiles a freshly converted
+    // material before rebinding it.
+    bool materialIsUnreferenced(int materialId) const {
+        auto it = materials.find(materialId);
+        return it != materials.end() && it->second.use_count() == 1;
+    }
+
     void setMaterialName(int materialId, const std::string& name) {
         if (materials.count(materialId)) {
+            const bool unreferenced = materialIsUnreferenced(materialId);
             materials[materialId]->setName(name);
-            invalidateWavefrontScene();  // #981: materialHash is uploaded
+            if (!unreferenced)
+                invalidateWavefrontScene();  // #981: materialHash is uploaded
             crypto_name_registry::instance().add_material(name);
         }
     }
@@ -2920,6 +2932,8 @@ public:
                     astroray::wavefront::cuda_wavefront_last_scene_reused() != 0;  // #981
                 lastRenderInfoScenePatched_ =
                     astroray::wavefront::cuda_wavefront_last_scene_patched() != 0;  // pkg291
+                lastRenderInfoMaterialUpdate_ =
+                    astroray::wavefront::cuda_wavefront_last_material_update() != 0;  // pkg315
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],
@@ -3026,6 +3040,7 @@ public:
             lastRenderInfoOptix_ = false;    // pkg299
             lastRenderInfoSceneReused_ = false;  // #981
             lastRenderInfoScenePatched_ = false;  // pkg291
+            lastRenderInfoMaterialUpdate_ = false;  // pkg315
         }
         if (callbackError) std::rethrow_exception(callbackError);
 
@@ -3085,6 +3100,9 @@ public:
         // #981: true when the last GPU render reused the device scene + OptiX accel.
         d["gpu_scene_reused"] = lastRenderInfoSceneReused_;
         d["gpu_scene_patched"] = lastRenderInfoScenePatched_;  // pkg291
+        // pkg315 (#1067): true when the last GPU render re-uploaded ONLY the material
+        // domain (geometry / lights / env / OptiX accel served from the cache).
+        d["gpu_material_domain_update"] = lastRenderInfoMaterialUpdate_;
         // pkg298: wall ms of the most recent CPU BVH build (a cached render
         // leaves it unchanged; compare get_scene_stats()["bvh_build_count"]).
         d["bvh_build_ms"] = renderer.getBvhBuildMs();
@@ -3508,16 +3526,20 @@ public:
         // pkg195 Stage C: `replace` picks Replace mode (authored SPD drives all λ,
         // set by source nodes wired to a Surface); the pkg58 material-panel
         // fallback passes replace=false (ExtendOnly — out-of-band only).
+        const bool unreferenced = it->second.use_count() == 1;  // pkg315
         if (profile) it->second->setSpectralProfile(
             profile, replace ? astroray::ProfileMode::Replace
                              : astroray::ProfileMode::ExtendOnly);
-        invalidateWavefrontScene();  // #981
+        if (!unreferenced)
+            invalidateWavefrontMaterials();  // #981 / pkg315: profile table is material domain
     }
 
     void clearMaterialSpectralProfile(int materialId) {
         auto it = materials.find(materialId);
+        const bool unreferenced = it != materials.end() && it->second.use_count() == 1;  // pkg315
         if (it != materials.end()) it->second->setSpectralProfile(nullptr);
-        invalidateWavefrontScene();  // #981
+        if (!unreferenced)
+            invalidateWavefrontMaterials();  // #981 / pkg315: profile table is material domain
     }
 
     void setIntegrator(const std::string& name) {
@@ -3733,6 +3755,16 @@ public:
 #endif
     }
 
+    // pkg315 (#1067): a material / texture edit invalidates only the material
+    // domain: the next wavefront render rebuilds and uploads the material arrays
+    // and keeps geometry, lights, env and the OptiX accel (or falls back to the
+    // full re-flatten when its guards cannot prove the edit material-only).
+    void invalidateWavefrontMaterials() {
+#if defined(ASTRORAY_CUDA_ENABLED) && defined(ASTRORAY_WAVEFRONT_CUDA_N3)
+        astroray::wavefront::cuda_wavefront_invalidate_materials();
+#endif
+    }
+
     // Push only material payloads (GMaterial flat array + spectral profile
     // table) to the GPU. Geometry / BVH / lights / env are untouched.
     // Cycles equivalent: Shader::tag_update() → ShaderManager::device_update.
@@ -3744,8 +3776,9 @@ public:
 #endif
         // Gate (a): with the wavefront, the legacy upload above re-flattened the
         // whole scene (~35 ms at 100k tris) into buffers no render reads; the
-        // wavefront re-uploads materials itself after this invalidation.
-        invalidateWavefrontScene();  // #801
+        // wavefront re-uploads materials itself after this invalidation (pkg315:
+        // the material domain only; geometry stays on the device).
+        invalidateWavefrontMaterials();  // #801 / pkg315
     }
 
     // Push only light buffer + power CDF to the GPU. Geometry / materials /
@@ -3779,25 +3812,70 @@ public:
         std::shared_ptr<Material> oldM = itOld->second, newM = itNew->second;
         if (oldM == newM) return true;
         if (!oldM || !newM || oldM->isEmissive() || newM->isEmissive()) return false;
-        std::vector<Hittable*> holders;
-        // pkg298: read-only scene access; a material swap keeps the cached BVH.
-        for (const auto& h : renderer.getScene()) {
-            if (auto* s = dynamic_cast<Sphere*>(h.get())) {
-                if (s->getMaterial() == oldM) holders.push_back(s);
-            } else if (auto* t = dynamic_cast<Triangle*>(h.get())) {
-                if (t->getMaterial() == oldM) holders.push_back(t);
-            }
-        }
+        // pkg315: the holders come from the material -> holders index (one scan per
+        // scene version, not per edit).
+        std::vector<Holder>* found = holdersOf(oldM.get());
+        const size_t nHolders = found ? found->size() : 0;
         // References: the map entry + `oldM` + one per holder found.
-        if (oldM.use_count() != static_cast<long>(holders.size()) + 2) return false;
-        for (Hittable* h : holders) {
-            if (auto* s = dynamic_cast<Sphere*>(h)) s->setMaterial(newM);
-            else static_cast<Triangle*>(h)->setMaterial(newM);
+        if (oldM.use_count() != static_cast<long>(nHolders) + 2) return false;
+        if (found) {
+            // A holder that no longer holds oldM means the index is stale: undo the
+            // partial swap, drop the index, and let the caller full-sync.
+            for (size_t i = 0; i < nHolders; ++i) {
+                const Holder& h = (*found)[i];
+                const std::shared_ptr<Material>& cur =
+                    h.sphere ? static_cast<Sphere*>(h.h)->getMaterial()
+                             : static_cast<Triangle*>(h.h)->getMaterial();
+                if (cur != oldM) {
+                    for (size_t k = 0; k < i; ++k) setHolderMaterial((*found)[k], oldM);
+                    holderIndexVersion_ = 0;
+                    return false;
+                }
+                setHolderMaterial(h, newM);
+            }
+            // The holders now belong to newM's slot in the index.
+            std::vector<Holder> moved = std::move(*found);
+            holderIndex_.erase(oldM.get());
+            std::vector<Holder>& dst = holderIndex_[newM.get()];
+            dst.insert(dst.end(), moved.begin(), moved.end());
         }
+        // pkg315: tell the device cache which material replaced which, so a
+        // material-domain rebuild can follow the swap (oldM is released below).
+#if defined(ASTRORAY_CUDA_ENABLED) && defined(ASTRORAY_WAVEFRONT_CUDA_N3)
+        astroray::wavefront::cuda_wavefront_note_material_swap(
+            sceneOwnerId_, oldM.get(), std::weak_ptr<Material>(newM));
+#endif
         itOld->second = newM;
         materials.erase(itNew);
-        invalidateWavefrontScene();
+        invalidateWavefrontMaterials();
         return true;
+    }
+
+    // pkg315 (#1067): material -> top-level holders (Sphere / Triangle) index for
+    // rebind_material, so a viewport material edit does not dynamic_cast-scan every
+    // primitive (~6 ms at 100k triangles). Valid for one scene version; rebuilt
+    // lazily after any scene mutation (rebindMaterial verifies each holder anyway).
+    struct Holder { Hittable* h; bool sphere; };
+    uint64_t holderIndexVersion_ = 0;
+    std::unordered_map<const Material*, std::vector<Holder>> holderIndex_;
+    static void setHolderMaterial(const Holder& h, const std::shared_ptr<Material>& m) {
+        if (h.sphere) static_cast<Sphere*>(h.h)->setMaterial(m);
+        else static_cast<Triangle*>(h.h)->setMaterial(m);
+    }
+    std::vector<Holder>* holdersOf(const Material* m) {
+        if (holderIndexVersion_ != renderer.getSceneVersion()) {
+            holderIndex_.clear();
+            // pkg298: read-only scene access; a material swap keeps the cached BVH.
+            for (const auto& h : renderer.getScene()) {
+                if (auto* s = dynamic_cast<Sphere*>(h.get()))
+                    holderIndex_[s->getMaterial().get()].push_back({s, true});
+                else if (auto* t = dynamic_cast<Triangle*>(h.get()))
+                    holderIndex_[t->getMaterial().get()].push_back({t, false});
+            }
+            holderIndexVersion_ = renderer.getSceneVersion();
+        }
+        auto it = holderIndex_.find(m);
+        return it == holderIndex_.end() ? nullptr : &it->second;
     }
 
     // #849: dedicated-light range bookkeeping for the in-place light re-sync.

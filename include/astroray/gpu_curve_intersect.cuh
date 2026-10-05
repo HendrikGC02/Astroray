@@ -173,7 +173,10 @@ __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_curve_intersect(
     sp = 1;
 
     bool  hitAny = false;
-    float bestT = tMax;   // narrows as closer hits are found
+    // #1051 review: thick hits move from the axis depth to the tube entry (up to
+    // one radius nearer), so cull the axis depth against tMax + radius and test
+    // the entry against tMax below (curves.h twin).
+    float bestT = thick ? tMax + maxRadius : tMax;   // narrows as closer hits are found
     float best_u = 0.f, best_v = 0.5f;
 
     while (sp > 0) {
@@ -225,8 +228,9 @@ __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_curve_intersect(
 
         float dist = sqrtf(distSq);
         float edgeFunc = dpcdw.x * -pc.y + pc.x * dpcdw.y;
-        float v = (edgeFunc > 0.f) ? 0.5f + dist / (2.f * hitRadius)
-                                   : 0.5f - dist / (2.f * hitRadius);
+        // #1051 (pkg316): sign matches the true outward normal / Cycles h (curves.h).
+        float v = (edgeFunc > 0.f) ? 0.5f - dist / (2.f * hitRadius)
+                                   : 0.5f + dist / (2.f * hitRadius);
 
         // Accept — narrow tMax so a farther half can't overwrite.
         hitAny = true;
@@ -240,7 +244,7 @@ __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_curve_intersect(
     // ---- Shading frame at the accepted hit (recompute from the global hull at
     // best_u, exactly like CurveSegment::recursiveIntersect's tail). ----
     GVec3 dpdu;
-    gEvalBezier(bez, best_u, &dpdu);
+    const GVec3 axisP = gEvalBezier(bez, best_u, &dpdu);
     if (dpdu.length2() == 0.f) return false;
 
     GVec3 outwardNormal;
@@ -268,6 +272,22 @@ __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_curve_intersect(
     // ---- Fill the hit record (setFaceNormal convention: orient the normal to
     // face the incoming ray; the curve's own tangent overrides uvTangent). ----
     float tHit = bestT;
+    if (thick) {
+        // #1051 (pkg316): thick curves shade at the tube entry (curves.h
+        // moveToThickSurface twin): front root of the ray vs the local cylinder.
+        const GVec3 T = dpdu.normalized();
+        const GVec3 w = ray.origin - axisP;
+        const GVec3 dp = ray.direction - T * ray.direction.dot(T);
+        const GVec3 wp = w - T * w.dot(T);
+        const float a = dp.dot(dp), b = 2.f * wp.dot(dp);
+        const float c = wp.dot(wp) - hitRadius * hitRadius;
+        const float disc = b * b - 4.f * a * c;
+        if (a >= 1e-6f && disc >= 0.f) {
+            const float t = (-b - sqrtf(disc)) / (2.f * a);
+            if (t >= tMin && t < tHit) tHit = t;
+        }
+    }
+    if (tHit > tMax) return false;
     rec.t = tHit;
     rec.point = ray.at(tHit);
     rec.frontFace = ray.direction.dot(outwardNormal) < 0.f;

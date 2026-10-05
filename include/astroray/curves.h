@@ -99,7 +99,14 @@ public:
         }
 
         float maxRadius = std::max(radius0_, radius1_);
-        if (!boundsOverlapRay(cp, maxRadius, tMin, tMax)) return false;
+        // #1051 review: a thick hit moves from the axis depth (the leaf's pc.z) to
+        // the tube entry up to one radius nearer, so the leaf culls against
+        // tMax + radius and the entry is tested against the caller's tMax below.
+        // Culling the axis depth against tMax let a grazing strand tested first
+        // reject a central strand whose surface is nearer.
+        const bool thick = thickMode_ && *thickMode_;
+        const float cullMax = thick ? tMax + maxRadius : tMax;
+        if (!boundsOverlapRay(cp, maxRadius, tMin, cullMax)) return false;
 
         // Adaptive max recursion depth (pbrt's L0/eps flatness heuristic).
         float L0 = 0.0f;
@@ -118,8 +125,20 @@ public:
             }
         }
 
-        return recursiveIntersect(r, tMin, tMax, cp, xAxis, yAxis, zAxis, 0.0f, 1.0f, maxDepth, rec);
+        if (!thick)
+            return recursiveIntersect(r, tMin, tMax, cp, xAxis, yAxis, zAxis, 0.0f, 1.0f, maxDepth, rec);
+        // Local record: a rejected thick hit must not clobber a nearer hit already in `rec`.
+        HitRecord h;
+        if (!recursiveIntersect(r, tMin, cullMax, cp, xAxis, yAxis, zAxis, 0.0f, 1.0f, maxDepth, h))
+            return false;
+        moveToThickSurface(r, tMin, h);
+        if (h.t > tMax) return false;  // entry (or kept axis depth) beyond the caller's tMax
+        rec = h;
+        return true;
     }
+
+    // pkg316: Renderer::curveThickMode (Cycles Curves > Shape), read at hit time.
+    void setThickModeSource(const bool* src) { thickMode_ = src; }
 
     bool boundingBox(AABB& box) const override {
         Vec3 minP = bezier_[0], maxP = bezier_[0];
@@ -147,6 +166,31 @@ private:
     float radius0_, radius1_;
     std::shared_ptr<Material> material_;
     bool emissive_;
+    const bool* thickMode_ = nullptr;  // null / false: ribbon depth (axis plane)
+
+    // #1051 (pkg316): a THICK curve shades where the ray enters the tube, as
+    // Cycles' swept-circle intersector does (sd->P on the surface); a ribbon
+    // shades on its ray-facing plane through the axis (the leaf's pc.z). The
+    // entry is the front root of the ray vs the local cylinder (axis = tangent
+    // at u, radius at u); grazing/parallel rays keep the axis depth. Shading at
+    // the axis put NEE origins up to one radius behind the lit surface, so
+    // close neighbours shadowed them (melanin tuft 0.81 of Cycles, direct sun).
+    void moveToThickSurface(const Ray& r, float tMin, HitRecord& rec) const {
+        const float u = rec.hair_u;
+        const Vec3 T = rec.uvTangent;
+        const Vec3 w = r.origin - evalBezier(bezier_, u);
+        const Vec3 dp = r.direction - T * r.direction.dot(T);
+        const Vec3 wp = w - T * w.dot(T);
+        const float rad = lerpRadius(u);
+        const float a = dp.dot(dp), b = 2.0f * wp.dot(dp), c = wp.dot(wp) - rad * rad;
+        const float disc = b * b - 4.0f * a * c;
+        if (a < 1e-6f || disc < 0.0f) return;
+        const float t = (-b - std::sqrt(disc)) / (2.0f * a);
+        if (t < tMin || t >= rec.t) return;
+        rec.t = t;
+        rec.point = r.at(t);
+        rec.objectPoint = rec.point;
+    }
 
     float lerpRadius(float u) const { return radius0_ + (radius1_ - radius0_) * u; }
 
@@ -249,8 +293,13 @@ private:
 
         float dist = std::sqrt(distSq);
         float edgeFunc = dpcdw.x * -pc.y + pc.x * dpcdw.y;
-        float v = (edgeFunc > 0.0f) ? 0.5f + dist / (2.0f * hitRadius)
-                                     : 0.5f - dist / (2.0f * hitRadius);
+        // #1051 (pkg316): v grows toward the side of the axis the hit lies on, so
+        // the -theta rotation below yields the true outward normal and the hair
+        // BSDF's h = 2v-1 equals Cycles' sin(gamma_o) = dot(cross(Ng, X), Z)
+        // (bsdf_principled_hair_chiang.h). pbrt-v3's `edgeFunc > 0 ? 0.5 + ...`
+        // mirrored both: the lit side of a thick curve rendered dark.
+        float v = (edgeFunc > 0.0f) ? 0.5f - dist / (2.0f * hitRadius)
+                                     : 0.5f + dist / (2.0f * hitRadius);
 
         Vec3 dpdu;
         evalBezier(bezier_, u, &dpdu);  // full-hull (world-space) tangent at global u
@@ -283,7 +332,9 @@ private:
         // the Stage-2 hair BSDF for its longitudinal/azimuthal frame.
         rec.uvTangent = dpdu.normalized();
         rec.uvBitangentSign = 1.0f;
-        rec.uv = Vec2(u, v);
+        // #1051 review: the BSDF-facing v (hair_v) was flipped; the texture coordinate
+        // keeps its pre-pkg316 orientation (1 - v), so textured curves do not mirror.
+        rec.uv = Vec2(u, 1.0f - v);
         rec.hair_u = u;
         rec.hair_v = v;
         rec.material = material_;

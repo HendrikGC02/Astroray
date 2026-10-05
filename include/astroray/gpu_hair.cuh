@@ -76,6 +76,10 @@ struct GHairMat {
     // subsurface=ph. RGB path & non-melanin modes untouched (sigmaA carries them).
     bool  melaninMode;
     float eu, ph;
+    // pkg316 — reflectance mode (specular == 2): JH sigmoid of the colour in
+    // metallic/subsurface/specularTint, inverted per wavelength (pbrt-v4 HairMaterial).
+    bool  reflJH;
+    float jh0, jh1, jh2, betaN;
 };
 
 __device__ inline GHairMat gpu_hair_unpack(const GMaterial& mat) {
@@ -93,9 +97,14 @@ __device__ inline GHairMat gpu_hair_unpack(const GMaterial& mat) {
     m.s = ah::azimuthalScale(betaN);
     m.tilt = ah::makeAlphaTilt(alpha);
     m.sigmaA = mat.baseColor;
-    m.melaninMode = (mat.specular > 0.5f);  // pkg225 Stage 5
+    m.melaninMode = (mat.specular > 0.5f && mat.specular < 1.5f);  // pkg225 Stage 5
     m.eu = mat.metallic;
     m.ph = mat.subsurface;
+    m.reflJH = (mat.specular > 1.5f);  // pkg316
+    m.jh0 = mat.metallic;
+    m.jh1 = mat.subsurface;
+    m.jh2 = mat.specularTint;
+    m.betaN = betaN;
     return m;
 }
 
@@ -182,11 +191,14 @@ __device__ inline float gpu_hair_pdfCore(const GHairMat& m, const GHairGeom& g,
 
 // Spectral sigma_a — the Stage-5 seam, byte-parallel to principled_hair.cpp
 // sigmaAAtLambda(). In melanin mode, evaluate the physical eu/ph cross-section
-// per wavelength directly (hair_melanin_spectral.h); otherwise piecewise-linear
-// upsample the RGB absorption (reflectance / direct-absorption modes).
+// per wavelength directly (hair_melanin_spectral.h); reflectance mode inverts the
+// JH-upsampled colour (pkg316); direct absorption piecewise-linear upsamples sigma_a.
 __device__ inline float gpu_hair_sigmaAAtLambda(const GHairMat& m, float lambda) {
     if (m.melaninMode)
         return ah::melaninSigmaAtLambda(m.eu, m.ph, lambda);
+    if (m.reflJH)  // pkg316: principled_hair.cpp sigmaAAtLambda twin
+        return ah::sigmaAFromReflectanceChannel(
+            astroray::jhEvalSpectrumF(m.jh0, m.jh1, m.jh2, lambda), m.betaN);
     const GVec3& sigmaA = m.sigmaA;
     if (lambda <= 450.0f) return sigmaA.z;
     if (lambda >= 600.0f) return sigmaA.x;

@@ -558,6 +558,10 @@ struct HairGPUParams {
     bool  melaninMode  = false;
     float eumelanin    = 0.0f;
     float pheomelanin  = 0.0f;
+    // pkg316 — reflectance (Direct Coloring) mode: spectral sigma_a inverts the
+    // Jakob-Hanika upsampled colour per wavelength; jh = its sigmoid coefficients.
+    bool  reflectanceJH = false;
+    float jh[3] = {0.0f, 0.0f, 0.0f};
 };
 
 // ============================================================================
@@ -3389,6 +3393,7 @@ public:
     // pkg225 Stage 3 — GPU curve shading mode (ribbon default / thick parity).
     void setCurveThickMode(bool thick) { curveThickMode = thick; touchScene(); }  // #981
     bool getCurveThickMode() const { return curveThickMode; }
+    const bool* curveThickModeSource() const { return &curveThickMode; }  // pkg316
     // pkg131 — GPU adaptive-sampling opt-in (see field above).
     void setUseAdaptiveSampling(bool use) { useAdaptiveSampling = use; }
     bool getUseAdaptiveSampling() const { return useAdaptiveSampling; }

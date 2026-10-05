@@ -191,6 +191,7 @@ is the Stage-5 hook. From `bsdf_util.h` + `svm/closure.h`:
 | 7 | **$h$ source** | `h = -1 + 2·uv.v` from the intersector | geometric `dot(cross(Ng,X),Z)` for thick curves | **pbrt form** — self-consistent with our pbrt-ported intersector (see §5) |
 | 8 | **Cuticle-tilt application** | `sin2kAlpha/cos2kAlpha`, R:2α TT:−α TRT:−4α | `hair_alpha_angles`, R:2α TT:1α TRT:4α, `alpha=-alpha` | **Cycles `hair_alpha_angles` verbatim** (parity) |
 | 9 | **Model family** | Chiang only | Chiang **and** Huang 2022 (node selectable, Chiang default) | **Chiang** (spec Stage-2; Huang deferred §7) |
+| 10 | **Direct-colouring / reflectance → σ_a** (pkg316 #1051) | pbrt-v4 `HairMaterial::GetBxDF`: Albedo texture → `SigmaAFromReflectance(c(λ), β_N)` **per wavelength** | `sigma_from_reflectance` on the RGB colour once, then the RGB σ_a is used per channel | **pbrt-v4 per-λ** (physics over look-parity, owner 2026-09-29): Jakob–Hanika-upsampled c(λ) → σ_a(λ). Single-fibre r/g/b vs Cycles 5.2: 1.006 / 1.000 / 1.005; accepted spectral divergence |
 
 Net: **port the math skeleton from Cycles `bsdf_principled_hair_chiang.h`, keep
 $h$ from the pbrt intersector, cite both.** The only place pbrt wins is $h$,

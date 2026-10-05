@@ -96,6 +96,11 @@ public:
             Vec3 color = p.getVec3("color", p.getVec3("albedo", Vec3(0.017513f, 0.005763f, 0.002059f)));
             for (int c = 0; c < 3; ++c)
                 (&sigmaA_.x)[c] = sigmaAFromReflectanceChannel(color[c], betaN_);
+            // #1051 (pkg316): spectral sigma_a from the Jakob-Hanika upsampled
+            // reflectance, inverted per wavelength (pbrt-v4 HairMaterial::GetBxDF:
+            // Albedo texture -> HairBxDF::SigmaAFromReflectance(c(lambda)), Apache-2.0).
+            reflJH_ = true;
+            jh_ = astroray::RGBAlbedoSpectrum({color.x, color.y, color.z}).coeffs();
         }
     }
 
@@ -121,6 +126,8 @@ public:
         h.melaninMode = melaninMode_;  // pkg225 Stage 5 — spectral melanin on GPU
         h.eumelanin = eu_;
         h.pheomelanin = ph_;
+        h.reflectanceJH = reflJH_;  // pkg316
+        for (int c = 0; c < 3; ++c) h.jh[c] = jh_[c];
         return h;
     }
     Vec3 getAlbedo() const override {
@@ -299,11 +306,14 @@ private:
 
     // Spectral sigma_a — the Stage-5 seam. In melanin/pigment mode, evaluate the
     // physical eumelanin+pheomelanin cross-section per wavelength directly (no
-    // RGB round-trip). Otherwise (reflectance / direct absorption — no melanin
-    // concentrations) fall back to the Stage-2 piecewise-linear RGB upsample.
+    // RGB round-trip). Reflectance mode inverts the JH-upsampled colour per
+    // wavelength (pkg316); direct absorption keeps the piecewise-linear upsample.
     float sigmaAAtLambda(float lambda) const {
         if (melaninMode_)
             return melaninSigmaAtLambda(eu_, ph_, lambda);
+        if (reflJH_)
+            return sigmaAFromReflectanceChannel(
+                astroray::jhEvalSpectrumF(jh_[0], jh_[1], jh_[2], lambda), betaN_);
         if (lambda <= 450.0f) return sigmaA_.z;
         if (lambda >= 600.0f) return sigmaA_.x;
         if (lambda < 550.0f) { float t = (lambda - 450.0f) / 100.0f; return sigmaA_.z * (1 - t) + sigmaA_.y * t; }
@@ -314,6 +324,8 @@ private:
     float alpha_ = 0.0349f, coat_ = 0.0f;  // pkg225 Stage 4 — GPU-upload retained
     bool  melaninMode_ = false;            // pkg225 Stage 5 — spectral melanin
     float eu_ = 0.0f, ph_ = 0.0f;          // eumelanin/pheomelanin concentrations
+    bool  reflJH_ = false;                 // pkg316 — reflectance mode, spectral JH
+    std::array<float, 3> jh_{};            // JH sigmoid coefficients of the colour
     float v_[kPMax + 1];
     AlphaTilt tilt_;
     Vec3 sigmaA_;

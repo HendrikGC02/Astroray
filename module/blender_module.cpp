@@ -1573,6 +1573,7 @@ public:
             }
             auto segments = strip.buildCurveSegments(mat);
             for (auto& seg : segments) {
+                seg->setThickModeSource(renderer.curveThickModeSource());  // pkg316
                 seg->setObjectPassIndex(objectPassIndex);
                 seg->setMaterialPassIndex(materialPassIndex);
                 renderer.addObject(seg);
@@ -1887,8 +1888,12 @@ public:
     // #895: instantiate a ShapeRegistry plugin by name (the path scenes built
     // from the plugin registry take) and add it to the scene.
     void addShape(const std::string& name, py::dict params) {
-        renderer.addObject(astroray::ShapeRegistry::instance().create(
-            name, paramDictFromPyDict(params)));
+        auto shape = astroray::ShapeRegistry::instance().create(
+            name, paramDictFromPyDict(params));
+        // pkg316: a registry curve shades at the tube entry in thick mode like the bulk path.
+        if (auto seg = std::dynamic_pointer_cast<CurveSegment>(shape))
+            seg->setThickModeSource(renderer.curveThickModeSource());
+        renderer.addObject(shape);
     }
 
     void addVolume(const std::vector<float>& center, float radius, float density,

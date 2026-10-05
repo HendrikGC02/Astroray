@@ -167,7 +167,13 @@ struct AlphaTilt {
     float sin2k[3];  // sin(2^k * alpha)
     float cos2k[3];
 };
+// `alpha` is the node's Offset. Cycles bsdf_hair_chiang_setup negates it
+// (`bsdf->alpha = -bsdf->alpha`) so that, with X = dPdu running root -> tip, the
+// R lobe shifts toward the root and TT/TRT toward the tip (Marschner 2003).
+// #1051 (pkg316): the pbrt sign shifted R toward the tip; a sunlit fibre read
+// 1.24x / 1.26x / 1.33x Cycles 5.2 in r/g/b.
 static AR_HAIR_HD inline AlphaTilt makeAlphaTilt(float alpha) {
+    alpha = -alpha;
     AlphaTilt t;
     t.sin2k[0] = std::sin(alpha);
     t.cos2k[0] = std::cos(alpha);

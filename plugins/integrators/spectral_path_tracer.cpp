@@ -220,7 +220,9 @@ public:
             HitRecord rec;
             float tMin, tMax;  // #873: the AOV first hit honours the clip planes
             renderer_->primaryClipBounds(ray.direction, tMin, tMax);
-            if (bvh->hit(ray, tMin, tMax, rec) && rec.material) {
+            // #1075: data passes are camera-visible surfaces only (Cycles), so the
+            // first hit skips indirect-only objects like the beauty ray does.
+            if (renderer_->hitCameraRay(ray, tMin, tMax, rec) && rec.material) {
                 r.albedo = rec.material->getAlbedo();
                 r.depth = rec.t;
                 r.normal = rec.normal;
@@ -306,7 +308,8 @@ public:
             HitRecord rec;
             // #959: receivers only — a caster surface holds no photons, and the
             // split chain (pathTraceSpectral) starts only at a non-caster receiver.
-            if (bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec) &&
+            // #1075: the first receiver is the camera-visible surface (indirect-only skipped).
+            if (renderer_->hitCameraRay(ray, 0.001f, std::numeric_limits<float>::max(), rec) &&
                 rec.material && !rec.material->isEmissive() &&
                 !rec.material->isTransmissive() && !rec.material->isDeltaOnly()) {
                 // k-NN density estimate (Jensen 1996 Eq. 8) at the first receiver hit.
@@ -539,7 +542,11 @@ private:
 
         // #959: decorrelate maps across render seeds (GPU pkg220 twin); one RNG
         // stream per (light, chunk) so the OpenMP trace is thread-count independent.
-        const uint32_t seedBase = 12345u ^ (static_cast<uint32_t>(scene.getSeed()) * 0x9E3779B9u);
+        // #1046: seed 0 is the random sentinel (Renderer::resolveCameraGroup), so draw one
+        // fresh seed per map instead of the constant that 0 * 0x9E3779B9 collapses to.
+        const uint32_t resolvedSeed = scene.getSeed() != 0
+            ? static_cast<uint32_t>(scene.getSeed()) : static_cast<uint32_t>(std::random_device{}());
+        const uint32_t seedBase = 12345u ^ (resolvedSeed * 0x9E3779B9u);
         const bool reflective = scene.getUseReflectiveCaustics();   // #959
         std::vector<astroray::photon::Photon> photons;
         photons.reserve(photonCount / 2);

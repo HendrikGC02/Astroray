@@ -2038,9 +2038,16 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     }
 
     // --- #990: attribute-layer corner slices (descriptor offsets patched) ---
-    if (r.attrLayers.size() > attrLayersWalked)
-        fprintf(stderr, "[#990] DEGRADED: a shading attribute read only by a Light Path "
-                        "switch child reads 0 on GPU\n");
+    // #1047: layers first met after the geometry walk (a Light Path switch child
+    // materialised in the lpPending loop) get their corners from a second pass over
+    // the flat scene's triangles. The flat scene is uploaded first in both layouts,
+    // so its ordered-prim Triangle order is the uploaded triangle index.
+    if (r.attrLayers.size() > attrLayersWalked && cpuBvh) {
+        size_t ti = 0;
+        for (const auto& h : cpuBvh->getPrimitives())
+            if (auto* tri = dynamic_cast<Triangle*>(h.get()))
+                appendAttrCorners(*tri, ti++, attrLayersWalked, r);
+    }
     for (size_t k = 0; k < r.attrLayers.size(); ++k) {
         auto& v = r.attrCorners[k];
         const float m = r.attrMissing[k];

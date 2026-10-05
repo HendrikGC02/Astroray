@@ -217,3 +217,25 @@ def test_missing_attribute_alpha_reads_one(use_gpu):
     r = _renderer(use_gpu)
     _wall(r, _attr_material(r, 'attr:Col|rgb'))
     assert _render(r)[20:28, 20:28].mean() < 0.01
+
+
+@pytest.mark.parametrize("use_gpu", BACKENDS)
+def test_attribute_read_only_by_a_light_path_switch_child(use_gpu):
+    """#1047 item 1: Mix(Is Camera Ray, plain, Color-Attribute-driven). The attribute
+    layer is referenced ONLY by the switch child (materialised after the geometry
+    walk); the GPU uploader's second pass must still give it corner slices, so the
+    camera sees the attribute colour (CPU == GPU == a constant-colour wall)."""
+    col = [0.2, 0.5, 0.8]
+    r = _renderer(use_gpu)
+    plain = r.create_material('principled', [0.8, 0.1, 0.1],
+                              {'roughness': 1.0, 'specular_ior_level': 0.0})
+    sw = r.create_light_path_mix(plain, _attr_material(r),
+                                 C.LIGHT_PATH_OUTPUTS.index('Is Camera Ray'))
+    _wall(r, sw, [col] * 4)
+    img = _render(r)
+    r = _renderer(use_gpu)
+    _wall(r, r.create_material('principled', col, {'roughness': 1.0, 'specular_ior_level': 0.0}))
+    ref = _render(r)
+    a, b = img[20:28, 20:28].reshape(-1, 3).mean(0), ref[20:28, 20:28].reshape(-1, 3).mean(0)
+    assert b.mean() > 0.2
+    np.testing.assert_allclose(a, b, rtol=0.03)

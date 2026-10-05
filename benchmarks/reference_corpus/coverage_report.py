@@ -787,18 +787,44 @@ def extract_exercised_uses(node_trees: Mapping[str, Iterable[Mapping[str, Any]]]
     return uses
 
 
+class IdentityMatrix(dict):
+    """``{canonical identity: class}`` where a wildcard row (``<bl_idname>|input:*`` / ``|output:*``, the
+    group-structure nodes whose interface sockets are dynamic) answers every socket of that direction."""
+
+    def get(self, key, default=None):
+        value = super().get(key)
+        if value is None:
+            bl_idname, _, rest = str(key).partition("|")
+            value = super().get(canonical_identity(bl_idname, rest.partition(":")[0] + ":*"))
+        return default if value is None else value
+
+
+def matrix_identity_keys(row: Mapping[str, Any]) -> list[str]:
+    """pkg320: every canonical identity one matrix row answers to. The legacy ``socket_or_prop`` key (UI
+    name, ``name[identifier]`` where a node repeats a name) AND ``bl_idname|<kind>:<socket_id>`` -- the
+    Blender socket identifier the collector records (``Value_001``, ``A_Color``, ``Fac``)."""
+    bl_idname = row.get("bl_idname")
+    socket = row.get("socket_or_prop")
+    if not bl_idname or not socket:
+        return []
+    keys = [canonical_identity(bl_idname, socket)]
+    kind, _, _ = str(socket).partition(":")
+    socket_id = row.get("socket_id")
+    if socket_id and kind in ("input", "output"):
+        alias = canonical_identity(bl_idname, f"{kind}:{socket_id}")
+        if alias not in keys:
+            keys.append(alias)
+    return keys
+
+
 def matrix_by_identity(matrix_rows: Iterable[Mapping[str, Any]]) -> dict[str, str]:
     """Worst-case classification per canonical identity."""
-    out: dict[str, str] = {}
+    out: dict[str, str] = IdentityMatrix()
     for row in matrix_rows:
-        bl_idname = row.get("bl_idname")
-        socket = row.get("socket_or_prop")
-        if not bl_idname or not socket:
-            continue
-        key = canonical_identity(bl_idname, socket)
         cls = str(row.get("classification") or "")
-        if key not in out or _CLASS_RANK.get(cls, -1) < _CLASS_RANK.get(out[key], 99):
-            out[key] = cls
+        for key in matrix_identity_keys(row):
+            if key not in out or _CLASS_RANK.get(cls, -1) < _CLASS_RANK.get(out[key], 99):
+                out[key] = cls
     return out
 
 

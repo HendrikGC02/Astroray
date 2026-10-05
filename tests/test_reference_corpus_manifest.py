@@ -367,6 +367,54 @@ PROOF_PENDING_BASELINE = frozenset({  # textures_mapping; delete an entry once a
     "ShaderNodeVectorRotate|prop:rotation_type",
     "|colorspace_settings.name",
 })
+# pkg320 (#1039, #1088): rows the scanner now credits (output sockets of the input nodes, the Mix / Add Shader
+# branch, the Material / World / Light Output and Background root reads) whose frozen corpus scenes still
+# gap-card them as DROPPED-SILENT. Shrink-only like the baseline above: wire a row into a scene, then delete it.
+PKG320_PROOF_PENDING = frozenset({
+    "ShaderNodeAddShader|input:Shader",
+    "ShaderNodeAddShader|input:Shader[Shader_001]",
+    "ShaderNodeAttribute|output:Alpha",
+    "ShaderNodeAttribute|output:Color",
+    "ShaderNodeAttribute|output:Factor",
+    "ShaderNodeAttribute|output:Vector",
+    "ShaderNodeBackground|input:Color",
+    "ShaderNodeBackground|input:Strength",
+    "ShaderNodeLightPath|output:Diffuse Depth",
+    "ShaderNodeLightPath|output:Glossy Depth",
+    "ShaderNodeLightPath|output:Is Camera Ray",
+    "ShaderNodeLightPath|output:Is Diffuse Ray",
+    "ShaderNodeLightPath|output:Is Glossy Ray",
+    "ShaderNodeLightPath|output:Is Reflection Ray",
+    "ShaderNodeLightPath|output:Is Shadow Ray",
+    "ShaderNodeLightPath|output:Is Singular Ray",
+    "ShaderNodeLightPath|output:Is Transmission Ray",
+    "ShaderNodeLightPath|output:Is Volume Scatter Ray",
+    "ShaderNodeLightPath|output:Ray Depth",
+    "ShaderNodeLightPath|output:Ray Length",
+    "ShaderNodeLightPath|output:Transmission Depth",
+    "ShaderNodeLightPath|output:Transparent Depth",
+    "ShaderNodeMixShader|input:Factor",
+    "ShaderNodeMixShader|input:Shader",
+    "ShaderNodeMixShader|input:Shader[Shader_001]",
+    "ShaderNodeNewGeometry|output:Backfacing",
+    "ShaderNodeObjectInfo|output:Alpha",
+    "ShaderNodeObjectInfo|output:Color",
+    "ShaderNodeObjectInfo|output:Location",
+    "ShaderNodeObjectInfo|output:Material Index",
+    "ShaderNodeObjectInfo|output:Object Index",
+    "ShaderNodeObjectInfo|output:Random",
+    "ShaderNodeOutputLight|input:Surface",
+    "ShaderNodeOutputLight|prop:is_active_output",
+    "ShaderNodeOutputMaterial|input:Displacement",
+    "ShaderNodeOutputMaterial|input:Surface",
+    "ShaderNodeOutputMaterial|input:Volume",
+    "ShaderNodeOutputMaterial|prop:is_active_output",
+    "ShaderNodeOutputWorld|input:Volume",
+    "ShaderNodeTexIES|input:Strength",
+    "ShaderNodeVertexColor|output:Alpha",
+    "ShaderNodeVertexColor|output:Color",
+})
+PROOF_PENDING_BASELINE = PROOF_PENDING_BASELINE | PKG320_PROOF_PENDING
 
 
 def _proof_pending() -> dict:
@@ -383,7 +431,7 @@ def test_proof_pending_is_shrink_only(manifest, matrix_rows):
     by_pair = {(r["bl_idname"], r["socket_or_prop"]): r["classification"] for r in matrix_rows}
     current = {f"{b}|{sock}" for pairs in _proof_pending().values() for b, sock in pairs}
     assert current <= PROOF_PENDING_BASELINE, (
-        f"proof_pending.json gained rows outside the #996 baseline: {sorted(current - PROOF_PENDING_BASELINE)}; "
+        f"proof_pending.json gained rows outside the #996 / pkg320 baseline: {sorted(current - PROOF_PENDING_BASELINE)}; "
         "wire them into a scene (or file them as gaps) instead of exempting them")
     for family, pairs in _proof_pending().items():
         tagged = {(t["bl_idname"], t["socket_or_prop"])
@@ -422,8 +470,11 @@ def test_families_cover_their_allocated_rows(manifest, matrix_rows, assign_map, 
         gap_carded = {(t["bl_idname"], t["socket_or_prop"])
                       for e in entries for t in e["feature_tags"] if t["gap_card"]}
 
+        # pkg320: `shader_node_output` (every output socket) and `structural` (group wildcard) rows are derived
+        # from a node's handler, not scene-tagged: the pkg259 allocation tags INPUT sockets and properties.
         family_rows = [r for r in matrix_rows
-                       if _primary_family(assign_map, socket_overrides, r) == family]
+                       if r["category"] not in ("shader_node_output", "structural")
+                       and _primary_family(assign_map, socket_overrides, r) == family]
         missing_required = [
             r for r in family_rows
             if r["classification"] in ("SUPPORTED", "APPROXIMATED")

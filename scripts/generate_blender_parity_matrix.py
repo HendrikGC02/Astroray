@@ -20,6 +20,11 @@ NO HAND-TYPED CLASSIFICATION TABLES. Evidence extracted mechanically from addon
 source via AST scanning. Where scanner finds nothing → DROPPED-SILENT. Where
 scanner cannot parse → UNKNOWN (pytest gate fails).
 
+pkg320 (#1039, #1088): output sockets (`shader_node_output` rows and the `input_node` rows) are credited from
+the op-VM compiler's per-output rejections; the root / scene-level nodes (Material / World / Light Output,
+Background, IES) from the render-engine traversal's reads; group nodes from `inline_shader_nodes`. Every
+socket row carries `socket_id`, the Blender identifier, which `coverage_report.matrix_by_identity` joins on.
+
 Outputs:
   - coverage_matrix.json (machine-readable)
   - report.md (human-readable summary + DROPPED-SILENT list + stale-socket-name findings)
@@ -356,7 +361,9 @@ def scan_addon_source_for_evidence(addon_module):
                     method_name = node.func.attr
 
                     # get_color_input / get_float_input / get_base_color_texture
-                    if method_name in ('get_color_input', 'get_float_input', 'get_base_color_texture'):
+                    # pkg320: `_shader_input_node(node, 'Shader')` is the Mix / Add Shader child read.
+                    if method_name in ('get_color_input', 'get_float_input', 'get_base_color_texture',
+                                       '_shader_input_node'):
                         if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
                             sock_name = node.args[1].value
                             # Exclude integer literals (MATH positional sockets)
@@ -1158,6 +1165,435 @@ def scan_object_image_evidence(addon_module):
 
 
 # =============================================================================
+# pkg320 -- output-socket, root-node and structural evidence (#1039, #1088)
+# =============================================================================
+#
+# Same discipline as #1028: an output / socket is credited only when the scanned compiler or addon code
+# compares it with a literal, tests membership in a module-level literal collection, or reads it by name.
+# Nothing here classifies by hand.
+
+def _type_literals(test):
+    """Node-type literals a test compares against (`ntype == 'X'`, `x.type in ('A', 'B')`,
+    `getattr(x, 'type', '') == 'X'`); positive comparisons only. Returns a frozenset."""
+    out = set()
+    for sub in ast.walk(test):
+        if not (isinstance(sub, ast.Compare) and sub.ops and isinstance(sub.ops[0], (ast.Eq, ast.In))):
+            continue
+        left = sub.left
+        is_type = ((isinstance(left, ast.Name) and left.id in ('ntype', 'type'))
+                   or (isinstance(left, ast.Attribute) and left.attr == 'type')
+                   or (isinstance(left, ast.Call) and isinstance(left.func, ast.Name) and left.func.id == 'getattr'
+                       and len(left.args) >= 2 and isinstance(left.args[1], ast.Constant)
+                       and left.args[1].value == 'type'))
+        if not is_type:
+            continue
+        comp = sub.comparators[0]
+        if isinstance(comp, ast.Constant) and isinstance(comp.value, str):
+            out.add(comp.value)
+        else:
+            out |= {v for v in (_literal_collection(comp) or ()) if isinstance(v, str)}
+    return frozenset(out)
+
+
+def _static_type_test(test, node_type):
+    """True / False / None (undecidable) value of a `ntype == 'X'`-style test when the node type is known.
+    Lets a followed helper be evaluated for ONE dispatch branch (`_attribute_input` serves three node types)."""
+    if isinstance(test, ast.BoolOp):
+        vals = [_static_type_test(v, node_type) for v in test.values]
+        if isinstance(test.op, ast.And):
+            if any(v is False for v in vals):
+                return False
+            return True if all(v is True for v in vals) else None
+        if any(v is True for v in vals):
+            return True
+        return False if all(v is False for v in vals) else None
+    if (isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.left, ast.Name)
+            and test.left.id in ('ntype', 'type')):
+        comp = test.comparators[0]
+        literals = ({comp.value} if isinstance(comp, ast.Constant) else _literal_collection(comp))
+        if literals is None:
+            return None
+        if isinstance(test.ops[0], (ast.Eq, ast.In)):
+            return node_type in literals
+        if isinstance(test.ops[0], (ast.NotEq, ast.NotIn)):  # codespell:ignore (AST class name)
+            return node_type not in literals
+    return None
+
+
+def _has_raise(body):
+    return any(isinstance(n, ast.Raise) for stmt in body for n in ast.walk(stmt))
+
+
+def _out_name_test(test, aliases, consts):
+    """('in' | 'not in', names) when `test` compares a name in `aliases` (the compiler's `out_name`) with a
+    literal or a module-level literal collection, else None."""
+    if not (isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.left, ast.Name)
+            and test.left.id in aliases):
+        return None
+    comp = test.comparators[0]
+    if isinstance(comp, ast.Constant) and isinstance(comp.value, str):
+        names = frozenset({comp.value})
+    elif isinstance(comp, ast.Name) and comp.id in consts:
+        names = consts[comp.id]
+    else:
+        names = _literal_collection(comp)
+    if names is None:
+        return None
+    if isinstance(test.ops[0], (ast.Eq, ast.In)):
+        return 'in', frozenset(names)
+    if isinstance(test.ops[0], (ast.NotEq, ast.NotIn)):  # codespell:ignore (AST class name)
+        return 'not in', frozenset(names)
+    return None
+
+
+def _branch_output_rule(body, node_type, functions, consts):
+    """Which output sockets one op-VM dispatch branch rejects (#1039).
+
+    Walks the branch and the module-level helpers it hands `out_name` to (the Light Path / Attribute /
+    Geometry helpers), pruning `ntype == 'X'` tests for this node type. A rejection is `if out_name not in
+    <literal or module tuple>: raise`, `if out_name == 'X': raise`, or `<literal dict>.get(out_name)` followed
+    by `if v is None: raise`. Returns (accepted, rejected): `accepted` is the allowed name set (None = no
+    allow-list), `rejected` the explicitly refused names. A branch that never rejects an output handles all."""
+    state = {'accepted': None, 'rejected': set()}
+
+    def narrow(names):
+        state['accepted'] = set(names) if state['accepted'] is None else state['accepted'] & set(names)
+
+    def visit(stmts, aliases, dict_gets, following):
+        """Walk `stmts`; True when every path through them ends in `return` / `raise` (the rest of the
+        enclosing block is then unreachable for this node type)."""
+        for stmt in stmts:
+            if isinstance(stmt, ast.If):
+                static = _static_type_test(stmt.test, node_type)
+                if static is True:
+                    if visit(stmt.body, aliases, dict_gets, following):
+                        return True
+                    continue
+                if static is False:
+                    if stmt.orelse and visit(stmt.orelse, aliases, dict_gets, following):
+                        return True
+                    continue
+                guard = _out_name_test(stmt.test, aliases, consts)
+                if guard and _has_raise(stmt.body):
+                    if guard[0] == 'not in':
+                        narrow(guard[1])
+                    else:
+                        state['rejected'].update(guard[1])
+                if (isinstance(stmt.test, ast.Compare) and len(stmt.test.ops) == 1
+                        and isinstance(stmt.test.ops[0], ast.Is) and isinstance(stmt.test.left, ast.Name)
+                        and stmt.test.left.id in dict_gets and _has_raise(stmt.body)):
+                    narrow(dict_gets[stmt.test.left.id])
+                body_ends = visit(stmt.body, aliases, dict_gets, following)
+                else_ends = visit(stmt.orelse, aliases, dict_gets, following)
+                if body_ends and else_ends and stmt.orelse:
+                    return True
+                continue
+            if isinstance(stmt, (ast.For, ast.While, ast.With, ast.Try)):
+                for field in ('body', 'orelse', 'finalbody'):
+                    visit(getattr(stmt, field, []), aliases, dict_gets, following)
+                for handler in getattr(stmt, 'handlers', []):
+                    visit(handler.body, aliases, dict_gets, following)
+                continue
+            if (isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call)
+                    and isinstance(stmt.value.func, ast.Attribute) and stmt.value.func.attr == 'get'
+                    and stmt.value.args and isinstance(stmt.value.args[0], ast.Name)
+                    and stmt.value.args[0].id in aliases):
+                owner = stmt.value.func.value
+                if isinstance(owner, ast.Name):
+                    keys = consts.get(owner.id)
+                elif isinstance(owner, ast.Dict):  # only the KEYS matter: `{'Fresnel': SH_LAYER_FRESNEL, ..}`
+                    keys = ({k.value for k in owner.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+                            if all(isinstance(k, ast.Constant) for k in owner.keys) else None)
+                else:
+                    keys = _literal_collection(owner)
+                if keys is not None:
+                    for tgt in stmt.targets:
+                        if isinstance(tgt, ast.Name):
+                            dict_gets[tgt.id] = frozenset(keys)
+            for call in (n for n in ast.walk(stmt) if isinstance(n, ast.Call)):
+                if not (isinstance(call.func, ast.Name) and call.func.id in functions
+                        and call.func.id not in following):
+                    continue
+                callee = functions[call.func.id]
+                params = [a.arg for a in callee.args.args]
+                passed = {params[i] for i, arg in enumerate(call.args)
+                          if isinstance(arg, ast.Name) and arg.id in aliases and i < len(params)}
+                passed |= {kw.arg for kw in call.keywords
+                           if isinstance(kw.value, ast.Name) and kw.value.id in aliases and kw.arg}
+                if passed:
+                    visit(callee.body, passed, {}, following | {call.func.id})
+            if isinstance(stmt, (ast.Return, ast.Raise)):
+                return True  # after following the helpers its value calls
+        return False
+
+    visit(body, {'out_name'}, {}, frozenset())
+    return (frozenset(state['accepted']) if state['accepted'] is not None else None,
+            frozenset(state['rejected']))
+
+
+def scan_output_evidence(addon_module, vm_path=None):
+    """#1039 -- per-node-type OUTPUT socket evidence from the op-VM dispatch.
+
+    For every `ntype == 'X'` branch of `shader_vm_compiler._compile_socket_value`, the output sockets the
+    branch (and the helpers it passes `out_name` to) refuses; see `_branch_output_rule`. Returns
+    node_type -> {'accepted': frozenset | None, 'rejected': frozenset}. A node type without a branch has no
+    entry here (its outputs follow the node-level handler evidence)."""
+    if vm_path is None:
+        addon_path = inspect.getfile(addon_module.CustomRaytracerRenderEngine)
+        vm_path = Path(addon_path).parent / 'shader_vm_compiler.py'
+    try:
+        with open(vm_path, 'r', encoding='utf-8') as f:
+            tree = ast.parse(f.read())
+    except (OSError, SyntaxError) as exc:
+        print(f"[pkg320] FATAL: cannot parse shader_vm_compiler.py: {exc}")
+        sys.exit(1)
+    consts = _module_constants(tree)
+    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    dispatch = functions.get('_compile_socket_value')
+    if dispatch is None:
+        print("[pkg320] FATAL: shader_vm_compiler._compile_socket_value not found.")
+        sys.exit(1)
+    out = {}
+    for stmt in dispatch.body:
+        if not isinstance(stmt, ast.If):
+            continue
+        for node_type in _vm_branch_literals(stmt.test):
+            if not isinstance(node_type, str):
+                continue
+            accepted, rejected = _branch_output_rule(stmt.body, node_type, functions, consts)
+            prev = out.get(node_type)
+            if prev is not None:  # several branches for one type: the union of what they accept
+                accepted = None if (accepted is None or prev['accepted'] is None) else accepted | prev['accepted']
+                rejected = rejected & prev['rejected']
+            out[node_type] = {'accepted': accepted, 'rejected': rejected}
+    print(f"[pkg320] output evidence: {len(out)} op-VM dispatch node types")
+    return out
+
+
+_SOCKET_READ_HELPERS = ('_node_input', '_shader_input_node', 'get_color_input', 'get_float_input',
+                        'get_base_color_texture')
+
+
+def _socket_reads(tree_node):
+    """[(receiver Name id | None, socket name)] for `r.inputs.get('N')`, `r.inputs['N']` and
+    `helper(r, 'N', ...)` reads under `tree_node`."""
+    out = []
+    for sub in ast.walk(tree_node):
+        if isinstance(sub, ast.Subscript):
+            base = sub.value
+            if (isinstance(base, ast.Attribute) and base.attr == 'inputs' and isinstance(sub.slice, ast.Constant)
+                    and isinstance(sub.slice.value, str)):
+                out.append((base.value.id if isinstance(base.value, ast.Name) else None, sub.slice.value))
+        elif isinstance(sub, ast.Call):
+            f = sub.func
+            if (isinstance(f, ast.Attribute) and f.attr == 'get' and isinstance(f.value, ast.Attribute)
+                    and f.value.attr == 'inputs' and sub.args and isinstance(sub.args[0], ast.Constant)
+                    and isinstance(sub.args[0].value, str)):
+                recv = f.value.value
+                out.append((recv.id if isinstance(recv, ast.Name) else None, sub.args[0].value))
+            else:
+                name = f.attr if isinstance(f, ast.Attribute) else f.id if isinstance(f, ast.Name) else None
+                if (name in _SOCKET_READ_HELPERS and len(sub.args) >= 2 and isinstance(sub.args[0], ast.Name)
+                        and isinstance(sub.args[1], ast.Constant) and isinstance(sub.args[1].value, str)):
+                    out.append((sub.args[0].id, sub.args[1].value))
+    return out
+
+
+def _getattr_props(tree_node):
+    """Property names read by `getattr(x, 'P', ..)` (the type / name probes are not property reads)."""
+    return {sub.args[1].value for sub in ast.walk(tree_node)
+            if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name) and sub.func.id == 'getattr'
+            and len(sub.args) >= 2 and isinstance(sub.args[1], ast.Constant) and isinstance(sub.args[1].value, str)
+            and sub.args[1].value not in ('inputs', 'outputs', 'type', 'name', 'bl_idname', 'bl_rna', 'bl_label')}
+
+
+def _selected_types(expr, tied):
+    """Node types a variable assigned from `expr` is tied to, when `expr` merely SELECTS node(s) already
+    tied (`x`, `x[0]`, `next((n for n in x if ..), x[0] if x else None)`, `[n for n in x if ..]`); an
+    expression that reads a socket, property or link of a node (`float(getattr(sky_node, ..))`) selects
+    nothing."""
+    if isinstance(expr, ast.Name):
+        return set(tied.get(expr.id, ()))
+    if isinstance(expr, ast.Subscript):
+        return _selected_types(expr.value, tied)
+    if isinstance(expr, ast.IfExp):
+        return _selected_types(expr.body, tied) | _selected_types(expr.orelse, tied)
+    if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id in ('next', 'list', 'iter'):
+        out = set()
+        for arg in expr.args:
+            out |= _selected_types(arg, tied)
+        return out
+    if isinstance(expr, (ast.GeneratorExp, ast.ListComp, ast.SetComp)):
+        return _selected_types(expr.generators[0].iter, tied)
+    return set()
+
+
+def scan_root_node_evidence(addon_module, addon_path=None):
+    """#1088 -- the root / scene-level nodes the shader dispatch never sees: Material / World / Light Output,
+    Background, Environment and IES textures are consumed by the engine's own traversal (`convert_node_material`,
+    the world / light setup), not by `_shader_spec_from_node`.
+
+    Within each method of the render-engine class, a node-type literal (`n.type == 'OUTPUT_MATERIAL'`,
+    `ntype == 'TEX_IES'`) is credited with
+      * the sockets and `getattr` properties read inside the `if` branch that tests it;
+      * the sockets read off a variable assigned from an expression that tests it (`output = next((n for n in
+        nodes if n.type == 'OUTPUT_MATERIAL'), None)`, and variables assigned from such a variable), including
+        the reads a one-level engine helper makes on the parameter that variable is passed to
+        (`self.get_displacement_bump_inputs(output, mat)`).
+    Returns node_type -> {'sockets': names, 'properties': names, 'source_lines': [..]}. The matrix generator
+    applies it only to node types with no other evidence and only to sockets / properties the live node has."""
+    if addon_path is None:
+        addon_path = inspect.getfile(addon_module.CustomRaytracerRenderEngine)
+    try:
+        with open(addon_path, 'r', encoding='utf-8') as f:
+            tree = ast.parse(f.read())
+    except (OSError, SyntaxError):
+        return {}
+    engine = next((n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == 'CustomRaytracerRenderEngine'),
+                  None)
+    if engine is None:
+        return {}
+    methods = {n.name: n for n in engine.body if isinstance(n, ast.FunctionDef)}
+    out = {}
+
+    def credit(node_type, sockets=(), props=(), line=0):
+        entry = out.setdefault(node_type, {'sockets': set(), 'properties': set(), 'source_lines': []})
+        entry['sockets'].update(sockets)
+        entry['properties'].update(props)
+        if line and line not in entry['source_lines']:
+            entry['source_lines'].append(line)
+
+    for fn in methods.values():
+        tied = {}  # variable -> node types its value was selected by
+        for stmt in ast.walk(fn):
+            if isinstance(stmt, ast.If):
+                for node_type in _type_literals(stmt.test):
+                    body = ast.Module(body=stmt.body, type_ignores=[])
+                    credit(node_type, {n for _, n in _socket_reads(body)},
+                           _getattr_props(body) | _getattr_props(stmt.test), stmt.lineno)
+                    for inner in stmt.body:  # `if node.type == 'T': output = node`
+                        if (isinstance(inner, ast.Assign) and isinstance(inner.value, ast.Name)
+                                and len(inner.targets) == 1 and isinstance(inner.targets[0], ast.Name)):
+                            tied.setdefault(inner.targets[0].id, set()).add(node_type)
+        assigns = [s for s in ast.walk(fn) if isinstance(s, ast.Assign)
+                   and len(s.targets) == 1 and isinstance(s.targets[0], ast.Name)]
+        for _ in range(3):  # propagate `out = next(... outs ...)` where `outs` is already tied
+            for stmt in assigns:
+                var = stmt.targets[0].id
+                types = set(_type_literals(stmt.value)) | _selected_types(stmt.value, tied)
+                if types:
+                    tied.setdefault(var, set()).update(types)
+        for stmt in assigns:
+            for node_type in tied.get(stmt.targets[0].id, ()):
+                credit(node_type, (), _getattr_props(stmt.value), stmt.lineno)
+        for recv, name in _socket_reads(fn):
+            for node_type in tied.get(recv, ()):
+                credit(node_type, {name}, (), fn.lineno)
+        for call in (n for n in ast.walk(fn) if isinstance(n, ast.Call)):
+            f = call.func
+            callee = (methods.get(f.attr) if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name)
+                      and f.value.id == 'self' else None)
+            if callee is None:
+                continue
+            params = [a.arg for a in callee.args.args][1:]  # drop `self`
+            for i, arg in enumerate(call.args):
+                if isinstance(arg, ast.Name) and arg.id in tied and i < len(params):
+                    names = {n for r, n in _socket_reads(callee) if r == params[i]}
+                    for node_type in tied[arg.id]:
+                        credit(node_type, names, (), callee.lineno)
+    print(f"[pkg320] root-node evidence: {len(out)} compared node types in the render-engine class")
+    return out
+
+
+def scan_group_inline_evidence(addon_module, addon_path=None):
+    """#1088 -- True when the render-engine class asks Blender to inline node groups
+    (`material.inline_shader_nodes()`, documented to return a copy with groups inlined, reroutes removed
+    and muted nodes stripped), so Group / Group Input / Group Output sockets never reach the shader dispatch."""
+    if addon_path is None:
+        addon_path = inspect.getfile(addon_module.CustomRaytracerRenderEngine)
+    try:
+        with open(addon_path, 'r', encoding='utf-8') as f:
+            tree = ast.parse(f.read())
+    except (OSError, SyntaxError):
+        return False
+    return any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == 'inline_shader_nodes'
+               for n in ast.walk(tree))
+
+
+def _apply_root_node_evidence(evidence, root_reads, shader_nodes, handled_elsewhere):
+    """Add `scan_root_node_evidence` results to `evidence` for node types that have no other handler,
+    restricted to the sockets / properties the live node actually has (so no stale-name findings)."""
+    for node_info in shader_nodes:
+        node_type = node_info['node_type']
+        reads = root_reads.get(node_type)
+        if reads is None or node_type in evidence or node_type in handled_elsewhere:
+            continue
+        live = {}
+        for sock in node_info['sockets_in']:
+            live[sock['name']] = sock['name']
+            live[sock.get('identifier', sock['name'])] = sock['name']
+        evidence[node_type] = {
+            'sockets': {live[n] for n in reads['sockets'] if n in live},
+            'fallback_sockets': set(),
+            'guarded_sockets': set(),
+            'properties': set(node_info['properties']) & reads['properties'],
+            'classification': 'SUPPORTED',
+            'source_lines': sorted(reads['source_lines']),
+            'notes': 'root / scene-level node consumed by the render-engine traversal (pkg320)',
+        }
+    return evidence
+
+
+# Structural nodes (#1088): Blender inlines them before export, so their interface sockets are dynamic
+# (`Socket_0`, `__extend__`) and cannot be enumerated; one wildcard row per direction stands for them.
+STRUCTURAL_NODES = (
+    ('GROUP', 'ShaderNodeGroup', ('input:*', 'output:*', 'prop:*')),
+    ('GROUP_INPUT', 'NodeGroupInput', ('output:*', 'prop:*')),
+    ('GROUP_OUTPUT', 'NodeGroupOutput', ('input:*', 'prop:*')),
+)
+
+
+def _node_handler(node_type, evidence, vm_supported_types, vm_socket_evidence):
+    """(handled, classification) of a node type from the same sources `classify_shader_node` consults."""
+    base = evidence.get(node_type, {})
+    if node_type in vm_supported_types or (vm_socket_evidence and node_type in vm_socket_evidence):
+        cls = base.get('classification', 'SUPPORTED')
+        return True, ('SUPPORTED' if cls == 'DROPPED-SILENT' else cls)
+    if node_type in evidence:
+        return True, base['classification']
+    return False, None
+
+
+def classify_output_socket(node_type, out_sock, evidence, vm_supported_types, vm_socket_evidence, output_evidence,
+                           node_properties=()):
+    """#1039 -- (classification, notes) of one OUTPUT socket.
+
+    A node with no handler drops every output. A handled node consumes its outputs through its handler, so
+    an output inherits the node's class unless the op-VM dispatch branch refuses it (an allow-list or an
+    explicit rejection that raises VMCompileError, which the addon reports). A data-type-gated node (Mix)
+    credits only the output variants of the accepted types, as for its inputs (#823)."""
+    handled, cls = _node_handler(node_type, evidence, vm_supported_types, vm_socket_evidence)
+    if not handled:
+        return 'DROPPED-SILENT', 'no handler in addon translation layer'
+    rule = (output_evidence or {}).get(node_type)
+    names = {out_sock['name'], out_sock.get('identifier', out_sock['name'])}
+    if rule is not None:
+        if rule['accepted'] is not None and not (names & rule['accepted']):
+            return 'DROPPED-SILENT', 'output refused by the op-VM compiler (VMCompileError, reported by the addon)'
+        if names & rule['rejected']:
+            return 'DROPPED-SILENT', 'output refused by the op-VM compiler (VMCompileError, reported by the addon)'
+    vm = (vm_socket_evidence or {}).get(node_type, {})
+    accepted_types = vm.get('accepted_types')
+    if accepted_types is not None and not _socket_variant_accepted(out_sock, accepted_types):
+        return 'DROPPED-SILENT', 'output variant outside the compiler data-type gate'
+    if (vm and accepted_types is None and 'data_type' in node_properties
+            and 'data_type' not in vm.get('props_read', ()) and not out_sock.get('enabled', True)):
+        # Map Range's Vector output exists only for data_type FLOAT_VECTOR, which the branch never reads.
+        return 'DROPPED-SILENT', 'output variant of a data_type the compiler never reads'
+    return cls, 'output consumed by the node handler (pkg320)'
+
+
+# =============================================================================
 # Enumeration (from Blender API at runtime)
 # =============================================================================
 
@@ -1260,6 +1696,7 @@ def enumerate_shader_nodes_via_bpy_types():
                     'identifier': out.identifier,
                     'type': out.type,
                     'bl_idname': out.bl_idname,
+                    'enabled': bool(getattr(out, 'enabled', True)),  # pkg320: in the node's default configuration
                 })
 
             # Enumerate render-relevant properties (filter UI-only)
@@ -1630,6 +2067,7 @@ def classify_shader_node(node_info, evidence, stale_socket_findings,
             'sockets_dropped': [s['name'] for s in node_info['sockets_in']],
             'properties_supported': [],
             'notes': 'no handler in addon translation layer',
+            'handled': False,
         }
 
     # We have scanned evidence for this node type
@@ -1637,11 +2075,17 @@ def classify_shader_node(node_info, evidence, stale_socket_findings,
     supported_sockets_from_evidence = node_evidence['sockets']
     supported_props = node_evidence['properties']
 
+    # pkg320: ONE socket identity -- a read credits a socket named by its UI name OR its Blender
+    # identifier (`inputs.get('Fac')` resolves Blender 5's `Factor`; the compiler already matches this way).
+    ident_to_name = {s.get('identifier', s['name']): s['name'] for s in node_info['sockets_in']}
+    supported_names_from_evidence = (set(supported_sockets_from_evidence)
+                                     | {ident_to_name[i] for i in supported_sockets_from_evidence if i in ident_to_name})
     all_live_input_sockets = {s['name'] for s in node_info['sockets_in']}
+    all_live_identifiers = set(ident_to_name)
     all_props = set(node_info['properties'].keys())
 
-    sockets_with_evidence = all_live_input_sockets & supported_sockets_from_evidence
-    sockets_without_evidence = all_live_input_sockets - supported_sockets_from_evidence
+    sockets_with_evidence = all_live_input_sockets & supported_names_from_evidence
+    sockets_without_evidence = all_live_input_sockets - supported_names_from_evidence
     props_with_evidence = all_props & supported_props
 
     # Detect stale socket names: PRIMARY evidence mentions a socket that doesn't exist in live node
@@ -1650,9 +2094,9 @@ def classify_shader_node(node_info, evidence, stale_socket_findings,
     fallback_sockets_from_evidence = node_evidence.get('fallback_sockets', set())
     guarded_sockets_from_evidence = node_evidence.get('guarded_sockets', set())
 
-    primary_stale = supported_sockets_from_evidence - all_live_input_sockets
-    fallback_stale = fallback_sockets_from_evidence - all_live_input_sockets
-    guarded_stale = guarded_sockets_from_evidence - all_live_input_sockets
+    primary_stale = supported_sockets_from_evidence - all_live_input_sockets - all_live_identifiers
+    fallback_stale = fallback_sockets_from_evidence - all_live_input_sockets - all_live_identifiers
+    guarded_stale = guarded_sockets_from_evidence - all_live_input_sockets - all_live_identifiers
 
     # Genuine bugs: unguarded PRIMARY reads of nonexistent names
     if primary_stale:
@@ -1699,7 +2143,8 @@ def classify_shader_node(node_info, evidence, stale_socket_findings,
 
 def generate_matrix(evidence, vm_supported_types=frozenset(),
                      found_attrs=frozenset(), compare_literals=None,
-                     vm_socket_evidence=None):
+                     vm_socket_evidence=None, output_evidence=None,
+                     root_node_reads=None, group_inlined=False):
     """Generate the full parity matrix.
 
     found_attrs / compare_literals (pkg260): whole-file AST evidence from
@@ -1708,6 +2153,11 @@ def generate_matrix(evidence, vm_supported_types=frozenset(),
 
     vm_socket_evidence (#823): per-socket evidence for op-VM compiler dispatch
     nodes from scan_vm_socket_evidence().
+
+    pkg320: output_evidence (scan_output_evidence), root_node_reads (scan_root_node_evidence) and
+    group_inlined (scan_group_inline_evidence) credit output sockets, the root / scene-level nodes and the
+    group-structure nodes. Every socket row carries `socket_id`, the Blender socket identifier: the one
+    canonical identity coverage_report joins on (`socket_or_prop` stays the legacy name key).
     """
     compare_literals = compare_literals or {}
     print("[pkg119] Enumerating Blender API surface...")
@@ -1720,6 +2170,10 @@ def generate_matrix(evidence, vm_supported_types=frozenset(),
     input_nodes = enumerate_input_nodes_via_bpy_types()
 
     print(f"[pkg119] Found {len(shader_nodes)} shader node types")
+    input_node_idnames = {n['bl_idname'] for n in input_nodes}
+    evidence = _apply_root_node_evidence(
+        evidence, root_node_reads or {}, shader_nodes,
+        set(vm_supported_types) | set(vm_socket_evidence or ()))
 
     print("[pkg119] Classifying against addon translation layer (AST-scanned evidence)...")
 
@@ -1775,6 +2229,7 @@ def generate_matrix(evidence, vm_supported_types=frozenset(),
                 'socket_or_prop': f"input:{sock_key}",
                 'classification': sock_classification,
                 'notes': classification_result.get('notes', ''),
+                'socket_id': socket['identifier'],
             })
 
         # Properties
@@ -1793,6 +2248,28 @@ def generate_matrix(evidence, vm_supported_types=frozenset(),
                 'classification': prop_classification,
                 'notes': f"property {prop_info['type']}" if prop_classification == 'DROPPED-SILENT' else '',
             })
+
+        # pkg320 (#1039): output sockets, in their own category so the pkg259 per-row corpus allocation
+        # (which tags INPUT sockets and properties) is unchanged. The six input nodes keep their
+        # `input_node` rows below.
+        if node_info['bl_idname'] not in input_node_idnames:
+            out_counts = Counter(s['name'] for s in node_info.get('sockets_out', []))
+            for out_sock in node_info.get('sockets_out', []):
+                out_key = (f"{out_sock['name']}[{out_sock['identifier']}]"
+                           if out_counts[out_sock['name']] > 1 and out_sock['identifier'] != out_sock['name']
+                           else out_sock['name'])
+                out_class, out_notes = classify_output_socket(
+                    node_info['node_type'], out_sock, evidence, vm_supported_types, vm_socket_evidence,
+                    output_evidence, node_info['properties'])
+                matrix_rows.append({
+                    'category': 'shader_node_output',
+                    'feature': node_info['node_type'],
+                    'bl_idname': node_info['bl_idname'],
+                    'socket_or_prop': f"output:{out_key}",
+                    'classification': out_class,
+                    'notes': out_notes,
+                    'socket_id': out_sock['identifier'],
+                })
 
     # Render settings (static evidence, hand-verified by review, not scanner-derived)
     # Direct reads from addon code (lines 1243-1270, 4602-4630)
@@ -1961,23 +2438,33 @@ def generate_matrix(evidence, vm_supported_types=frozenset(),
     # and the "output:" prefix differ from the shader_node loop above.
     for node_info in input_nodes:
         node_type = node_info['node_type']
-        pseudo_node_info = {
-            'node_type': node_type,
-            'sockets_in': [{'name': s['name']} for s in node_info['sockets_out']],
-            'properties': {},
-        }
-        result = classify_shader_node(pseudo_node_info, evidence, stale_socket_findings,
-                                      vm_supported_types, vm_socket_evidence)
         for socket in node_info['sockets_out']:
-            name = socket['name']
-            classification = result['classification'] if name in result['sockets_supported'] else 'DROPPED-SILENT'
+            classification, notes = classify_output_socket(
+                node_type, socket, evidence, vm_supported_types, vm_socket_evidence, output_evidence)
             matrix_rows.append({
                 'category': 'input_node',
                 'feature': node_type,
                 'bl_idname': node_info['bl_idname'],
-                'socket_or_prop': f"output:{name}",
+                'socket_or_prop': f"output:{socket['name']}",
                 'classification': classification,
-                'notes': result.get('notes', ''),
+                'notes': notes,
+                'socket_id': socket['identifier'],
+            })
+
+    # pkg320 (#1088): group-structure nodes. Blender inlines groups before export
+    # (`material.inline_shader_nodes()`), so their dynamic interface sockets (`Socket_0`, `__extend__`)
+    # never reach the dispatch; one wildcard row per direction stands for them.
+    for feature, bl_idname, directions in STRUCTURAL_NODES:
+        for direction in directions:
+            matrix_rows.append({
+                'category': 'structural',
+                'feature': feature,
+                'bl_idname': bl_idname,
+                'socket_or_prop': direction,
+                'classification': 'SUPPORTED' if group_inlined else 'DROPPED-SILENT',
+                'notes': ('node groups are inlined by Blender (material.inline_shader_nodes) before conversion'
+                          if group_inlined else 'no group inlining found in the addon'),
+                'socket_id': '*',
             })
 
     return matrix_rows, stale_socket_findings
@@ -2222,9 +2709,13 @@ def main():
     evidence = _apply_displacement_evidence(evidence)
     evidence = _apply_procedural_input_evidence(evidence, scan_procedural_input_evidence(addon_module))  # #996
     found_attrs, compare_literals = scan_object_image_evidence(addon_module)  # pkg260
+    output_evidence = scan_output_evidence(addon_module)  # pkg320 (#1039)
+    root_node_reads = scan_root_node_evidence(addon_module)  # pkg320 (#1088)
+    group_inlined = scan_group_inline_evidence(addon_module)  # pkg320 (#1088)
 
     matrix_rows, stale_socket_findings = generate_matrix(
-        evidence, vm_supported_types, found_attrs, compare_literals, vm_socket_evidence)
+        evidence, vm_supported_types, found_attrs, compare_literals, vm_socket_evidence,
+        output_evidence, root_node_reads, group_inlined)
     matrix_rows = _apply_scanner_blind_overrides(matrix_rows)  # #872
 
     output_dir = Path(args.out)

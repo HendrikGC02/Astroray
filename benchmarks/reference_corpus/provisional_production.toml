@@ -104,44 +104,8 @@ issue = "#989"
 reason = "same as CPU (Pointiness, #992): inner_backface R 4.57x"
 
 # ---- silent drops (silent_drop_audit.py) --------------------------------------------------------------------
-[[row]]
-scene = "prod_attributes"
-backend = "cpu"
-kind = "silent"
-issue = "#1039"
-reason = "#990 handles Color Attribute / Attribute / Object Info; the generated matrix has no output-socket evidence, so ShaderNodeVertexColor Color, Attribute Fac, Object Info Random stay DROPPED-SILENT rows (#1039)"
-
-[[row]]
-scene = "prod_attributes"
-backend = "gpu"
-kind = "silent"
-issue = "#1039"
-reason = "#990 handles Color Attribute / Attribute / Object Info; the generated matrix has no output-socket evidence, so ShaderNodeVertexColor Color, Attribute Fac, Object Info Random stay DROPPED-SILENT rows (#1039)"
-
-[[row]]
-scene = "prod_light_path"
-backend = "cpu"
-kind = "silent"
-issue = "#1039"
-reason = "#991 handles the Light Path closure switch and outputs; the generated matrix credits neither output sockets (Light Path Is Camera / Is Shadow / Ray Length) nor the Mix Shader branch (Fac / Shader / Shader_001), so they stay DROPPED-SILENT rows (#1039)"
-
-[[row]]
-scene = "prod_light_path"
-backend = "gpu"
-kind = "silent"
-issue = "#1039"
-reason = "#991 handles the Light Path closure switch and outputs; the generated matrix credits neither output sockets (Light Path Is Camera / Is Shadow / Ray Length) nor the Mix Shader branch (Fac / Shader / Shader_001), so they stay DROPPED-SILENT rows (#1039)"
-
-[[row]]
-scene = "prod_shader_stack"
-backend = "cpu"
-kind = "silent"
-issue = "#955"
-reason = "Add Shader(BSDF, BSDF) keeps the first BSDF with no report"
-
-[[row]]
-scene = "prod_shader_stack"
-backend = "gpu"
-kind = "silent"
-issue = "#955"
-reason = "Add Shader(BSDF, BSDF) keeps the first BSDF with no report"
+# None. pkg320 (#1039, #1088) deleted the six rows the scanner gap produced: prod_attributes and prod_light_path
+# (#990 / #991 output sockets and the Mix Shader branch were handled but the generated matrix could not see them)
+# and prod_shader_stack (#955: the Add Shader branch reads both shader inputs, so the matrix now credits them
+# APPROXIMATED; the unreported Add Shader approximation is the audit's `approximated_unreported` bucket, and #955
+# stays open for the real GPU gap).

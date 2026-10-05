@@ -53,8 +53,13 @@ def _row_key(row):
 # The duplicate-key collapse renames 23 existing rows' keys (adds a stable
 # [identifier] suffix) but does not change the total row count -- it was
 # already 527 including the literal duplicates.
+#
+# 737 = 586 + 151 pkg320 rows (#1039 / #1088):
+#   +144 shader_node_output (one `output:` row per output socket of the 93
+#                 shader nodes that are not one of the six input nodes)
+#   +7   structural (Group / Group Input / Group Output wildcard rows)
 # ---------------------------------------------------------------------------
-EXPECTED_TOTAL_ROWS = 586
+EXPECTED_TOTAL_ROWS = 737
 
 
 def test_total_row_count_pinned(matrix_rows):
@@ -170,15 +175,28 @@ def test_input_node_socket_prefix_is_output(matrix_rows):
         assert r["socket_or_prop"].startswith("output:"), r
 
 
-def test_input_node_all_dropped_silent(matrix_rows):
-    """Zero addon evidence today (confirmed by both the AST scanner and a
-    manual source grep for these six ntype literals) -- if a future package
-    wires one of these nodes up, classify_shader_node's reuse in the scanner
-    will flip the relevant row(s) to SUPPORTED/APPROXIMATED automatically and
-    this assertion (not the row set) is what should then change."""
-    rows = [r for r in matrix_rows if r["category"] == "input_node"]
-    for r in rows:
-        assert r["classification"] == "DROPPED-SILENT", r
+def test_input_node_outputs_follow_the_compiler_evidence(matrix_rows):
+    """pkg320 (#1039): the op-VM compiler handles Light Path / Attribute / Color Attribute / Object Info
+    outputs and refuses Portal Depth, Geometry's non-Backfacing outputs and the unhandled Hair Info node.
+    (Before pkg320 the scanner read input sockets only, so every row here was DROPPED-SILENT whatever the
+    compiler did.)"""
+    cls = {(r["bl_idname"], r["socket_or_prop"]): r["classification"]
+           for r in matrix_rows if r["category"] == "input_node"}
+    for sock in ("Is Camera Ray", "Is Shadow Ray", "Ray Length", "Transmission Depth"):
+        assert cls[("ShaderNodeLightPath", f"output:{sock}")] == "SUPPORTED", sock
+    assert cls[("ShaderNodeLightPath", "output:Portal Depth")] == "DROPPED-SILENT"
+    for sock in ("Color", "Vector", "Factor", "Alpha"):
+        assert cls[("ShaderNodeAttribute", f"output:{sock}")] == "SUPPORTED", sock
+    assert cls[("ShaderNodeVertexColor", "output:Color")] == "SUPPORTED"
+    for sock in ("Location", "Color", "Alpha", "Object Index", "Material Index", "Random"):
+        assert cls[("ShaderNodeObjectInfo", f"output:{sock}")] == "SUPPORTED", sock
+    assert cls[("ShaderNodeNewGeometry", "output:Backfacing")] == "SUPPORTED"
+    for sock in ("Position", "Normal", "Tangent", "True Normal", "Incoming", "Parametric", "Pointiness",
+                 "Random Per Island"):
+        assert cls[("ShaderNodeNewGeometry", f"output:{sock}")] == "DROPPED-SILENT", sock
+    for (bl, sock), c in cls.items():
+        if bl == "ShaderNodeHairInfo":
+            assert c == "DROPPED-SILENT", sock  # no handler at all
 
 
 # ---------------------------------------------------------------------------

@@ -140,13 +140,15 @@ def test_instance_edit_matches_full_reflatten():
             f"step {step}: |instance-update - re-flatten| max "
             f"{float(np.max(np.abs(after - flat))):.3e}")
         before = after
+    # an unedited repeat serves the cache; the update path re-armed it. Checked
+    # before the cold render: the wavefront cache is process-global and keyed on
+    # the owning renderer, so `fresh` below takes it over.
+    _render(r)
+    assert _info(r)[0]
     # cold render of the final scene
     fresh, _, fids, _ = _scene()
     _edit(fresh, fids, -0.2)
     assert _same(after, _render(fresh))
-    # an unedited repeat serves the cache; the update path re-armed it
-    _render(r)
-    assert _info(r)[0]
 
 
 def test_partial_edit_moves_only_one_instance():

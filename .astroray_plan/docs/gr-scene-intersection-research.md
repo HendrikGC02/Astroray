@@ -46,6 +46,13 @@ scene, so geometry inside r_max = 1.05 x influence radius was invisible.
   factor at r_max: the flat scene outside is the reference observer, so the
   region boundary has no brightness seam (a plain infinity reference would dim
   a sphere straddling r_max by ~23% at r_obs_M = 20 just inside the edge).
+  **Superseded (owner decision 2026-10-06):** the reference is an observer at
+  infinity, g = sqrt(-g_tt), the same as the accretion disk
+  (`NovikovThorneDisk::redshiftFactor`, Cunningham 1975). The owner accepts the
+  resulting ~23% (r_obs_M = 20) brightness step at r_max: in-region emission is
+  dimmed and the part of a straddling object beyond r_max is not. Test:
+  `test_scene_hit_emission_is_gravitationally_redshifted` (green channel,
+  g^4 = (1-2M/r)^2, tol 5%). Evidence: `astra_run/batch-i/i7/`.
   Emission only; reflected light is #1082, straight NEE rays #1081.
 - Volumetric straight-line march ends at the hit depth along the incoming ray;
   its transmittance multiplies path throughput.

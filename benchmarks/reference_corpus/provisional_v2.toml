@@ -96,7 +96,7 @@ backend = "cpu"
 roi = "chrome_reflection"
 channels = ["r", "g", "L"]
 issue = "#946"
-reason = "ROI = stone pillar base + chrome rim: the pillar half reads r 0.81 / g 0.91 of Cycles (rim 0.99), missing warm light at 512 spp too; not the sun disc (#946 profile fix landed), residual transport gap"
+reason = "ROI = stone pillar base + chrome rim: the pillar half reads r 0.81 / g 0.91 of Cycles (rim 0.99), missing warm light at 512 spp too; not the sun disc (#946 profile fix landed); stone-pillar transport gap tracked in #1070"
 
 [[row]]
 scene = "v2_sky_sun"
@@ -104,7 +104,7 @@ backend = "gpu"
 roi = "chrome_reflection"
 channels = ["r", "g", "L"]
 issue = "#946"
-reason = "ROI = stone pillar base + chrome rim: the pillar half reads r 0.81 / g 0.91 of Cycles (rim 0.99), missing warm light at 512 spp too; not the sun disc (#946 profile fix landed), residual transport gap"
+reason = "ROI = stone pillar base + chrome rim: the pillar half reads r 0.81 / g 0.91 of Cycles (rim 0.99), missing warm light at 512 spp too; not the sun disc (#946 profile fix landed); stone-pillar transport gap tracked in #1070"
 
 [[row]]
 scene = "v2_textures_opvm"

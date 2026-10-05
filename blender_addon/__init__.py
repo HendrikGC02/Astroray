@@ -7383,8 +7383,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         "sky (honours sun_elevation, sun_rotation, altitude, "
                         "air_density, aerosol_density, ozone_density, "
                         "sun_disc, sun_size, sun_intensity); NOT honoured: "
-                        "ground_albedo, sun_limb_darkening (uniform disc), "
-                        "Vector input." % sky_type)
+                        "ground_albedo, Vector input." % sky_type)
                     # Sun disc from the SAME model (nishita_sun). Disc
                     # radiance L = mean(pixel_bottom, pixel_top) *
                     # sun_intensity; direct-beam irradiance S = L *
@@ -7397,10 +7396,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         bottom, top = astroray.nishita_sun(
                             nishita_mode, sun_elev, sun_size, altitude, air, aero, ozone)
                         # Cycles draws the disc with limb darkening
-                        # 1 - 0.6*(1 - sqrt(1 - (angle/half)^2)) (svm/sky.h). Our
-                        # DistantLight disc is uniform, so apply the area-average
-                        # limb factor: integral over the disc of that profile,
-                        # weight 2r dr on r in [0,1], = 1 - 0.6*(1 - 2/3) = 0.8.
+                        # 1 - 0.6*(1 - sqrt(1 - (angle/half)^2)) (svm/sky.h). The
+                        # engine applies that profile per direction (#946,
+                        # DistantLight::setDiscProfile, below); the lamp's mean
+                        # radiance carries the area-average limb factor: integral
+                        # over the disc of that profile, weight 2r dr on r in
+                        # [0,1], = 1 - 0.6*(1 - 2/3) = 0.8.
                         limb_avg = 0.8
                         l_disc = [0.5 * (bottom[k] + top[k]) * sun_intensity * limb_avg
                                   for k in range(3)]

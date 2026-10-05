@@ -1118,6 +1118,7 @@ struct GDedicatedLight {
     int   hasDiscProfile;
     GVec3 discBottomRGB;
     GVec3 discTopRGB;
+    float discHalfAngle;   // #946: half angular diameter (rad), host-exact (cosOuter loses it in float)
 };
 
 // pkg276 — per-dedicated-light IES side-table entry (indexed by the dedicated

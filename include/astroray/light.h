@@ -90,6 +90,7 @@ struct DeviceLightParams {
     bool hasDiscProfile = false;
     Vec3 discBottomRGB = Vec3(1.0f);
     Vec3 discTopRGB = Vec3(1.0f);
+    float discHalfAngle = 0.0f;  // radians; host-exact half angular diameter
 };
 
 // --------------------------------------------------------------------------

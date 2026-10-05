@@ -30,12 +30,19 @@ World +Z is up (Blender world). NEE keeps the uniform mean.
 | sun_disc | 1.158/1.280/1.581/1.234 | 0.9999/0.9990/0.9963/0.9994 |
 | sun_glow | 0.926/0.904/0.864/0.912 | 0.9998/1.0003/0.9981/1.0001 |
 
+## NEE sees the profile (Opus parity review follow-up)
+Equal disc integrals are not enough for MIS: with a uniform NEE disc the combined estimate
+is biased by int f w (L_uniform - L_profile) (~1.3 % low at a 4 deg sun). Cycles' NEE
+evaluates the background shader at the sampled direction, so it sees the profile.
+`DistantLight::sampleLi` (CPU) and `gpu_dedicated_sample` (GPU, via the out-of-line
+`gpu_disc_profile_nee`) now apply the same y / limb factors as the hit path. The host uploads
+the exact half angle (`GDedicatedLight::discHalfAngle`; `acosf(cosOuter)` lost ~0.3 %). The
+profile is RGB-emission-mode only on both backends.
+
 ## Findings left open
-- NEE irradiance: a profiled disc delivers ~1.3 % more ground irradiance than the uniform mean
-  at a 4 deg sun (the brighter upper limb has the larger cos(theta)); `ground_foreground`
-  0.974 -> 0.987 when `sampleLi` applies the profile (tried on CPU, reverted: GPU NEE is the
-  REG-254-saturated shade kernel, so a CPU-only change would split CPU/GPU parity).
 - `chrome_reflection` ROI is a stone pillar base (r 0.81 / g 0.91 of Cycles, unchanged at 512 spp)
-  plus a chrome rim (0.99); the sun disc is not in it. Residual warm-light transport gap.
-- Cycles hides the part of the disc below the horizon (`dir_elevation > earth_intersection_angle`);
-  not modelled (irrelevant at >= half-diameter elevation).
+  plus a chrome rim (0.99); the sun disc is not in it. Residual warm-light transport gap (#1070).
+- Cycles hides the part of the disc below the horizon (`dir_elevation > earth_intersection_angle`,
+  SKY_earth_intersection_angle in Blender's GPL sky_nishita.cpp). Not modelled: the function is
+  only available as GPL source (CLAUDE.md section 6), and it only matters when the sun centre is
+  within about half a diameter plus the horizon dip (~0.45 deg at 200 m) of the horizon.

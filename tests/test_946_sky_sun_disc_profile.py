@@ -301,20 +301,48 @@ class _Recorder:
         self.sun = {"emission": emission, "intensity": intensity, "kwargs": dict(k)}
 
 
-@pytest.mark.cpu
-def test_addon_passes_disc_profile(monkeypatch):
+def _setup_sky_world(monkeypatch, tmp):
+    """Run the addon's Nishita sky world setup; return (recorder, fallback warnings)."""
     addon = _load_addon(monkeypatch)
     engine = addon.CustomRaytracerRenderEngine()
-    engine._warn_shader_fallback = lambda *a, **k: None
+    warnings = []
+    engine._warn_shader_fallback = lambda *a, **k: warnings.append(a)
     sky = types.SimpleNamespace(
         type='TEX_SKY', sky_type='MULTIPLE_SCATTERING', sun_elevation=E4, sun_rotation=0.0,
         altitude=200.0, air_density=1.0, aerosol_density=1.2, ozone_density=1.0,
         sun_disc=True, sun_size=SUN_SIZE, sun_intensity=1.0)
     world = types.SimpleNamespace(node_tree=types.SimpleNamespace(nodes=[sky]), cycles=None)
+    rec = _Recorder(tmp)
+    engine.setup_world(types.SimpleNamespace(world=world), rec)
+    return rec, warnings
+
+
+@pytest.mark.cpu
+def test_addon_nishita_warning_drops_limb_darkening(monkeypatch):
+    """The disc now follows Cycles' limb darkening (#946), so the sky-fallback
+    warning must not list sun_limb_darkening as NOT honoured."""
     tmp = tempfile.mkdtemp(prefix="astroray_946_")
     try:
-        rec = _Recorder(tmp)
-        engine.setup_world(types.SimpleNamespace(world=world), rec)
+        _, warnings = _setup_sky_world(monkeypatch, tmp)
+        text = " ".join(str(x) for w in warnings for x in w)
+        assert "TEX_SKY" in text and "ground_albedo" in text
+        assert "sun_limb_darkening" not in text and "uniform disc" not in text
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.cpu
+def test_chrome_reflection_xfail_rows_reference_1070():
+    toml = (REPO_ROOT / "benchmarks" / "reference_corpus" / "provisional_v2.toml").read_text()
+    rows = [r for r in toml.split("[[row]]") if 'roi = "chrome_reflection"' in r]
+    assert rows and all("#1070" in r for r in rows)
+
+
+@pytest.mark.cpu
+def test_addon_passes_disc_profile(monkeypatch):
+    tmp = tempfile.mkdtemp(prefix="astroray_946_")
+    try:
+        rec, _ = _setup_sky_world(monkeypatch, tmp)
         kw = rec.sun["kwargs"]
         bottom, top = np.array(kw["disc_bottom"]), np.array(kw["disc_top"])
         # Same model values the addon used: lower limb dimmer and redder at 4 deg.

@@ -298,6 +298,7 @@ bool DistantLight::fillDeviceParams(DeviceLightParams& out) const {
         out.hasDiscProfile = true;
         out.discBottomRGB = discBottomRGB_;
         out.discTopRGB = discTopRGB_;
+        out.discHalfAngle = 0.5f * angularDiameter_;
     }
     // Distant light omits the 1/π factor (matches distant_light.cpp sampleLi).
     out.staticScale = intensity_ * normalizeFactor_;

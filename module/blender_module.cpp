@@ -2737,6 +2737,7 @@ public:
             // shade-kernel __constant__. -1 (the default) = unlimited.
             renderer.setPerTypeBounces(diffuseBounces, glossyBounces, transmissionBounces);
             renderer.setVolumeBounces(volumeBounces);  // pkg271
+            renderer.setTransparentBounces(transparentBounces);  // #1033
             // pkg241 Phase 2 A2 spike (§3.7): widen the GIL release to the whole
             // GPU render tail. Declared empty here (GIL still held for the CPU-side
             // buildAcceleration / scene-array prep); emplaced immediately before

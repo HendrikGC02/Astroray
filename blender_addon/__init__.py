@@ -7424,16 +7424,34 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                          -se]
                             # #903: the sky's sun disc is part of the
                             # background in Cycles, so camera rays see it.
+                            # #946: Cycles draws the disc as mix(bottom, top, y)
+                            # * limb (svm/sky.h): at low sun the lower limb is
+                            # redder/dimmer. Hand the engine the relative colours
+                            # pixel_{bottom,top} / lum(mean), whose mean is `color`
+                            # (so NEE energy is unchanged); rays that hit the disc
+                            # see the Cycles profile.
+                            lum_mean = (0.2126 * 0.5 * (bottom[0] + top[0])
+                                        + 0.7152 * 0.5 * (bottom[1] + top[1])
+                                        + 0.0722 * 0.5 * (bottom[2] + top[2]))
+                            disc_bottom = [bottom[k] / lum_mean for k in range(3)]
+                            disc_top = [top[k] / lum_mean for k in range(3)]
                             try:
                                 renderer.add_sun_light_dedicated(
                                     direction, sun_size,
                                     {'mode': 'rgb', 'color': color},
-                                    lum_s * strength, 0, 0, camera_visible=True)
-                            except TypeError:  # engine predates #903
-                                renderer.add_sun_light_dedicated(
-                                    direction, sun_size,
-                                    {'mode': 'rgb', 'color': color},
-                                    lum_s * strength, 0, 0)
+                                    lum_s * strength, 0, 0, camera_visible=True,
+                                    disc_bottom=disc_bottom, disc_top=disc_top)
+                            except TypeError:  # engine predates #903 / #946
+                                try:
+                                    renderer.add_sun_light_dedicated(
+                                        direction, sun_size,
+                                        {'mode': 'rgb', 'color': color},
+                                        lum_s * strength, 0, 0, camera_visible=True)
+                                except TypeError:
+                                    renderer.add_sun_light_dedicated(
+                                        direction, sun_size,
+                                        {'mode': 'rgb', 'color': color},
+                                        lum_s * strength, 0, 0)
                 else:
                     # #814 item 4: fallback for any UNRECOGNISED sky_type (the
                     # four known types SINGLE/MULTIPLE_SCATTERING/PREETHAM/

@@ -1805,6 +1805,9 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
                 gd.cosOuter    = p.cosOuter;
                 gd.emissionRGB = GVec3(p.emissionRGB.x, p.emissionRGB.y, p.emissionRGB.z);
                 gd.staticScale = p.staticScale;
+                gd.hasDiscProfile = p.hasDiscProfile ? 1 : 0;  // #946
+                gd.discBottomRGB = GVec3(p.discBottomRGB.x, p.discBottomRGB.y, p.discBottomRGB.z);
+                gd.discTopRGB = GVec3(p.discTopRGB.x, p.discTopRGB.y, p.discTopRGB.z);
                 // pkg218: non-RGB emission modes (blackbody/measured_spd/
                 // composite) carry a baked device SPD (see light.h
                 // DeviceLightParams::emissionProfileSamples). Register it into

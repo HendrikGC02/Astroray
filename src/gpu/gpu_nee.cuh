@@ -423,9 +423,14 @@ __device__ inline GNEESample gpu_dedicated_sample(
 // gpu_dedicated_sample assigns (area: staticScale; distant: staticScale/Ω) — so
 // the caller upsamples d.emissionRGB per-λ like gpu_nee_resolve.
 // ---------------------------------------------------------------------------
+// #946: for a Distant lamp with a Nishita disc profile, discY / discK receive the
+// bottom->top blend factor y and limb/0.8 (device twin of CPU discProfileFactors,
+// src/lights/distant_light.cpp; Cycles svm/sky.h sky_radiance_nishita). Left
+// untouched for every other lamp.
 __device__ inline bool gpu_dedicated_intersect(
     const GDedicatedLight& d, const GVec3& origin, const GVec3& dir,
-    float tMin, float tMax, float* t, float* scale)
+    float tMin, float tMax, float* t, float* scale,
+    float* discY = nullptr, float* discK = nullptr)
 {
     if (d.kind == GDED_AREA) {
         GVec3 D = dir.normalized();
@@ -456,6 +461,16 @@ __device__ inline bool gpu_dedicated_intersect(
         if (kFar <= tMin || kFar > tMax) return false;
         *t = kFar;
         *scale = d.staticScale / solidAngle;         // radiance S/Ω (== distant dedGeoScale)
+        if (d.hasDiscProfile && discY != nullptr && discK != nullptr) {
+            const GVec3 toLight = d.axis * -1.f;
+            const float half = acosf(d.cosOuter);        // half angular diameter
+            const float angle = 2.f * atan2f((D - toLight).length(), (D + toLight).length());
+            const float q = angle / half;
+            const float dirElev = asinf(fmaxf(-1.f, fminf(1.f, D.z)));
+            const float sunElev = asinf(fmaxf(-1.f, fminf(1.f, toLight.z)));
+            *discY = (dirElev - sunElev) / (2.f * half) + 0.5f;
+            *discK = (1.f - 0.6f * (1.f - sqrtf(fmaxf(0.f, 1.f - q * q)))) / 0.8f;
+        }
         return true;
     }
     return false;                                    // point/spot: NEE-only
@@ -467,17 +482,22 @@ __device__ inline bool gpu_dedicated_intersect(
 __device__ inline int gpu_dedicated_intersect_closest(
     const GDedicatedLight* dedLights, int numDed,
     const GVec3& origin, const GVec3& dir, float tMin, float tMax,
-    float* tOut, float* scaleOut, bool cameraRay = false)
+    float* tOut, float* scaleOut, bool cameraRay = false,
+    float* discYOut = nullptr, float* discKOut = nullptr)
 {
     int best = -1; float closest = tMax; float sc = 0.f;
+    float dy = 0.f, dk = 1.f;
     for (int j = 0; j < numDed; ++j) {
         if (cameraRay && !dedLights[j].cameraVisible) continue;
-        float tt, s;
-        if (gpu_dedicated_intersect(dedLights[j], origin, dir, tMin, closest, &tt, &s)) {
-            closest = tt; sc = s; best = j;
+        float tt, s, y = 0.f, k = 1.f;
+        if (gpu_dedicated_intersect(dedLights[j], origin, dir, tMin, closest, &tt, &s, &y, &k)) {
+            closest = tt; sc = s; best = j; dy = y; dk = k;
         }
     }
-    if (best >= 0) { *tOut = closest; *scaleOut = sc; }
+    if (best >= 0) {
+        *tOut = closest; *scaleOut = sc;
+        if (discYOut != nullptr) { *discYOut = dy; *discKOut = dk; }
+    }
     return best;
 }
 

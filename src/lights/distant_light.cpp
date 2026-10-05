@@ -51,7 +51,34 @@ inline float deltaPowerSolidAngleFloor() {
     return distantSolidAngle(kDeltaPowerFloorAngularDiameter);
 }
 
+// #946: Cycles sky_radiance_nishita sun-disc profile (kernel/svm/sky.h,
+// Apache-2.0). `D` and `toLight` are unit vectors, world +Z up. Returns the
+// bottom->top blend factor y and the limb-darkening factor (coefficient 0.6).
+inline void discProfileFactors(const Vec3& D, const Vec3& toLight, float angularDiameter,
+                               float& y, float& limb) {
+    // precise_angle(a, b) = 2 atan2(|a-b|, |a+b|)
+    const float angle = 2.0f * std::atan2((D - toLight).length(), (D + toLight).length());
+    const float half = 0.5f * angularDiameter;
+    const float dirElev = std::asin(std::max(-1.0f, std::min(1.0f, D.z)));
+    const float sunElev = std::asin(std::max(-1.0f, std::min(1.0f, toLight.z)));
+    y = (dirElev - sunElev) / angularDiameter + 0.5f;
+    const float q = angle / half;
+    limb = 1.0f - 0.6f * (1.0f - std::sqrt(std::max(0.0f, 1.0f - q * q)));
+}
+
+// Disc-average of the limb factor over the disc area: integral of
+// 1 - 0.6 (1 - sqrt(1 - r^2)) with weight 2 r dr = 1 - 0.6 (1 - 2/3) = 0.8.
+constexpr float kDiscLimbMean = 0.8f;
+
 }  // namespace
+
+void DistantLight::setDiscProfile(const Vec3& bottomRGB, const Vec3& topRGB) {
+    hasDiscProfile_ = true;
+    discBottomRGB_ = bottomRGB;
+    discTopRGB_ = topRGB;
+    discBottom_ = EmissionSpectrum(EmissionSpectrum::RGB{bottomRGB});
+    discTop_ = EmissionSpectrum(EmissionSpectrum::RGB{topRGB});
+}
 
 DistantLight::DistantLight(const Vec3& axis,
                             float angularDiameter,
@@ -177,8 +204,19 @@ bool DistantLight::intersect(const Vec3& /*rayOrigin*/, const Vec3& rayDir,
     // Sun radiance L = S/Ω (irradiance divided by the disk solid angle),
     // identical to sampleLi's emission_spec for the finite-angle branch.
     float solidAngle = distantSolidAngle(angularDiameter_);
+    float scale = solidAngle > 0.0f ? (intensity_ * normalizeFactor_ / solidAngle) : 0.0f;
+    if (hasDiscProfile_) {
+        // #946: Cycles' bottom->top blend and limb darkening; the disc mean
+        // equals the uniform radiance above (see setDiscProfile).
+        float y, limb;
+        discProfileFactors(D, toLight, angularDiameter_, y, limb);
+        SampledSpectrum e = discBottom_.eval(lambdas) * (1.0f - y) + discTop_.eval(lambdas) * y;
+        e *= scale * limb / kDiscLimbMean;
+        out.emission = e;
+        return true;
+    }
     SampledSpectrum e = emission_.eval(lambdas);
-    e *= (solidAngle > 0.0f ? (intensity_ * normalizeFactor_ / solidAngle) : 0.0f);
+    e *= scale;
     out.emission = e;
     return true;
 }
@@ -236,6 +274,12 @@ bool DistantLight::fillDeviceParams(DeviceLightParams& out) const {
     emission_.deviceReference(out.emissionRGB, out.exactIlluminant);
     // pkg218: baked device SPD for non-RGB emission modes (see point_light.cpp).
     if (!out.exactIlluminant) out.emissionProfileSamples = emission_.bakeDeviceProfile();
+    // #946: the profile is RGB-mode only (the sky sun is always an RGB lamp).
+    if (hasDiscProfile_ && out.exactIlluminant) {
+        out.hasDiscProfile = true;
+        out.discBottomRGB = discBottomRGB_;
+        out.discTopRGB = discTopRGB_;
+    }
     // Distant light omits the 1/π factor (matches distant_light.cpp sampleLi).
     out.staticScale = intensity_ * normalizeFactor_;
     return true;

@@ -539,16 +539,24 @@ __device__ int intersectPathSlotT(
         float lampTMin = 0.001f;
         bool lampAdded = false;
         for (int k = 0; k < 4; ++k) {
-            float lampT, lampScale;
+            float lampT, lampScale, discY = 0.f, discK = 1.f;
             int lampIdx = gpu_dedicated_intersect_closest(
                 dedLights, numDed, ray.origin, ray.direction, lampTMin, surfaceT,
-                &lampT, &lampScale, bounce == 0);
+                &lampT, &lampScale, bounce == 0, &discY, &discK);
             if (lampIdx < 0) break;
             lampTMin = lampT;
             // pkg218: baked device SPD for non-RGB emission modes (gpu_nee_resolve twin).
             int profIdx = dedLights[lampIdx].emissionProfileIndex;
             GSampledSpectrum Le;
-            if (profIdx >= 0) {
+            if (dedLights[lampIdx].hasDiscProfile) {
+                // #946: Cycles sun-disc profile (CPU DistantLight::intersect twin):
+                // lerp(bottom, top, y) * limb/0.8, relative RGB upsampled per-lambda.
+                Le = (gpu_rgbToSampledSpectrum(dedLights[lampIdx].discBottomRGB, lambdas,
+                                               GSPEC_RGB_ILLUMINANT) * (1.f - discY)
+                      + gpu_rgbToSampledSpectrum(dedLights[lampIdx].discTopRGB, lambdas,
+                                                 GSPEC_RGB_ILLUMINANT) * discY)
+                     * (lampScale * discK);
+            } else if (profIdx >= 0) {
                 for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
                     Le.v[i] = gpu_emission_profile(profIdx, lambdas.lambda[i]) * lampScale;
             } else {

@@ -1112,6 +1112,12 @@ struct GDedicatedLight {
     // #903 — 1 = camera rays (bounce 0) hit this lamp (sky-texture sun disc;
     // Light::cameraVisible). 0 = lamps stay invisible to the camera.
     int   cameraVisible;
+    // #946 - Nishita sky-sun disc profile (DistantLight::setDiscProfile). A ray
+    // hitting the disc sees lerp(up(discBottomRGB), up(discTopRGB), y) * limb/0.8
+    // times the lamp's S/Omega scale. RGB-illuminant lamps only; 0 = uniform disc.
+    int   hasDiscProfile;
+    GVec3 discBottomRGB;
+    GVec3 discTopRGB;
 };
 
 // pkg276 — per-dedicated-light IES side-table entry (indexed by the dedicated

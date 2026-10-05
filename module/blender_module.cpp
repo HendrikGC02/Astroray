@@ -1264,11 +1264,16 @@ public:
     void addSunLightDedicated(const std::vector<float>& direction, float angularDiameter,
                               py::dict emissionDict, float intensity,
                               int objectPassIndex = 0, int materialPassIndex = 0,
-                              bool cameraVisible = false) {
+                              bool cameraVisible = false,
+                              const std::vector<float>& discBottom = {},
+                              const std::vector<float>& discTop = {}) {
         Vec3 dir(direction[0], direction[1], direction[2]);
         auto emission = parseEmissionSpectrum(emissionDict);
         auto light = std::make_unique<astroray::DistantLight>(dir, angularDiameter, emission, intensity);
         light->cameraVisible = cameraVisible;  // #903: sky-texture sun disc
+        if (discBottom.size() == 3 && discTop.size() == 3)  // #946: Nishita disc profile
+            light->setDiscProfile(Vec3(discBottom[0], discBottom[1], discBottom[2]),
+                                  Vec3(discTop[0], discTop[1], discTop[2]));
         renderer.addDedicatedLight(std::move(light));
     }
 
@@ -4154,8 +4159,11 @@ PYBIND11_MODULE(astroray, m) {
              "direction"_a, "angular_diameter"_a, "emission"_a, "intensity"_a,
              "object_pass_index"_a = 0, "material_pass_index"_a = 0,
              "camera_visible"_a = false,
+             "disc_bottom"_a = std::vector<float>(), "disc_top"_a = std::vector<float>(),
              "pkg89 Phase B: dedicated DistantLight with EmissionSpectrum. #903: "
-             "camera_visible = camera rays see the disc (sky-texture sun)")
+             "camera_visible = camera rays see the disc (sky-texture sun). #946: "
+             "disc_bottom/disc_top = relative RGB of the disc's lower/upper limb "
+             "(Cycles bottom->top blend + limb darkening on rays that hit the disc)")
         .def("add_area_light_dedicated", &PyRenderer::addAreaLightDedicated,
              "center"_a, "axis_u"_a, "axis_v"_a, "size_x"_a, "size_y"_a,
              "shape"_a, "emission"_a, "intensity"_a,

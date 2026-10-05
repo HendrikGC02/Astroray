@@ -84,6 +84,12 @@ struct DeviceLightParams {
     // no IES) and the light frame (local X, Y, Z columns) for the GPU side table.
     std::vector<float> iesPacked;
     std::array<float, 9> iesFrame{};
+    // #946: Nishita sky-sun disc profile (DistantLight::setDiscProfile). When
+    // hasDiscProfile, a ray hitting the disc sees lerp(bottom, top, y) * limb
+    // (relative RGB colours, see distant_light.h) instead of the uniform mean.
+    bool hasDiscProfile = false;
+    Vec3 discBottomRGB = Vec3(1.0f);
+    Vec3 discTopRGB = Vec3(1.0f);
 };
 
 // --------------------------------------------------------------------------

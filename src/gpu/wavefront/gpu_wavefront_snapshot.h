@@ -239,6 +239,23 @@ std::vector<float> cuda_wavefront_render(
 // TLAS refit, upload_scene) so a following render(skip_upload=True) re-uploads.
 void cuda_wavefront_invalidate_scene();
 
+// pkg315 (#1067): a MATERIAL-domain edit (material swap, texture edit, spectral
+// profile) leaves geometry, lights, environment and the OptiX accel untouched.
+// The next cuda_wavefront_render rebuilds and uploads only the material arrays
+// (buildMaterialDomain) and keeps everything else; if the edit changes anything
+// the geometry arrays depend on it falls back to the full re-flatten. Any
+// cuda_wavefront_invalidate_scene() since takes the full path regardless.
+void cuda_wavefront_invalidate_materials();
+// Record a rebind (the material at `oldKey` is replaced by `newMat` behind the
+// same primitives) for the owner's next material-domain rebuild; also marks the
+// materials stale. `oldKey` is only compared, never dereferenced.
+void cuda_wavefront_note_material_swap(uint64_t ownerId, const Material* oldKey,
+                                       std::weak_ptr<Material> newMat);
+// 1 when the most recent cuda_wavefront_render served geometry / lights / env /
+// OptiX accel from the cache and re-uploaded only the material domain.
+// Surfaced as last_render_info()["gpu_material_domain_update"].
+int cuda_wavefront_last_material_update();
+
 // #828: number of bounded-media grid buffers (NanoVDB density + dense
 // temperature) copied host->device by the most recent cuda_wavefront_render;
 // 0 when the device grid cache served the render. Surfaced as

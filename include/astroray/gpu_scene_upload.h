@@ -7,7 +7,24 @@
 #include "astroray/procedural_tex.h"  // #1007 — GProcTexture
 #include "astroray/shader_graph.h"  // pkg314 — graph programs
 #include "astroray/manifold/sms_attempt_device.cuh"  // pkg64-gpu Phase 2
+#include <cstdint>
+#include <memory>
 #include <vector>
+
+// pkg315 (#1067): one entry per uploaded material slot (index == GMaterial id),
+// recorded by buildSceneArrays so a material-only edit can replay the material
+// producer without re-walking the geometry. `mat` is the walk-order root (the
+// decorator a primitive holds); the rest are the per-slot facts the geometry
+// arrays depend on (the guards in buildMaterialDomain compare them).
+class Material;
+struct MaterialSlotInfo {
+    std::weak_ptr<Material> mat;
+    const Material* key = nullptr;   // identity of `mat` (matches a rebind's old pointer)
+    uint8_t  uvGate = 0;             // bit0 texture-UV consumer, bit1 anisotropic Principled
+    bool     emissive = false;       // Material::isEmissive()
+    bool     transmissive = false;   // pkg64 SMS caster class (isTransmissive && ior > 1)
+    uint32_t nameHash = 0;           // GTriangle/GSphere::materialHash this slot stamps
+};
 
 struct SceneUploadResult {
     std::vector<GBVHNode>   nodes;
@@ -20,6 +37,14 @@ struct SceneUploadResult {
     // `nodes` already bound the curves — no separate GPU AABB build.
     std::vector<GCurveSegment> curveSegments;
     std::vector<GMaterial>  materials;
+    // pkg315: per-slot facts of `materials` (walk-order slots first, then the
+    // Light Path switch children). slotsWalked = number of walk-order slots.
+    std::vector<MaterialSlotInfo> slots;
+    int  slotsWalked = 0;
+    // pkg315: whether triGenerated / triObjectLocal were kept (a Generated 3D bake /
+    // an Object-coordinate descriptor exists) — they decide if those arrays upload.
+    bool hasGenBake = false;
+    bool hasObjCoord = false;
     // pkg178 Stage-3b D4: true when ANY uploaded material lowers to a
     // closure-graph Principled (mirrors gpu_closure_graph_is_principled:
     // type == GMAT_CLOSURE_GRAPH && closures[0].type == GCLOSURE_PRINCIPLED).
@@ -235,6 +260,30 @@ struct SceneUploadResult {
 // Declared here; defined in scene_upload.cu
 class Renderer;
 class Camera;
+
+// pkg315 (#1067): a material-only edit rebuilds only the material domain.
+// MaterialSwap records a rebind (old material pointer -> new material) so the
+// cached slot table can follow it (the old material is released by the caller).
+struct MaterialSwap {
+    const Material* oldKey = nullptr;
+    std::weak_ptr<Material> newMat;
+};
+
+// Rebuild the material-domain arrays of `cached` (materials, textures + texels,
+// per-material texture / normal / bump / program / graph tables, light-path
+// switch table, has* flags, spectral profile table) into `out`, by replaying the
+// SAME producer buildSceneArrays runs over the cached slot roots (after applying
+// `swaps`). Returns false, `out` unusable, when the edit changes anything the
+// geometry arrays depend on: slot order or count, a slot's UV-upload gate,
+// stamped name hash, emissive status, SMS caster class, hair routing, an
+// Object-coordinate bake or attribute layer, a Generated bake appearing or
+// vanishing, a textured emitter. The caller then takes the full re-flatten.
+bool buildMaterialDomain(const Renderer& cpu, const SceneUploadResult& cached,
+                         const std::vector<MaterialSwap>& swaps, SceneUploadResult& out);
+
+// Move the material-domain members of `src` into `dst` (a cached scene whose
+// geometry / light / environment members stay).
+void adoptMaterialDomain(SceneUploadResult& dst, SceneUploadResult&& src);
 
 // pkg56 Phase B: camera became optional so the per-domain CUDA uploaders
 // (uploadMaterials / uploadLights / uploadEnvironment) can rebuild the host

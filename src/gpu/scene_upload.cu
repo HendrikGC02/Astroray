@@ -357,6 +357,89 @@ static void appendAttrCorners(const Triangle& tri, size_t triIndex, size_t first
     }
 }
 
+// pkg315 (#1067): the per-MATERIAL half of the per-triangle UV-upload gate that
+// appendOnePrim applies (the aniso case also needs the triangle's own
+// hasUVLayers). Factored out so the material-only replay (buildMaterialDomain)
+// compares the same classification the full flatten stamped on the triangles.
+struct UvGate { bool textureUVConsumer = false; bool anisoPrincipled = false; };
+static UvGate classifyUvGate(const std::shared_ptr<Material>& mtl) {
+    // pkg178 aniso-Principled UV-tangent OR pkg186 image-textured
+    // lambertian both need the active-layer UVs on the device. hasUV
+    // stays false (zero shade cost / zero upload) for every other
+    // triangle. The two consumers are independent branches in the shade
+    // kernel (HasPrincipled aniso-tangent vs HasTexture image fetch).
+    const bool anisoPrincipled =
+        mtl && mtl->getGPUTypeName() == "principled" &&
+        mtl->getAnisotropic() > 0.0f;
+    const bool imageTextured =
+        mtl && dynamic_cast<TexturedLambertian*>(mtl.get()) != nullptr;
+    // #962 — a textured emitter (non-SolidColor TexturedLight) needs the
+    // UVs for its per-hit / per-NEE-sample emission fetch.
+    const auto* telMtl = mtl ? dynamic_cast<const TexturedLight*>(mtl.get()) : nullptr;
+    const bool emissionTextured =
+        telMtl && !std::dynamic_pointer_cast<SolidColor>(telMtl->getTexture());
+    // pkg223 — a normal-mapped material needs the active-layer UVs on the
+    // device for the tangent-space decode (HasNormalPerturb). Checked on the
+    // DECORATOR (mtl is the NormalMapped wrapper, whose inner TexturedLambertian
+    // the imageTextured cast above cannot see) — this also restores the base-
+    // colour texture UVs for a NormalMapped(TexturedLambertian).
+    const bool normalMapped =
+        mtl && mtl->normalMapTexture() != nullptr;
+    // pkg223b — a bump-mapped material likewise needs the active-layer UVs
+    // on the device: the shade path's HasNormalPerturb bump branch samples
+    // the height texture at the hit UV (and ±eps). Without this a bump-ONLY
+    // material's triangle uploads no UVs (hasUV=0) and the bump branch skips.
+    const bool bumpMapped =
+        mtl && mtl->bumpMapTexture() != nullptr;
+    // pkg219d — a scalar-parameter op-VM material (roughness/metallic/etc.
+    // driven by an image) needs the active-layer UVs on the device: the
+    // shade path fetches the scalar program's OWN source texel at the hit
+    // UV. Without this a scalar-ONLY material (no base-colour/normal/bump
+    // texture) uploads UV-less (hasUV=0) and the scalar override reads
+    // garbage → silently no-ops (same class as the pkg223b bump-only gate).
+    // Checked on the inner material so a NormalMapped(disney) also qualifies.
+    const auto& scalarMtl =
+        (mtl && mtl->normalMapInner()) ? mtl->normalMapInner() : mtl;
+    const bool scalarProgrammed =
+        scalarMtl &&
+        (scalarMtl->scalarProgram(astroray::svm::SCALAR_ROUGHNESS) ||
+         scalarMtl->scalarProgram(astroray::svm::SCALAR_METALLIC) ||
+         scalarMtl->scalarProgram(astroray::svm::SCALAR_TRANSMISSION) ||
+         scalarMtl->scalarProgram(astroray::svm::SCALAR_IOR) ||
+         // #988 — textured Principled Base Color (image / 2D bake input).
+         scalarMtl->scalarProgram(astroray::svm::SCALAR_BASE_COLOR));
+    // pkg242 Phase 0 -- UV-less fallback contract. The CPU Triangle ALWAYS
+    // defines (uv0,uv1,uv2): authored layer 0 when present, else the
+    // implicit default domain uv0=(0,0),uv1=(1,0),uv2=(0,1)
+    // (include/astroray/shapes.h ctors), so shapes.h interpolates a valid
+    // rec.uv even for a UV-less triangle and the CPU procedural/image
+    // sampler shades correctly (the reproduced checker-binding baseline:
+    // CPU luminance std 0.4182 vs GPU 0.0330). getUV0/1/2 returns exactly
+    // that CPU fallback domain, so upload it for the 2D texture-sampling
+    // consumers regardless of authored layers -- this mirrors CPU byte-
+    // for-byte. The UV-ALIGNED-FRAME recomputes (anisotropy tangent,
+    // normal-map decode, bump frame) instead gate on gt.uvAuthored =
+    // tri->hasUVLayers(), because the CPU only computes a UV-aligned
+    // tangent when !uvLayers.empty() (shapes.h); a UV-less
+    // aniso/normal/bump surface keeps the arbitrary frame on both
+    // backends. The anisotropic-Principled UV-tangent path is ALSO only
+    // uploaded for authored layers (nothing to sample otherwise).
+    const bool textureUVConsumer =
+        imageTextured || emissionTextured || normalMapped || bumpMapped ||
+        scalarProgrammed;
+    return UvGate{textureUVConsumer, anisoPrincipled};
+}
+
+// pkg315: GTriangle/GSphere::materialHash of a material uploaded at `materialId`
+// (Cryptomatte; unnamed materials hash their slot).
+static uint32_t materialNameHash(const Material& m, int materialId) {
+    std::string n = m.getName();
+    if (n.empty()) n = "Unnamed_Material_" + std::to_string(materialId);
+    uint32_t h = 0;
+    MurmurHash3_x86_32(n.c_str(), static_cast<int>(n.length()), 0, &h);
+    return h;
+}
+
 // ---------------------------------------------------------------------------
 // Convert ONE CPU Hittable (Triangle/Sphere) → GPrimitive (+ GTriangle/GSphere)
 // appended to the target arrays. Factored from the single-level prim walk so
@@ -391,71 +474,9 @@ static void appendOnePrim(
         // stay off (arbitrary frame kept — CPU↔GPU agree). Non-consumer triangles
         // leave both bits false → zero shade cost and zero UV upload.
         {
-            const auto& mtl = tri->getMaterial();
-            // pkg178 aniso-Principled UV-tangent OR pkg186 image-textured
-            // lambertian both need the active-layer UVs on the device. hasUV
-            // stays false (zero shade cost / zero upload) for every other
-            // triangle. The two consumers are independent branches in the shade
-            // kernel (HasPrincipled aniso-tangent vs HasTexture image fetch).
-            const bool anisoPrincipled =
-                mtl && mtl->getGPUTypeName() == "principled" &&
-                mtl->getAnisotropic() > 0.0f;
-            const bool imageTextured =
-                mtl && dynamic_cast<TexturedLambertian*>(mtl.get()) != nullptr;
-            // #962 — a textured emitter (non-SolidColor TexturedLight) needs the
-            // UVs for its per-hit / per-NEE-sample emission fetch.
-            const auto* telMtl = mtl ? dynamic_cast<const TexturedLight*>(mtl.get()) : nullptr;
-            const bool emissionTextured =
-                telMtl && !std::dynamic_pointer_cast<SolidColor>(telMtl->getTexture());
-            // pkg223 — a normal-mapped material needs the active-layer UVs on the
-            // device for the tangent-space decode (HasNormalPerturb). Checked on the
-            // DECORATOR (mtl is the NormalMapped wrapper, whose inner TexturedLambertian
-            // the imageTextured cast above cannot see) — this also restores the base-
-            // colour texture UVs for a NormalMapped(TexturedLambertian).
-            const bool normalMapped =
-                mtl && mtl->normalMapTexture() != nullptr;
-            // pkg223b — a bump-mapped material likewise needs the active-layer UVs
-            // on the device: the shade path's HasNormalPerturb bump branch samples
-            // the height texture at the hit UV (and ±eps). Without this a bump-ONLY
-            // material's triangle uploads no UVs (hasUV=0) and the bump branch skips.
-            const bool bumpMapped =
-                mtl && mtl->bumpMapTexture() != nullptr;
-            // pkg219d — a scalar-parameter op-VM material (roughness/metallic/etc.
-            // driven by an image) needs the active-layer UVs on the device: the
-            // shade path fetches the scalar program's OWN source texel at the hit
-            // UV. Without this a scalar-ONLY material (no base-colour/normal/bump
-            // texture) uploads UV-less (hasUV=0) and the scalar override reads
-            // garbage → silently no-ops (same class as the pkg223b bump-only gate).
-            // Checked on the inner material so a NormalMapped(disney) also qualifies.
-            const auto& scalarMtl =
-                (mtl && mtl->normalMapInner()) ? mtl->normalMapInner() : mtl;
-            const bool scalarProgrammed =
-                scalarMtl &&
-                (scalarMtl->scalarProgram(astroray::svm::SCALAR_ROUGHNESS) ||
-                 scalarMtl->scalarProgram(astroray::svm::SCALAR_METALLIC) ||
-                 scalarMtl->scalarProgram(astroray::svm::SCALAR_TRANSMISSION) ||
-                 scalarMtl->scalarProgram(astroray::svm::SCALAR_IOR) ||
-                 // #988 — textured Principled Base Color (image / 2D bake input).
-                 scalarMtl->scalarProgram(astroray::svm::SCALAR_BASE_COLOR));
-            // pkg242 Phase 0 -- UV-less fallback contract. The CPU Triangle ALWAYS
-            // defines (uv0,uv1,uv2): authored layer 0 when present, else the
-            // implicit default domain uv0=(0,0),uv1=(1,0),uv2=(0,1)
-            // (include/astroray/shapes.h ctors), so shapes.h interpolates a valid
-            // rec.uv even for a UV-less triangle and the CPU procedural/image
-            // sampler shades correctly (the reproduced checker-binding baseline:
-            // CPU luminance std 0.4182 vs GPU 0.0330). getUV0/1/2 returns exactly
-            // that CPU fallback domain, so upload it for the 2D texture-sampling
-            // consumers regardless of authored layers -- this mirrors CPU byte-
-            // for-byte. The UV-ALIGNED-FRAME recomputes (anisotropy tangent,
-            // normal-map decode, bump frame) instead gate on gt.uvAuthored =
-            // tri->hasUVLayers(), because the CPU only computes a UV-aligned
-            // tangent when !uvLayers.empty() (shapes.h); a UV-less
-            // aniso/normal/bump surface keeps the arbitrary frame on both
-            // backends. The anisotropic-Principled UV-tangent path is ALSO only
-            // uploaded for authored layers (nothing to sample otherwise).
-            const bool textureUVConsumer =
-                imageTextured || emissionTextured || normalMapped || bumpMapped ||
-                scalarProgrammed;
+            const UvGate gate = classifyUvGate(tri->getMaterial());
+            const bool textureUVConsumer = gate.textureUVConsumer;
+            const bool anisoPrincipled = gate.anisoPrincipled;
             if (textureUVConsumer || (anisoPrincipled && tri->hasUVLayers())) {
                 Vec2 t0 = tri->getUV0(), t1 = tri->getUV1(), t2 = tri->getUV2();
                 gt.uv0 = GVec2(t0.u, t0.v);
@@ -501,9 +522,7 @@ static void appendOnePrim(
         std::string objName = tri->getName();
         if (objName.empty()) objName = "Unnamed_Triangle_" + std::to_string(r.triangles.size() - 1);
         MurmurHash3_x86_32(objName.c_str(), static_cast<int>(objName.length()), 0, &r.triangles.back().objectHash);
-        std::string matName = tri->getMaterial()->getName();
-        if (matName.empty()) matName = "Unnamed_Material_" + std::to_string(gt.materialId);
-        MurmurHash3_x86_32(matName.c_str(), static_cast<int>(matName.length()), 0, &r.triangles.back().materialHash);
+        r.triangles.back().materialHash = materialNameHash(*tri->getMaterial(), gt.materialId);
     } else if (auto* sph = dynamic_cast<Sphere*>(hittable.get())) {
         gp.type  = GPRIM_SPHERE;
         gp.index = (int)r.spheres.size();
@@ -516,9 +535,7 @@ static void appendOnePrim(
         std::string objName = sph->getName();
         if (objName.empty()) objName = "Unnamed_Sphere_" + std::to_string(r.spheres.size());
         MurmurHash3_x86_32(objName.c_str(), static_cast<int>(objName.length()), 0, &gs.objectHash);
-        std::string matName = sph->getMaterial()->getName();
-        if (matName.empty()) matName = "Unnamed_Material_" + std::to_string(gs.materialId);
-        MurmurHash3_x86_32(matName.c_str(), static_cast<int>(matName.length()), 0, &gs.materialHash);
+        gs.materialHash = materialNameHash(*sph->getMaterial(), gs.materialId);
         r.spheres.push_back(gs);
     } else if (auto* curve = dynamic_cast<CurveSegment*>(hittable.get())) {
         // pkg225 Stage 3 — one CPU CurveSegment → one GCurveSegment + GPRIM_CURVE
@@ -807,10 +824,28 @@ SceneUploadResult buildTlasOnly(const Renderer& cpu) {
 // Public entry point called from cuda_renderer.cu (struct defined in gpu_scene_upload.h)
 // ---------------------------------------------------------------------------
 
-// Builds host-side flat arrays from the CPU Renderer + Camera.
-// The caller (cuda_renderer.cu) then cudaMalloc/cudaMemcpy them.
-SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
-    SceneUploadResult r;
+// pkg315: texture-derived facts that decide whether triGenerated / triObjectLocal
+// upload (#847 / #1006); the full build and the material-only replay share them.
+static void texGeomFlags(const SceneUploadResult& r, bool& gen, bool& obj) {
+    gen = false;
+    obj = false;
+    for (const auto& t : r.textures) {
+        gen = gen || t.depth > 1 || (t.procId >= 0 && !t.objectCoord);
+        obj = obj || t.objectCoord;
+    }
+}
+
+// Shared producer of the host-side flat arrays (pkg315 / #1067).
+//  replayRoots == nullptr: the full build (the original buildSceneArrays).
+//  replayRoots != nullptr: the MATERIAL-DOMAIN replay. The geometry walk is
+//  replaced by getOrAddMat over the cached walk-order slot roots, so the material
+//  producer below runs byte-for-byte as in a full build and only the geometry /
+//  light / environment parts (which a material edit cannot change) are skipped.
+//  Returns false when the replay hits something it cannot reproduce without the
+//  geometry (slot order changed, Object-coordinate bake, attribute layer).
+static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUploadResult& r,
+                                 const std::vector<std::shared_ptr<Material>>* replayRoots) {
+    bool replayBail = false;
 
     // --- Camera (optional in pkg56 Phase B; the per-domain materials /
     // lights / environment uploaders pass nullptr because they don't need
@@ -946,6 +981,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     auto bakeProceduralTexId = [&](Texture* tex) -> int {
         Texture* key = tex;
         const Texture::CoordMode cmode = tex->getCoordMode();
+        // pkg315: an Object-coordinate bake needs the geometry's world bbox.
+        if (replayRoots && cmode == Texture::CoordMode::Object) { replayBail = true; return -1; }
         const bool uvMode  = cmode == Texture::CoordMode::UV;
         // #994: OBJECT coords (CPU: the world hit point, advanced_features.h
         // CoordMode::Object) bake as a 3D voxel over the using geometry's world
@@ -1103,6 +1140,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     std::unordered_map<std::string, int> perHitIdx;
     auto perHitTexId = [&](Texture* pointSrc, Texture* evalTex) -> int {
         const Texture::CoordMode cmode = pointSrc->getCoordMode();
+        if (replayRoots && cmode == Texture::CoordMode::Object) { replayBail = true; return -1; }  // pkg315
         const bool objMode = cmode == Texture::CoordMode::Object && curObjBox;
         if (!objMode && cmode != Texture::CoordMode::Generated) return -1;
         const std::string key = std::to_string(reinterpret_cast<uintptr_t>(pointSrc)) + "|" +
@@ -1144,6 +1182,8 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // its corner texels are appended after the geometry walk. Deduped by layer.
     // Read only in the <HasProgram=true> kernel, hence hasProgram.
     auto uploadAttrTexId = [&](const AttributeTexture* at) -> int {
+        // pkg315: attribute corners are per-triangle geometry data.
+        if (replayRoots) { replayBail = true; return -1; }
         int slot = -1;
         for (size_t k = 0; k < r.attrLayers.size(); ++k)
             if (r.attrLayers[k] == at->layer()) slot = (int)k;
@@ -1247,6 +1287,17 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         if (it != matIdx.end()) return it->second;
         int id = (int)r.materials.size();
         matIdx[mKey.get()] = id;
+        {   // pkg315: per-slot facts the material-only replay guards compare
+            MaterialSlotInfo si;
+            si.mat = mKey;
+            si.key = mKey.get();
+            const UvGate g = classifyUvGate(mKey);
+            si.uvGate = static_cast<uint8_t>((g.textureUVConsumer ? 1 : 0) | (g.anisoPrincipled ? 2 : 0));
+            si.emissive = mKey->isEmissive();
+            si.transmissive = mKey->isTransmissive() && mKey->getIOR() > 1.0f;
+            si.nameHash = materialNameHash(*mKey, id);
+            r.slots.push_back(si);
+        }
         {   // #994: OBJECT-coordinate bakes of this material cover its geometry.
             auto wb = matWorldBox.find(mKey.get());
             curObjBox = (wb != matWorldBox.end()) ? &wb->second : nullptr;
@@ -1567,7 +1618,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // object-space and not included (their materials stay unbaked, as before).
     // #1006: a triangle with object-local positions contributes their bbox (the
     // frame gpu_generatedCoord indexes the Object bake in).
-    if (cpuBvh) {
+    if (cpuBvh && !replayRoots) {
         for (const auto& h : cpuBvh->getPrimitives()) {
             const Material* pm = nullptr;
             AABB hb;
@@ -1591,13 +1642,20 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
             else it->second = it->second.merge(hb);
         }
     }
-    if (cpu.hasInstances()) {
+    if (replayRoots) {
+        // pkg315: the walk-order slot roots, in slot order. A root that does not
+        // land on its own slot id means two slots collapsed (slot order changed).
+        for (size_t i = 0; i < replayRoots->size() && !replayBail; ++i)
+            if (getOrAddMat((*replayRoots)[i]) != (int)i) replayBail = true;
+        if (replayBail) return false;
+    } else if (cpu.hasInstances()) {
         // pkg114 inc 3b — mixed: flat scene (cpuBvh) folded in as an identity BLAS.
         buildTwoLevelArrays(cpu, cpuBvh.get(), r, getOrAddMat);
     } else {
         if (!cpuBvh) throw std::runtime_error("BVH not built — call buildAcceleration() first");
         appendFlatScene(cpu, cpuBvh.get(), r, getOrAddMat);
     }
+    r.slotsWalked = (int)r.materials.size();   // pkg315: Light Path switch children follow
 
     // #990: attribute layers first met after this point (a Light Path switch
     // child, below) have no corners: the walk already ran.
@@ -1643,6 +1701,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         for (const auto& kv : entries) r.lightPathSwitch[kv.first] = kv.second;
         r.hasLightPath = true;
     }
+    if (replayBail) return false;   // pkg315: a switch child hit a replay bail-out
     // #991 — a program reading a Light Path output (OP_SHADING >= SH_LIGHT_PATH)
     // needs the per-path lp_state maintained as well.
     for (const auto& prog : r.programs) {
@@ -1657,6 +1716,56 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     if (r.hasLightPath) {
         r.hasProgram = true;
         r.hasTexture = true;
+    }
+
+    // --- pkg54a: Spectral profile table for the multi-wavelength kernel ---
+    // Walk uploaded materials in order; assign each a profileIndex if its CPU
+    // counterpart carries a non-null SpectralProfile. Profiles are deduplicated
+    // by pointer (the CPU SpectralProfileDatabase is the single owner) and
+    // resampled onto the fixed [G_PROFILE_LAMBDA_MIN, _MAX] @ _STEP grid.
+    {
+        std::unordered_map<const astroray::SpectralProfile*, int> profIdx;
+        // matIdx maps Material* → uploaded GMaterial index. Walk it to attach
+        // profile indices in the correct slot.
+        for (auto& kv : matIdx) {
+            const Material* cpuMat = kv.first;
+            int gMatId             = kv.second;
+            const astroray::SpectralProfile* prof = cpuMat->getSpectralProfile();
+            if (!prof || !prof->valid()) continue;
+
+            auto it = profIdx.find(prof);
+            int idx;
+            if (it == profIdx.end()) {
+                if ((int)profIdx.size() >= G_MAX_PROFILES) {
+                    fprintf(stderr,
+                            "[CUDA] WARNING: more than %d unique spectral profiles; "
+                            "extra profiles will not dispatch on GPU\n",
+                            G_MAX_PROFILES);
+                    continue;
+                }
+                idx = (int)profIdx.size();
+                profIdx[prof] = idx;
+                // Resample onto the GPU grid.
+                size_t baseOffset = r.profileTable.size();
+                r.profileTable.resize(baseOffset + G_PROFILE_SAMPLES);
+                for (int s = 0; s < G_PROFILE_SAMPLES; ++s) {
+                    float lam = G_PROFILE_LAMBDA_MIN + s * G_PROFILE_LAMBDA_STEP;
+                    r.profileTable[baseOffset + s] = prof->reflectance(lam);
+                }
+            } else {
+                idx = it->second;
+            }
+            r.materials[gMatId].profileIndex = idx;
+        }
+        r.profileCount = (int)profIdx.size();
+    }
+
+    // pkg315: the material-only replay ends here — everything below is the
+    // geometry / light / environment domain, which a material edit cannot change.
+    if (replayRoots) {
+        if (replayBail) return false;
+        texGeomFlags(r, r.hasGenBake, r.hasObjCoord);
+        return true;
     }
 
     // --- Lights ---
@@ -1990,48 +2099,6 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         }
     }
 
-    // --- pkg54a: Spectral profile table for the multi-wavelength kernel ---
-    // Walk uploaded materials in order; assign each a profileIndex if its CPU
-    // counterpart carries a non-null SpectralProfile. Profiles are deduplicated
-    // by pointer (the CPU SpectralProfileDatabase is the single owner) and
-    // resampled onto the fixed [G_PROFILE_LAMBDA_MIN, _MAX] @ _STEP grid.
-    {
-        std::unordered_map<const astroray::SpectralProfile*, int> profIdx;
-        // matIdx maps Material* → uploaded GMaterial index. Walk it to attach
-        // profile indices in the correct slot.
-        for (auto& kv : matIdx) {
-            const Material* cpuMat = kv.first;
-            int gMatId             = kv.second;
-            const astroray::SpectralProfile* prof = cpuMat->getSpectralProfile();
-            if (!prof || !prof->valid()) continue;
-
-            auto it = profIdx.find(prof);
-            int idx;
-            if (it == profIdx.end()) {
-                if ((int)profIdx.size() >= G_MAX_PROFILES) {
-                    fprintf(stderr,
-                            "[CUDA] WARNING: more than %d unique spectral profiles; "
-                            "extra profiles will not dispatch on GPU\n",
-                            G_MAX_PROFILES);
-                    continue;
-                }
-                idx = (int)profIdx.size();
-                profIdx[prof] = idx;
-                // Resample onto the GPU grid.
-                size_t baseOffset = r.profileTable.size();
-                r.profileTable.resize(baseOffset + G_PROFILE_SAMPLES);
-                for (int s = 0; s < G_PROFILE_SAMPLES; ++s) {
-                    float lam = G_PROFILE_LAMBDA_MIN + s * G_PROFILE_LAMBDA_STEP;
-                    r.profileTable[baseOffset + s] = prof->reflectance(lam);
-                }
-            } else {
-                idx = it->second;
-            }
-            r.materials[gMatId].profileIndex = idx;
-        }
-        r.profileCount = (int)profIdx.size();
-    }
-
     // --- pkg88-C.0: motion vertices for deformation motion blur ---
     // The GPU buffer is the concatenation of the CPU per-batch storage, in
     // batch order — matching the motionPtrToOffset mapping built during the
@@ -2072,10 +2139,9 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // Generated evaluation (procId >= 0, not objectCoord). Instanced BLAS
     // triangles are object-local while the fetch uses the world hit point, so
     // instanced scenes keep the per-texture bbox frame (pre-#847 behaviour).
+    texGeomFlags(r, r.hasGenBake, r.hasObjCoord);   // pkg315: shared with the replay
     {
-        bool hasGenBake = false;
-        for (const auto& t : r.textures)
-            hasGenBake = hasGenBake || t.depth > 1 || (t.procId >= 0 && !t.objectCoord);
+        const bool hasGenBake = r.hasGenBake;
         if (!hasGenBake || cpu.hasInstances()) {
             r.triGenerated.clear();
         } else if (!r.triGenerated.empty()) {
@@ -2088,8 +2154,7 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
     // BLAS triangles never carry them (the addon flattens Object-coordinate
     // materials), so their NaN entries fall back to the world point.
     {
-        bool hasObjCoord = false;
-        for (const auto& t : r.textures) hasObjCoord = hasObjCoord || t.objectCoord;
+        const bool hasObjCoord = r.hasObjCoord;
         if (!hasObjCoord) {
             r.triObjectLocal.clear();
         } else if (!r.triObjectLocal.empty()) {
@@ -2116,5 +2181,117 @@ SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
         r.envMargFunc   = em->getMarginalFunc();
     }
 
+    return true;
+}
+
+// Builds host-side flat arrays from the CPU Renderer + Camera.
+// The caller (cuda_renderer.cu) then cudaMalloc/cudaMemcpy them.
+SceneUploadResult buildSceneArrays(const Renderer& cpu, const Camera* cam) {
+    SceneUploadResult r;
+    buildSceneArraysImpl(cpu, cam, r, nullptr);
     return r;
+}
+
+// pkg315 (#1067): see gpu_scene_upload.h.
+bool buildMaterialDomain(const Renderer& cpu, const SceneUploadResult& cached,
+                         const std::vector<MaterialSwap>& swaps, SceneUploadResult& out) {
+    const size_t walked = static_cast<size_t>(cached.slotsWalked);
+    if (cached.slots.size() != cached.materials.size() || walked > cached.slots.size())
+        return false;
+    // Slot roots in slot order, following each rebind (old pointer -> new material).
+    std::vector<const Material*> keys(walked);
+    std::vector<std::shared_ptr<Material>> roots(walked);
+    for (size_t i = 0; i < walked; ++i) {
+        keys[i] = cached.slots[i].key;
+        roots[i] = cached.slots[i].mat.lock();
+    }
+    for (const MaterialSwap& sw : swaps) {
+        std::shared_ptr<Material> nm = sw.newMat.lock();
+        for (size_t i = 0; i < walked; ++i) {
+            if (keys[i] != sw.oldKey) continue;
+            if (!nm) return false;
+            roots[i] = nm;
+            keys[i] = nm.get();
+        }
+    }
+    for (const auto& rt : roots)
+        if (!rt) return false;   // a slot material was released without a recorded swap
+
+    if (!buildSceneArraysImpl(cpu, nullptr, out, &roots)) return false;
+
+    // Guards: anything the geometry arrays on the device depend on must be unchanged.
+    if (out.materials.size() != cached.materials.size() ||
+        out.slots.size() != cached.slots.size() || out.slotsWalked != cached.slotsWalked)
+        return false;
+    for (size_t i = 0; i < walked; ++i) {
+        const MaterialSlotInfo& a = cached.slots[i];
+        const MaterialSlotInfo& b = out.slots[i];
+        if (a.uvGate != b.uvGate) return false;            // per-triangle hasUV / uv upload
+        if (a.nameHash != b.nameHash) return false;        // per-triangle materialHash
+        if (a.transmissive != b.transmissive) return false;  // smsCasters
+    }
+    for (size_t i = 0; i < out.materials.size(); ++i) {
+        const GMaterial& ga = cached.materials[i];
+        const GMaterial& gb = out.materials[i];
+        if ((ga.type == GMAT_HAIR_PRINCIPLED) != (gb.type == GMAT_HAIR_PRINCIPLED))
+            return false;                                  // hair routing
+        const MaterialSlotInfo& a = cached.slots[i];
+        const MaterialSlotInfo& b = out.slots[i];
+        if (a.emissive || b.emissive) {                    // light list / GAreaLight emission
+            if (a.emissive != b.emissive || ga.baseColor.x != gb.baseColor.x ||
+                ga.baseColor.y != gb.baseColor.y || ga.baseColor.z != gb.baseColor.z ||
+                ga.emissionIntensity != gb.emissionIntensity)
+                return false;
+        }
+    }
+    if (out.hasGenBake != cached.hasGenBake || out.hasObjCoord != cached.hasObjCoord)
+        return false;                                      // triGenerated / triObjectLocal upload
+    if (out.hasEmissionTexture || out.hasEmissionTextureRequested ||
+        cached.hasEmissionTexture || cached.hasEmissionTextureRequested)
+        return false;                                      // textured emitters keep the full path
+    return true;
+}
+
+void adoptMaterialDomain(SceneUploadResult& dst, SceneUploadResult&& src) {
+    dst.materials = std::move(src.materials);
+    dst.slots = std::move(src.slots);
+    dst.slotsWalked = src.slotsWalked;
+    dst.hasGenBake = src.hasGenBake;
+    dst.hasObjCoord = src.hasObjCoord;
+    dst.hasPrincipled = src.hasPrincipled;
+    dst.hasAlphaShadow = src.hasAlphaShadow;
+    dst.hasHair = src.hasHair;
+    dst.hasDispersive = src.hasDispersive;
+    dst.textures = std::move(src.textures);
+    dst.textureTexels = std::move(src.textureTexels);
+    dst.materialTextureId = std::move(src.materialTextureId);
+    dst.hasTexture = src.hasTexture;
+    dst.hasEmissionTexture = src.hasEmissionTexture;
+    dst.hasEmissionTextureRequested = src.hasEmissionTextureRequested;
+    dst.materialNormalTexId = std::move(src.materialNormalTexId);
+    dst.materialNormalStrength = std::move(src.materialNormalStrength);
+    dst.materialBumpTexId = std::move(src.materialBumpTexId);
+    dst.materialBumpStrength = std::move(src.materialBumpStrength);
+    dst.materialBumpDistance = std::move(src.materialBumpDistance);
+    dst.hasNormalPerturb = src.hasNormalPerturb;
+    dst.programs = std::move(src.programs);
+    dst.materialProgramId = std::move(src.materialProgramId);
+    dst.materialProgInputTexId = std::move(src.materialProgInputTexId);
+    dst.hasProgram = src.hasProgram;
+    dst.materialScalarProgId = std::move(src.materialScalarProgId);
+    dst.materialScalarTexId = std::move(src.materialScalarTexId);
+    dst.procTextures = std::move(src.procTextures);
+    dst.graphInstrs = std::move(src.graphInstrs);
+    dst.graphConsts = std::move(src.graphConsts);
+    dst.graphTables = std::move(src.graphTables);
+    dst.graphTableData = std::move(src.graphTableData);
+    dst.graphTexRefs = std::move(src.graphTexRefs);
+    dst.graphPrograms = std::move(src.graphPrograms);
+    dst.materialGraphProg = std::move(src.materialGraphProg);
+    dst.hasGraph = src.hasGraph;
+    dst.graphMaxSlots = src.graphMaxSlots;
+    dst.lightPathSwitch = std::move(src.lightPathSwitch);
+    dst.hasLightPath = src.hasLightPath;
+    dst.profileTable = std::move(src.profileTable);
+    dst.profileCount = src.profileCount;
 }

@@ -530,6 +530,20 @@ __device__ int intersectPathSlotT(
         }
         hit = gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris, spheres,
                                       ray, tNear, tFar, rec, motionVerts, curves, skipPrim);
+        // #36: a PRIMARY camera ray passes through indirect-only objects (Cycles clears
+        // their camera visibility bit, intern/cycles/blender/object.cpp, Apache-2.0):
+        // re-trace from just past each such hit. Twin of Renderer::hitCameraRay. Uniform
+        // branch on a __constant__ (0 unless the scene has an indirect-only object, in
+        // which case OptiX traversal is off too), so default scenes skip it entirely.
+        if (bounce == 0 && c_wfPrimaryClip.indirectOnly) {
+            for (int k = 0; k < 16 && hit &&
+                            (prims[rec.primId].flags & GPRIM_FLAG_INDIRECT_ONLY); ++k) {
+                tNear = rec.t + fmaxf(1e-4f, 1e-5f * rec.t);
+                hit = gpu_tlas_hit<HasCurves>(tlas, instances, blas, bvhNodes, prims, tris,
+                                              spheres, ray, tNear, tFar, rec, motionVerts,
+                                              curves, skipPrim);
+            }
+        }
     }
 
     // pkg199 Stage 2 — homogeneous medium free-flight scatter DECISION (Option A:

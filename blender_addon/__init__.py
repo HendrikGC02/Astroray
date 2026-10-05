@@ -6744,6 +6744,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # pkg274 (#36): Cycles holdout (object.is_holdout) -> camera-ray alpha
             # hole. Mirrors the is_caustic_caster flag on the same [pre, post) range.
             is_holdout = bool(getattr(obj, "is_holdout", False))
+            # #36 — Indirect Only (LayerCollection.indirect_only). Cycles reads the base
+            # flag (BASE_INDIRECT_ONLY) and, unless the object is a holdout, clears the
+            # camera visibility bit (intern/cycles/blender/object.cpp, Apache-2.0).
+            # The flag lives on the ORIGINAL object's view-layer base; the evaluated
+            # copy reads False. Absent API / fake objects -> not indirect-only.
+            is_indirect_only = False
+            if not is_holdout:
+                try:
+                    is_indirect_only = bool(obj.original.indirect_only_get(
+                        view_layer=depsgraph.view_layer))
+                except (AttributeError, TypeError, RuntimeError):
+                    pass
             scene_count_before = (renderer.scene_object_count()
                                   if hasattr(renderer, "scene_object_count") else 0)
 
@@ -6924,6 +6936,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 # pkg274 (#36) — holdout flag (camera-ray alpha hole, no shading)
                 if is_holdout and hasattr(renderer, "set_object_holdout"):
                     renderer.set_object_holdout(oid, True)
+                # #36 — indirect-only flag (camera rays pass through; see above)
+                if is_indirect_only and hasattr(renderer, "set_object_indirect_only"):
+                    renderer.set_object_indirect_only(oid, True)
                 # pkg87c — Cryptomatte object name
                 if hasattr(renderer, "set_object_name"):
                     renderer.set_object_name(oid, obj.name)

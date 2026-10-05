@@ -39,9 +39,10 @@ _EMPTY_UV = np.zeros((0, 0, 3, 2), dtype=np.float32)
 _EMPTY_N = np.zeros((0, 3, 3), dtype=np.float32)
 
 
-def _renderer():
+def _renderer(use_gpu=False):
     r = astroray.Renderer()
     r.set_integrator("path_tracer")
+    r.set_use_gpu(use_gpu)  # explicit: a CUDA build otherwise auto-selects the GPU
     r.set_background_color([0.0, 0.0, 0.0])
     r.set_seed(7)
     r.setup_camera(look_from=[0, 0, 5], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=30,
@@ -75,22 +76,22 @@ def _ids(plate):
     return np.array([plate, plate], dtype=np.int32), np.zeros(2, dtype=np.int32)
 
 
-def _static_mean(phi):
-    r, plate = _renderer()
+def _static_mean(phi, use_gpu=False):
+    r, plate = _renderer(use_gpu)
     mids, mpass = _ids(plate)
     r.add_triangles_bulk(_plate(phi), mids, mpass, 0, _EMPTY_UV, [], _EMPTY_N)
     return _center(r)
 
 
-def _reference_mean():
+def _reference_mean(use_gpu=False):
     # The motion API lerps the corner positions over t in [0,1]: the plate's tilt angle
     # is atan(tan(alpha) * (2t - 1)). Average static renders over bin-centred t.
     ts = (np.arange(9) + 0.5) / 9.0
-    return float(np.mean([_static_mean(math.atan(math.tan(ALPHA) * (2 * t - 1))) for t in ts]))
+    return float(np.mean([_static_mean(math.atan(math.tan(ALPHA) * (2 * t - 1)), use_gpu) for t in ts]))
 
 
-def _motion_mean(smooth, with_end_normals=True):
-    r, plate = _renderer()
+def _motion_mean(smooth, with_end_normals=True, use_gpu=False):
+    r, plate = _renderer(use_gpu)
     mids, mpass = _ids(plate)
     if smooth:
         n0, n1 = _normals(-ALPHA), _normals(+ALPHA)

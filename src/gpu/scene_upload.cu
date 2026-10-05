@@ -543,6 +543,10 @@ static void appendOnePrim(
         gp.type  = GPRIM_SKIP;
         gp.index = -1;
     }
+    if (hittable->isIndirectOnly()) {  // #36
+        gp.flags |= GPRIM_FLAG_INDIRECT_ONLY;
+        r.hasIndirectOnly = true;
+    }
     r.prims.push_back(gp);
 }
 

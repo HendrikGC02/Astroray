@@ -2516,6 +2516,10 @@ public:
     bool setObjectHoldout(int objectId, bool enabled) {
         return renderer.setObjectHoldout(objectId, enabled);
     }
+    // #36 — per-object indirect-only flag (invisible to primary camera rays).
+    bool setObjectIndirectOnly(int objectId, bool enabled) {
+        return renderer.setObjectIndirectOnly(objectId, enabled);
+    }
 
     // #847 — per-object Generated frame. `m` is the row-major 3x4 world ->
     // Generated affine; baked onto every Triangle in [begin, end) as per-vertex
@@ -4410,6 +4414,11 @@ PYBIND11_MODULE(astroray, m) {
              "pkg274 (#36) — flag an object (by addObject order) as holdout. The "
              "primary camera ray's first hit on it writes color 0 / alpha 0 "
              "(a transparent hole); indirect rays are untouched. CPU only.")
+        .def("set_object_indirect_only", &PyRenderer::setObjectIndirectOnly,
+             "object_id"_a, "enabled"_a,
+             "#36 — flag an object (by addObject order) as indirect-only (Blender "
+             "LayerCollection.indirect_only): primary camera rays pass through it; "
+             "reflections, GI, shadows and NEE still see it.")
         .def("set_objects_generated_transform", &PyRenderer::setObjectsGeneratedTransform,
              "begin"_a, "end"_a, "matrix"_a,
              "#847 — bake a row-major 3x4 world->Generated affine onto the "

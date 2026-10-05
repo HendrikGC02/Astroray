@@ -893,6 +893,11 @@ class Hittable {
     // no shading). Mirrors Cycles intern/cycles/scene/object.cpp `use_holdout`
     // (Apache-2.0); the indirect path is untouched.
     bool isHoldout_ = false;
+    // #36 — Cycles indirect-only (LayerCollection.indirect_only -> BASE_INDIRECT_ONLY;
+    // intern/cycles/blender/object.cpp clears PATH_RAY_VISIBILITY_CAMERA on it,
+    // Apache-2.0). Invisible to PRIMARY camera rays (bounce 0), which pass through
+    // it; every other ray (reflections, GI, shadows, NEE) sees it as a normal object.
+    bool isIndirectOnly_ = false;
     std::string name_;  // pkg87a — for Cryptomatte object ID
 public:
     // Result type used by GR objects (BlackHole). Defined here so that
@@ -1001,6 +1006,8 @@ public:
     bool isCausticCaster() const { return isCausticCaster_; }
     void setHoldout(bool v) { isHoldout_ = v; }
     bool isHoldout() const { return isHoldout_; }
+    void setIndirectOnly(bool v) { isIndirectOnly_ = v; }
+    bool isIndirectOnly() const { return isIndirectOnly_; }
     // pkg87a — Cryptomatte name plumbing
     void setName(const std::string& name) { name_ = name; }
     std::string getName() const { return name_; }
@@ -2803,6 +2810,9 @@ private:
     // pkg274 (#36) — cached once per render (see render()) so the primary-ray
     // holdout check is free when no holdout object is present.
     bool hasHoldoutObjects_ = false;
+    // #36 — same, for indirect-only objects (the primary-ray pass-through is free
+    // when none is present).
+    bool hasIndirectOnlyObjects_ = false;
     float clampDirect = 0.0f;   // 0 = disabled
     float clampIndirect = 0.0f; // 0 = disabled
     float filterGlossy = 0.0f;
@@ -3436,6 +3446,14 @@ public:
         touchScene();  // #981
         return true;
     }
+    // #36 — per-object indirect-only opt-in (mirrors setObjectHoldout).
+    bool setObjectIndirectOnly(int objectIndex, bool enabled) {
+        if (objectIndex < 0 || static_cast<size_t>(objectIndex) >= scene.size())
+            return false;
+        scene[objectIndex]->setIndirectOnly(enabled);
+        touchScene();  // #981
+        return true;
+    }
     // pkg87c — Cryptomatte object name setter
     bool setObjectName(int objectIndex, const std::string& name) {
         if (objectIndex < 0 || static_cast<size_t>(objectIndex) >= scene.size())
@@ -3959,7 +3977,8 @@ public:
             // pkg296: where the bounded media start on this ray (see the media
             // block); the default 0.001 clip keeps the pre-pkg296 0.001 start.
             const float mediaT0 = (bounce == 0 && clipNear_ > 0.001f) ? tMin : 0.001f;
-            bool didHit = bvh->hit(ray, tMin, tMax, rec);
+            bool didHit = (bounce == 0) ? hitCameraRay(ray, tMin, tMax, rec)  // #36
+                                        : bvh->hit(ray, tMin, tMax, rec);
 
             // pkg199 Stage 2 — homogeneous medium free-flight sampling. Engaged
             // ONLY when mediumScatters; otherwise the Stage-1 absorption path below
@@ -4903,7 +4922,8 @@ public:
             const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
             const float tMin = primarySeg ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
             const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv - passDist : std::numeric_limits<float>::max();
-            bool didHit = bvh->hit(ray, tMin, tMax, rec);
+            bool didHit = (bounce == 0) ? hitCameraRay(ray, tMin, tMax, rec)  // #36
+                                        : bvh->hit(ray, tMin, tMax, rec);
 
             // pkg181: dedicated-lamp visibility (Cycles lights_intersect). This
             // opt-in caustic kernel carries no pkg120 two-sided-MIS state
@@ -5359,6 +5379,22 @@ public:
     // consumes no RNG; only the transparentGlass walk samples a BSDF (to follow
     // the refraction), matching the original. The cap mirrors the old loop's
     // `bounce < maxDepth`.
+    // #36 — closest hit for a PRIMARY camera ray: indirect-only objects are skipped
+    // (the ray continues through them from t = their hit, as Cycles does when the
+    // object's camera visibility bit is clear; kernel/bvh visibility test, Apache-2.0).
+    // One bool test when no indirect-only object exists, so the default render path
+    // is byte-identical.
+    bool hitCameraRay(const Ray& ray, float tMin, float tMax, HitRecord& rec) const {
+        if (!hasIndirectOnlyObjects_) return bvh->hit(ray, tMin, tMax, rec);
+        constexpr int kMaxPassThrough = 16;  // a closed indirect-only shell hits twice
+        for (int k = 0; k < kMaxPassThrough; ++k) {
+            HitRecord tmp;
+            if (!bvh->hit(ray, tMin, tMax, tmp)) return false;
+            if (!(tmp.hitObject && tmp.hitObject->isIndirectOnly())) { rec = tmp; return true; }
+            tMin = tmp.t + std::max(1e-4f, 1e-5f * tmp.t);
+        }
+        return false;
+    }
     float coverageAlpha(const Ray& primary, std::mt19937& gen, int maxDepth) const {
         if (!useTransparentFilm) return 1.0f;
         if (!bvh) return 0.0f;
@@ -5378,7 +5414,8 @@ public:
             const float clipZInv = (bounce == 0) ? 1.0f / std::max(1e-6f, ray.direction.dot(clipForward_)) : 1.0f;
             const float tMin = (bounce == 0 && passes == 0) ? std::max(0.001f, clipNear_ * clipZInv) : 0.001f;
             const float tMax = (bounce == 0 && clipFar_ < std::numeric_limits<float>::max()) ? clipFar_ * clipZInv - travelled : std::numeric_limits<float>::max();
-            if (!bvh->hit(ray, tMin, tMax, rec))
+            if (!((bounce == 0) ? hitCameraRay(ray, tMin, tMax, rec)  // #36
+                                : bvh->hit(ray, tMin, tMax, rec)))
                 return 0.0f;  // reached the background uncovered
             if (rec.hitObject && rec.hitObject->isGRObject())
                 return 1.0f;  // a GR object covers the film
@@ -5446,8 +5483,11 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
         clipFar_ = cam.clipFar;
         clipForward_ = cam.viewForward();
         hasHoldoutObjects_ = false;
+        hasIndirectOnlyObjects_ = false;
         for (const auto& o : scene) {
-            if (o && o->isHoldout()) { hasHoldoutObjects_ = true; break; }
+            if (!o) continue;
+            if (o->isHoldout()) hasHoldoutObjects_ = true;
+            if (o->isIndirectOnly()) hasIndirectOnlyObjects_ = true;
         }
         ensureDefaultIntegrator();
         buildAcceleration();
@@ -5797,7 +5837,7 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                             // byte-identical.
                             if (hasHoldoutObjects_) {
                                 HitRecord holdRec;
-                                if (bvh->hit(primaryRay, clipNear_, clipFar_, holdRec) &&
+                                if (hitCameraRay(primaryRay, clipNear_, clipFar_, holdRec) &&
                                     holdRec.hitObject && holdRec.hitObject->isHoldout()) {
                                     sCol = Vec3(0);
                                     sPass.fill(Vec3(0));

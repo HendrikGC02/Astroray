@@ -262,8 +262,13 @@ struct GBVHNode {
 // one GPrimitive + AABB leaf, built on the CPU BVH so the uploaded node bounds
 // already enclose the curve hulls).
 enum GPrimType : uint8_t { GPRIM_TRIANGLE = 0, GPRIM_SPHERE = 1, GPRIM_SKIP = 2, GPRIM_CURVE = 3 };
+// #36: GPrimitive::flags bit — an indirect-only object's primitive (Blender
+// LayerCollection.indirect_only). Primary camera rays pass through it (the wavefront
+// intersect stage re-traces past it); every other ray still hits it.
+enum : uint8_t { GPRIM_FLAG_INDIRECT_ONLY = 1 };
 struct GPrimitive {
     GPrimType type;
+    uint8_t   flags = 0;  // #36: GPRIM_FLAG_*; occupies padding after `type` (sizeof stays 8)
     int       index;   // index into d_triangles / d_spheres / d_curveSegments
 };
 
@@ -1265,6 +1270,7 @@ struct GWavefrontPrimaryClip {
     float nearDist;
     float farDist;
     float fwdX, fwdY, fwdZ;              // unit view direction (GCameraParams::forward)
+    int   indirectOnly;                  // #36: scene has indirect-only prims (camera rays skip them)
 };
 
 // pkg299: per-slot results of the OptiX hardware-traversal launches, read by the

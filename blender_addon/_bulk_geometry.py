@@ -13,6 +13,7 @@ remap, same active-first UV-layer order, same inverse-transpose corner normals),
 so the resulting render is pixel-identical.
 """
 import numpy as np
+from pointiness import mesh_pointiness  # pkg322
 
 
 def mesh_to_bulk_arrays(mesh, matrix, normal_matrix, slot_to_id, default_mat_id,
@@ -367,6 +368,8 @@ def mesh_attribute_layers(mesh, obj, matrix, keys, slot_materials):
             else:
                 notes.append((key, f"Object Info output {out_name}"))
                 arr = const([0.0, 0.0, 0.0])
+        elif key == 'geom:Pointiness':  # pkg322: per-vertex value, linear over the triangle
+            arr = np.repeat(mesh_pointiness(mesh)[vidx][..., None], 3, axis=2)
         else:
             kind, rest = key.split(':', 1)
             name, variant = rest.rsplit('|', 1)

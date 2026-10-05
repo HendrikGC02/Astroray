@@ -94,14 +94,14 @@ scene = "prod_curves_geometry"
 backend = "cpu"
 kind = "parity"
 issue = "#989"
-reason = "Geometry Backfacing now supported, but the chain also reads Pointiness (not implemented, reported) so it still flattens; also #992 Curves: inner_backface R 4.61x"
+reason = "pkg322 landed Pointiness (CPU 0/16 -> 13/16 channels in band); residual outer_front G/B 0.98/0.96 and inner_backface R 0.85"
 
 [[row]]
 scene = "prod_curves_geometry"
 backend = "gpu"
 kind = "parity"
 issue = "#989"
-reason = "same as CPU (Pointiness, #992): inner_backface R 4.57x"
+reason = "same residual as CPU after pkg322 (see the CPU row)"
 
 # ---- silent drops (silent_drop_audit.py) --------------------------------------------------------------------
 # None. pkg320 (#1039, #1088) deleted the six rows the scanner gap produced: prod_attributes and prod_light_path

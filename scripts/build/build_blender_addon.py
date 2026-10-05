@@ -81,7 +81,8 @@ ADDON_FILES = ["__init__.py", "blender_manifest.toml", "shader_blending.py",
                "shader_vm_compiler.py",  # pkg219b per-texel op-VM bytecode compiler
                "shader_graph_ir.py",  # pkg314 graph IR / dynamic value programs
                "sky_bake.py",         # pkg256 ShaderNodeTexSky Preetham/Perez bake
-               "volume_export.py"]    # pkg267 bpy.types.Volume / OpenVDB import
+               "volume_export.py",    # pkg267 bpy.types.Volume / OpenVDB import
+               "pointiness.py"]       # pkg322 Geometry Pointiness (Cycles attr_create_pointiness)
 
 
 # --------------------------------------------------------------------------- #

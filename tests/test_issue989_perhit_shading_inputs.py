@@ -126,8 +126,10 @@ def test_fresnel_and_backfacing_compile():
 
 def test_unsupported_shading_forms_raise():
     geo = Node('NEW_GEOMETRY')
-    with pytest.raises(C.VMCompileError, match="Pointiness"):
-        C.compile_chain(Sock('Roughness', 0.5, Link(geo, 'Pointiness'), type='VALUE'))
+    # pkg322: Pointiness is now a per-vertex layer input (tests/test_pkg322_pointiness.py);
+    # the other Geometry outputs stay reported.
+    with pytest.raises(C.VMCompileError, match="Parametric"):
+        C.compile_chain(Sock('Roughness', 0.5, Link(geo, 'Parametric'), type='VALUE'))
     bump = Node('BUMP')
     fr = Node('FRESNEL', inputs=[Sock('IOR', 1.5), Sock('Normal', [0, 0, 0], Link(bump, 'Normal'))])
     with pytest.raises(C.VMCompileError, match="linked Normal"):

@@ -1141,6 +1141,12 @@ struct WfContext {
     // (no instances), motion-free upload is patchable; triIndexOf maps a moved
     // primitive to its device triangle (BVH order), built lazily per BVH build.
     bool refitPatchable = false;
+    // #1001: a transform-only instance edit (Renderer::getInstanceLog) re-pushes
+    // d_instances / d_tlas and rebuilds only the OptiX IAS. Patchable = an
+    // instanced, motion-free upload; instanceBlas[j] = GInstance[j].blasIndex of
+    // that upload (the host arrays are released), compared on every patch.
+    bool instancePatchable = false;
+    std::vector<int> instanceBlas;
     int cachedPrimCount = 0;
     std::unordered_map<const Hittable*, int> triIndexOf;
     const BVHAccel* triIndexBvh = nullptr;
@@ -1241,6 +1247,8 @@ int cuda_wavefront_last_grid_uploads() { return s_lastGridUploads; }
 static int s_lastSceneReused = 0;
 int cuda_wavefront_last_scene_reused() { return s_lastSceneReused; }
 static int s_lastScenePatched = 0;  // pkg291
+static int s_lastInstanceUpdate = 0;  // #1001
+int cuda_wavefront_last_instance_update() { return s_lastInstanceUpdate; }
 int cuda_wavefront_last_scene_patched() { return s_lastScenePatched; }
 
 namespace {
@@ -1334,6 +1342,41 @@ bool wfPatchRefit(WfContext& C, const Renderer& renderer) {
             cudaMemcpy(C.nodes.ptr, nodes.data(), nodes.size() * sizeof(GBVHNode),
                        cudaMemcpyHostToDevice) != cudaSuccess)
             throw std::runtime_error("pkg291: refit patch upload failed");
+    } catch (...) {
+        C.sceneInvalidated = true;  // half-patched: the next render re-flattens
+        throw;
+    }
+    return true;
+}
+// #1001: patch the cached device scene for transform-only instance edits logged
+// since the upload. Rebuilds only the instance + TLAS arrays (buildTlasOnly: no
+// BLAS geometry walk) and re-pushes those two device buffers; `fresh` receives
+// the new GInstance array for the OptiX IAS rebuild. False (nothing touched)
+// unless the log is a contiguous chain from the cached version to the current
+// one, and the instance count, TLAS size and per-instance BLAS map are unchanged
+// (anything else is not transform-only and takes the full re-flatten).
+bool wfPatchInstances(WfContext& C, const Renderer& renderer, SceneUploadResult& fresh) {
+    if (!C.instancePatchable) return false;
+    const auto& log = renderer.getInstanceLog();
+    size_t first = 0;
+    while (first < log.size() && log[first].before != C.cachedVersion) ++first;
+    if (first == log.size()) return false;
+    for (size_t k = first; k + 1 < log.size(); ++k)
+        if (log[k].after != log[k + 1].before) return false;
+    if (log.back().after != renderer.getSceneVersion()) return false;
+    try {
+        fresh = buildTlasOnly(renderer);
+    } catch (const std::exception&) {
+        return false;   // the full path re-runs the same producer and reports a real error
+    }
+    if (fresh.instances.size() != C.instanceBlas.size() ||
+        fresh.instances.size() != C.instances.count || fresh.tlas.size() != C.tlas.count)
+        return false;
+    for (size_t j = 0; j < fresh.instances.size(); ++j)
+        if (fresh.instances[j].blasIndex != C.instanceBlas[j]) return false;
+    try {
+        wfUpload(C.instances, fresh.instances);
+        wfUpload(C.tlas, fresh.tlas);
     } catch (...) {
         C.sceneInvalidated = true;  // half-patched: the next render re-flattens
         throw;
@@ -1826,13 +1869,22 @@ std::vector<float> cuda_wavefront_render(
     // pkg291 (#875): an object move since the cached upload is patched in place
     // (moved triangles + refit node bounds), then the cache serves the rest.
     const bool patched = cacheValid && !fullReuse && wfPatchRefit(C, renderer);
-    const bool reuse = fullReuse || patched;
+    // #1001: a transform-only instance edit re-pushes just the instance + TLAS
+    // arrays and rebuilds the OptiX IAS; every GAS / BLAS stays on the device.
+    SceneUploadResult instFresh;
+    const auto inst0 = std::chrono::steady_clock::now();
+    const bool instPatched = cacheValid && !fullReuse && !patched &&
+                             wfPatchInstances(C, renderer, instFresh);
+    const double instPatchMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - inst0).count();
+    const bool reuse = fullReuse || patched || instPatched;
     // pkg315: the material-domain arrays are re-uploaded even though the rest of
     // the scene is served from the cache.
     const bool matReuse = reuse && !materialUpdated;
     s_lastSceneReused = (fullReuse && !materialUpdated) ? 1 : 0;
     s_lastMaterialUpdate = materialUpdated ? 1 : 0;
     s_lastScenePatched = patched ? 1 : 0;
+    s_lastInstanceUpdate = instPatched ? 1 : 0;
     // pkg298 Phase 0: host-side flatten / upload attribution (ASTRORAY_PROFILE).
     const auto pkg298T0 = std::chrono::steady_clock::now();
     if (!reuse) {
@@ -2179,11 +2231,24 @@ std::vector<float> cuda_wavefront_render(
                                 d_motionVerts == nullptr && !res.hasIndirectOnly;
         const bool hwWanted = hwEligible && astroray::optix_trav::requested() !=
                                                 astroray::optix_trav::Request::Software;
-        if (!reuse || (patched && C.hwAccelForCache)) {
+        if (!reuse || ((patched || instPatched) && C.hwAccelForCache)) {
             // pkg291: a patched scene refits (or first rebuilds updatable) the
             // OptiX accel from the patched device triangles.
             C.hwAccelForCache = false;
-            if (hwWanted && patched) {
+            if (hwWanted && instPatched) {
+                // #1001: rebuild only the IAS over the kept GASes. A failure leaves
+                // this render on the software BVH (the instance arrays are already
+                // current) and the next one re-flattens in full.
+                const auto a0 = std::chrono::steady_clock::now();
+                C.hwAccelForCache = astroray::optix_trav::rebuildInstanceAccel(
+                    instFresh.instances.data(), (int)instFresh.instances.size());
+                if (!C.hwAccelForCache) C.sceneInvalidated = true;
+                if (astroray::gpu_profile::enabled())
+                    astroray::gpu_profile::Aggregator::instance().record(
+                        "host:optixIasRebuild",
+                        std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - a0).count(), 0, 0, nullptr, -1);
+            } else if (hwWanted && patched) {
                 // pkg291: refit the updatable GAS in place; the first patch of a
                 // cached scene rebuilds it updatable (OptiX "Dynamic updates").
                 C.hwAccelForCache =
@@ -2226,6 +2291,9 @@ std::vector<float> cuda_wavefront_render(
         auto release = [](auto& v) { v.clear(); v.shrink_to_fit(); };
         // pkg291: record patchability before the host arrays are released.
         C.refitPatchable = res.instances.empty() && res.motionVertices.empty();
+        C.instancePatchable = !res.instances.empty() && res.motionVertices.empty();
+        C.instanceBlas.clear();
+        for (const GInstance& gi : res.instances) C.instanceBlas.push_back(gi.blasIndex);
         C.cachedPrimCount = (int)res.prims.size();
         // #1057: a full re-flatten invalidates the triangle index map; a new
         // renderer's BVH can reuse a freed one's address and build count.
@@ -2243,6 +2311,12 @@ std::vector<float> cuda_wavefront_render(
         C.cachedTraversal = traversalKey;
     }
     if (patched) C.cachedVersion = renderer.getSceneVersion();  // pkg291
+    if (instPatched) {
+        C.cachedVersion = renderer.getSceneVersion();  // #1001
+        if (astroray::gpu_profile::enabled())
+            astroray::gpu_profile::Aggregator::instance().record(
+                "host:instancePatch", instPatchMs, 0, 0, nullptr, -1);
+    }
     if (materialUpdated) {
         // pkg315: as the full upload does, drop the bulk texel arrays once on the device.
         res.textures.clear(); res.textures.shrink_to_fit();

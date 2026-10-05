@@ -2782,8 +2782,13 @@ class Renderer {
     // version chain, capped at 64 steps.
 public:
     struct RefitStep { uint64_t before, after; std::vector<const Hittable*> moved; };
+    // #1001: a transform-only edit of an instance (updateInstanceTransform), logged
+    // like a refit step so the GPU driver can re-push only d_instances / d_tlas and
+    // rebuild the OptiX IAS (every GAS and BLAS stays) instead of re-flattening.
+    struct InstanceStep { uint64_t before, after; };
 private:
     std::vector<RefitStep> refitLog_;
+    std::vector<InstanceStep> instanceLog_;
     int bvhBuildCount_ = 0;
     double bvhBuildMs_ = 0.0;   // wall time of the most recent build
     // pkg114 — two-level BVH instancing. A registered mesh keeps its prims in
@@ -5352,9 +5357,16 @@ public:
     void updateInstanceTransform(int instanceId, const std::array<float, 16>& transform) {
         if (instanceId < 0 || static_cast<size_t>(instanceId) >= instances_.size())
             throw std::runtime_error("updateInstanceTransform: instance id out of range");
+        // #1001: a contiguous version chain; any other mutation in between breaks it
+        // (the driver then re-flattens).
+        if (!instanceLog_.empty() && instanceLog_.back().after != sceneVersion_) instanceLog_.clear();
+        if (instanceLog_.size() >= 64) instanceLog_.erase(instanceLog_.begin());
+        const uint64_t before = sceneVersion_;
         touchScene();  // #981
+        instanceLog_.push_back({before, sceneVersion_});
         instances_[instanceId].transform = transform;
     }
+    const std::vector<InstanceStep>& getInstanceLog() const { return instanceLog_; }
     bool hasInstances() const { return !instances_.empty(); }
     const std::vector<std::shared_ptr<BVHAccel>>& getMeshBlas() const { return meshBlas_; }
     const std::vector<std::vector<std::shared_ptr<Hittable>>>& getMeshPrims() const { return meshPrims_; }

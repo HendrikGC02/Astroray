@@ -170,6 +170,53 @@ OptixTraversableHandle buildTriangleGas(OptixDeviceContext ctx, const GPrimitive
     return h;
 }
 
+// Build the single-level IAS over the already-built per-BLAS GAS handles from
+// the GInstance array (instanceId = index into that array). Returns 0 when no
+// instance has geometry. Shared by buildAccel and rebuildInstanceAccel.
+OptixTraversableHandle buildIas(OptixDeviceContext ctx, const GInstance* h_instances,
+                                int numInstances,
+                                const std::vector<OptixTraversableHandle>& gasHandle,
+                                int numBlas, DevBuf& out)
+{
+    std::vector<OptixInstance> oi;
+    oi.reserve(numInstances);
+    for (int j = 0; j < numInstances; ++j) {
+        const GInstance& gi = h_instances[j];
+        if (gi.blasIndex < 0 || gi.blasIndex >= numBlas || gasHandle[gi.blasIndex] == 0)
+            continue;   // empty mesh: nothing to hit
+        OptixInstance x = {};
+        // Row-major 3x4 object->world = the top three rows of worldFromObject.
+        for (int k = 0; k < 12; ++k) x.transform[k] = gi.worldFromObject.m[k];
+        x.instanceId        = static_cast<unsigned int>(j);
+        x.sbtOffset         = 0;
+        x.visibilityMask    = 255;
+        x.flags             = OPTIX_INSTANCE_FLAG_NONE;
+        x.traversableHandle = gasHandle[gi.blasIndex];
+        oi.push_back(x);
+    }
+    if (oi.empty()) return 0;
+    DevBuf dInst;
+    ASTRORAY_OPTIX_TRAV_CUDA(cudaMalloc(reinterpret_cast<void**>(&dInst.ptr),
+                                        sizeof(OptixInstance) * oi.size()));
+    OptixTraversableHandle root = 0;
+    try {
+        ASTRORAY_OPTIX_TRAV_CUDA(cudaMemcpy(reinterpret_cast<void*>(dInst.ptr), oi.data(),
+                                            sizeof(OptixInstance) * oi.size(),
+                                            cudaMemcpyHostToDevice));
+        OptixBuildInput in = {};
+        in.type = OPTIX_BUILD_INPUT_TYPE_INSTANCES;
+        in.instanceArray.instances    = dInst.ptr;
+        in.instanceArray.numInstances = static_cast<unsigned int>(oi.size());
+        root = buildAndCompact(ctx, in, OPTIX_BUILD_FLAG_PREFER_FAST_TRACE, out);
+    } catch (...) {
+        dInst.release();
+        throw;
+    }
+    ASTRORAY_OPTIX_TRAV_CUDA(cudaStreamSynchronize(0));
+    dInst.release();
+    return root;
+}
+
 void releaseAll(AccelState& s) {
     for (auto& g : s.gas) g.release();
     s.gas.clear();
@@ -245,47 +292,48 @@ bool buildAccel(const GPrimitive* d_prims, int numPrims, const GTriangle* d_tris
                 if (end > start)
                     s.gasHandle[b] = buildTriangleGas(ctx, d_prims, d_tris, start, end - start, s.gas[b]);
             }
-            std::vector<OptixInstance> oi;
-            oi.reserve(numInstances);
-            for (int j = 0; j < numInstances; ++j) {
-                const GInstance& gi = h_instances[j];
-                if (gi.blasIndex < 0 || gi.blasIndex >= numBlas || s.gasHandle[gi.blasIndex] == 0)
-                    continue;   // empty mesh: nothing to hit
-                OptixInstance x = {};
-                // Row-major 3x4 object->world = the top three rows of worldFromObject.
-                for (int k = 0; k < 12; ++k) x.transform[k] = gi.worldFromObject.m[k];
-                x.instanceId        = static_cast<unsigned int>(j);
-                x.sbtOffset         = 0;
-                x.visibilityMask    = 255;
-                x.flags             = OPTIX_INSTANCE_FLAG_NONE;
-                x.traversableHandle = s.gasHandle[gi.blasIndex];
-                oi.push_back(x);
-            }
-            if (oi.empty()) throw std::runtime_error("[pkg299] no instances with geometry");
-            DevBuf dInst;
-            ASTRORAY_OPTIX_TRAV_CUDA(cudaMalloc(reinterpret_cast<void**>(&dInst.ptr),
-                                                sizeof(OptixInstance) * oi.size()));
-            try {
-                ASTRORAY_OPTIX_TRAV_CUDA(cudaMemcpy(reinterpret_cast<void*>(dInst.ptr), oi.data(),
-                                                    sizeof(OptixInstance) * oi.size(),
-                                                    cudaMemcpyHostToDevice));
-                OptixBuildInput in = {};
-                in.type = OPTIX_BUILD_INPUT_TYPE_INSTANCES;
-                in.instanceArray.instances    = dInst.ptr;
-                in.instanceArray.numInstances = static_cast<unsigned int>(oi.size());
-                s.root = buildAndCompact(ctx, in, OPTIX_BUILD_FLAG_PREFER_FAST_TRACE, s.ias);
-            } catch (...) {
-                dInst.release();
-                throw;
-            }
-            ASTRORAY_OPTIX_TRAV_CUDA(cudaStreamSynchronize(0));
-            dInst.release();
+            s.root = buildIas(ctx, h_instances, numInstances, s.gasHandle, numBlas, s.ias);
+            if (s.root == 0) throw std::runtime_error("[pkg299] no instances with geometry");
             setRoot(s.root, 1);
         }
         s.ready = true;
     } catch (const std::exception& e) {
         s.error = e.what();
         std::fprintf(stderr, "%s — GPU traversal falls back to the software BVH\n", e.what());
+        (void)cudaGetLastError();
+        releaseAll(s);
+        s.error = e.what();
+        return false;
+    }
+    return true;
+}
+
+// #1001: transform-only edit of pkg114 instances. Every GAS (and so every BLAS
+// vertex stream) is kept; only the IAS is rebuilt from the new transforms.
+// OptiX 9.1 Programming Guide, "Acceleration structures" / "Dynamic updates":
+// an instance AS is cheap to rebuild (it never touches triangle data), and the
+// instance count must not change (checked by the caller, as the instance->BLAS
+// map is). On failure the whole accel is released (it would be stale against the
+// new transforms) and the caller falls back to the software BVH.
+bool rebuildInstanceAccel(const GInstance* h_instances, int numInstances) {
+    AccelState& s = S();
+    if (!s.ready || s.updatable || s.gas.empty() || s.ias.ptr == 0 ||
+        h_instances == nullptr || numInstances <= 0)
+        return false;
+    try {
+        DevBuf fresh;
+        OptixTraversableHandle root = 0;
+        try {
+            root = buildIas(context(), h_instances, numInstances, s.gasHandle,
+                            static_cast<int>(s.gasHandle.size()), fresh);
+        } catch (...) { fresh.release(); throw; }
+        if (root == 0) { fresh.release(); return false; }
+        s.ias.release();
+        s.ias = fresh;
+        s.root = root;
+        setRoot(s.root, 1);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "%s -- IAS rebuild failed; software fallback\n", e.what());
         (void)cudaGetLastError();
         releaseAll(s);
         s.error = e.what();

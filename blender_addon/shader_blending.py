@@ -112,8 +112,40 @@ def blend_shader_specs(fac, a, b):
     return deepcopy(b if fac >= 0.5 else a)
 
 
+def _pure_diffuse(spec):
+    """True for a plain constant-colour Lambertian-equivalent Principled spec
+    (no spec lobe, metal, transmission, texture, program or emission)."""
+    if spec.get("kind") != "principled":
+        return False
+    p = spec.get("params", {})
+    if (p.get("metallic", 0.0) or p.get("transmission", 0.0) or p.get("specular_ior_level", 0.5)
+            or p.get("specular", 0.5) or p.get("roughness", 0.5) or p.get("alpha", 1.0) != 1.0
+            or p.get("clearcoat", 0.0) or p.get("sheen", 0.0) or p.get("subsurface", 0.0)):
+        return False
+    if spec.get("emission_strength", 0.0):
+        return False
+    return not any(k in spec for k in ("base_color_texture", "scalar_programs", "native_params",
+                                       "normal_texture", "bump_strength"))
+
+
+def _add_emission(spec, color, strength):
+    """Add `color * strength` radiance to a Principled spec's emission term."""
+    out = _normalized_principled(spec)
+    e0, s0 = out["emission_color"], float(out.get("emission_strength", 0.0))
+    s1 = float(strength)
+    total = s0 + s1
+    if total > 0.0:
+        out["emission_color"] = [(e0[i] * s0 + float(color[i]) * s1) / total for i in range(3)]
+    out["emission_strength"] = total
+    return out
+
+
 def add_shader_specs(a, b):
-    """Add Shader(A, B) → additive shader spec."""
+    """Add Shader(A, B) -> additive shader spec. Cycles adds the closures
+    (weights are not normalised): Emission folds into the other shader's emission
+    radiance; two plain Diffuse closures fold into one with the summed albedo
+    (exact, while it stays <= 1); every other pair becomes an {'kind': 'add'}
+    spec the exporter lowers to a closure-sum material (#955)."""
     if a is None:
         return deepcopy(b)
     if b is None:
@@ -123,15 +155,9 @@ def add_shader_specs(a, b):
     kb = b.get("kind")
 
     if ka == "principled" and kb == "emission":
-        out = _normalized_principled(a)
-        out["emission_color"] = _lerp_vec3(out["emission_color"], b.get("base_color", [1, 1, 1]), 0.5)
-        out["emission_strength"] = out.get("emission_strength", 0.0) + float(b.get("emission_strength", 1.0))
-        return out
+        return _add_emission(a, b.get("base_color", [1, 1, 1]), b.get("emission_strength", 1.0))
     if ka == "emission" and kb == "principled":
-        out = _normalized_principled(b)
-        out["emission_color"] = _lerp_vec3(out["emission_color"], a.get("base_color", [1, 1, 1]), 0.5)
-        out["emission_strength"] = out.get("emission_strength", 0.0) + float(a.get("emission_strength", 1.0))
-        return out
+        return _add_emission(b, a.get("base_color", [1, 1, 1]), a.get("emission_strength", 1.0))
 
     if ka == "emission" and kb == "emission":
         strength_a = float(a.get("emission_strength", 1.0))
@@ -143,5 +169,13 @@ def add_shader_specs(a, b):
             "emission_strength": strength_a + strength_b,
         }
 
-    # Unsupported additive combo: fallback to first
-    return deepcopy(a)
+    if _pure_diffuse(a) and _pure_diffuse(b):
+        ca = a.get("base_color", [0.8, 0.8, 0.8])
+        cb = b.get("base_color", [0.8, 0.8, 0.8])
+        summed = [float(ca[i]) + float(cb[i]) for i in range(3)]
+        if max(summed) <= 1.0:
+            out = deepcopy(a)
+            out["base_color"] = summed
+            return out
+
+    return {"kind": "add", "a": deepcopy(a), "b": deepcopy(b)}

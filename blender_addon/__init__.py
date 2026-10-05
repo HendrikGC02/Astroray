@@ -24,6 +24,12 @@ addon_dir = os.path.dirname(__file__)
 if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
 
 from shader_blending import blend_shader_specs, add_shader_specs
+
+# #955: spec-kind pairs blend_shader_specs lerps/folds; any other Mix Shader pair
+# keeps the dominant shader and is reported.
+_MIX_LERPED_PAIRS = (("principled", "principled"), ("principled", "transparent"),
+                     ("transparent", "principled"), ("principled", "emission"),
+                     ("emission", "principled"))
 # pkg176 Stage 1: read Blender's native render/sampling settings (deprecated
 # custom aliases). Pure-data translator (no bpy/engine deps); see settings_map.py.
 from native_settings import resolve_native_settings, report_unsupported_native_controls
@@ -5560,6 +5566,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
             fac = self.get_float_input(node, 'Fac', 0.5)
             self._warn_light_path_mix_nested(a, b)
             out = blend_shader_specs(fac, a, b)
+            if (a is not None and b is not None
+                    and (a.get('kind'), b.get('kind')) not in _MIX_LERPED_PAIRS):
+                # #955: blend_shader_specs keeps the dominant shader for every
+                # pair it cannot lerp; report it instead of dropping one silently.
+                self._warn_shader_fallback(
+                    'MIX_SHADER', 'Mix Shader of %s + %s is unsupported: only the '
+                    'dominant shader (Fac >= 0.5 -> second) is kept'
+                    % (a.get('kind'), b.get('kind')))
             self._blend_scalar_programs(node, a, b, out, renderer)  # pkg293 (#889)
             return out
 
@@ -5567,16 +5581,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
             a = self._shader_spec_from_node(self._shader_input_node(node, 'Shader'), renderer, node_tree, depth + 1)
             b = self._shader_spec_from_node(self._shader_input_node(node, 'Shader_001'), renderer, node_tree, depth + 1)
             self._warn_light_path_mix_nested(a, b)
-            kinds = (a.get('kind') if a else None, b.get('kind') if b else None)
-            if a and b and kinds not in (('principled', 'emission'), ('emission', 'principled'),
-                                         ('emission', 'emission')):
-
-                # pkg293 review: add_shader_specs keeps only the first shader for
-                # every non-emission pair (not a lerp, not a sum) -- report it.
+            out = add_shader_specs(a, b)
+            if out is not None and out.get('kind') == 'add':
+                # #955: the CPU sums both closures (AddMaterial); the GPU
+                # closure-graph evaluator averages lobes and has no additive
+                # composition, so it renders only the first shader.
                 self._warn_shader_fallback(
-                    'ADD_SHADER', 'Add Shader of %s + %s is unsupported: the second '
-                    'shader (and its per-texel programs) is dropped' % kinds)
-            return add_shader_specs(a, b)
+                    'ADD_SHADER', 'Add Shader of %s + %s is summed on the CPU; the GPU '
+                    'backend renders only the first shader' % (a.get('kind'), b.get('kind')))
+            return out
 
         return None
 
@@ -5673,6 +5686,21 @@ class CustomRaytracerRenderEngine(RenderEngine):
             ida = self._light_path_child_material(spec.get('a'), renderer)
             idb = self._light_path_child_material(spec.get('b'), renderer)
             return renderer.create_light_path_mix(ida, idb, int(spec['output']))
+        if kind == 'add':
+            # #955: Add Shader of two closures -> closure-sum material.
+            if not hasattr(renderer, 'create_add_material'):
+                self._warn_shader_fallback('ADD_SHADER', 'engine without Add Shader '
+                                           'sums: the first shader is used')
+                return self._create_material_from_shader_spec(spec.get('a'), renderer)
+            children = []
+            for key in ('a', 'b'):
+                child = dict(spec[key])
+                # A Displacement bump merged onto the Add spec applies to both.
+                for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance'):
+                    if bump_key in spec and bump_key not in child:
+                        child[bump_key] = spec[bump_key]
+                children.append(self._create_material_from_shader_spec(child, renderer))
+            return renderer.create_add_material(children[0], children[1])
         if kind == 'emission':
             params = {'intensity': float(spec.get('emission_strength', 1.0))}
             color_tex = spec.get('emission_color_texture')

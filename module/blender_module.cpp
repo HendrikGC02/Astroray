@@ -17,6 +17,7 @@
 #include "astroray/nishita_sky.h"  // Batch J (#799 Phase 2): engine-side Nishita sky
 #include "astroray/shapes.h"
 #include "astroray/light_path_mix.h"  // #991 Mix Shader with a Light Path Fac
+#include "astroray/add_material.h"    // #955 Add Shader (closure sum)
 #include "astroray/curves.h"  // pkg225 Stage 1 — CurveSegment / CurveStrip
 #include "astroray/black_hole.h"
 #include "astroray/register.h"
@@ -925,6 +926,17 @@ public:
         int id = nextMaterialId++;
         materials[id] = std::make_shared<astroray::LightPathMixMaterial>(
             ia->second, ib->second, (unsigned char)output);
+        return id;
+    }
+
+    // #955 -- Add Shader(A, B): closures add (include/astroray/add_material.h).
+    // Both children are already-created material ids.
+    int createAddMaterial(int materialA, int materialB) {
+        auto ia = materials.find(materialA), ib = materials.find(materialB);
+        if (ia == materials.end() || ib == materials.end())
+            throw std::runtime_error("create_add_material: unknown material id");
+        int id = nextMaterialId++;
+        materials[id] = std::make_shared<astroray::AddMaterial>(ia->second, ib->second);
         return id;
     }
 
@@ -4112,6 +4124,10 @@ PYBIND11_MODULE(astroray, m) {
              "#991: Mix Shader(A, B) with a boolean Light Path Fac (0 Is Camera, 1 Is Shadow, "
              "2 Is Diffuse, 3 Is Glossy, 4 Is Singular, 5 Is Reflection, 6 Is Transmission, "
              "7 Is Volume Scatter); every ray shades with exactly one child.")
+        .def("create_add_material", &PyRenderer::createAddMaterial,
+             "material_a"_a, "material_b"_a,
+             "#955: Add Shader(A, B): BSDF = A + B (closure weights add, not normalised). "
+             "CPU sums both; the GPU backend renders child A only.")
         .def("eval_material", &PyRenderer::evalMaterial,
              "material_id"_a, "wo"_a, "wi"_a,
              "normal"_a = std::vector<float>{0.0f, 1.0f, 0.0f})

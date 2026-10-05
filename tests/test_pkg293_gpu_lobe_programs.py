@@ -405,11 +405,13 @@ def test_pkg293_two_input_composed_program_is_a_graph_program(monkeypatch):
     assert str(params.get('metallic_program', '')).startswith('_graph_'), params
 
 
-def test_pkg293_add_shader_of_two_bsdfs_reports_dropped_branch(monkeypatch):
+def test_pkg293_add_shader_of_two_bsdfs_reports_gpu_first_only(monkeypatch):
+    # #955: the CPU now sums both closures (AddMaterial); only the GPU backend
+    # still renders the first shader, and that degradation is reported.
     add = _node('ADD_SHADER', 'Add', [Sock('Shader', None, Link(_principled("P"), 'BSDF')),
                                       Sock('Shader_001', None, Link(_diffuse(), 'BSDF'))])
     lines = _lines_for(monkeypatch, add)
-    assert any('ADD_SHADER' in m and 'second shader' in m for m in lines), lines
+    assert any('ADD_SHADER' in m and 'GPU' in m and 'first shader' in m for m in lines), lines
 
 
 def test_pkg293_textured_fac_reports_native_only_socket(monkeypatch):

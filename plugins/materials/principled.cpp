@@ -1839,9 +1839,10 @@ class PrincipledPlugin : public Material {
             }
         }
         // delta (smooth) glass  (also the pkg264 rough dead-sample fallback)
-        float f0 = (etaI - etaT) / (etaI + etaT);
-        f0 = f0 * f0;
-        float fresnel = f0 + (1.0f - f0) * std::pow(std::clamp(1.0f - cosTheta, 0.0f, 1.0f), 5.0f);
+        // #1112: exact dielectric Fresnel for the side (Cycles bsdf_util.h
+        // fresnel_dielectric; pbrt-v4 FrDielectric). Schlick at the incident angle
+        // was ~43 % low for internal reflections (it ignores the eta>1 exit side).
+        float fresnel = fresnelDielectric(cosTheta, etaI, etaT);
         ds.isDelta = true;
         if (cannotRefract || dist(gen) < fresnel) {
             ds.wi = n * (2.0f * wo.dot(n)) - wo;

@@ -1,6 +1,7 @@
 """pkg317: noise-aware candidates for gate (c) "do two backends converge to the same image?".
 
-Study code only: nothing here is wired into ``gate_manifest.py`` or any threshold.
+Owner decision 2026-10-06: ``welch_verdict(..., delta_rel=0.01)`` (candidate 1b) is the gate-(c)
+metric; ``scripts/gate_manifest.py`` calls it.  The other candidates remain study code.
 Inputs are *stacks* of independent-seed renders, shape (N, H, W, 3) linear float32.
 
 Candidates (spec section "Candidates measured"):

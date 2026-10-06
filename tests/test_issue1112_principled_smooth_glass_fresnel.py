@@ -101,7 +101,7 @@ def _analytic_br_over_tl(ss: int = 4, depth: int = 10) -> float:
 
 
 def _render_br_over_tl(*, use_gpu: bool, spp: int = 512) -> float:
-    n, u, v = _lamp_frame()
+    _, u, v = _lamp_frame()
     r = astroray.Renderer()
     if use_gpu:
         r.set_use_gpu(True)

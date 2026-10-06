@@ -112,17 +112,29 @@ def test_node_uses_snapshot_matches_scenes():
 
 
 def test_silent_drop_audit_is_not_vacuous():
-    """The fixture material (an unhandled Attribute node) is flagged; naming it in the report clears it."""
+    """The fixture material (an unhandled Hair Info node) is flagged; naming it in the report clears it."""
     assert AUDIT.self_test()
 
 
-def test_audit_flags_the_real_attributes_material():
-    """prod_attributes drives Base Color/Roughness from Attribute/Color Attribute/Object Info, which have
-    no addon handler: with an empty report every one of them must be a silent drop."""
-    uses = json.loads((PROD / "node_uses.json").read_text(encoding="utf-8"))["scenes"]["prod_attributes"]
-    res = AUDIT.audit_scene(uses["pairs"], AUDIT.load_matrix(), "Render completed in 1s\n")
-    flagged = {p["bl_idname"] for p in res["silent"]}
-    assert {"ShaderNodeAttribute", "ShaderNodeVertexColor", "ShaderNodeObjectInfo"} <= flagged
+def test_audit_credits_the_handled_attribute_and_light_path_materials():
+    """pkg320 (#1039): #990 / #991 handle Attribute / Color Attribute / Object Info outputs, Light Path outputs
+    and the Mix Shader closure switch. The generated matrix now carries output-socket and Mix Shader evidence,
+    so with an empty report neither scene has a silent pair (they were the two `silent` rows of
+    provisional_production.toml)."""
+    scenes = json.loads((PROD / "node_uses.json").read_text(encoding="utf-8"))["scenes"]
+    matrix = AUDIT.load_matrix()
+    for sid in ("prod_attributes", "prod_light_path"):
+        res = AUDIT.audit_scene(scenes[sid]["pairs"], matrix, "Render completed in 1s\n")
+        assert not res["silent"], (sid, [(p["bl_idname"], p["socket"]) for p in res["silent"]])
+
+
+def test_audit_still_flags_an_unhandled_output_socket():
+    """No false credit: Geometry's Pointiness is refused by the compiler (VMCompileError) and stays a silent pair."""
+    scenes = json.loads((PROD / "node_uses.json").read_text(encoding="utf-8"))["scenes"]
+    matrix = AUDIT.load_matrix()
+    flagged = {(p["bl_idname"], p["id"]) for scene in scenes.values()
+               for p in AUDIT.audit_scene(scene["pairs"], matrix, "Render completed in 1s\n")["silent"]}
+    assert ("ShaderNodeNewGeometry", "Pointiness") in flagged
 
 
 def test_provisional_rows_reference_real_cases_and_issues():

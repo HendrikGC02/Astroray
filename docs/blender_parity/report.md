@@ -10,11 +10,11 @@
 
 ## Summary
 
-- **SUPPORTED**: 191 features
-- **APPROXIMATED**: 81 features
-- **DROPPED-SILENT**: 314 features ⚠️
+- **SUPPORTED**: 292 features
+- **APPROXIMATED**: 110 features
+- **DROPPED-SILENT**: 335 features ⚠️
 - **UNKNOWN**: 0 features
-- **Total**: 586 features
+- **Total**: 737 features
 
 ## ⚠️ Stale Socket Reads — Latent Bugs (Unguarded, Name Not in Blender 5.1)
 
@@ -24,7 +24,6 @@ The addon's `node.inputs.get('...')` returns None at runtime, default silently w
 
 - **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5570)
 - **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5570)
-- **MIX_SHADER**: socket `Fac` (addon __init__.py line 5610, line 5892)
 - **TEX_BRICK**: socket `Color3` (addon __init__.py line 4174, line 4309)
 - **TEX_BRICK**: socket `Offset` (addon __init__.py line 4174, line 4309)
 
@@ -63,48 +62,21 @@ These features are silently ignored by the addon with no warning:
 
 ### input_node
 
-- **NEW_GEOMETRY**: `output:Position` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **NEW_GEOMETRY**: `output:Normal` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **NEW_GEOMETRY**: `output:Tangent` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **NEW_GEOMETRY**: `output:True Normal` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **NEW_GEOMETRY**: `output:Incoming` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **NEW_GEOMETRY**: `output:Parametric` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **NEW_GEOMETRY**: `output:Backfacing` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **NEW_GEOMETRY**: `output:Pointiness` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **NEW_GEOMETRY**: `output:Random Per Island` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **OBJECT_INFO**: `output:Location` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **OBJECT_INFO**: `output:Color` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **OBJECT_INFO**: `output:Alpha` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **OBJECT_INFO**: `output:Object Index` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **OBJECT_INFO**: `output:Material Index` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **OBJECT_INFO**: `output:Random` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **ATTRIBUTE**: `output:Color` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **ATTRIBUTE**: `output:Vector` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **ATTRIBUTE**: `output:Factor` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **ATTRIBUTE**: `output:Alpha` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **VERTEX_COLOR**: `output:Color` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **VERTEX_COLOR**: `output:Alpha` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **NEW_GEOMETRY**: `output:Position` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
+- **NEW_GEOMETRY**: `output:Normal` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
+- **NEW_GEOMETRY**: `output:Tangent` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
+- **NEW_GEOMETRY**: `output:True Normal` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
+- **NEW_GEOMETRY**: `output:Incoming` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
+- **NEW_GEOMETRY**: `output:Parametric` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
+- **NEW_GEOMETRY**: `output:Pointiness` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
+- **NEW_GEOMETRY**: `output:Random Per Island` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
 - **HAIR_INFO**: `output:Is Strand` — no handler in addon translation layer
 - **HAIR_INFO**: `output:Intercept` — no handler in addon translation layer
 - **HAIR_INFO**: `output:Length` — no handler in addon translation layer
 - **HAIR_INFO**: `output:Thickness` — no handler in addon translation layer
 - **HAIR_INFO**: `output:Tangent Normal` — no handler in addon translation layer
 - **HAIR_INFO**: `output:Random` — no handler in addon translation layer
-- **LIGHT_PATH**: `output:Is Camera Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **LIGHT_PATH**: `output:Is Shadow Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **LIGHT_PATH**: `output:Is Diffuse Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **LIGHT_PATH**: `output:Is Glossy Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **LIGHT_PATH**: `output:Is Singular Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **LIGHT_PATH**: `output:Is Reflection Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **LIGHT_PATH**: `output:Is Transmission Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **LIGHT_PATH**: `output:Is Volume Scatter Ray` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **LIGHT_PATH**: `output:Ray Length` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **LIGHT_PATH**: `output:Ray Depth` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **LIGHT_PATH**: `output:Diffuse Depth` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **LIGHT_PATH**: `output:Glossy Depth` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **LIGHT_PATH**: `output:Transparent Depth` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **LIGHT_PATH**: `output:Transmission Depth` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
-- **LIGHT_PATH**: `output:Portal Depth` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value
+- **LIGHT_PATH**: `output:Portal Depth` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
 
 ### light
 
@@ -139,8 +111,6 @@ These features are silently ignored by the addon with no warning:
 
 ### shader_node
 
-- **ADD_SHADER**: `input:Shader`
-- **ADD_SHADER**: `input:Shader[Shader_001]`
 - **AMBIENT_OCCLUSION**: `input:Color` — no handler in addon translation layer
 - **AMBIENT_OCCLUSION**: `input:Distance` — no handler in addon translation layer
 - **AMBIENT_OCCLUSION**: `input:Normal` — no handler in addon translation layer
@@ -148,9 +118,7 @@ These features are silently ignored by the addon with no warning:
 - **AMBIENT_OCCLUSION**: `prop:only_local` — property BOOLEAN
 - **AMBIENT_OCCLUSION**: `prop:samples` — property INT
 - **ATTRIBUTE**: `prop:attribute_type` — property ENUM
-- **BACKGROUND**: `input:Color` — no handler in addon translation layer
-- **BACKGROUND**: `input:Strength` — no handler in addon translation layer
-- **BACKGROUND**: `input:Weight` — no handler in addon translation layer
+- **BACKGROUND**: `input:Weight` — root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **BEVEL**: `input:Radius` — no handler in addon translation layer
 - **BEVEL**: `input:Normal` — no handler in addon translation layer
 - **BEVEL**: `prop:samples` — property INT
@@ -253,17 +221,12 @@ These features are silently ignored by the addon with no warning:
 - **MIX**: `input:A[A_Rotation]` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)
 - **MIX**: `input:B[B_Rotation]` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)
 - **MIX_RGB**: `prop:use_alpha` — property BOOLEAN
-- **MIX_SHADER**: `input:Factor`
-- **MIX_SHADER**: `input:Shader`
-- **MIX_SHADER**: `input:Shader[Shader_001]`
 - **NORMAL**: `input:Normal` — no handler in addon translation layer
 - **NORMAL_MAP**: `prop:base` — property ENUM
 - **NORMAL_MAP**: `prop:convention` — property ENUM
 - **NORMAL_MAP**: `prop:space` — property ENUM
 - **OUTPUT_AOV**: `input:Color` — no handler in addon translation layer
 - **OUTPUT_AOV**: `input:Value` — no handler in addon translation layer
-- **OUTPUT_LIGHT**: `input:Surface` — no handler in addon translation layer
-- **OUTPUT_LIGHT**: `prop:is_active_output` — property BOOLEAN
 - **OUTPUT_LIGHT**: `prop:target` — property ENUM
 - **OUTPUT_LINESTYLE**: `input:Color` — no handler in addon translation layer
 - **OUTPUT_LINESTYLE**: `input:Color Fac` — no handler in addon translation layer
@@ -274,14 +237,9 @@ These features are silently ignored by the addon with no warning:
 - **OUTPUT_LINESTYLE**: `prop:target` — property ENUM
 - **OUTPUT_LINESTYLE**: `prop:use_alpha` — property BOOLEAN
 - **OUTPUT_LINESTYLE**: `prop:use_clamp` — property BOOLEAN
-- **OUTPUT_MATERIAL**: `input:Surface` — no handler in addon translation layer
-- **OUTPUT_MATERIAL**: `input:Volume` — no handler in addon translation layer
-- **OUTPUT_MATERIAL**: `input:Displacement` — no handler in addon translation layer
-- **OUTPUT_MATERIAL**: `input:Thickness` — no handler in addon translation layer
-- **OUTPUT_MATERIAL**: `prop:is_active_output` — property BOOLEAN
+- **OUTPUT_MATERIAL**: `input:Thickness` — root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **OUTPUT_MATERIAL**: `prop:target` — property ENUM
-- **OUTPUT_WORLD**: `input:Surface` — no handler in addon translation layer
-- **OUTPUT_WORLD**: `input:Volume` — no handler in addon translation layer
+- **OUTPUT_WORLD**: `input:Surface` — root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **OUTPUT_WORLD**: `prop:is_active_output` — property BOOLEAN
 - **OUTPUT_WORLD**: `prop:target` — property ENUM
 - **ShaderNodeRadialTiling**: `input:Vector` — no handler in addon translation layer
@@ -314,7 +272,7 @@ These features are silently ignored by the addon with no warning:
 - **TEX_BRICK**: `input:Mortar`
 - **TEX_BRICK**: `prop:offset` — property FLOAT
 - **TEX_COORD**: `prop:from_instancer` — property BOOLEAN
-- **TEX_ENVIRONMENT**: `input:Vector` — no handler in addon translation layer
+- **TEX_ENVIRONMENT**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **TEX_ENVIRONMENT**: `prop:interpolation` — property ENUM
 - **TEX_ENVIRONMENT**: `prop:projection` — property ENUM
 - **TEX_GABOR**: `input:Vector` — no handler in addon translation layer
@@ -324,14 +282,13 @@ These features are silently ignored by the addon with no warning:
 - **TEX_GABOR**: `input:Orientation[Orientation 2D]` — no handler in addon translation layer
 - **TEX_GABOR**: `input:Orientation[Orientation 3D]` — no handler in addon translation layer
 - **TEX_GABOR**: `prop:gabor_type` — property ENUM
-- **TEX_IES**: `input:Vector` — no handler in addon translation layer
-- **TEX_IES**: `input:Strength` — no handler in addon translation layer
+- **TEX_IES**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320) in _fold_light_scalar; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **TEX_IES**: `prop:mode` — property ENUM
 - **TEX_IMAGE**: `prop:extension` — property ENUM
 - **TEX_IMAGE**: `prop:interpolation` — property ENUM
 - **TEX_IMAGE**: `prop:projection` — property ENUM
 - **TEX_IMAGE**: `prop:projection_blend` — property FLOAT
-- **TEX_SKY**: `input:Vector` — no handler in addon translation layer
+- **TEX_SKY**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **TEX_SKY**: `prop:air_density` — Rayleigh axis (more air -> bluer); folding onto Perez turbidity (a haziness axis) would invert its direction, so dropped + named in the runtime degradation warning (pkg256, PR #793 review)
 - **TEX_SKY**: `prop:altitude` — property FLOAT
 - **TEX_SKY**: `prop:ground_albedo` — property FLOAT
@@ -380,6 +337,72 @@ These features are silently ignored by the addon with no warning:
 - **WIREFRAME**: `input:Size` — no handler in addon translation layer
 - **WIREFRAME**: `prop:use_pixel_size` — property BOOLEAN
 
+### shader_node_output
+
+- **AMBIENT_OCCLUSION**: `output:Color` — no handler in addon translation layer
+- **AMBIENT_OCCLUSION**: `output:AO` — no handler in addon translation layer
+- **BEVEL**: `output:Normal` — no handler in addon translation layer
+- **BSDF_RAY_PORTAL**: `output:BSDF` — no handler in addon translation layer
+- **BSDF_TOON**: `output:BSDF` — no handler in addon translation layer
+- **CAMERA**: `output:View Vector` — no handler in addon translation layer
+- **CAMERA**: `output:View Z Depth` — no handler in addon translation layer
+- **CAMERA**: `output:View Distance` — no handler in addon translation layer
+- **EEVEE_SPECULAR**: `output:BSDF` — no handler in addon translation layer
+- **HOLDOUT**: `output:Holdout` — no handler in addon translation layer
+- **LIGHT_FALLOFF**: `output:Quadratic` — no handler in addon translation layer
+- **LIGHT_FALLOFF**: `output:Linear` — no handler in addon translation layer
+- **LIGHT_FALLOFF**: `output:Constant` — no handler in addon translation layer
+- **MAP_RANGE**: `output:Vector` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
+- **MIX**: `output:Result[Result_Rotation]` — output variant outside the compiler data-type gate
+- **NORMAL**: `output:Normal` — no handler in addon translation layer
+- **NORMAL**: `output:Dot` — no handler in addon translation layer
+- **PARTICLE_INFO**: `output:Index` — no handler in addon translation layer
+- **PARTICLE_INFO**: `output:Random` — no handler in addon translation layer
+- **PARTICLE_INFO**: `output:Age` — no handler in addon translation layer
+- **PARTICLE_INFO**: `output:Lifetime` — no handler in addon translation layer
+- **PARTICLE_INFO**: `output:Location` — no handler in addon translation layer
+- **PARTICLE_INFO**: `output:Size` — no handler in addon translation layer
+- **PARTICLE_INFO**: `output:Velocity` — no handler in addon translation layer
+- **PARTICLE_INFO**: `output:Angular Velocity` — no handler in addon translation layer
+- **POINT_INFO**: `output:Position` — no handler in addon translation layer
+- **POINT_INFO**: `output:Radius` — no handler in addon translation layer
+- **POINT_INFO**: `output:Random` — no handler in addon translation layer
+- **ShaderNodeRadialTiling**: `output:Segment Coordinates` — no handler in addon translation layer
+- **ShaderNodeRadialTiling**: `output:Segment ID` — no handler in addon translation layer
+- **ShaderNodeRadialTiling**: `output:Segment Width` — no handler in addon translation layer
+- **ShaderNodeRadialTiling**: `output:Segment Rotation` — no handler in addon translation layer
+- **MATERIAL_RAYCAST**: `output:Is Hit` — no handler in addon translation layer
+- **MATERIAL_RAYCAST**: `output:Self Hit` — no handler in addon translation layer
+- **MATERIAL_RAYCAST**: `output:Hit Distance` — no handler in addon translation layer
+- **MATERIAL_RAYCAST**: `output:Hit Position` — no handler in addon translation layer
+- **MATERIAL_RAYCAST**: `output:Hit Normal` — no handler in addon translation layer
+- **MATERIAL_RAYCAST**: `output:` — no handler in addon translation layer
+- **SHADERTORGB**: `output:Color` — no handler in addon translation layer
+- **SHADERTORGB**: `output:Alpha` — no handler in addon translation layer
+- **SQUEEZE**: `output:Value` — no handler in addon translation layer
+- **SUBSURFACE_SCATTERING**: `output:BSSRDF` — no handler in addon translation layer
+- **TANGENT**: `output:Tangent` — no handler in addon translation layer
+- **TEX_GABOR**: `output:Value` — no handler in addon translation layer
+- **TEX_GABOR**: `output:Phase` — no handler in addon translation layer
+- **TEX_GABOR**: `output:Intensity` — no handler in addon translation layer
+- **TEX_IMAGE**: `output:Alpha` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
+- **TEX_VORONOI**: `output:Position` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
+- **TEX_VORONOI**: `output:W` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
+- **TEX_VORONOI**: `output:Radius` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
+- **TEX_WHITE_NOISE**: `output:Value` — no handler in addon translation layer
+- **TEX_WHITE_NOISE**: `output:Color` — no handler in addon translation layer
+- **UVALONGSTROKE**: `output:UV` — no handler in addon translation layer
+- **VALTORGB**: `output:Alpha` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
+- **VECTOR_DISPLACEMENT**: `output:Displacement` — no handler in addon translation layer
+- **VECT_MATH**: `output:Value` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
+- **VECT_TRANSFORM**: `output:Vector` — no handler in addon translation layer
+- **VOLUME_COEFFICIENTS**: `output:Volume` — no handler in addon translation layer
+- **VOLUME_INFO**: `output:Color` — no handler in addon translation layer
+- **VOLUME_INFO**: `output:Density` — no handler in addon translation layer
+- **VOLUME_INFO**: `output:Flame` — no handler in addon translation layer
+- **VOLUME_INFO**: `output:Temperature` — no handler in addon translation layer
+- **WIREFRAME**: `output:Factor` — no handler in addon translation layer
+
 ### world
 
 - **World**: `light_linking_shadow_linking` — per-object light-linking / shadow-linking collections have no Astroray equivalent; declared out of scope by owner decision 2026-09-08 -- one gap-card row, not per-object rows
@@ -422,48 +445,48 @@ These features are silently ignored by the addon with no warning:
 
 | Feature | Socket/Property | Classification | Notes |
 |---------|-----------------|----------------|-------|
-| NEW_GEOMETRY | output:Position | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| NEW_GEOMETRY | output:Normal | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| NEW_GEOMETRY | output:Tangent | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| NEW_GEOMETRY | output:True Normal | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| NEW_GEOMETRY | output:Incoming | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| NEW_GEOMETRY | output:Parametric | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| NEW_GEOMETRY | output:Backfacing | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| NEW_GEOMETRY | output:Pointiness | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| NEW_GEOMETRY | output:Random Per Island | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| OBJECT_INFO | output:Location | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| OBJECT_INFO | output:Color | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| OBJECT_INFO | output:Alpha | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| OBJECT_INFO | output:Object Index | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| OBJECT_INFO | output:Material Index | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| OBJECT_INFO | output:Random | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| ATTRIBUTE | output:Color | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| ATTRIBUTE | output:Vector | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| ATTRIBUTE | output:Factor | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| ATTRIBUTE | output:Alpha | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| VERTEX_COLOR | output:Color | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| VERTEX_COLOR | output:Alpha | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| NEW_GEOMETRY | output:Position | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
+| NEW_GEOMETRY | output:Normal | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
+| NEW_GEOMETRY | output:Tangent | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
+| NEW_GEOMETRY | output:True Normal | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
+| NEW_GEOMETRY | output:Incoming | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
+| NEW_GEOMETRY | output:Parametric | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
+| NEW_GEOMETRY | output:Backfacing | SUPPORTED | output consumed by the node handler (pkg320) |
+| NEW_GEOMETRY | output:Pointiness | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
+| NEW_GEOMETRY | output:Random Per Island | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
+| OBJECT_INFO | output:Location | SUPPORTED | output consumed by the node handler (pkg320) |
+| OBJECT_INFO | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| OBJECT_INFO | output:Alpha | SUPPORTED | output consumed by the node handler (pkg320) |
+| OBJECT_INFO | output:Object Index | SUPPORTED | output consumed by the node handler (pkg320) |
+| OBJECT_INFO | output:Material Index | SUPPORTED | output consumed by the node handler (pkg320) |
+| OBJECT_INFO | output:Random | SUPPORTED | output consumed by the node handler (pkg320) |
+| ATTRIBUTE | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| ATTRIBUTE | output:Vector | SUPPORTED | output consumed by the node handler (pkg320) |
+| ATTRIBUTE | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
+| ATTRIBUTE | output:Alpha | SUPPORTED | output consumed by the node handler (pkg320) |
+| VERTEX_COLOR | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| VERTEX_COLOR | output:Alpha | SUPPORTED | output consumed by the node handler (pkg320) |
 | HAIR_INFO | output:Is Strand | DROPPED-SILENT | no handler in addon translation layer |
 | HAIR_INFO | output:Intercept | DROPPED-SILENT | no handler in addon translation layer |
 | HAIR_INFO | output:Length | DROPPED-SILENT | no handler in addon translation layer |
 | HAIR_INFO | output:Thickness | DROPPED-SILENT | no handler in addon translation layer |
 | HAIR_INFO | output:Tangent Normal | DROPPED-SILENT | no handler in addon translation layer |
 | HAIR_INFO | output:Random | DROPPED-SILENT | no handler in addon translation layer |
-| LIGHT_PATH | output:Is Camera Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| LIGHT_PATH | output:Is Shadow Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| LIGHT_PATH | output:Is Diffuse Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| LIGHT_PATH | output:Is Glossy Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| LIGHT_PATH | output:Is Singular Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| LIGHT_PATH | output:Is Reflection Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| LIGHT_PATH | output:Is Transmission Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| LIGHT_PATH | output:Is Volume Scatter Ray | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| LIGHT_PATH | output:Ray Length | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| LIGHT_PATH | output:Ray Depth | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| LIGHT_PATH | output:Diffuse Depth | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| LIGHT_PATH | output:Glossy Depth | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| LIGHT_PATH | output:Transparent Depth | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| LIGHT_PATH | output:Transmission Depth | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
-| LIGHT_PATH | output:Portal Depth | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
+| LIGHT_PATH | output:Is Camera Ray | SUPPORTED | output consumed by the node handler (pkg320) |
+| LIGHT_PATH | output:Is Shadow Ray | SUPPORTED | output consumed by the node handler (pkg320) |
+| LIGHT_PATH | output:Is Diffuse Ray | APPROXIMATED | output the op-VM compiler reports as approximate (_warn_shader_fallback) |
+| LIGHT_PATH | output:Is Glossy Ray | APPROXIMATED | output the op-VM compiler reports as approximate (_warn_shader_fallback) |
+| LIGHT_PATH | output:Is Singular Ray | SUPPORTED | output consumed by the node handler (pkg320) |
+| LIGHT_PATH | output:Is Reflection Ray | SUPPORTED | output consumed by the node handler (pkg320) |
+| LIGHT_PATH | output:Is Transmission Ray | SUPPORTED | output consumed by the node handler (pkg320) |
+| LIGHT_PATH | output:Is Volume Scatter Ray | SUPPORTED | output consumed by the node handler (pkg320) |
+| LIGHT_PATH | output:Ray Length | SUPPORTED | output consumed by the node handler (pkg320) |
+| LIGHT_PATH | output:Ray Depth | SUPPORTED | output consumed by the node handler (pkg320) |
+| LIGHT_PATH | output:Diffuse Depth | APPROXIMATED | output the op-VM compiler reports as approximate (_warn_shader_fallback) |
+| LIGHT_PATH | output:Glossy Depth | APPROXIMATED | output the op-VM compiler reports as approximate (_warn_shader_fallback) |
+| LIGHT_PATH | output:Transparent Depth | SUPPORTED | output consumed by the node handler (pkg320) |
+| LIGHT_PATH | output:Transmission Depth | SUPPORTED | output consumed by the node handler (pkg320) |
+| LIGHT_PATH | output:Portal Depth | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
 
 ### light
 
@@ -540,8 +563,8 @@ These features are silently ignored by the addon with no warning:
 
 | Feature | Socket/Property | Classification | Notes |
 |---------|-----------------|----------------|-------|
-| ADD_SHADER | input:Shader | DROPPED-SILENT |  |
-| ADD_SHADER | input:Shader[Shader_001] | DROPPED-SILENT |  |
+| ADD_SHADER | input:Shader | APPROXIMATED |  |
+| ADD_SHADER | input:Shader[Shader_001] | APPROXIMATED |  |
 | AMBIENT_OCCLUSION | input:Color | DROPPED-SILENT | no handler in addon translation layer |
 | AMBIENT_OCCLUSION | input:Distance | DROPPED-SILENT | no handler in addon translation layer |
 | AMBIENT_OCCLUSION | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
@@ -549,9 +572,9 @@ These features are silently ignored by the addon with no warning:
 | AMBIENT_OCCLUSION | prop:only_local | DROPPED-SILENT | property BOOLEAN |
 | AMBIENT_OCCLUSION | prop:samples | DROPPED-SILENT | property INT |
 | ATTRIBUTE | prop:attribute_type | DROPPED-SILENT | property ENUM |
-| BACKGROUND | input:Color | DROPPED-SILENT | no handler in addon translation layer |
-| BACKGROUND | input:Strength | DROPPED-SILENT | no handler in addon translation layer |
-| BACKGROUND | input:Weight | DROPPED-SILENT | no handler in addon translation layer |
+| BACKGROUND | input:Color | APPROXIMATED | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6); partial: a linked chain _get_socket_color cannot evaluate falls back to white silently (setup_world) (#1101 finding 3) |
+| BACKGROUND | input:Strength | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| BACKGROUND | input:Weight | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6) |
 | BEVEL | input:Radius | DROPPED-SILENT | no handler in addon translation layer |
 | BEVEL | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
 | BEVEL | prop:samples | DROPPED-SILENT | property INT |
@@ -779,9 +802,9 @@ These features are silently ignored by the addon with no warning:
 | MIX_RGB | prop:blend_type | SUPPORTED |  |
 | MIX_RGB | prop:use_alpha | DROPPED-SILENT | property BOOLEAN |
 | MIX_RGB | prop:use_clamp | SUPPORTED |  |
-| MIX_SHADER | input:Factor | DROPPED-SILENT |  |
-| MIX_SHADER | input:Shader | DROPPED-SILENT |  |
-| MIX_SHADER | input:Shader[Shader_001] | DROPPED-SILENT |  |
+| MIX_SHADER | input:Factor | APPROXIMATED |  |
+| MIX_SHADER | input:Shader | APPROXIMATED |  |
+| MIX_SHADER | input:Shader[Shader_001] | APPROXIMATED |  |
 | NORMAL | input:Normal | DROPPED-SILENT | no handler in addon translation layer |
 | NORMAL_MAP | input:Strength | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | NORMAL_MAP | input:Color | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
@@ -790,8 +813,8 @@ These features are silently ignored by the addon with no warning:
 | NORMAL_MAP | prop:space | DROPPED-SILENT | property ENUM |
 | OUTPUT_AOV | input:Color | DROPPED-SILENT | no handler in addon translation layer |
 | OUTPUT_AOV | input:Value | DROPPED-SILENT | no handler in addon translation layer |
-| OUTPUT_LIGHT | input:Surface | DROPPED-SILENT | no handler in addon translation layer |
-| OUTPUT_LIGHT | prop:is_active_output | DROPPED-SILENT | property BOOLEAN |
+| OUTPUT_LIGHT | input:Surface | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) in _resolve_light_shader; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| OUTPUT_LIGHT | prop:is_active_output | SUPPORTED |  |
 | OUTPUT_LIGHT | prop:target | DROPPED-SILENT | property ENUM |
 | OUTPUT_LINESTYLE | input:Color | DROPPED-SILENT | no handler in addon translation layer |
 | OUTPUT_LINESTYLE | input:Color Fac | DROPPED-SILENT | no handler in addon translation layer |
@@ -802,14 +825,14 @@ These features are silently ignored by the addon with no warning:
 | OUTPUT_LINESTYLE | prop:target | DROPPED-SILENT | property ENUM |
 | OUTPUT_LINESTYLE | prop:use_alpha | DROPPED-SILENT | property BOOLEAN |
 | OUTPUT_LINESTYLE | prop:use_clamp | DROPPED-SILENT | property BOOLEAN |
-| OUTPUT_MATERIAL | input:Surface | DROPPED-SILENT | no handler in addon translation layer |
-| OUTPUT_MATERIAL | input:Volume | DROPPED-SILENT | no handler in addon translation layer |
-| OUTPUT_MATERIAL | input:Displacement | DROPPED-SILENT | no handler in addon translation layer |
-| OUTPUT_MATERIAL | input:Thickness | DROPPED-SILENT | no handler in addon translation layer |
-| OUTPUT_MATERIAL | prop:is_active_output | DROPPED-SILENT | property BOOLEAN |
+| OUTPUT_MATERIAL | input:Surface | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| OUTPUT_MATERIAL | input:Volume | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| OUTPUT_MATERIAL | input:Displacement | APPROXIMATED | root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6); partial: only a Displacement node is honoured (as bump); any other linked node is ignored silently (get_displacement_bump_inputs: `!= 'DISPLACEMENT'` -> return) (#1101 finding 3) |
+| OUTPUT_MATERIAL | input:Thickness | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| OUTPUT_MATERIAL | prop:is_active_output | SUPPORTED |  |
 | OUTPUT_MATERIAL | prop:target | DROPPED-SILENT | property ENUM |
-| OUTPUT_WORLD | input:Surface | DROPPED-SILENT | no handler in addon translation layer |
-| OUTPUT_WORLD | input:Volume | DROPPED-SILENT | no handler in addon translation layer |
+| OUTPUT_WORLD | input:Surface | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| OUTPUT_WORLD | input:Volume | APPROXIMATED | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6); partial: only Volume Scatter / Principled Volume are honoured; Volume Absorption and others are dropped silently (setup_world `volume_node.type in {...}`) (#1101 finding 3) |
 | OUTPUT_WORLD | prop:is_active_output | DROPPED-SILENT | property BOOLEAN |
 | OUTPUT_WORLD | prop:target | DROPPED-SILENT | property ENUM |
 | CURVE_RGB | input:Factor | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
@@ -864,7 +887,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_CHECKER | input:Color2 | SUPPORTED |  |
 | TEX_CHECKER | input:Scale | SUPPORTED |  |
 | TEX_COORD | prop:from_instancer | DROPPED-SILENT | property BOOLEAN |
-| TEX_ENVIRONMENT | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
+| TEX_ENVIRONMENT | input:Vector | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6) |
 | TEX_ENVIRONMENT | prop:interpolation | DROPPED-SILENT | property ENUM |
 | TEX_ENVIRONMENT | prop:projection | DROPPED-SILENT | property ENUM |
 | TEX_GABOR | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
@@ -876,8 +899,8 @@ These features are silently ignored by the addon with no warning:
 | TEX_GABOR | prop:gabor_type | DROPPED-SILENT | property ENUM |
 | TEX_GRADIENT | input:Vector | SUPPORTED |  |
 | TEX_GRADIENT | prop:gradient_type | SUPPORTED |  |
-| TEX_IES | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
-| TEX_IES | input:Strength | DROPPED-SILENT | no handler in addon translation layer |
+| TEX_IES | input:Vector | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in _fold_light_scalar; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| TEX_IES | input:Strength | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) in _fold_light_scalar; context-blind row: credited only where these methods consume it (#1101 finding 6) |
 | TEX_IES | prop:mode | DROPPED-SILENT | property ENUM |
 | TEX_IMAGE | input:Vector | APPROXIMATED | op-VM / vector-input path (pkg219/pkg223) |
 | TEX_IMAGE | prop:extension | DROPPED-SILENT | property ENUM |
@@ -900,7 +923,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_NOISE | prop:noise_dimensions | SUPPORTED |  |
 | TEX_NOISE | prop:noise_type | SUPPORTED |  |
 | TEX_NOISE | prop:normalize | SUPPORTED |  |
-| TEX_SKY | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
+| TEX_SKY | input:Vector | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6) |
 | TEX_SKY | prop:aerosol_density | APPROXIMATED | folded into effective Perez turbidity for the Nishita family (pkg256, approx) |
 | TEX_SKY | prop:air_density | DROPPED-SILENT | Rayleigh axis (more air -> bluer); folding onto Perez turbidity (a haziness axis) would invert its direction, so dropped + named in the runtime degradation warning (pkg256, PR #793 review) |
 | TEX_SKY | prop:altitude | DROPPED-SILENT | property FLOAT |
@@ -1004,6 +1027,167 @@ These features are silently ignored by the addon with no warning:
 | WAVELENGTH | input:Wavelength | SUPPORTED |  |
 | WIREFRAME | input:Size | DROPPED-SILENT | no handler in addon translation layer |
 | WIREFRAME | prop:use_pixel_size | DROPPED-SILENT | property BOOLEAN |
+
+### shader_node_output
+
+| Feature | Socket/Property | Classification | Notes |
+|---------|-----------------|----------------|-------|
+| ADD_SHADER | output:Shader | APPROXIMATED | output consumed by the node handler (pkg320) |
+| AMBIENT_OCCLUSION | output:Color | DROPPED-SILENT | no handler in addon translation layer |
+| AMBIENT_OCCLUSION | output:AO | DROPPED-SILENT | no handler in addon translation layer |
+| BACKGROUND | output:Background | SUPPORTED | output consumed by the node handler (pkg320) |
+| BEVEL | output:Normal | DROPPED-SILENT | no handler in addon translation layer |
+| BLACKBODY | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| BRIGHTCONTRAST | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| BSDF_GLOSSY | output:BSDF | SUPPORTED | output consumed by the node handler (pkg320) |
+| BSDF_DIFFUSE | output:BSDF | APPROXIMATED | output consumed by the node handler (pkg320) |
+| BSDF_GLASS | output:BSDF | SUPPORTED | output consumed by the node handler (pkg320) |
+| BSDF_HAIR | output:BSDF | APPROXIMATED | output consumed by the node handler (pkg320) |
+| BSDF_HAIR_PRINCIPLED | output:BSDF | APPROXIMATED | output consumed by the node handler (pkg320) |
+| BSDF_METALLIC | output:BSDF | APPROXIMATED | output consumed by the node handler (pkg320) |
+| BSDF_PRINCIPLED | output:BSDF | APPROXIMATED | output consumed by the node handler (pkg320) |
+| BSDF_RAY_PORTAL | output:BSDF | DROPPED-SILENT | no handler in addon translation layer |
+| BSDF_REFRACTION | output:BSDF | APPROXIMATED | output consumed by the node handler (pkg320) |
+| BSDF_SHEEN | output:BSDF | APPROXIMATED | output consumed by the node handler (pkg320) |
+| BSDF_TOON | output:BSDF | DROPPED-SILENT | no handler in addon translation layer |
+| BSDF_TRANSLUCENT | output:BSDF | SUPPORTED | output consumed by the node handler (pkg320) |
+| BSDF_TRANSPARENT | output:BSDF | SUPPORTED | output consumed by the node handler (pkg320) |
+| BUMP | output:Normal | SUPPORTED | output consumed by the node handler (pkg320) |
+| CAMERA | output:View Vector | DROPPED-SILENT | no handler in addon translation layer |
+| CAMERA | output:View Z Depth | DROPPED-SILENT | no handler in addon translation layer |
+| CAMERA | output:View Distance | DROPPED-SILENT | no handler in addon translation layer |
+| CLAMP | output:Result | SUPPORTED | output consumed by the node handler (pkg320) |
+| COMBINE_COLOR | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| COMBXYZ | output:Vector | SUPPORTED | output consumed by the node handler (pkg320) |
+| DISPLACEMENT | output:Displacement | APPROXIMATED | output consumed by the node handler (pkg320) |
+| EEVEE_SPECULAR | output:BSDF | DROPPED-SILENT | no handler in addon translation layer |
+| EMISSION | output:Emission | APPROXIMATED | output consumed by the node handler (pkg320) |
+| CURVE_FLOAT | output:Value | SUPPORTED | output consumed by the node handler (pkg320) |
+| FRESNEL | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
+| GAMMA | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| HOLDOUT | output:Holdout | DROPPED-SILENT | no handler in addon translation layer |
+| HUE_SAT | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| INVERT | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| LAYER_WEIGHT | output:Fresnel | SUPPORTED | output consumed by the node handler (pkg320) |
+| LAYER_WEIGHT | output:Facing | SUPPORTED | output consumed by the node handler (pkg320) |
+| LIGHT_FALLOFF | output:Quadratic | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_FALLOFF | output:Linear | DROPPED-SILENT | no handler in addon translation layer |
+| LIGHT_FALLOFF | output:Constant | DROPPED-SILENT | no handler in addon translation layer |
+| MAP_RANGE | output:Result | SUPPORTED | output consumed by the node handler (pkg320) |
+| MAP_RANGE | output:Vector | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
+| MAPPING | output:Vector | SUPPORTED | output consumed by the node handler (pkg320) |
+| MATH | output:Value | SUPPORTED | output consumed by the node handler (pkg320) |
+| MIX | output:Result[Result_Float] | SUPPORTED | output consumed by the node handler (pkg320) |
+| MIX | output:Result[Result_Vector] | SUPPORTED | output consumed by the node handler (pkg320) |
+| MIX | output:Result[Result_Color] | SUPPORTED | output consumed by the node handler (pkg320) |
+| MIX | output:Result[Result_Rotation] | DROPPED-SILENT | output variant outside the compiler data-type gate |
+| MIX_RGB | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| MIX_SHADER | output:Shader | APPROXIMATED | output consumed by the node handler (pkg320) |
+| NORMAL | output:Normal | DROPPED-SILENT | no handler in addon translation layer |
+| NORMAL | output:Dot | DROPPED-SILENT | no handler in addon translation layer |
+| NORMAL_MAP | output:Normal | SUPPORTED | output consumed by the node handler (pkg320) |
+| PARTICLE_INFO | output:Index | DROPPED-SILENT | no handler in addon translation layer |
+| PARTICLE_INFO | output:Random | DROPPED-SILENT | no handler in addon translation layer |
+| PARTICLE_INFO | output:Age | DROPPED-SILENT | no handler in addon translation layer |
+| PARTICLE_INFO | output:Lifetime | DROPPED-SILENT | no handler in addon translation layer |
+| PARTICLE_INFO | output:Location | DROPPED-SILENT | no handler in addon translation layer |
+| PARTICLE_INFO | output:Size | DROPPED-SILENT | no handler in addon translation layer |
+| PARTICLE_INFO | output:Velocity | DROPPED-SILENT | no handler in addon translation layer |
+| PARTICLE_INFO | output:Angular Velocity | DROPPED-SILENT | no handler in addon translation layer |
+| POINT_INFO | output:Position | DROPPED-SILENT | no handler in addon translation layer |
+| POINT_INFO | output:Radius | DROPPED-SILENT | no handler in addon translation layer |
+| POINT_INFO | output:Random | DROPPED-SILENT | no handler in addon translation layer |
+| RGB | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| CURVE_RGB | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| RGBTOBW | output:Val | SUPPORTED | output consumed by the node handler (pkg320) |
+| ShaderNodeRadialTiling | output:Segment Coordinates | DROPPED-SILENT | no handler in addon translation layer |
+| ShaderNodeRadialTiling | output:Segment ID | DROPPED-SILENT | no handler in addon translation layer |
+| ShaderNodeRadialTiling | output:Segment Width | DROPPED-SILENT | no handler in addon translation layer |
+| ShaderNodeRadialTiling | output:Segment Rotation | DROPPED-SILENT | no handler in addon translation layer |
+| MATERIAL_RAYCAST | output:Is Hit | DROPPED-SILENT | no handler in addon translation layer |
+| MATERIAL_RAYCAST | output:Self Hit | DROPPED-SILENT | no handler in addon translation layer |
+| MATERIAL_RAYCAST | output:Hit Distance | DROPPED-SILENT | no handler in addon translation layer |
+| MATERIAL_RAYCAST | output:Hit Position | DROPPED-SILENT | no handler in addon translation layer |
+| MATERIAL_RAYCAST | output:Hit Normal | DROPPED-SILENT | no handler in addon translation layer |
+| MATERIAL_RAYCAST | output: | DROPPED-SILENT | no handler in addon translation layer |
+| SEPARATE_COLOR | output:Red | SUPPORTED | output consumed by the node handler (pkg320) |
+| SEPARATE_COLOR | output:Green | SUPPORTED | output consumed by the node handler (pkg320) |
+| SEPARATE_COLOR | output:Blue | SUPPORTED | output consumed by the node handler (pkg320) |
+| SEPXYZ | output:X | SUPPORTED | output consumed by the node handler (pkg320) |
+| SEPXYZ | output:Y | SUPPORTED | output consumed by the node handler (pkg320) |
+| SEPXYZ | output:Z | SUPPORTED | output consumed by the node handler (pkg320) |
+| SHADERTORGB | output:Color | DROPPED-SILENT | no handler in addon translation layer |
+| SHADERTORGB | output:Alpha | DROPPED-SILENT | no handler in addon translation layer |
+| SQUEEZE | output:Value | DROPPED-SILENT | no handler in addon translation layer |
+| SUBSURFACE_SCATTERING | output:BSSRDF | DROPPED-SILENT | no handler in addon translation layer |
+| TANGENT | output:Tangent | DROPPED-SILENT | no handler in addon translation layer |
+| TEX_BRICK | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_BRICK | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_CHECKER | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_CHECKER | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_COORD | output:Generated | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_COORD | output:Normal | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_COORD | output:UV | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_COORD | output:Object | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_COORD | output:Camera | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_COORD | output:Window | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_COORD | output:Reflection | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_ENVIRONMENT | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_GABOR | output:Value | DROPPED-SILENT | no handler in addon translation layer |
+| TEX_GABOR | output:Phase | DROPPED-SILENT | no handler in addon translation layer |
+| TEX_GABOR | output:Intensity | DROPPED-SILENT | no handler in addon translation layer |
+| TEX_GRADIENT | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_GRADIENT | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_IES | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_IMAGE | output:Color | APPROXIMATED | output consumed by the node handler (pkg320) |
+| TEX_IMAGE | output:Alpha | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
+| TEX_MAGIC | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_MAGIC | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_NOISE | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_NOISE | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_SKY | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_VORONOI | output:Distance | APPROXIMATED | output consumed by the node handler (pkg320) |
+| TEX_VORONOI | output:Color | APPROXIMATED | output consumed by the node handler (pkg320) |
+| TEX_VORONOI | output:Position | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
+| TEX_VORONOI | output:W | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
+| TEX_VORONOI | output:Radius | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
+| TEX_WAVE | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_WAVE | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_WHITE_NOISE | output:Value | DROPPED-SILENT | no handler in addon translation layer |
+| TEX_WHITE_NOISE | output:Color | DROPPED-SILENT | no handler in addon translation layer |
+| UVALONGSTROKE | output:UV | DROPPED-SILENT | no handler in addon translation layer |
+| UVMAP | output:UV | SUPPORTED | output consumed by the node handler (pkg320) |
+| VALTORGB | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| VALTORGB | output:Alpha | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
+| VALUE | output:Value | SUPPORTED | output consumed by the node handler (pkg320) |
+| CURVE_VEC | output:Vector | SUPPORTED | output consumed by the node handler (pkg320) |
+| VECTOR_DISPLACEMENT | output:Displacement | DROPPED-SILENT | no handler in addon translation layer |
+| VECT_MATH | output:Vector | SUPPORTED | output consumed by the node handler (pkg320) |
+| VECT_MATH | output:Value | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
+| VECTOR_ROTATE | output:Vector | SUPPORTED | output consumed by the node handler (pkg320) |
+| VECT_TRANSFORM | output:Vector | DROPPED-SILENT | no handler in addon translation layer |
+| VOLUME_ABSORPTION | output:Volume | APPROXIMATED | output consumed by the node handler (pkg320) |
+| VOLUME_COEFFICIENTS | output:Volume | DROPPED-SILENT | no handler in addon translation layer |
+| VOLUME_INFO | output:Color | DROPPED-SILENT | no handler in addon translation layer |
+| VOLUME_INFO | output:Density | DROPPED-SILENT | no handler in addon translation layer |
+| VOLUME_INFO | output:Flame | DROPPED-SILENT | no handler in addon translation layer |
+| VOLUME_INFO | output:Temperature | DROPPED-SILENT | no handler in addon translation layer |
+| PRINCIPLED_VOLUME | output:Volume | APPROXIMATED | output consumed by the node handler (pkg320) |
+| VOLUME_SCATTER | output:Volume | APPROXIMATED | output consumed by the node handler (pkg320) |
+| WAVELENGTH | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
+| WIREFRAME | output:Factor | DROPPED-SILENT | no handler in addon translation layer |
+
+### structural
+
+| Feature | Socket/Property | Classification | Notes |
+|---------|-----------------|----------------|-------|
+| GROUP | input:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6) |
+| GROUP | output:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6) |
+| GROUP | prop:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6) |
+| GROUP_INPUT | output:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6) |
+| GROUP_INPUT | prop:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6) |
+| GROUP_OUTPUT | input:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6) |
+| GROUP_OUTPUT | prop:* | SUPPORTED | node groups are inlined by Blender (material.inline_shader_nodes) before conversion in convert_node_material; context-blind row: world / light trees are walked raw (#1101 finding 6) |
 
 ### world
 

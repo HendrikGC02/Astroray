@@ -17,8 +17,9 @@ Deliberate deviations from the plain definition (each keeps the audit honest, no
   DROPPED-SILENT because scene conversion, not the shader dispatch, consumes them;
 * pairs in the ``world:`` tree are excluded and only counted (``world_pairs_excluded``): the shared stage HDRI
   world is identical in all eight scenes and is gated by the v2 world rows;
-* output-socket pairs are judged only for node types the matrix has ``output:`` rows for (inputs-less nodes such as
-  Attribute or Light Path); for every other node a linked output is evidence of use, not a classifiable pair;
+* output-socket pairs are judged only for node types the matrix has ``output:`` rows for. Before pkg320 that was the
+  six inputs-less nodes (Attribute, Light Path, ...); the matrix now carries an output row for every shader node, so
+  every linked output is classified;
 * an APPROXIMATED pair with no report entry is listed under ``approximated_unreported`` and NOT scored: the matrix
   marks all 28 Principled sockets APPROXIMATED from an AST scan, so scoring that bucket would fail every material
   on matrix coarseness. It is still reported per scene so it can be tightened later.
@@ -138,8 +139,8 @@ def audit_scene(pairs: list[dict], matrix: dict[str, str], log_text: str) -> dic
 
     ``pairs``: ``[{"bl_idname", "socket", "id", "name", "why"}]`` (the ``collect`` output for the scene)."""
     entries = reported_entries(log_text)
-    # The matrix classifies output sockets only for nodes that have no inputs (Attribute, Light Path, ...);
-    # for every other node a linked output is evidence of use, not a classifiable pair.
+    # Output pairs are judged only for node types the matrix has `output:` rows for (every shader node since pkg320;
+    # the six inputs-less nodes before it).
     out_nodes = {k.split("|", 1)[0] for k in matrix if "|output:" in k}
     silent, reported, approx_unreported, supported, world = [], [], [], 0, 0
     for p in pairs:
@@ -345,8 +346,9 @@ def cmd_coverage(a) -> int:
 # --------------------------------------------------------------------------- #
 
 def _fixture_graph(with_dead_branch: bool = True) -> dict:
-    """A one-material graph: Output <- Principled (Base Color <- Attribute[unhandled], Roughness <- Noise
-    [supported]); plus an unlinked Layer Weight that must NOT be exercised."""
+    """A one-material graph: Output <- Principled (Base Color <- Hair Info[unhandled], Roughness <- Noise
+    [supported]); plus an unlinked Layer Weight that must NOT be exercised. (Hair Info has no translation
+    handler; Attribute stopped being the fixture once #990 / pkg320 made it a handled, credited node.)"""
     def node(bl, inputs=(), outputs=()):
         return {"bl_idname": bl, "mute": False, "is_group": False, "group_tree": None,
                 "inputs": {i: {"linked": lk, "enabled": True} for i, lk in inputs},
@@ -354,11 +356,11 @@ def _fixture_graph(with_dead_branch: bool = True) -> dict:
     nodes = {
         "Out": node("ShaderNodeOutputMaterial", [("Surface", True)]),
         "P": node("ShaderNodeBsdfPrincipled", [("Base Color", True), ("Roughness", True)], [("BSDF", True)]),
-        "Attr": node("ShaderNodeAttribute", [], [("Color", True)]),
+        "Attr": node("ShaderNodeHairInfo", [], [("Intercept", True)]),
         "Noise": node("ShaderNodeTexNoise", [("Scale", False)], [("Fac", True)]),
     }
     links = [{"from_node": "P", "from_socket": "BSDF", "to_node": "Out", "to_socket": "Surface"},
-             {"from_node": "Attr", "from_socket": "Color", "to_node": "P", "to_socket": "Base Color"},
+             {"from_node": "Attr", "from_socket": "Intercept", "to_node": "P", "to_socket": "Base Color"},
              {"from_node": "Noise", "from_socket": "Fac", "to_node": "P", "to_socket": "Roughness"}]
     if with_dead_branch:
         nodes["Dead"] = node("ShaderNodeLayerWeight", [("Blend", False)], [("Fresnel", False)])
@@ -389,13 +391,13 @@ def self_test() -> bool:
     assert "ShaderNodeLayerWeight" not in ids, "an unreachable node must not be exercised"
     empty = audit_scene(pairs, matrix, "Render completed in 0.3s\n")
     flagged = {p["bl_idname"] for p in empty["silent"]}
-    assert flagged == {"ShaderNodeAttribute"}, f"expected exactly the unhandled Attribute node, got {flagged}"
+    assert flagged == {"ShaderNodeHairInfo"}, f"expected exactly the unhandled Hair Info node, got {flagged}"
     assert {p["bl_idname"] for p in empty["approximated_unreported"]} == {"ShaderNodeBsdfPrincipled"}
     assert not [p for p in empty["silent"] if p["bl_idname"] == "ShaderNodeTexNoise"], "supported Noise flagged"
     told = audit_scene(pairs, matrix, "Astroray degradation: 0 approximated / 1 ignored -- "
-                       "ignored shader node 'ATTRIBUTE': unsupported -> neutral grey\n")
-    assert not [p for p in told["silent"] if p["bl_idname"] == "ShaderNodeAttribute"], "reported node still flagged"
-    assert any(p["bl_idname"] == "ShaderNodeAttribute" for p in told["reported"])
+                       "ignored shader node 'HAIR_INFO': unsupported -> neutral grey\n")
+    assert not [p for p in told["silent"] if p["bl_idname"] == "ShaderNodeHairInfo"], "reported node still flagged"
+    assert any(p["bl_idname"] == "ShaderNodeHairInfo" for p in told["reported"])
     print(f"self-test OK: fixture flagged {sorted(flagged)}; reported-node case clean")
     return True
 

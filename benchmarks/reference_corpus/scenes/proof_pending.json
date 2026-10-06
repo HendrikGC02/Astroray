@@ -1,4 +1,92 @@
 {
+  "lighting_studio": [
+    {
+      "bl_idname": "ShaderNodeOutputLight",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "OUTPUT_LIGHT",
+      "socket_or_prop": "input:Surface"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputLight",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "OUTPUT_LIGHT",
+      "socket_or_prop": "prop:is_active_output"
+    },
+    {
+      "bl_idname": "ShaderNodeTexIES",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "TEX_IES",
+      "socket_or_prop": "input:Strength"
+    }
+  ],
+  "materials_hall": [
+    {
+      "bl_idname": "ShaderNodeAddShader",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "ADD_SHADER",
+      "socket_or_prop": "input:Shader"
+    },
+    {
+      "bl_idname": "ShaderNodeAddShader",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "ADD_SHADER",
+      "socket_or_prop": "input:Shader[Shader_001]"
+    },
+    {
+      "bl_idname": "ShaderNodeMixShader",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "MIX_SHADER",
+      "socket_or_prop": "input:Factor"
+    },
+    {
+      "bl_idname": "ShaderNodeMixShader",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "MIX_SHADER",
+      "socket_or_prop": "input:Shader"
+    },
+    {
+      "bl_idname": "ShaderNodeMixShader",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "MIX_SHADER",
+      "socket_or_prop": "input:Shader[Shader_001]"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputMaterial",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "OUTPUT_MATERIAL",
+      "socket_or_prop": "input:Surface"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputMaterial",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "OUTPUT_MATERIAL",
+      "socket_or_prop": "input:Volume"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputMaterial",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "OUTPUT_MATERIAL",
+      "socket_or_prop": "input:Displacement"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputMaterial",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "OUTPUT_MATERIAL",
+      "socket_or_prop": "prop:is_active_output"
+    }
+  ],
   "textures_mapping": [
     {
       "bl_idname": "ShaderNodeClamp",
@@ -328,6 +416,218 @@
       "classification": "SUPPORTED",
       "feature": "ShaderNodeTexImage",
       "socket_or_prop": "extension"
+    },
+    {
+      "bl_idname": "ShaderNodeNewGeometry",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "NEW_GEOMETRY",
+      "socket_or_prop": "output:Backfacing"
+    },
+    {
+      "bl_idname": "ShaderNodeObjectInfo",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "OBJECT_INFO",
+      "socket_or_prop": "output:Location"
+    },
+    {
+      "bl_idname": "ShaderNodeObjectInfo",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "OBJECT_INFO",
+      "socket_or_prop": "output:Color"
+    },
+    {
+      "bl_idname": "ShaderNodeObjectInfo",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "OBJECT_INFO",
+      "socket_or_prop": "output:Alpha"
+    },
+    {
+      "bl_idname": "ShaderNodeObjectInfo",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "OBJECT_INFO",
+      "socket_or_prop": "output:Object Index"
+    },
+    {
+      "bl_idname": "ShaderNodeObjectInfo",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "OBJECT_INFO",
+      "socket_or_prop": "output:Material Index"
+    },
+    {
+      "bl_idname": "ShaderNodeObjectInfo",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "OBJECT_INFO",
+      "socket_or_prop": "output:Random"
+    },
+    {
+      "bl_idname": "ShaderNodeAttribute",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "ATTRIBUTE",
+      "socket_or_prop": "output:Color"
+    },
+    {
+      "bl_idname": "ShaderNodeAttribute",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "ATTRIBUTE",
+      "socket_or_prop": "output:Vector"
+    },
+    {
+      "bl_idname": "ShaderNodeAttribute",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "ATTRIBUTE",
+      "socket_or_prop": "output:Factor"
+    },
+    {
+      "bl_idname": "ShaderNodeAttribute",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "ATTRIBUTE",
+      "socket_or_prop": "output:Alpha"
+    },
+    {
+      "bl_idname": "ShaderNodeVertexColor",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "VERTEX_COLOR",
+      "socket_or_prop": "output:Color"
+    },
+    {
+      "bl_idname": "ShaderNodeVertexColor",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "VERTEX_COLOR",
+      "socket_or_prop": "output:Alpha"
+    },
+    {
+      "bl_idname": "ShaderNodeLightPath",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "LIGHT_PATH",
+      "socket_or_prop": "output:Is Camera Ray"
+    },
+    {
+      "bl_idname": "ShaderNodeLightPath",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "LIGHT_PATH",
+      "socket_or_prop": "output:Is Shadow Ray"
+    },
+    {
+      "bl_idname": "ShaderNodeLightPath",
+      "category": "input_node",
+      "classification": "APPROXIMATED",
+      "feature": "LIGHT_PATH",
+      "socket_or_prop": "output:Is Diffuse Ray"
+    },
+    {
+      "bl_idname": "ShaderNodeLightPath",
+      "category": "input_node",
+      "classification": "APPROXIMATED",
+      "feature": "LIGHT_PATH",
+      "socket_or_prop": "output:Is Glossy Ray"
+    },
+    {
+      "bl_idname": "ShaderNodeLightPath",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "LIGHT_PATH",
+      "socket_or_prop": "output:Is Singular Ray"
+    },
+    {
+      "bl_idname": "ShaderNodeLightPath",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "LIGHT_PATH",
+      "socket_or_prop": "output:Is Reflection Ray"
+    },
+    {
+      "bl_idname": "ShaderNodeLightPath",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "LIGHT_PATH",
+      "socket_or_prop": "output:Is Transmission Ray"
+    },
+    {
+      "bl_idname": "ShaderNodeLightPath",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "LIGHT_PATH",
+      "socket_or_prop": "output:Is Volume Scatter Ray"
+    },
+    {
+      "bl_idname": "ShaderNodeLightPath",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "LIGHT_PATH",
+      "socket_or_prop": "output:Ray Length"
+    },
+    {
+      "bl_idname": "ShaderNodeLightPath",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "LIGHT_PATH",
+      "socket_or_prop": "output:Ray Depth"
+    },
+    {
+      "bl_idname": "ShaderNodeLightPath",
+      "category": "input_node",
+      "classification": "APPROXIMATED",
+      "feature": "LIGHT_PATH",
+      "socket_or_prop": "output:Diffuse Depth"
+    },
+    {
+      "bl_idname": "ShaderNodeLightPath",
+      "category": "input_node",
+      "classification": "APPROXIMATED",
+      "feature": "LIGHT_PATH",
+      "socket_or_prop": "output:Glossy Depth"
+    },
+    {
+      "bl_idname": "ShaderNodeLightPath",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "LIGHT_PATH",
+      "socket_or_prop": "output:Transparent Depth"
+    },
+    {
+      "bl_idname": "ShaderNodeLightPath",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "LIGHT_PATH",
+      "socket_or_prop": "output:Transmission Depth"
+    }
+  ],
+  "world_sky": [
+    {
+      "bl_idname": "ShaderNodeBackground",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "BACKGROUND",
+      "socket_or_prop": "input:Color"
+    },
+    {
+      "bl_idname": "ShaderNodeBackground",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "BACKGROUND",
+      "socket_or_prop": "input:Strength"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputWorld",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "OUTPUT_WORLD",
+      "socket_or_prop": "input:Volume"
     }
   ]
 }

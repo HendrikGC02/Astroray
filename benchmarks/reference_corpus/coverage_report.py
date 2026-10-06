@@ -787,18 +787,44 @@ def extract_exercised_uses(node_trees: Mapping[str, Iterable[Mapping[str, Any]]]
     return uses
 
 
+class IdentityMatrix(dict):
+    """``{canonical identity: class}`` where a wildcard row (``<bl_idname>|input:*`` / ``|output:*``, the
+    group-structure nodes whose interface sockets are dynamic) answers every socket of that direction."""
+
+    def get(self, key, default=None):
+        value = super().get(key)
+        if value is None:
+            bl_idname, _, rest = str(key).partition("|")
+            value = super().get(canonical_identity(bl_idname, rest.partition(":")[0] + ":*"))
+        return default if value is None else value
+
+
+def matrix_identity_keys(row: Mapping[str, Any]) -> list[str]:
+    """pkg320: every canonical identity one matrix row answers to. The legacy ``socket_or_prop`` key (UI
+    name, ``name[identifier]`` where a node repeats a name) AND ``bl_idname|<kind>:<socket_id>`` -- the
+    Blender socket identifier the collector records (``Value_001``, ``A_Color``, ``Fac``)."""
+    bl_idname = row.get("bl_idname")
+    socket = row.get("socket_or_prop")
+    if not bl_idname or not socket:
+        return []
+    keys = [canonical_identity(bl_idname, socket)]
+    kind, _, _ = str(socket).partition(":")
+    socket_id = row.get("socket_id")
+    if socket_id and kind in ("input", "output"):
+        alias = canonical_identity(bl_idname, f"{kind}:{socket_id}")
+        if alias not in keys:
+            keys.append(alias)
+    return keys
+
+
 def matrix_by_identity(matrix_rows: Iterable[Mapping[str, Any]]) -> dict[str, str]:
     """Worst-case classification per canonical identity."""
-    out: dict[str, str] = {}
+    out: dict[str, str] = IdentityMatrix()
     for row in matrix_rows:
-        bl_idname = row.get("bl_idname")
-        socket = row.get("socket_or_prop")
-        if not bl_idname or not socket:
-            continue
-        key = canonical_identity(bl_idname, socket)
         cls = str(row.get("classification") or "")
-        if key not in out or _CLASS_RANK.get(cls, -1) < _CLASS_RANK.get(out[key], 99):
-            out[key] = cls
+        for key in matrix_identity_keys(row):
+            if key not in out or _CLASS_RANK.get(cls, -1) < _CLASS_RANK.get(out[key], 99):
+                out[key] = cls
     return out
 
 
@@ -1085,6 +1111,15 @@ def verify_scanner_integration_proof(proof: Any, repo_root: Path | None,
         return False, "#823 commit is not an ancestor of origin/main"
     if _sha256_bytes(shown) != source_sha.lower():
         return False, "#823 pinned scanner source does not match landed commit"
+    # #1101 review finding 7: the review covers ONE scanner source. A scanner changed since (the file the
+    # matrix is regenerated with) is unreviewed, so a stale receipt must not score it. Line endings are
+    # normalised: a Windows checkout may carry CRLF where the committed blob is LF.
+    try:
+        on_disk = (repo_root / SCANNER_SOURCE_PATH).read_bytes()
+    except OSError:
+        return False, "scanner source missing on disk"
+    if source_sha.lower() not in (_sha256_bytes(on_disk), _sha256_bytes(on_disk.replace(b"\r\n", b"\n"))):
+        return False, "scanner source on disk differs from the reviewed source (re-review required)"
     return True, ""
 
 

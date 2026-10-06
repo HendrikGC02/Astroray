@@ -60,6 +60,7 @@ CPU oracle cross-check. Refined from the lead's proposal with current evidence.
   2. Material zoo — `blender_addon/scenes/metal_sweep.blend` (probe 2026-09-07: CPU/GPU whole-frame ratio 1.015/1.027/1.013, but floor-reflection blocks reach 1.06 — outside ±5 % locally).
   3. HDRI exterior with hair — **does not exist yet**: `ir_vegetation.blend`, `uv_skin.blend` and `metal_sweep.blend` are byte-identical placeholders (914 023 bytes, same SHA-256). Authoring the three assets is a prerequisite task for this gate.
 - **Measured by:** `benchmarks/cycles-parity` harness + the addon F12 path; parity gate is the existing 5% RGB ROI mean-ratio.
+- **Superseded metric (owner 2026-10-06):** the structural criterion is now the pkg317 Welch tile test (candidate 1b: 8×8 tiles, Holm α = 0.05, 1 % margin, 8 seeds per backend) instead of SSIM ≥ 0.95, which stays informational; the ±5 % ROI band and non-vacuity checks remain. See `gate-c-metric-study-2026-10.md` and `stage0-gate-scoring-2026-10-05.md`.
 - **Current:** only **cornell** has parity data (`benchmarks/cycles-parity/2026-09-03-*.csv`): astroray-gpu SSIM 0.9538 vs Cycles, mean-ratio 0.9967/0.9975/0.9944, 1477 ms vs cycles-cuda 3134 ms. The material-zoo case is **NOT GREEN on GPU** — the checker texture disappears (CPU luminance std 0.4182 vs GPU 0.0330; GPU samples only real UV layers, CPU synthesizes fallback UVs; `rebuild-handoff-2026-09-06.md`, carried by pkg242). HDRI-with-hair parity is **unmeasured**.
 
 ### (d) Adaptive sampling + denoise from native Cycles panels

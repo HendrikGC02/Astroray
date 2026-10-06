@@ -23,6 +23,20 @@ no silent pair. Owner thresholds: >= 6/8 passing on BOTH CPU and GPU (2026-10-06
 `PKG310_WORK=<dir> python scripts/build/gpu_locked_run.py <lane> -- python -m pytest tests/test_production_corpus.py -k "parity or silent"`
 then `python scripts/gate_manifest.py --adapt-g <dir> --out docs/blender_parity/evidence/g/instrument.json`.
 
+Row (c) metric changed 2026-10-06 (owner, after the M1 re-run passed all three roles): SSIM ≥ 0.95 is
+replaced by the pkg317 Welch tile test, candidate 1b (8×8 tiles, RGB, Holm family-wise α = 0.05, 1 %
+margin) on 8 independent seeds per backend (`STUDY_SEEDS`). `ROW_SPEC["c"]` thresholds:
+`welch_rejected_tiles` ≤ 0 (green iff every role passes) and the ±5 % ROI channel-mean guard on the
+8-seed means; SSIM of the frozen-seed pair is recorded as `ssim_min_informational`; non-vacuity is the
+unchanged paired-control check at the frozen seed. The reducer recomputes everything from the raw
+per-seed `.npy` + leg logs + control masks and fails closed on missing / duplicate / foreign / reused
+seeds and on any module, scene, build, device, freeze or digest mismatch. Evidence commands:
+`harness.py --seeds study --gate-c-freeze <dir>\gate_c.freeze.json --seed-backends CPU --out <dir>` (and
+`GPU` under `gpu_locked_run.py`), then `gate_manifest.py --adapt-c-seeds <dir> --out <dir>\row_c_welch.json`
+and `gate_manifest.py --instrument c=<dir>\row_c_welch.json`. The freeze's `build_id` must equal the
+loaded module's `astroray.__build__`. The 2026-10-06 m1b legs (Welch 0/7920, 0/24116, 0/5940) predate
+the per-leg logs and masks, so they reduce to RED-invalid; a re-render with the current harness is needed.
+
 The committed `acceptance_manifest.json` carries (d) and (e) only. (a) and (c) were measured and
 validated on this machine (full manifest: VALID), but their evidence is too large for git, so the
 committed manifest keeps them unmeasured (the Batch A precedent). The full manifest and evidence are in

@@ -1,6 +1,14 @@
 # Gate (c) noise-aware metric study (pkg317, 2026-10-06)
 
-Study only: `gate_manifest.py`, thresholds and the committed manifest are unchanged. Owner decides adoption.
+**Decision (owner 2026-10-06): adopted candidate 1b** (8×8 tiles, RGB, Holm α = 0.05, 1 % margin, N = 8 seeds per
+backend), conditional on the M1 re-run passing all three roles. It did (`astra_run\batch-i\m1b\`): gallery 0/7920,
+workshop 0/24116, terrace 0/5940 rejected; negatives 0.97–1.00; every positive caught. Implemented in
+`scripts/gate_manifest.py` row (c): Welch-1b must reject no tile in any role; the ±5 % ROI channel-mean band on the
+8-seed means stays as a guard (it passes every negative control, so it costs no false reds); SSIM is informational;
+non-vacuity is the unchanged paired-control check at the frozen seed. Evidence: `harness.py --seeds study` legs
+(now with per-leg logs, control masks and `checker_flat`) adapted by `gate_manifest.py --adapt-c-seeds`.
+
+The text below is the study as run (before adoption).
 
 ## Setup
 

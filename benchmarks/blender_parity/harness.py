@@ -793,13 +793,14 @@ STUDY_SEEDS = (278, 1301, 2711, 4177, 6113, 7919, 9371, 11027)  # pkg317: spread
 
 def run_gate_c_seed_legs(out_dir: Path, freeze_path: Path, seeds: tuple[int, ...] = STUDY_SEEDS, *,
                          backends: tuple[str, ...] = ("CPU", "GPU"),
-                         controls: tuple[str, ...] = ("hair_off", "hdri_off"),
+                         controls: tuple[str, ...] = ("checker_flat", "hair_off", "hdri_off"),
                          timeout: int = 1800) -> int:
     """pkg317 study legs: N independent seeds of each gate-(c) leg, written to
     ``<out_dir>/seed_legs/<role>_<backend>_<control>/s<seed>.npy`` (+ ``.json``
-    with render seconds), beside - never into - the gate legs.  Reuses an
-    existing ``gate_c.freeze.json`` for roles/controls; the gate path
-    (``run_gate_c_trio``) and its pinned seed are untouched.  Resumable."""
+    with render seconds, ``.log`` with the leg's stdout/stderr and, for controls,
+    the frozen feature mask ``mask_s<seed>.npy``), beside - never into - the gate
+    legs.  Reuses an existing ``gate_c.freeze.json`` for roles/controls.  Gate (c)
+    is reduced from these legs (``gate_manifest.py --adapt-c-seeds``).  Resumable."""
     freeze_path = Path(freeze_path).resolve()
     freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
     freeze_sha = _sha256(freeze_path)
@@ -821,16 +822,21 @@ def run_gate_c_seed_legs(out_dir: Path, freeze_path: Path, seeds: tuple[int, ...
                 leg_dir.mkdir(parents=True, exist_ok=True)
                 for seed in seeds:
                     stem = leg_dir / f"s{seed}"
-                    if stem.with_suffix(".npy").is_file() and stem.with_suffix(".json").is_file():
+                    if all(stem.with_suffix(s).is_file() for s in (".npy", ".json", ".log")):
                         continue
-                    extra = [] if kind == "baseline" else ["--gate-c-control", kind]
+                    extra = [] if kind == "baseline" else [
+                        "--gate-c-control", kind, "--gate-c-mask-out", str(leg_dir / f"mask_s{seed}.npy")]
                     code, sentinel, report = _run_gate_leg(blender, [
                         "--corpus-manifest", str(manifest_path), "--corpus-scene", item["scene_id"],
                         "--engine", "CUSTOM_RAYTRACER", "--device", backend.lower(),
                         "--gate-c-freeze", str(freeze_path), "--gate-c-freeze-sha256", freeze_sha,
                         "--gate-c-build-id", freeze["build_id"], "--seed", str(seed), "--out", str(stem)] + extra,
                         env, timeout)
-                    stdout = (report.pop("_gate_leg_execution", None) or {}).get("stdout") or ""
+                    execution = report.pop("_gate_leg_execution", None) or {}
+                    stdout = execution.get("stdout") or ""
+                    # Raw leg evidence for the gate-(c) reducer: it parses the sentinel report itself.
+                    stem.with_suffix(".log").write_text(stdout + "\n" + (execution.get("stderr") or ""),
+                                                        encoding="utf-8")
                     info = next((json.loads(line.split("PKG307_INFO ", 1)[1]) for line in stdout.splitlines()
                                  if "PKG307_INFO " in line), {})
                     stem.with_suffix(".png").unlink(missing_ok=True)
@@ -1275,7 +1281,8 @@ def main(argv: list[str] | None = None) -> int:
                         "manifest.json) instead of running the differential "
                         "matrix")
     p.add_argument("--gate-c", action="store_true",
-                   help="produce the owner-selected corpus trio CPU/GPU F12 evidence")
+                   help="freeze the owner-selected corpus trio (gate_c.freeze.json) and render its single-seed "
+                        "CPU/GPU F12 legs; manifest row (c) is reduced from --seeds study legs (2026-10-06)")
     p.add_argument("--seeds", default="", metavar="S1,S2,..|study",
                    help="pkg317: render N independent-seed study legs of the gate-(c) trio into "
                         "<out>/seed_legs (needs --gate-c-freeze; 'study' = the 8 pinned study seeds)")

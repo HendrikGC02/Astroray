@@ -111,7 +111,7 @@ RESULT_KINDS = ("render", "test_result")
 CASE_WITNESS_REGISTRY: dict[tuple[str, str, str], dict[str, Any]] = {
     ("ShaderNodeTexChecker|input:Color1", "textures_mapping",
      "35ff18873b07e2120a2556a973fe831021dd6c1e1714c8fce90208e5d37f83c2"): {
-        "roi": [0.2912, 0.3603, 0.4079, 0.4804],
+        "roi": [0.2949, 0.3638, 0.4045, 0.4765],
         "control": {"kind": "checker_flat", "material": "TexCheckerMat",
                     "node": "GateCWorkshopChecker", "object": "TexChecker",
                     "mask": {"kind": "object_polygon", "inset": 0.16}},

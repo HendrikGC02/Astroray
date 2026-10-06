@@ -566,6 +566,7 @@ static void appendOnePrim(
         gc.radius1 = curve->getRadius1();
         gc.materialId = getOrAddMat(curve->getMaterial());
         gc.thick = curveThick ? 1 : 0;
+        gc.strandId = curve->curveStrandId();  // #1092
         r.curveSegments.push_back(gc);
     } else {
         // pkg85-C: GPRIM_SKIP placeholder keeps prims index-aligned within a BLAS.

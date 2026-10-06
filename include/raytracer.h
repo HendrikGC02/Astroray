@@ -972,6 +972,10 @@ public:
     // #990 — shading attribute layer `layer` (astroray::attr::layer_id) at world
     // point p (Attribute / Color Attribute / Object Info). false = no such layer.
     virtual bool attributeValue(int /*layer*/, const Vec3& /*p*/, Vec3& /*out*/) const { return false; }
+    // #1092 — strand (curve) id of a curve segment, -1 for everything else. A ray
+    // leaving a curve skips EVERY segment of that strand (Cycles prim_index is the
+    // curve index; intersection_skip_self compares it), see CurveSegment::hit.
+    virtual int curveStrandId() const { return -1; }
     virtual bool isLight() const { return false; }
     virtual bool isInfiniteLight() const { return false; }
     virtual Vec3 emittedRadiance() const { return Vec3(0); }

@@ -24,6 +24,7 @@
 #include "astroray/energy_compensation.h"
 #include "astroray/sheen_ltc_table.h"
 #include "astroray/microsurface_dielectric.h"  // pkg265 Heitz-2016 dielectric walk
+#include "astroray/ggx_glass_energy.h"     // Cycles MULTI_GGX glass (shared with GPU)
 #include "astroray/thin_film_fresnel.h"    // pkg178 Stage 4 PR-1 (Belcour-Barla 2017)
 #include "astroray/thin_film_cie_table.h"  // Rec.709-baked CIE sensitivity LUT
 #include "advanced_features.h"            // #846 Texture + svm::ScalarSlot
@@ -41,6 +42,11 @@ class PrincipledPlugin : public Material {
     float specularIorLevel_;
     Vec3 specularTint_;
     float transmission_;
+    // Rough glass model (owner 2026-10-06). false (default): Cycles 5.2 MULTI_GGX —
+    // single-scatter GGX glass with 1/E albedo scaling (ggx_glass_energy.h), the model
+    // the GPU twin also runs. true ("rough_glass_walk" param, CPU only): the pkg265
+    // Heitz-2016 multiple-scattering random walk.
+    bool msWalk_ = false;
     // pkg178 Stage 4 PR-4 — Thin Wall (thin glass + thin subsurface). false →
     // byte-identical to PR-1..3. thin_wall=true routes the transmission lobe through
     // the analytic thin-glass R'+T' split and the subsurface lobe through the
@@ -734,6 +740,94 @@ class PrincipledPlugin : public Material {
         return astroray::ggxDarkeningChannel(Fss, E, Eavg);
     }
 
+    // ------------------------------------------------------------------
+    // Cycles 5.2 MULTI_GGX rough glass (default; msWalk_ == false). Shared math in
+    // include/astroray/ggx_glass_energy.h (the GPU twin calls the same functions).
+    // Cycles svm/closure.h sets up the Principled transmission closure with
+    // bsdf_microfacet_setup_fresnel_generalized_schlick(..., preserve_energy) and the
+    // Glass BSDF the same way; for a transmissive closure Fss = transmission tint, so
+    // the lobe is scaled by energy_scale = 1/E (both sub-lobes) and its weight by the
+    // per-channel darkening (== 1 for clear glass). Astroray's tint convention is kept:
+    // reflection x specular_tint, transmission x sqrt(base_color) (#1038 encodes the
+    // Glass BSDF Color in both).
+    // ------------------------------------------------------------------
+    static astroray::ggxglass::Tables glassTables() {
+        const auto& t = astroray::DisneyEnergyCompensationTables::instance();
+        if (!t.loaded()) return {nullptr, nullptr, nullptr, nullptr};
+        return {t.ggxGlassEData(), t.ggxGlassEavgData(), t.ggxGlassInvEData(),
+                t.ggxGlassInvEavgData()};
+    }
+    // energy_scale (scalar) and darkening (per RGB channel of Fss = sqrt(base_color)).
+    void glassEnergyTerms(const Lobe& L, float etap, float cosO, Vec3& dark,
+                          float& scale) const {
+        namespace gg = astroray::ggxglass;
+        float alpha = std::max(L.roughness * L.roughness, 0.0064f);
+        float E, Eavg;
+        gg::albedo(glassTables(), std::sqrt(alpha), cosO, etap, E, Eavg);
+        scale = gg::energyScale(E);
+        Vec3 fss = sqrtColor(baseColor_);
+        dark = Vec3(gg::darkening(fss.x, E, Eavg), gg::darkening(fss.y, E, Eavg),
+                    gg::darkening(fss.z, E, Eavg));
+    }
+    // Generalized half vector + validity for the glass lobe (view above N). Returns false
+    // for an invalid pair. transmit = light below N.
+    bool glassHalfVector(const Lobe& L, const HitRecord& rec, const Vec3& wo, const Vec3& wi,
+                         bool& transmit, float& etap, Vec3& wm) const {
+        float cosO = rec.normal.dot(wo), cosI = rec.normal.dot(wi);
+        if (cosO <= 0.0f || cosI == 0.0f) return false;  // Cycles: cos_NI <= 0 -> 0
+        transmit = cosI < 0.0f;
+        etap = rec.frontFace ? L.ior : (1.0f / L.ior);
+        wm = transmit ? (wi * etap + wo) : (wo + wi);
+        if (wm.length2() <= 1e-20f) return false;
+        wm = wm.normalized();
+        if (wm.dot(rec.normal) < 0.0f) wm = -wm;
+        if (wo.dot(wm) <= 0.0f) return false;
+        if (transmit && wi.dot(wm) >= 0.0f) return false;  // refraction needs HI < 0
+        return true;
+    }
+    // Non-film MULTI_GGX glass value: returns tint*darkening (no lobe weight) as the
+    // colour and the achromatic single-scatter*Fresnel*energy_scale as the scalar.
+    bool multiGgxGlass(const Lobe& L, const HitRecord& rec, const Vec3& wo, const Vec3& wi,
+                       Vec3& colour, float& scalar) const {
+        bool transmit; float etap; Vec3 wm;
+        if (!glassHalfVector(L, rec, wo, wi, transmit, etap, wm)) return false;
+        float cosO = rec.normal.dot(wo), cosI = rec.normal.dot(wi);
+        float alpha = std::max(L.roughness * L.roughness, 0.0064f);
+        float HO = wo.dot(wm), HI = wi.dot(wm);
+        float etaI = rec.frontFace ? 1.0f : L.ior, etaT = rec.frontFace ? L.ior : 1.0f;
+        float F = fresnelDielectric(HO, etaI, etaT);  // side-aware (Cycles bsdf->ior)
+        auto ss = astroray::ggxglass::evalSingleScatter(transmit, cosO, cosI, wm.dot(rec.normal),
+                                                        HO, HI, etap, alpha * alpha);
+        Vec3 dark; float eScale;
+        glassEnergyTerms(L, etap, cosO, dark, eScale);
+        colour = (transmit ? sqrtColor(baseColor_) : specularTint_) * dark;
+        scalar = ss.value * (transmit ? 1.0f - F : F) * eScale;
+        return scalar > 0.0f;
+    }
+    // Cycles bsdf_microfacet_eval pdf: VNDF x Jacobian x lobe probability. Used for the
+    // film and non-film glass alike (both sample with multiGgx in chooseAndSampleDir).
+    float multiGgxGlassPdf(const Lobe& L, const HitRecord& rec, const Vec3& wo,
+                           const Vec3& wi) const {
+        bool transmit; float etap; Vec3 wm;
+        if (!glassHalfVector(L, rec, wo, wi, transmit, etap, wm)) return 0.0f;
+        float cosO = rec.normal.dot(wo), cosI = rec.normal.dot(wi);
+        float alpha = std::max(L.roughness * L.roughness, 0.0064f);
+        float HO = wo.dot(wm), HI = wi.dot(wm);
+        float etaI = rec.frontFace ? 1.0f : L.ior, etaT = rec.frontFace ? L.ior : 1.0f;
+        float F = fresnelDielectric(HO, etaI, etaT);
+        float pR = astroray::ggxglass::reflectProb(F, glassReflTintAvg(), glassTransTintAvg());
+        auto ss = astroray::ggxglass::evalSingleScatter(transmit, cosO, cosI, wm.dot(rec.normal),
+                                                        HO, HI, etap, alpha * alpha);
+        return ss.pdf * (transmit ? 1.0f - pR : pR);
+    }
+    float glassReflTintAvg() const {
+        return (specularTint_.x + specularTint_.y + specularTint_.z) / 3.0f;
+    }
+    float glassTransTintAvg() const {
+        Vec3 t = sqrtColor(baseColor_);
+        return (t.x + t.y + t.z) / 3.0f;
+    }
+
     // Cycles bsdf_util.h closure_layering_weight: attenuate the running weight
     // by the just-placed layer's directional albedo.
     // #953 review: exact port, weight * saturate(1 - reduce_max(safe_divide_color(
@@ -1251,7 +1345,9 @@ class PrincipledPlugin : public Material {
                 // w_L + w_B = 1 pointwise, hence unbiased with either strategy set
                 // (tests/test_pkg265_nee_invariance.py). Thin-film glass keeps its
                 // single-scatter eval (Phase 7 / issue #783).
-                if (filmActive()) return transmissionEvalRGB(L, rec, wo, wi);
+                // Owner 2026-10-06: the walk is opt-in (msWalk_); the default is the
+                // Cycles MULTI_GGX single-scatter lobe in transmissionEvalRGB.
+                if (filmActive() || !msWalk_) return transmissionEvalRGB(L, rec, wo, wi);
                 float s = transmissionWalkScalar(L, rec, wo, wi);
                 if (s <= 0.0f) return Vec3(0);
                 bool refl = nl * nv > 0.0f;
@@ -1391,10 +1487,22 @@ class PrincipledPlugin : public Material {
                              const Vec3& wi, Vec3* outColour = nullptr,
                              float* outScalar = nullptr) const {
         if (L.isDelta) return Vec3(0);  // delta handled in sampling
+        if (!msWalk_ && !filmActive()) {  // Cycles MULTI_GGX (default)
+            Vec3 colour; float scalar;
+            if (!multiGgxGlass(L, rec, wo, wi, colour, scalar)) return Vec3(0);
+            if (outColour) { *outColour = L.weight * colour; *outScalar = scalar; }
+            return L.weight * colour * scalar;
+        }
         float cosO = rec.normal.dot(wo), cosI = rec.normal.dot(wi);
         bool entering = rec.frontFace;
         float etaI = entering ? 1.0f : L.ior, etaT = entering ? L.ior : 1.0f;
         float alpha = std::max(L.roughness * L.roughness, 0.0064f);
+        // Film glass under MULTI_GGX: Cycles applies the same energy_scale/darkening
+        // (generalized-Schlick setup, Fss = transmission tint); identity in walk mode.
+        Vec3 filmDark(1.0f);
+        float filmScale = 1.0f;
+        if (!msWalk_ && cosO > 0.0f)
+            glassEnergyTerms(L, entering ? L.ior : (1.0f / L.ior), cosO, filmDark, filmScale);
         if (cosO > 0.0f && cosI > 0.0f) {
             // reflection lobe (dielectric Fresnel, specular_tint)
             Vec3 wm = (wo + wi).normalized();
@@ -1414,7 +1522,7 @@ class PrincipledPlugin : public Material {
                 Vec3 F = thinFilmFresnelRGB(HdotO, etapR, filmIor);
                 F = thinFilmF0RescaleRGB(F, Vec3(F0_from_ior(etapR)) * specularTint_, etapR);
                 float geom = D * G / (4.0f * cosO * cosI + 1e-8f) * cosI;
-                return L.weight * F * geom;
+                return L.weight * F * filmDark * (geom * filmScale);
             }
             float F = fresnelDielectric(HdotO, 1.0f, L.ior);
             float fr = D * G * F / (4.0f * cosO * cosI + 1e-8f) * cosI;  // brdf·cosI
@@ -1443,7 +1551,8 @@ class PrincipledPlugin : public Material {
             float scale = ft * std::abs(cosI);  // pkg265: no ggxGlassComp on the
             // walk lobe — Heitz-2016 random walk conserves energy by construction;
             // this single-scatter eval feeds NEE/MIS only (first-bounce term).
-            Vec3 res = L.weight * sqrtColor(baseColor_) * (Vec3(1.0f) - Fv) * scale;
+            Vec3 res = L.weight * sqrtColor(baseColor_) * (Vec3(1.0f) - Fv) * filmDark *
+                       (scale * filmScale);
             return Vec3::max(res, Vec3(0.0f));
         }
         float F = fresnelDielectric(std::abs(wo.dot(wm)), etaI, etaT);
@@ -1478,6 +1587,19 @@ class PrincipledPlugin : public Material {
         // RGB product before upsampling.
         const astroray::SampledSpectrum& wSpec = L.weightSpec;
         astroray::SampledSpectrum tintSpec = upsample(specularTint_, lam);
+        // MULTI_GGX energy terms (see transmissionEvalRGB): achromatic energy_scale and
+        // per-λ darkening of Fss(λ) = upsampled sqrt(base_color). Identity in walk mode.
+        astroray::SampledSpectrum filmDark(1.0f);
+        float filmScale = 1.0f;
+        if (!msWalk_ && cosO > 0.0f) {
+            namespace gg = astroray::ggxglass;
+            float E, Eavg;
+            gg::albedo(glassTables(), std::sqrt(alpha), cosO, etap, E, Eavg);
+            filmScale = gg::energyScale(E);
+            astroray::SampledSpectrum fss = upsample(sqrtColor(baseColor_), lam);
+            for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+                filmDark[i] = gg::darkening(fss[i], E, Eavg);
+        }
         if (cosO > 0.0f && cosI > 0.0f) {  // reflection sub-lobe
             Vec3 wm = (wo + wi).normalized();
             if (wm.dot(rec.normal) < 0.0f) wm = -wm;
@@ -1492,7 +1614,7 @@ class PrincipledPlugin : public Material {
                 float Fi = (F0real > 1e-5f)
                                ? thinFilmF0RescaleChannel(F[i], F0real * tintSpec[i], F0real)
                                : F[i];
-                out[i] = wSpec[i] * Fi * geom;
+                out[i] = wSpec[i] * Fi * filmDark[i] * (geom * filmScale);
             }
             return out;
         }
@@ -1518,7 +1640,7 @@ class PrincipledPlugin : public Material {
             float Fi = (F0real > 1e-5f)
                            ? thinFilmF0RescaleChannel(F[i], F0real * tintSpec[i], F0real)
                            : F[i];
-            float v = wSpec[i] * baseSpec[i] * (1.0f - Fi) * scale;
+            float v = wSpec[i] * baseSpec[i] * (1.0f - Fi) * filmDark[i] * (scale * filmScale);
             out[i] = v > 0.0f ? v : 0.0f;
         }
         return out;
@@ -1574,6 +1696,8 @@ class PrincipledPlugin : public Material {
 
     float transmissionPdf(const Lobe& L, const HitRecord& rec, const Vec3& wo,
                           const Vec3& wi) const {
+        // Default Cycles MULTI_GGX: film and non-film glass share the Cycles sampler.
+        if (!msWalk_) return multiGgxGlassPdf(L, rec, wo, wi);
         float cosO = rec.normal.dot(wo), cosI = rec.normal.dot(wi);
         bool entering = rec.frontFace;
         float etaI = entering ? 1.0f : L.ior, etaT = entering ? L.ior : 1.0f;
@@ -1777,6 +1901,28 @@ class PrincipledPlugin : public Material {
         if (cosTheta < 0.0f) { cosTheta = -cosTheta; n = -n; }
         float sinT = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
         bool cannotRefract = eta * sinT > 1.0f;
+        if (!L.isDelta && !msWalk_) {
+            // Cycles 5.2 MULTI_GGX (owner 2026-10-06 default; bsdf_microfacet_sample):
+            // VNDF half vector (Heitz 2018), reflect with pdf_reflect = avg(F*reflTint) /
+            // avg(F*reflTint + (1-F)*transTint), else refract. A direction on the wrong
+            // side of N is LOST (Cycles returns LABEL_NONE), with NO delta reroute: the
+            // glass E tables were integrated with exactly these losses, so energy_scale
+            // = 1/E (multiGgxGlass) restores them. Rerouting as well would double-count.
+            // Film and non-film glass sample alike; pdf() = multiGgxGlassPdf. 3 draws.
+            ds.isDelta = false;
+            if (wo.dot(rec.normal) <= 0.0f) { ds.ok = false; return ds; }  // cos_NI <= 0
+            Vec3 wm = sampleGgxVNDF(rec, wo, L.roughness, gen);
+            float HdotO = wo.dot(wm);
+            float F = fresnelDielectric(std::abs(HdotO), etaI, etaT);
+            float pR = astroray::ggxglass::reflectProb(F, glassReflTintAvg(), glassTransTintAvg());
+            if (dist(gen) < pR) {
+                ds.wi = (wm * (2.0f * HdotO) - wo).normalized();
+                ds.ok = ds.wi.dot(rec.normal) > 0.0f;
+            } else {
+                ds.ok = refractMicro(wo, wm, eta, ds.wi) && ds.wi.dot(rec.normal) < 0.0f;
+            }
+            return ds;
+        }
         if (!L.isDelta) {
             if (filmActive()) {
                 // pkg265 (PR #778 review 2, cycles-parity-reviewer CRITICAL #2):
@@ -1899,6 +2045,7 @@ public:
         // once (per-material constant; never per hit). No-op for the render unless
         // the film is active on the metallic lobe.
         precomputeConductorNK();
+        msWalk_ = p.getFloat("rough_glass_walk", 0.0f) > 0.5f;
         // pkg187 — dispersion fit. Cycles' Principled dispersion (PR #162041) is
         // driven by two sockets: Dispersion Scale ∈ [0,1] and an Abbe number
         // (default 20). inv_abbe = scale / abbe (safe_divide → 0). A single
@@ -2134,6 +2281,15 @@ public:
             case LobeKind::Transmission: {
                 // pkg178 Stage 4 PR-1: with the film ON, evaluate F per-λ natively.
                 if (filmActive()) return transmissionEvalSpectral(L, rec, wo, wi, lam);
+                if (!msWalk_) {
+                    // Cycles MULTI_GGX (default). pkg188 Finding A split: the colour
+                    // (tint x darkening, <= 1) is upsampled at natural magnitude, the
+                    // achromatic single-scatter x Fresnel x energy_scale applied after.
+                    Vec3 colour; float scalar;
+                    if (!multiGgxGlass(L, rec, wo, wi, colour, scalar))
+                        return astroray::SampledSpectrum(0.0f);
+                    return wSpec * upsample(colour, lam) * scalar;
+                }
                 // pkg265 Phase 10: stochastic eval of the walk (see the RGB twin).
                 // pkg188 Finding A split: the achromatic Eq-42 scalar multiplies the
                 // per-λ layering weight and the SEPARATELY upsampled tint, so the

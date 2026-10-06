@@ -87,6 +87,8 @@ def test_disney_lit_furnace_conserves_cpu():
 # Fresnel as air->glass on the inside too (#1111). With that fixed, the GPU is in band.
 @pytest.mark.gpu
 def test_principled_lit_furnace_conserves_gpu():
+    if not astroray.Renderer().gpu_available:
+        pytest.skip("CUDA device not available")
     vals = {R: _lit_furnace("principled", R, use_gpu=True) for R in _ROUGH}
     bad = {R: v for R, v in vals.items() if not (0.97 <= v <= 1.02)}
     assert not bad, (f"principled rough glass LIT furnace (GPU) not in band at "

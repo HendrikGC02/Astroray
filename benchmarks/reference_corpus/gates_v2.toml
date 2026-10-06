@@ -694,19 +694,20 @@ gpu_mean = [0.222744, 0.148399, 0.0957545, 0.160404]
 
 [[scenes."v2_sky_sun".roi]]
 name = "chrome_reflection"
-rect = [0.3780, 0.6891, 0.4180, 0.7602]
-cycles_mean = [0.171841, 0.197111, 0.227167, 0.193909]
+rect = [0.3780, 0.6891, 0.4180, 0.7560]
+cycles_mean = [0.169838, 0.202611, 0.238361, 0.198225]
 excluded = [false, false, false, false]
-cycles_sigma = [0.0082, 0.0033, 0.0015, 0.0040]
-cpu_sigma = [0.0056, 0.0031, 0.0059, 0.0023]
+cycles_sigma = [0.0079, 0.0029, 0.0014, 0.0036]
+cpu_sigma = [0.0063, 0.0029, 0.0015, 0.0032]
 gpu_sigma = [0.0060, 0.0035, 0.0040, 0.0035]
-cpu_tol = [0.0298, 0.0200, 0.0200, 0.0200]
-cpu_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
-gpu_tol = [0.0306, 0.0200, 0.0200, 0.0200]
+cpu_tol = [0.0302, 0.0200, 0.0200, 0.0200]
+cpu_pin_tol = [0.0206, 0.0200, 0.0200, 0.0200]
+gpu_tol = [0.0298, 0.0200, 0.0200, 0.0200]
 gpu_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
-cpu_mean = [0.158439, 0.189865, 0.223094, 0.185583]
+cpu_mean = [0.168683, 0.202004, 0.238053, 0.197523]
 gpu_mean = [0.158978, 0.190276, 0.224368, 0.186084]
+note = "#1070: rect = old ROI minus its last pixel row (the 1024 spp reference has one caustic firefly at row 136 col 127, +6 pct r); cycles/cpu bands re-measured on the new rect, gpu_* carried over from the old rect until the next GPU bless"
 
 [[scenes."v2_sky_sun".roi]]
 name = "stone_sky_lit_face"

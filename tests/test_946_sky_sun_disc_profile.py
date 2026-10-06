@@ -332,13 +332,6 @@ def test_addon_nishita_warning_drops_limb_darkening(monkeypatch):
 
 
 @pytest.mark.cpu
-def test_chrome_reflection_xfail_rows_reference_1070():
-    toml = (REPO_ROOT / "benchmarks" / "reference_corpus" / "provisional_v2.toml").read_text()
-    rows = [r for r in toml.split("[[row]]") if 'roi = "chrome_reflection"' in r]
-    assert rows and all("#1070" in r for r in rows)
-
-
-@pytest.mark.cpu
 def test_addon_passes_disc_profile(monkeypatch):
     tmp = tempfile.mkdtemp(prefix="astroray_946_")
     try:

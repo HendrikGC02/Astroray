@@ -84,3 +84,21 @@ kernel). The table reads replace the old factor's E/Eavg reads; reflection now a
 reads them. `gpu_pr_chooseAndSampleDir` and `gpu_pr_pdfLobe` take the closure by
 reference (already live in their callers). Expected: REG unchanged at 254 on the
 principled specialisations, small STACK delta; the lead measures with cuobjdump.
+
+## Engine A/B of the r >= 0.85 gap (lane i19, 2026-10-07)
+Cycles 5.2 (clamps 0) was rendered with the lamp replaced by an equivalent mesh emitter with `emission_sampling = NONE` (BSDF-only; it matches the area light within 2 % when light-sampled), against Cycles default and Astroray CPU.
+
+| r | ROI | Cycles BSDF-only / Cycles default | Astroray / Cycles default |
+|---|---|---|---|
+| 0.85 | centre / limb | 0.913 / 0.750 | 0.935 / 0.759 |
+| 1.0 | centre / limb | 0.867 / 0.591 | 0.884 / 0.601 |
+
+Binned RMSE of Cycles BSDF-only vs Astroray: 0.033 (r 0.85) and 0.037 (r 1.0); Cycles default vs Astroray: 0.23 and 0.45. The whole gap is light that only Cycles' NEE adds, through the invalid-refraction eval (TODO at `bsdf_microfacet.h:719-721`). It is not an Astroray deficit.
+
+Residual at r 0.5: Astroray's limb is ~0.11 above Cycles BSDF-only.
+
+Two traps:
+- Blender's default `sample_clamp_indirect = 10` cut the lamp term to 12–43 %. Unclamped, the i16 table's r 1.0 limb is 0.601, not 0.559.
+- `direct_light_sampling_type` has no effect in 5.2.
+
+Evidence: `astra_run/batch-i/i19/`.

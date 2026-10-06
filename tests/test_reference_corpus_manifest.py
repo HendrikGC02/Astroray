@@ -396,6 +396,7 @@ PROOF_PENDING_BASELINE = frozenset({  # textures_mapping; delete an entry once a
     "ShaderNodeTexMagic|input:Vector",
     "ShaderNodeTexNoise|input:Vector",
     "ShaderNodeTexVoronoi|input:Vector",
+    "ShaderNodeTexVoronoi|input:W",  # #975: Voronoi 1D/4D W socket now SUPPORTED, no scene wires it yet
     "ShaderNodeTexVoronoi|prop:voronoi_dimensions",
     "ShaderNodeTexWave|input:Vector",
     "ShaderNodeValToRGB|input:Factor",

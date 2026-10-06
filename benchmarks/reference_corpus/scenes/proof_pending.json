@@ -315,14 +315,21 @@
     {
       "bl_idname": "ShaderNodeTexVoronoi",
       "category": "shader_node",
-      "classification": "APPROXIMATED",
+      "classification": "SUPPORTED",
       "feature": "TEX_VORONOI",
       "socket_or_prop": "input:Vector"
     },
     {
       "bl_idname": "ShaderNodeTexVoronoi",
       "category": "shader_node",
-      "classification": "APPROXIMATED",
+      "classification": "SUPPORTED",
+      "feature": "TEX_VORONOI",
+      "socket_or_prop": "input:W"
+    },
+    {
+      "bl_idname": "ShaderNodeTexVoronoi",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
       "feature": "TEX_VORONOI",
       "socket_or_prop": "prop:voronoi_dimensions"
     },

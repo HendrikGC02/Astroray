@@ -414,7 +414,12 @@ def _evaluate_c(records: list[Any], base: Path, expected_hashes: Any, build_id: 
     import numpy as np
 
     from benchmarks.blender_parity import mc_compare as MCC
-    from benchmarks.blender_parity.harness import SENTINEL, STUDY_SEEDS, _gate_c_paired_probe, _parse_gate_leg_report
+    from benchmarks.blender_parity.harness import (
+        SENTINEL,
+        STUDY_SEEDS,
+        _gate_c_paired_probe,
+        _parse_gate_leg_report,
+    )
     from benchmarks.reference_bank.metrics import compute_ssim
     from benchmarks.reference_bank.runner import compute_channel_mean_ratio
     errors: list[str] = []
@@ -1223,14 +1228,14 @@ def adapt_c_seed_instrument(legs_dir: Path, freeze_path: Path, out_path: Path) -
     freeze = json.loads(Path(freeze_path).read_text(encoding="utf-8"))
     roles = freeze.get("roles") if isinstance(freeze, Mapping) else None
     if not isinstance(roles, Mapping):
-        raise ValueError("row-c freeze lacks roles")
+        raise TypeError("row-c freeze lacks roles")
     records: list[dict[str, Any]] = []
     for role, frozen in roles.items():
         kinds = ["baseline"] + [c.get("kind") for c in frozen.get("controls", [])]
         for backend in ("CPU", "GPU"):
             for kind in kinds:
                 leg_dir = Path(legs_dir) / "seed_legs" / f"{role.replace(':', '_')}_{backend.lower()}_{kind}"
-                found = sorted((int(p.stem[1:]) for p in leg_dir.glob("s*.npy") if p.stem[1:].isdigit()))
+                found = sorted(int(p.stem[1:]) for p in leg_dir.glob("s*.npy") if p.stem[1:].isdigit())
                 for seed in (found if kind == "baseline" else [s for s in found if s == frozen.get("seed")]):
                     stem = leg_dir / f"s{seed}"
                     record = {"kind": "seed_leg", "role": role, "backend": backend, "control": kind, "seed": seed,
@@ -1516,7 +1521,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = adapt_c_seed_instrument(args.adapt_c_seeds,
                                               args.adapt_c_freeze or args.adapt_c_seeds / "gate_c.freeze.json",
                                               args.out)
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
             p.error(str(exc))
         args.out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         errors, value, subchecks, failures = _evaluate_c(payload["records"], args.out.resolve().parent,

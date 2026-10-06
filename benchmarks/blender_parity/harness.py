@@ -1281,7 +1281,8 @@ def main(argv: list[str] | None = None) -> int:
                         "manifest.json) instead of running the differential "
                         "matrix")
     p.add_argument("--gate-c", action="store_true",
-                   help="produce the owner-selected corpus trio CPU/GPU F12 evidence")
+                   help="freeze the owner-selected corpus trio (gate_c.freeze.json) and render its single-seed "
+                        "CPU/GPU F12 legs; manifest row (c) is reduced from --seeds study legs (2026-10-06)")
     p.add_argument("--seeds", default="", metavar="S1,S2,..|study",
                    help="pkg317: render N independent-seed study legs of the gate-(c) trio into "
                         "<out>/seed_legs (needs --gate-c-freeze; 'study' = the 8 pinned study seeds)")

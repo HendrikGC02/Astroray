@@ -82,20 +82,13 @@ def test_disney_lit_furnace_conserves_cpu():
                      f"all={vals} — NEE/eval or eta accounting regressed (pkg265)")
 
 
-# pkg265 Phase 3 (GPU) is NOT in this PR: the GPU glass lobe still carries the
-# pkg264 #771 dead-sample -> delta-glass reroute (include/astroray/gpu_materials.h
-# and src/gpu/ are byte-identical to origin/main on this branch). That stub
-# conserves energy only to ~0.96 at high roughness, so this gate -- written for
-# the walk -- cannot pass until the device twin lands. Measured on the RTX 5070 Ti
-# at this HEAD: r0.2 0.9958, r0.5 0.9688, r0.85 0.9612, r1.0 0.9570 (the CPU walk
-# reads 0.9936-0.9964 on the same grid). strict=True on purpose: the PR that
-# implements the GPU walk MUST delete this marker
-# ([[xfail-gated-features-must-unxfail]]).
-@pytest.mark.xfail(strict=True,
-                   reason="pkg265 Phase 3: GPU glass is still the #771 reroute stub "
-                          "(0.957-0.969 at r>=0.5); remove when the device walk lands")
+# The GPU's ~0.96 deficit at high roughness (r0.5 0.9688 ... r1.0 0.9570) was not the
+# missing multiple-scattering walk: gpu_pr_transmissionEval evaluated the reflection
+# Fresnel as air->glass on the inside too (#1111). With that fixed, the GPU is in band.
 @pytest.mark.gpu
 def test_principled_lit_furnace_conserves_gpu():
+    if not astroray.Renderer().gpu_available:
+        pytest.skip("CUDA device not available")
     vals = {R: _lit_furnace("principled", R, use_gpu=True) for R in _ROUGH}
     bad = {R: v for R, v in vals.items() if not (0.97 <= v <= 1.02)}
     assert not bad, (f"principled rough glass LIT furnace (GPU) not in band at "

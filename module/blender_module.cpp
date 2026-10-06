@@ -646,6 +646,7 @@ class PyRenderer {
     bool lastRenderInfoSceneReused_ = false;  // #981: last GPU render served the device scene cache
     bool lastRenderInfoScenePatched_ = false;  // pkg291: last GPU render patched an object move in place
     bool lastRenderInfoMaterialUpdate_ = false;  // pkg315: last GPU render re-uploaded only the material domain
+    bool lastRenderInfoInstanceUpdate_ = false;  // #1001: last GPU render re-pushed only instances + rebuilt the IAS
     // pkg89 Phase B: IES profile cache (shared_ptr keeps profiles alive).
     std::unordered_map<std::string, std::shared_ptr<IESProfile>> iesProfiles_;
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -2985,6 +2986,8 @@ public:
                     astroray::wavefront::cuda_wavefront_last_scene_patched() != 0;  // pkg291
                 lastRenderInfoMaterialUpdate_ =
                     astroray::wavefront::cuda_wavefront_last_material_update() != 0;  // pkg315
+                lastRenderInfoInstanceUpdate_ =
+                    astroray::wavefront::cuda_wavefront_last_instance_update() != 0;  // #1001
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],
@@ -3092,6 +3095,7 @@ public:
             lastRenderInfoSceneReused_ = false;  // #981
             lastRenderInfoScenePatched_ = false;  // pkg291
             lastRenderInfoMaterialUpdate_ = false;  // pkg315
+            lastRenderInfoInstanceUpdate_ = false;  // #1001
         }
         if (callbackError) std::rethrow_exception(callbackError);
 
@@ -3154,6 +3158,7 @@ public:
         // pkg315 (#1067): true when the last GPU render re-uploaded ONLY the material
         // domain (geometry / lights / env / OptiX accel served from the cache).
         d["gpu_material_domain_update"] = lastRenderInfoMaterialUpdate_;
+        d["gpu_instance_update"] = lastRenderInfoInstanceUpdate_;  // #1001
         // pkg298: wall ms of the most recent CPU BVH build (a cached render
         // leaves it unchanged; compare get_scene_stats()["bvh_build_count"]).
         d["bvh_build_ms"] = renderer.getBvhBuildMs();
@@ -3741,20 +3746,25 @@ public:
             throw std::runtime_error("update_instance_transform: transform must have 16 floats");
         std::array<float, 16> m;
         for (int i = 0; i < 16; ++i) m[i] = transform[i];
+        // #1001: no invalidateWavefrontScene(): the edit is logged against the scene
+        // version (Renderer::getInstanceLog) and the wavefront driver re-pushes only
+        // the instance + TLAS arrays and rebuilds the OptiX IAS; any other mutation
+        // in between breaks the chain and takes the full re-flatten.
         renderer.updateInstanceTransform(instanceId, m);
-        invalidateWavefrontScene();  // #801: CPU-side mutation read by buildSceneArrays
     }
 
     // pkg114 inc 3d — TLAS-only re-upload: re-push d_instances + d_tlas from the
     // current instance transforms, leaving all BLAS geometry on the device intact.
     // The cheap path for a transform-only viewport edit of an instanced object.
     void uploadInstanceTransforms() {
-#ifdef ASTRORAY_CUDA_ENABLED
+#if defined(ASTRORAY_CUDA_ENABLED) && !defined(ASTRORAY_WAVEFRONT_CUDA_N3)
         if (useGPU && cudaRenderer && cudaRenderer->isAvailable()) {
             cudaRenderer->uploadInstanceTransforms(renderer);
         }
 #endif
-        invalidateWavefrontScene();  // #801
+        // #1001: with the wavefront the legacy push above wrote buffers no render
+        // reads; the wavefront re-pushes d_instances / d_tlas itself from the
+        // instance-edit log at the next render and rebuilds only the IAS.
     }
 
     // pkg291 (#875): move one non-instanced mesh object in place. Its triangles

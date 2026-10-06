@@ -255,6 +255,10 @@ void cuda_wavefront_note_material_swap(uint64_t ownerId, const Material* oldKey,
 // OptiX accel from the cache and re-uploaded only the material domain.
 // Surfaced as last_render_info()["gpu_material_domain_update"].
 int cuda_wavefront_last_material_update();
+// 1 when the most recent cuda_wavefront_render served the scene from the cache after a
+// transform-only instance edit (#1001): re-pushed d_instances / d_tlas and rebuilt only
+// the OptiX IAS. Surfaced as last_render_info()["gpu_instance_update"].
+int cuda_wavefront_last_instance_update();
 
 // #828: number of bounded-media grid buffers (NanoVDB density + dense
 // temperature) copied host->device by the most recent cuda_wavefront_render;

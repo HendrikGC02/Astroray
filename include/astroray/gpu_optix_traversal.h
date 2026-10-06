@@ -66,6 +66,9 @@ std::string lastError();
 bool buildAccel(const GPrimitive* d_prims, int numPrims, const GTriangle* d_tris,
                 const GInstance* h_instances, int numInstances,
                 const GBLAS* h_blas, int numBlas);
+// #1001: rebuild only the IAS from new instance transforms (every GAS kept). False
+// = no IAS accel to rebuild or a failure (accel released): caller falls back.
+bool rebuildInstanceAccel(const GInstance* h_instances, int numInstances);
 bool accelReady();
 void releaseAccel();
 // pkg291 (#875): in-place object moves. buildAccelUpdatable builds the single-
@@ -101,6 +104,7 @@ inline bool available() { return false; }
 inline std::string lastError() { return "built without ASTRORAY_OPTIX_TRAVERSAL"; }
 inline bool buildAccel(const GPrimitive*, int, const GTriangle*, const GInstance*, int,
                        const GBLAS*, int) { return false; }
+inline bool rebuildInstanceAccel(const GInstance*, int) { return false; }
 inline bool accelReady() { return false; }
 inline void releaseAccel() {}
 inline bool buildAccelUpdatable(const GPrimitive*, int, const GTriangle*) { return false; }

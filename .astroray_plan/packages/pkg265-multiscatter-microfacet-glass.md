@@ -276,6 +276,11 @@ depend on this. `cite-algorithm` is mandatory before any code. Serves Pillar 5.
   `__noinline__` + runtime `__constant__` REG-safe pattern; the four gates + xfail
   deletions) is written in the research note §"Phase 3 (GPU walk) — port design".
   Next lane picks it up under the GPU lock.
+- [x] 2026-10-06 — **Phase 3 method choice measured** (lane i14; owner: port the more physical
+  method that also looks best and nearly matches Cycles). `.astroray_plan/docs/pkg265-phase3-
+  method-choice.md`: CPU walk furnace 0.996–1.000 incl. the rim; GPU single scatter (post-#1111)
+  centre in band but rim 0.49/0.41 at r1.0 IOR 1.5/1.8; Cycles 5.2 default MULTI_GGX = 1/E
+  albedo scaling (0.95–1.00). Recommendation: the walk; GPU port still open (not in this lane).
 
 ## Lessons
 

@@ -1501,8 +1501,10 @@ class PrincipledPlugin : public Material {
         // (generalized-Schlick setup, Fss = transmission tint); identity in walk mode.
         Vec3 filmDark(1.0f);
         float filmScale = 1.0f;
-        if (!msWalk_ && cosO > 0.0f)
+        if (!msWalk_) {
+            if (cosO <= 0.0f) return Vec3(0);  // Cycles: cos_NI <= 0 -> 0
             glassEnergyTerms(L, entering ? L.ior : (1.0f / L.ior), cosO, filmDark, filmScale);
+        }
         if (cosO > 0.0f && cosI > 0.0f) {
             // reflection lobe (dielectric Fresnel, specular_tint)
             Vec3 wm = (wo + wi).normalized();
@@ -1591,7 +1593,8 @@ class PrincipledPlugin : public Material {
         // per-λ darkening of Fss(λ) = upsampled sqrt(base_color). Identity in walk mode.
         astroray::SampledSpectrum filmDark(1.0f);
         float filmScale = 1.0f;
-        if (!msWalk_ && cosO > 0.0f) {
+        if (!msWalk_) {
+            if (cosO <= 0.0f) return astroray::SampledSpectrum(0.0f);  // cos_NI <= 0
             namespace gg = astroray::ggxglass;
             float E, Eavg;
             gg::albedo(glassTables(), std::sqrt(alpha), cosO, etap, E, Eavg);

@@ -189,8 +189,16 @@ def _sample_dev(ior, rough, n=2000):
     wi, pdf = r.debug_bsdf_sample_batch(m, list(wo), u)
     wi, pdf = np.asarray(wi), np.asarray(pdf)
     ok = pdf > 0
-    assert ok.all()
-    return np.linalg.norm(wi + wo, axis=1)
+    # The singular band is a delta pass-through: every sample is valid. A rough
+    # dielectric under the Cycles MULTI_GGX default (owner 2026-10-06) LOSES its
+    # wrong-side microfacet directions (bsdf_microfacet_sample LABEL_NONE; 1/E restores
+    # the energy), so it is checked on its valid samples. The former ok.all() held only
+    # for the pkg265 walk, which never loses a sample.
+    if abs(ior - 1.0) < 1e-4:
+        assert ok.all()
+    else:
+        assert ok.mean() > 0.8, ok.mean()
+    return np.linalg.norm(wi + wo, axis=1)[ok]
 
 
 @pytest.mark.parametrize("rough", [1.0, 0.5])

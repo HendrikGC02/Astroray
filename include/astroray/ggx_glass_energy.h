@@ -89,16 +89,16 @@ AR_GGXG_HD inline bool albedo(const Tables& tb, float rough, float mu, float ior
         Eavg = 1.0f;
         return false;
     }
-    const float* tE = tb.E;
-    const float* tA = tb.Eavg;
+    const float* tabE = tb.E;
+    const float* tabAvg = tb.Eavg;
     if (ior < 1.0f) {
         ior = 1.0f / ior;
-        tE = tb.invE;
-        tA = tb.invEavg;
+        tabE = tb.invE;
+        tabAvg = tb.invEavg;
     }
     const float z = sqrtf(fabsf((ior - 1.0f) / (ior + 1.0f)));
-    E = fmaxf(read3D(tE, rough, mu, z, kTableSize, kTableSize, kTableSize), 1e-4f);
-    Eavg = read2D(tA, rough, z, kTableSize, kTableSize);
+    E = fmaxf(read3D(tabE, rough, mu, z, kTableSize, kTableSize, kTableSize), 1e-4f);
+    Eavg = read2D(tabAvg, rough, z, kTableSize, kTableSize);
     return true;
 }
 

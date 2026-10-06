@@ -66,19 +66,15 @@ CASES = [
     # Coat over a tinted transmissive base: the coat Beer tint makes the running
     # layering `weight` chromatic before it reaches the transmission lobe, so this
     # row exercises the Finding-B weight-path guard together with Finding A.
-    # pkg265 Phase 2 (PR #778): the CPU glass lobe is the Heitz-2016 multiple-
-    # scattering walk while the GPU is still the #771 single-scatter reroute stub,
-    # so this mixed row (transmission 0.8 + coat) sits at GPU/CPU R 1.26 (main 1.00,
-    # band [0.95, 1.05]); the two pure-glass rows above still pass. The pkg265
-    # Phase 3 GPU-walk PR MUST delete this marker (xfail-gated-features-must-unxfail).
+    # pkg265 Phase 2 (PR #778) put the CPU on the Heitz walk while the GPU stayed
+    # single scatter (GPU/CPU R 1.26, strict xfail). Owner 2026-10-06: both backends
+    # now run the same Cycles MULTI_GGX glass (ggx_glass_energy.h), so the marker is
+    # removed (xfail-gated-features-must-unxfail).
     pytest.param(
         "coat_over_tinted_glass",
         GLASS_TINT, {"metallic": 0.0, "transmission_weight": 0.8, "ior": 1.5, "roughness": 0.25,
                      "coat_weight": 1.0, "coat_roughness": 0.1, "coat_tint": [0.3, 0.7, 1.0]},
-        id="coat_over_tinted_glass",
-        marks=pytest.mark.xfail(strict=True, reason="pkg265 Phase 3: GPU glass is the #771 "
-                                "single-scatter stub vs the CPU multiple-scattering walk "
-                                "(GPU/CPU R 1.26 on this mixed coat+transmission row)")),
+        id="coat_over_tinted_glass"),
 ]
 
 

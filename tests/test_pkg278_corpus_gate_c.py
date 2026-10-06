@@ -325,7 +325,7 @@ def test_entire_trio_freezes_real_declared_metadata():
     assert frozen["materials_hall"]["non_vacuity"] == []
     assert frozen["materials_hall"]["seed"] == 278
     assert frozen["textures_mapping"]["rois"]["workshop_checker"] == [
-        0.2912, 0.3603, 0.4079, 0.4804]
+        0.2949, 0.3638, 0.4045, 0.4765]
     assert frozen["textures_mapping"]["controls"][0]["kind"] == "checker_flat"
     assert {c["kind"] for c in frozen["world_sky:terrace-with-hair"]["controls"]} == {"hair_off", "hdri_off"}
     assert frozen["world_sky:terrace-with-hair"]["scene_id"] == "world_sky_hdri"

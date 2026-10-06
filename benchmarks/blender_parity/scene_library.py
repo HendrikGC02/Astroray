@@ -1594,6 +1594,9 @@ def build_textures_mapping_scene(bpy):
     COLS = (-2.2, -1.1, 0.0, 1.1, 2.2)
     ROWS = (1.5, 0.7, -0.1, -0.9)
     Z = TABLE_TOP + 0.55
+    # Proof-card edge. The grid row pitch is 0.8, so a 0.85 card overlapped its row
+    # neighbours by 0.05 coplanar (z-fight; CPU and GPU pick opposite winners, #1111).
+    CARD = 0.76
     grid = {}
     for r, y in enumerate(ROWS):
         for c, x in enumerate(COLS):
@@ -1642,7 +1645,7 @@ def build_textures_mapping_scene(bpy):
 
     def texture_card(row, col, key, bl_idname, configure, output="Color", use_vector=True):
         x, y = grid[(row, col)]
-        plane = _flat_card(x, y, Z, 0.85, key)
+        plane = _flat_card(x, y, Z, CARD, key)
         mat, nt, emit, out = _emission_card_material(bpy, f"{key}Mat")
         node = nt.nodes.new(bl_idname)
         if use_vector and "Vector" in node.inputs:
@@ -1674,7 +1677,7 @@ def build_textures_mapping_scene(bpy):
         addon's evaluator. ``converter_out=None`` selects the first enabled
         output (Mix's per-data_type ``Result`` variant)."""
         x, y = grid[(row, col)]
-        plane = _flat_card(x, y, Z, 0.85, key)
+        plane = _flat_card(x, y, Z, CARD, key)
         mat, nt, emit, out = _emission_card_material(bpy, f"{key}Mat")
         src = nt.nodes.new(source_bl)
         if use_vector and "Vector" in src.inputs:
@@ -1858,7 +1861,7 @@ def build_textures_mapping_scene(bpy):
     stripe_img.pack()
 
     x, y = grid[(1, 3)]
-    plane = _flat_card(x, y, Z, 0.85, "TexImage")
+    plane = _flat_card(x, y, Z, CARD, "TexImage")
     mat, nt, emit, out = _emission_card_material(bpy, "TexImageMat")
     coord = nt.nodes.new("ShaderNodeTexCoord")
     mapping = nt.nodes.new("ShaderNodeMapping")
@@ -1981,7 +1984,7 @@ def build_textures_mapping_scene(bpy):
         enabled["A"].default_value = (0.7, 0.3, 0.2, 1.0)
         enabled["B"].default_value = (0.2, 0.5, 0.8, 1.0)
     x, y = grid[(3, 2)]
-    plane = _flat_card(x, y, Z, 0.85, "MixCard")
+    plane = _flat_card(x, y, Z, CARD, "MixCard")
     mat, nt, emit, out = _emission_card_material(bpy, "MixCardMat")
     mixnode = nt.nodes.new("ShaderNodeMix")
     cfg_mix(mixnode)

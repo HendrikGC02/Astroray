@@ -293,6 +293,49 @@ print('PKG823_PROOF ' + json.dumps({{
     assert all(proof["crop_ok"].values()), proof["crop_ok"]
 
 
+def _coplanar_card_overlaps(blend_path: Path) -> list:
+    """Pairs of flat meshes sharing a z plane whose XY footprints overlap (area > 0)."""
+    script = f"""
+import bpy, json
+from mathutils import Vector
+bpy.ops.wm.open_mainfile(filepath=r'{blend_path}')
+flat = []
+for obj in bpy.data.objects:
+    if obj.type != 'MESH':
+        continue
+    pts = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+    zs = [p.z for p in pts]
+    if max(zs) - min(zs) > 1e-6:
+        continue
+    flat.append((obj.name, round(zs[0], 5), min(p.x for p in pts), max(p.x for p in pts),
+                 min(p.y for p in pts), max(p.y for p in pts)))
+bad = []
+for i, a in enumerate(flat):
+    for b in flat[i + 1:]:
+        if a[1] != b[1]:
+            continue
+        ox = min(a[3], b[3]) - max(a[2], b[2])
+        oy = min(a[5], b[5]) - max(a[4], b[4])
+        if ox > 1e-6 and oy > 1e-6:
+            bad.append([a[0], b[0], round(ox, 4), round(oy, 4)])
+print('PKG_ZFIGHT ' + json.dumps(bad))
+"""
+    proc = subprocess.run([str(BLENDER), "-b", "--factory-startup", "--python-expr", script],
+                          capture_output=True, text=True, timeout=120)
+    line = next((l for l in proc.stdout.splitlines() if l.startswith("PKG_ZFIGHT ")), None)
+    assert line is not None, f"no overlap report:\n{proc.stdout}\n{proc.stderr}"
+    return json.loads(line[len("PKG_ZFIGHT "):])
+
+
+def test_textures_mapping_proof_cards_do_not_overlap(manifest):
+    """#1111: 0.85 m cards on a 0.8 m row pitch overlapped coplanar (z-fight); CPU and
+    GPU picked opposite winners, giving 1-px strips that failed gate (c)'s Welch test."""
+    if not BLENDER.exists():
+        pytest.skip("Blender 5.2 not installed - local-host gate")
+    blend_path = REPO_ROOT / manifest["scenes"]["textures_mapping"]["blend_path"]
+    assert _coplanar_card_overlaps(blend_path) == []
+
+
 # --------------------------------------------------------------------------- #
 # Pure tests (no Blender needed)
 # --------------------------------------------------------------------------- #

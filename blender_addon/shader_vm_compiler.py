@@ -46,7 +46,8 @@ LIGHT_PATH_APPROXIMATE = ('Is Diffuse Ray', 'Is Glossy Ray', 'Diffuse Depth', 'G
 # corner at mesh export with Cycles' value for that output (kernel/svm/
 # attribute.h svm_node_attr; svm/geometry.h NODE_INFO_OB_*). attribute_layer_key
 # names it; the program loads it as a texture input (OP_LOAD_TEX).
-ATTRIBUTE_NODE_TYPES = ('ATTRIBUTE', 'VERTEX_COLOR', 'OBJECT_INFO')
+# pkg322: NEW_GEOMETRY is a layer input only for its Pointiness output ('geom:Pointiness').
+ATTRIBUTE_NODE_TYPES = ('ATTRIBUTE', 'VERTEX_COLOR', 'OBJECT_INFO', 'NEW_GEOMETRY')
 OBJECT_INFO_OUTPUTS = ('Location', 'Color', 'Alpha', 'Object Index', 'Material Index', 'Random')
 
 
@@ -65,6 +66,8 @@ def attribute_layer_key(node, variant):
     ntype = getattr(node, 'type', None)
     if ntype == 'OBJECT_INFO':
         return variant
+    if ntype == 'NEW_GEOMETRY':
+        return 'geom:Pointiness'
     if ntype == 'VERTEX_COLOR':
         return 'color:%s|%s' % (getattr(node, 'layer_name', '') or '', variant)
     return 'attr:%s|%s' % (getattr(node, 'attribute_name', '') or '', variant)
@@ -449,7 +452,7 @@ def _shading_input(node, out_name, builder, depth, arg, normal):
     flag). Semantics: Cycles kernel/svm/fresnel.h svm_node_layer_weight /
     svm_node_fresnel and svm/light_path.h NODE_LP_backfacing (Apache-2.0). Only the
     default Normal (the shading normal) is represented; the other Geometry outputs
-    (Pointiness needs per-vertex curvature) raise VMCompileError -> reported."""
+    raise VMCompileError -> reported (Pointiness is a layer input: _attribute_input)."""
     if builder.coord_mode:
         raise VMCompileError("per-hit shading input in a coordinate chain")
     ntype = getattr(node, 'type', None)
@@ -482,6 +485,8 @@ def _attribute_input(node, out_name, builder):
     if builder.coord_mode:
         raise VMCompileError("attribute input in a coordinate chain")
     ntype = getattr(node, 'type', None)
+    if ntype == 'NEW_GEOMETRY':  # pkg322: only Pointiness reaches here (compile_socket)
+        return builder.push_tex(node, 'fac')
     if ntype == 'OBJECT_INFO':
         if out_name not in OBJECT_INFO_OUTPUTS:
             raise VMCompileError("Object Info output '%s' unsupported" % out_name)
@@ -653,6 +658,8 @@ def _compile_socket_value(socket, builder, depth=0):
         return _shading_input(node, out_name, builder, depth,
                               _get_input(node, 'IOR'), _get_input(node, 'Normal'))
     if ntype == 'NEW_GEOMETRY':
+        if out_name == 'Pointiness':  # pkg322: per-vertex layer, not a per-hit input
+            return _attribute_input(node, out_name, builder)
         return _shading_input(node, out_name, builder, depth, None, None)
     if ntype == 'LIGHT_PATH':  # #991
         return _light_path_input(node, out_name, builder)

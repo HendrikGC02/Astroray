@@ -2831,9 +2831,9 @@ __device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GHitRecord& rec
         // energy in the path (radiance-invariant clear glass ⇒ furnace 1.0).
     }
     // delta (smooth) glass  (also the pkg264 rough dead-sample fallback)
-    float f0 = (etaI - etaT) / (etaI + etaT);
-    f0 = f0 * f0;
-    float fresnel = f0 + (1.f - f0) * powf(fminf(fmaxf(1.f - cosTheta, 0.f), 1.f), 5.f);
+    // #1112: exact side-aware dielectric Fresnel (Cycles fresnel_dielectric;
+    // pbrt-v4 FrDielectric), CPU twin principled.cpp chooseAndSampleDir.
+    float fresnel = gpu_pr_fresnelDielectric(cosTheta, etaI, etaT);
     ds.isDelta = true;
     if (cannotRefract || gpu_rng_uniform(rng) < fresnel) {
         ds.wi = nn * (2.f * wo.dot(nn)) - wo;

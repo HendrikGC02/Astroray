@@ -1,5 +1,42 @@
 # Astroray Status
 
+## 2026-10-07 CURRENT — long-haul checkpoint (Opus 5.5 lead, 2026-10-05 → 10-07)
+
+**Gates:**
+- (a) **GREEN**: p95 78.2 ms, was 102.1. The worker-OFF table passes under #1050's binding.
+- (c) **GREEN** under the owner-adopted Welch-1b metric (#1121): 0 rejected tiles, ROI max 0.73 %.
+- (d) GREEN.
+- (e) no open highs (blind Sonnet + GLM rating).
+- (g) **RED**, first measurement: CPU 2/8, GPU 1/8, threshold 6/8.
+- (b) needs a re-freeze after #1101/#1104/#1113.
+- (f) waits on the owner's second PC (`gate-f-other-pc-runbook.md`).
+
+**Merged:** 36 PRs. Report: `run-report-2026-10-06.md`. Next: `next-session-prompt-2026-10-07.md`.
+
+**Verification:** integration sweep (main + pending PRs), full CPU+GPU: **4726 passed, 0 failed**.
+
+**Key fixes:**
+- 100k material edit 44 → 4.2 ms; IAS-only refit 700 → 1–4 ms.
+- GPU glass Fresnel side (#1111): the GPU lit furnace is in band.
+- ReSTIR stale guide binding, an out-of-bounds write that darkened later renders (#1115).
+- Whole-strand curve self-skip (#1092).
+- Voronoi 1D/2D/4D.
+- Emission two-sided.
+- textures_mapping z-fight (scene re-frozen).
+
+**Pending:**
+- CI on #1105, #1116 and #1121.
+- Rough glass defaulting to Cycles MULTI_GGX on CPU+GPU (owner; branch `batch-i16/cycles-multiggx-glass`, review APPROVE-WITH-FIXES, M3 attribution check running).
+
+**Owner decisions** (2026-10-06, memory `owner-decisions-2026-10-06`):
+- Welch-1b for gate (c).
+- Gate (b) population: corpus v2 + production.
+- Reviews: blind Claude + opencode while Codex is out.
+- Row (g) at 6/8.
+- GR redshift referenced to infinity.
+- Gate (f) on a second PC.
+- Rough glass: Cycles 1/E by default.
+
 ## 2026-10-05 CURRENT — checkpoint verification pass (Opus 5.5 lead)
 
 **Merged:** #1059 (#1057 GPU patch-cache ABA). **Suite on final main** (f3ef7319 build): CPU 2680 passed, GPU 1634 passed, 0 failures (34 min); corpus with `ASTRORAY_PYD_DIR` 645 passed / 91 xfailed / 0 XPASS. #1015 root cause posted (test scene has no variance in sampler-controlled dims; test-only fix).

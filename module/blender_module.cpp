@@ -283,6 +283,7 @@ public:
             //   [5..10] r1,g1,b1, r2,g2,b2            (color_low, color_high)
             //   [11..15] detail, roughness, lacunarity, exponent, normalize   (pkg115 item 10)
             //   [16]    output_color (1 = Color output, hashed cell colour; #944)
+            //   [17..18] dimensions (1-4, default 3), W socket value (#975)
             // Legacy 5-param + colour scripts (size <= 11) keep working: the trailing
             // Cycles-parity params (detail/roughness/lacunarity/exponent/normalize) default
             // off, so a non-fractal, non-normalised F1 matches the old behaviour. The addon
@@ -300,10 +301,12 @@ public:
             float expo = params.size() > 14 ? params[14] : 0.5f;
             bool norm = params.size() > 15 ? (params[15] != 0.0f) : false;
             bool colorOut = params.size() > 16 ? (params[16] != 0.0f) : false;  // #944: Color output
+            int vdims = params.size() > 17 ? (int)params[17] : 3;
+            float vw = params.size() > 18 ? params[18] : 0.0f;
             // New ctor: (scale, detail, roughness, lacunarity, smoothness, exponent, randomness,
-            //            normalize, dist_metric, feature, color_low, color_high, colorOut).
+            //            normalize, dist_metric, feature, color_low, color_high, colorOut, dims, w).
             proceduralTextures[name] = std::make_shared<VoronoiTexture>(
-                sc, det, rough, lac, smooth, expo, rand, norm, dm, feat, c1, c2, colorOut);
+                sc, det, rough, lac, smooth, expo, rand, norm, dm, feat, c1, c2, colorOut, vdims, vw);
         } else if (type == "brick") {
             // pkg115 chunk 3 + chunk 6 (addon dedup): full Cycles-parity Brick.
             // Params: [brick1_r,g,b, brick2_r,g,b, mortar_r,g,b, scale, mortar_size, mortar_smooth,

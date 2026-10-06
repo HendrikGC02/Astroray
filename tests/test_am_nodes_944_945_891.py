@@ -279,16 +279,6 @@ def test_944_byte_colourspace_passthrough_or_degrade(monkeypatch, cs, degraded):
     assert (("colourspace" in msgs) == degraded), msgs
 
 
-def test_voronoi_non_3d_dimensions_are_degraded(monkeypatch):
-    eng, r = _engine(monkeypatch), _renderer()
-    node = _voronoi('Color')
-    vnode = node.inputs[0].links[0].from_node
-    vnode.voronoi_dimensions = '4D'
-    eng.get_base_color_texture(node, 'Base Color', r)
-    assert "voronoi_dimensions '4D'" in " ".join(
-        str(m) for m in eng._degradation_report().messages())
-
-
 def test_procedural_cache_key_is_never_id_based(monkeypatch):
     eng, r = _engine(monkeypatch), _renderer()
     uv = Node('TEX_COORD')

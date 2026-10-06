@@ -10,9 +10,9 @@
 
 ## Summary
 
-- **SUPPORTED**: 292 features
-- **APPROXIMATED**: 110 features
-- **DROPPED-SILENT**: 335 features ⚠️
+- **SUPPORTED**: 307 features
+- **APPROXIMATED**: 96 features
+- **DROPPED-SILENT**: 334 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 737 features
 
@@ -22,24 +22,24 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5570)
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5570)
-- **TEX_BRICK**: socket `Color3` (addon __init__.py line 4174, line 4309)
-- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4174, line 4309)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5588)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5588)
+- **TEX_BRICK**: socket `Color3` (addon __init__.py line 4174, line 4315)
+- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4174, line 4315)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5570)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5570)
-- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5570)
-- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5570)
-- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5570)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5570)
-- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5570)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5570)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5570)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5588)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5588)
+- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5588)
+- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5588)
+- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5588)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5588)
+- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5588)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5588)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5588)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -297,7 +297,6 @@ These features are silently ignored by the addon with no warning:
 - **TEX_SKY**: `prop:sun_disc` — property BOOLEAN
 - **TEX_SKY**: `prop:sun_intensity` — property FLOAT
 - **TEX_SKY**: `prop:sun_size` — property FLOAT
-- **TEX_VORONOI**: `input:W`
 - **TEX_WHITE_NOISE**: `input:Vector` — no handler in addon translation layer
 - **TEX_WHITE_NOISE**: `input:W` — no handler in addon translation layer
 - **TEX_WHITE_NOISE**: `prop:noise_dimensions` — property ENUM
@@ -937,19 +936,19 @@ These features are silently ignored by the addon with no warning:
 | TEX_SKY | prop:sun_rotation | APPROXIMATED | drives baked sun azimuth in the equirect image (pkg256) |
 | TEX_SKY | prop:sun_size | DROPPED-SILENT | property FLOAT |
 | TEX_SKY | prop:turbidity | APPROXIMATED | Perez turbidity for PREETHAM/HOSEK_WILKIE sky_type (pkg256) |
-| TEX_VORONOI | input:Vector | APPROXIMATED |  |
-| TEX_VORONOI | input:W | DROPPED-SILENT |  |
-| TEX_VORONOI | input:Scale | APPROXIMATED |  |
-| TEX_VORONOI | input:Detail | APPROXIMATED |  |
-| TEX_VORONOI | input:Roughness | APPROXIMATED |  |
-| TEX_VORONOI | input:Lacunarity | APPROXIMATED |  |
-| TEX_VORONOI | input:Smoothness | APPROXIMATED |  |
-| TEX_VORONOI | input:Exponent | APPROXIMATED |  |
-| TEX_VORONOI | input:Randomness | APPROXIMATED |  |
-| TEX_VORONOI | prop:distance | APPROXIMATED |  |
-| TEX_VORONOI | prop:feature | APPROXIMATED |  |
-| TEX_VORONOI | prop:normalize | APPROXIMATED |  |
-| TEX_VORONOI | prop:voronoi_dimensions | APPROXIMATED |  |
+| TEX_VORONOI | input:Vector | SUPPORTED |  |
+| TEX_VORONOI | input:W | SUPPORTED |  |
+| TEX_VORONOI | input:Scale | SUPPORTED |  |
+| TEX_VORONOI | input:Detail | SUPPORTED |  |
+| TEX_VORONOI | input:Roughness | SUPPORTED |  |
+| TEX_VORONOI | input:Lacunarity | SUPPORTED |  |
+| TEX_VORONOI | input:Smoothness | SUPPORTED |  |
+| TEX_VORONOI | input:Exponent | SUPPORTED |  |
+| TEX_VORONOI | input:Randomness | SUPPORTED |  |
+| TEX_VORONOI | prop:distance | SUPPORTED |  |
+| TEX_VORONOI | prop:feature | SUPPORTED |  |
+| TEX_VORONOI | prop:normalize | SUPPORTED |  |
+| TEX_VORONOI | prop:voronoi_dimensions | SUPPORTED |  |
 | TEX_WAVE | input:Vector | SUPPORTED |  |
 | TEX_WAVE | input:Scale | SUPPORTED |  |
 | TEX_WAVE | input:Distortion | SUPPORTED |  |
@@ -1146,8 +1145,8 @@ These features are silently ignored by the addon with no warning:
 | TEX_NOISE | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
 | TEX_NOISE | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
 | TEX_SKY | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
-| TEX_VORONOI | output:Distance | APPROXIMATED | output consumed by the node handler (pkg320) |
-| TEX_VORONOI | output:Color | APPROXIMATED | output consumed by the node handler (pkg320) |
+| TEX_VORONOI | output:Distance | SUPPORTED | output consumed by the node handler (pkg320) |
+| TEX_VORONOI | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
 | TEX_VORONOI | output:Position | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
 | TEX_VORONOI | output:W | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
 | TEX_VORONOI | output:Radius | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |

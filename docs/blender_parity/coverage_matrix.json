@@ -4307,7 +4307,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Vector",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": "",
     "socket_id": "Vector"
   },
@@ -4316,7 +4316,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:W",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": "",
     "socket_id": "W"
   },
@@ -4325,7 +4325,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Scale",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": "",
     "socket_id": "Scale"
   },
@@ -4334,7 +4334,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Detail",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": "",
     "socket_id": "Detail"
   },
@@ -4343,7 +4343,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Roughness",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": "",
     "socket_id": "Roughness"
   },
@@ -4352,7 +4352,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Lacunarity",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": "",
     "socket_id": "Lacunarity"
   },
@@ -4361,7 +4361,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Smoothness",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": "",
     "socket_id": "Smoothness"
   },
@@ -4370,7 +4370,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Exponent",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": "",
     "socket_id": "Exponent"
   },
@@ -4379,7 +4379,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "input:Randomness",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": "",
     "socket_id": "Randomness"
   },
@@ -4388,7 +4388,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "prop:distance",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -4396,7 +4396,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "prop:feature",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -4404,7 +4404,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "prop:normalize",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -4412,7 +4412,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "prop:voronoi_dimensions",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {
@@ -4420,7 +4420,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "output:Distance",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": "output consumed by the node handler (pkg320)",
     "socket_id": "Distance"
   },
@@ -4429,7 +4429,7 @@
     "feature": "TEX_VORONOI",
     "bl_idname": "ShaderNodeTexVoronoi",
     "socket_or_prop": "output:Color",
-    "classification": "APPROXIMATED",
+    "classification": "SUPPORTED",
     "notes": "output consumed by the node handler (pkg320)",
     "socket_id": "Color"
   },

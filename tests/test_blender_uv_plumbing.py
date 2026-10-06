@@ -476,10 +476,10 @@ def _voronoi_node(feature='F1', distance='EUCLIDEAN', normalize=False):
 
 
 def test_voronoi_translation_param_vector(monkeypatch):
-    """Full 17-float Cycles-parity vector in the documented order:
+    """Full 19-float Cycles-parity vector in the documented order:
        [scale, randomness, dist_metric, feature, smoothness,
         r1,g1,b1, r2,g2,b2, detail, roughness, lacunarity, exponent, normalize,
-        output_color (#944)]."""
+        output_color (#944), dimensions, W (#975)]."""
     addon = _load_blender_addon(monkeypatch)
     engine = addon.CustomRaytracerRenderEngine()
     renderer = _RecordingRenderer()
@@ -489,7 +489,7 @@ def test_voronoi_translation_param_vector(monkeypatch):
     assert len(renderer.proc_texture_calls) == 1
     name, ttype, params = renderer.proc_texture_calls[0]
     assert ttype == 'voronoi'
-    assert len(params) == 17, f"expected 17 params, got {len(params)}: {params}"
+    assert len(params) == 19, f"expected 19 params, got {len(params)}: {params}"
     scale, rand, dm, feat, smooth = params[0:5]
     colors = params[5:11]
     detail, rough, lac, expo, norm = params[11:16]
@@ -499,6 +499,7 @@ def test_voronoi_translation_param_vector(monkeypatch):
     assert colors == [0, 0, 0, 1, 1, 1]
     assert (detail, rough, lac, expo) == (3.0, 0.7, 2.5, 1.5)
     assert norm == 1.0, "normalize=True must pass 1.0"
+    assert params[17:19] == [3.0, 0.0], "default voronoi_dimensions 3D, W 0 (#975)"
 
 
 def test_voronoi_feature_enum_matches_cpp(monkeypatch):

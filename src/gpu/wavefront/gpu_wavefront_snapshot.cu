@@ -116,6 +116,10 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontAddMaterials(nullptr);   // #1072: no Add partners on the ReSTIR/harness paths
+    // pkg197/pkg201 per-pixel buffers are sized for the last path-tracer frame; a larger
+    // frame here wrote past them at bounce 0 and corrupted later renders. Capture neither.
+    setWavefrontGuideBinding(GWavefrontGuideBinding{});
+    setWavefrontMissCoverage(nullptr);
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -298,6 +302,10 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontAddMaterials(nullptr);   // #1072: no Add partners on the ReSTIR/harness paths
+    // pkg197/pkg201 per-pixel buffers are sized for the last path-tracer frame; a larger
+    // frame here wrote past them at bounce 0 and corrupted later renders. Capture neither.
+    setWavefrontGuideBinding(GWavefrontGuideBinding{});
+    setWavefrontMissCoverage(nullptr);
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -489,6 +497,10 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontAddMaterials(nullptr);   // #1072: no Add partners on the ReSTIR/harness paths
+    // pkg197/pkg201 per-pixel buffers are sized for the last path-tracer frame; a larger
+    // frame here wrote past them at bounce 0 and corrupted later renders. Capture neither.
+    setWavefrontGuideBinding(GWavefrontGuideBinding{});
+    setWavefrontMissCoverage(nullptr);
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -658,6 +670,10 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontAddMaterials(nullptr);   // #1072: no Add partners on the ReSTIR/harness paths
+    // pkg197/pkg201 per-pixel buffers are sized for the last path-tracer frame; a larger
+    // frame here wrote past them at bounce 0 and corrupted later renders. Capture neither.
+    setWavefrontGuideBinding(GWavefrontGuideBinding{});
+    setWavefrontMissCoverage(nullptr);
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -845,6 +861,10 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontAddMaterials(nullptr);   // #1072: no Add partners on the ReSTIR/harness paths
+    // pkg197/pkg201 per-pixel buffers are sized for the last path-tracer frame; a larger
+    // frame here wrote past them at bounce 0 and corrupted later renders. Capture neither.
+    setWavefrontGuideBinding(GWavefrontGuideBinding{});
+    setWavefrontMissCoverage(nullptr);
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -1414,6 +1434,10 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontAddMaterials(nullptr);   // #1072: no Add partners on the ReSTIR/harness paths
+    // pkg197/pkg201 per-pixel buffers are sized for the last path-tracer frame; a larger
+    // frame here wrote past them at bounce 0 and corrupted later renders. Capture neither.
+    setWavefrontGuideBinding(GWavefrontGuideBinding{});
+    setWavefrontMissCoverage(nullptr);
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -3254,6 +3278,10 @@ std::vector<float> cuda_wavefront_render_restir(
     // so the shade/intersect kernels here stay byte-identical (no stray env draw).
     setWavefrontEnvNeeBinding(GWavefrontEnvNeeBinding{});
     setWavefrontAddMaterials(nullptr);   // #1072: no Add partners on the ReSTIR/harness paths
+    // pkg197/pkg201 per-pixel buffers are sized for the last path-tracer frame; a larger
+    // frame here wrote past them at bounce 0 and corrupted later renders. Capture neither.
+    setWavefrontGuideBinding(GWavefrontGuideBinding{});
+    setWavefrontMissCoverage(nullptr);
     publishPrimaryClip(cam);         // #873: ReSTIR primary rays clip too (CPU restir_di)
     // #877: ReSTIR-DI is its own light-sampling estimator; set_light_nee does not
     // apply (the CPU restir_di ignores it too), so emitter hits keep MIS weights.

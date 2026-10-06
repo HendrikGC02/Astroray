@@ -36,14 +36,17 @@ _ROUGH = [0.2, 0.5, 0.85, 1.0]
 
 
 def _lit_furnace(kind: str, roughness: float, *, use_gpu: bool = False,
-                 spp: int = 256, depth: int = 32, ior: float = 1.45) -> float:
+                 spp: int = 256, depth: int = 32, ior: float = 1.45,
+                 walk: bool = False) -> float:
     """Clear/rough glass in a UNIFORM white field (world bg + a large area light
     both at radiance 1.0) must render ~1.0. The area light makes the NEE leg fire;
     the uniform field keeps the known answer 1.0."""
     r = astroray.Renderer()
     r.set_background_color([1.0, 1.0, 1.0])
     if kind == "principled":
-        params = {"transmission_weight": 1.0, "ior": ior, "roughness": roughness}
+        # Owner 2026-10-06: default = Cycles MULTI_GGX; walk = opt-in pkg265 model.
+        params = {"transmission_weight": 1.0, "ior": ior, "roughness": roughness,
+                  "rough_glass_walk": 1.0 if walk else 0.0}
     else:
         params = {"transmission": 1.0, "ior": ior, "roughness": roughness,
                   "metallic": 0.0}
@@ -68,8 +71,9 @@ def _lit_furnace(kind: str, roughness: float, *, use_gpu: bool = False,
     return float(img[28:52, 28:52].mean())
 
 
-def test_principled_lit_furnace_conserves_cpu():
-    vals = {R: _lit_furnace("principled", R) for R in _ROUGH}
+@pytest.mark.parametrize("walk", [False, True], ids=["multiggx", "walk"])
+def test_principled_lit_furnace_conserves_cpu(walk):
+    vals = {R: _lit_furnace("principled", R, walk=walk) for R in _ROUGH}
     bad = {R: v for R, v in vals.items() if not (0.97 <= v <= 1.02)}
     assert not bad, (f"principled rough glass LIT furnace not in band at {bad}; "
                      f"all={vals} — NEE/eval or eta accounting regressed (pkg265)")

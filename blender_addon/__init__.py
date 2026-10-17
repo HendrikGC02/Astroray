@@ -5221,6 +5221,20 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if float(native_params.get('subsurface_weight', 0.0)) > 0.0:
             gaps.append("Principled Subsurface uses the approximate diffusion model "
                         "(D2(a), not the Cycles random-walk BSSRDF)")
+            # pkg321 (#1089): the method enum and the skin IOR are inert (probe-proven).
+            method = str(getattr(node, 'subsurface_method', 'RANDOM_WALK')).upper()
+            if method != 'RANDOM_WALK':
+                gaps.append("Principled subsurface_method '%s' is not honoured (one approximate "
+                            "diffusion model for every method)" % method)
+            sss_ior = node.inputs.get('Subsurface IOR')
+            if sss_ior is not None and not getattr(sss_ior, 'is_linked', False) \
+                    and abs(float(getattr(sss_ior, 'default_value', 1.4)) - 1.4) > 1e-6:
+                gaps.append("Principled 'Subsurface IOR' (%.3g) is not honoured (the native material "
+                            "has no per-medium IOR)" % float(sss_ior.default_value))
+        dist = getattr(node, 'distribution', None)
+        if dist is not None and str(dist).upper() != 'MULTI_GGX':
+            gaps.append("Principled distribution '%s' is not honoured (the native microfacet lobes "
+                        "ignore the enum; the default 'MULTI_GGX' behaviour is used)" % dist)
         return gaps
 
     # pkg178 Stage 5: Disney param name -> native 'principled' param name, for
@@ -5371,7 +5385,60 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # once per render (final render path).
         self._degradation_report().approximate(node_type, message)
 
+    # pkg321 (#1089): node inputs/props the CPU render proved inert (tests/test_pkg321_dropped_row_probes.py)
+    # that were dropped without a trace. Each is reported only when it would change the render in Cycles
+    # (linked Normal/Tangent, a non-default enum, a non-zero amount), so an untouched node stays quiet.
+    _BSDF_DEFAULT_DISTRIBUTION = {
+        'BSDF_PRINCIPLED': 'MULTI_GGX', 'BSDF_GLASS': 'MULTI_GGX', 'BSDF_REFRACTION': 'BECKMANN',
+        'BSDF_SHEEN': 'MICROFIBER', 'BSDF_GLOSSY': 'MULTI_GGX', 'BSDF_ANISOTROPIC': 'MULTI_GGX',
+    }
+
+    @staticmethod
+    def _input_is_set(inp):
+        """True when an input is linked or holds a non-zero value (None = socket absent / disabled)."""
+        if inp is None:
+            return False
+        if getattr(inp, 'is_linked', False):
+            return True
+        value = getattr(inp, 'default_value', 0.0)
+        try:
+            return any(abs(float(c)) > 1e-9 for c in value)
+        except TypeError:
+            return abs(float(value)) > 1e-9
+
+    def _report_distribution(self, node, label):
+        default = self._BSDF_DEFAULT_DISTRIBUTION.get(label)
+        dist = getattr(node, 'distribution', None)
+        if default is not None and dist is not None and str(dist).upper() != default:
+            self._warn_shader_fallback(
+                label, "distribution '%s' is not honoured (the native microfacet lobes ignore the "
+                "enum; the default '%s' behaviour is used)" % (dist, default))
+
+    def _report_unhonoured_bsdf_props(self, node):
+        """pkg321: report what a standalone BSDF node carries that its lowering drops."""
+        ntype = node.type
+        label = 'BSDF_ANISOTROPIC' if getattr(node, 'bl_idname', '') == 'ShaderNodeBsdfAnisotropic' else ntype
+        if ntype in ('BSDF_DIFFUSE', 'BSDF_GLASS', 'BSDF_TRANSLUCENT', 'BSDF_REFRACTION', 'BSDF_SHEEN', 'BSDF_GLOSSY'):
+            nrm = node.inputs.get('Normal')
+            if nrm is not None and getattr(nrm, 'is_linked', False):
+                self._warn_shader_fallback(
+                    label, "Normal input is linked but not honoured on a standalone BSDF (bump / normal map "
+                    "only apply through the Principled Normal input); dropped")
+        if ntype in ('BSDF_GLASS', 'BSDF_REFRACTION', 'BSDF_SHEEN', 'BSDF_GLOSSY'):
+            self._report_distribution(node, label)
+        if label == 'BSDF_ANISOTROPIC':
+            dropped = [nm for nm in ('Anisotropy', 'Rotation', 'Tangent') if self._input_is_set(node.inputs.get(nm))]
+            if dropped:
+                self._warn_shader_fallback(
+                    label, "%s not honoured: the Anisotropic BSDF is lowered as an isotropic Glossy "
+                    "(node.type is BSDF_GLOSSY); dropped" % ', '.join(dropped))
+        if ntype == 'BSDF_GLASS' and self._input_is_set(node.inputs.get('Thin Film Thickness')):
+            self._warn_shader_fallback(
+                label, "Thin Film Thickness / Thin Film IOR are not honoured by the Glass BSDF "
+                "(only Principled and Metallic carry thin film); dropped")
+
     def _standalone_bsdf_spec(self, node, renderer=None):
+        self._report_unhonoured_bsdf_props(node)
         # #880: a linked Checker/Image/etc. on a standalone BSDF's Color input
         # rendered flat grey -- these branches used get_color_input(), which
         # only constant-folds a node chain and never carries a per-texel
@@ -5557,6 +5624,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
             self._warn_shader_fallback(
                 'BSDF_HAIR_PRINCIPLED',
                 'the Huang 2022 near-field hair model is approximated with Chiang 2016')
+        # pkg321 (#1089): the native hair material has no per-strand randomisation.
+        rnd = [nm for nm in ('Random', 'Random Roughness', 'Random Color') if self._input_is_set(node.inputs.get(nm))]
+        if rnd:
+            self._warn_shader_fallback(
+                'BSDF_HAIR_PRINCIPLED', "%s not honoured: the native hair material has no per-strand "
+                "randomisation; dropped" % ', '.join(rnd))
         # parametrization enum: COLOR (Direct Coloring), MELANIN (Pigment
         # Concentration), ABSORPTION (Direct Absorption). Blender 5.x enum values.
         par = str(getattr(node, 'parametrization', 'COLOR')).upper()
@@ -6456,6 +6529,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 self._count_volume_medium()
                 for d in (pv or {}).get("degradations", []):
                     self._vol_report(d)  # e.g. GPU blackbody (issue #828)
+                    self._degradation_report().ignore((pv or {}).get("label", "Volume"), d)  # pkg321
                 return True  # a Volume object has no surface geometry
             if obj.type == 'MESH':
                 mats = [m for m in getattr(obj.data, 'materials', []) if m is not None]
@@ -6501,6 +6575,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                             "'%s' rendered as its world bounding box (issue #833)" % obj.name)
                     for d in pv.get("degradations", []):
                         self._vol_report(d)
+                        self._degradation_report().ignore(pv.get("label", "Volume"), d)  # pkg321
                     # a mesh that is ONLY a volume (no surface shader) is an
                     # invisible boundary -> skip its triangles; a mesh with both
                     # keeps its surface geometry.
@@ -7507,7 +7582,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         'TEX_SKY',
                         "sky_type %r is not implemented; Astroray renders it as "
                         "the Nishita (MULTIPLE_SCATTERING) sky. NOT honoured: "
-                        "turbidity, ground_albedo." % sky_type)
+                        "turbidity, ground_albedo, sun_direction (Cycles reads it for this sky_type; "
+                        "Astroray takes the sun from sun_elevation / sun_rotation)." % sky_type)
                 if nishita_mode is not None:
                     # #799 Phase 2: engine-side spectral Nishita sky
                     # (vendored Blender Apache/MIT models,

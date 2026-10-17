@@ -672,7 +672,7 @@
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "prop:model",
     "classification": "APPROXIMATED",
-    "notes": "pkg321 probe `hair_model`: Huang 2022 is rendered with Chiang 2016 and reported (the render is identical)"
+    "notes": "pkg321 probe `hair_model`: Huang 2022 is rendered with Chiang 2016 and reported (the render is identical) (#1140)"
   },
   {
     "category": "shader_node",
@@ -4243,7 +4243,7 @@
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "prop:sun_direction",
     "classification": "APPROXIMATED",
-    "notes": "pkg321 probe `s_sun_direction`: inert for the Nishita sky types (Cycles too); legacy PREETHAM / HOSEK_WILKIE, where Cycles reads it, are rendered as Nishita and the warning names it"
+    "notes": "pkg321 probe `s_sun_direction`: inert for the Nishita sky types (Cycles too); legacy PREETHAM / HOSEK_WILKIE, where Cycles reads it, are rendered as Nishita and the warning names it (#1135)"
   },
   {
     "category": "shader_node",

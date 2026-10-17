@@ -607,7 +607,7 @@ These features are silently ignored by the addon with no warning:
 | BSDF_HAIR_PRINCIPLED | input:Reflection | DROPPED-SILENT |  |
 | BSDF_HAIR_PRINCIPLED | input:Transmission | DROPPED-SILENT |  |
 | BSDF_HAIR_PRINCIPLED | input:Secondary Reflection | DROPPED-SILENT |  |
-| BSDF_HAIR_PRINCIPLED | prop:model | APPROXIMATED | pkg321 probe `hair_model`: Huang 2022 is rendered with Chiang 2016 and reported (the render is identical) |
+| BSDF_HAIR_PRINCIPLED | prop:model | APPROXIMATED | pkg321 probe `hair_model`: Huang 2022 is rendered with Chiang 2016 and reported (the render is identical) (#1140) |
 | BSDF_HAIR_PRINCIPLED | prop:parametrization | SUPPORTED | pkg321 probe `hair_parametrization` moves the CPU render (consumed) |
 | BSDF_METALLIC | input:Base Color | APPROXIMATED |  |
 | BSDF_METALLIC | input:Edge Tint | APPROXIMATED |  |
@@ -910,7 +910,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_SKY | prop:ground_albedo | DROPPED-SILENT | property FLOAT; pkg321 probe `s_ground_albedo` leaves the CPU render identical: dropped, reported at runtime (#1135) |
 | TEX_SKY | prop:ozone_density | DROPPED-SILENT | property FLOAT |
 | TEX_SKY | prop:sky_type | APPROXIMATED | sky_type -> Preetham turbidity source (pkg256, Preetham/Perez bake) |
-| TEX_SKY | prop:sun_direction | APPROXIMATED | pkg321 probe `s_sun_direction`: inert for the Nishita sky types (Cycles too); legacy PREETHAM / HOSEK_WILKIE, where Cycles reads it, are rendered as Nishita and the warning names it |
+| TEX_SKY | prop:sun_direction | APPROXIMATED | pkg321 probe `s_sun_direction`: inert for the Nishita sky types (Cycles too); legacy PREETHAM / HOSEK_WILKIE, where Cycles reads it, are rendered as Nishita and the warning names it (#1135) |
 | TEX_SKY | prop:sun_disc | DROPPED-SILENT | property BOOLEAN |
 | TEX_SKY | prop:sun_elevation | APPROXIMATED | drives baked sun elevation in the equirect image (pkg256) |
 | TEX_SKY | prop:sun_intensity | APPROXIMATED | pkg321 probe `s_sun_intensity` moves the CPU render (consumed) |

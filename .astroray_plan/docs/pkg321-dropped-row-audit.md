@@ -27,7 +27,7 @@ Verdict classes: **stale** = the input moves the render, the row was never credi
 | Hair | Principled Hair | Absorption Coefficient | stale | `hair_absorption` | 0.0388 (14x floor) | credited SUPPORTED (not in a corpus scene) |
 | Hair | Principled Hair | prop:parametrization | stale | `hair_parametrization` | 0.00328 (7x floor) | credited SUPPORTED |
 | Hair | Principled Hair | Tint | unproven | `hair_tint` | 0.0296 (1x floor) | not credited, not called a drop: <1% change at Melanin 0 and not bit-identical; `principled_hair.cpp` keeps Tint only in the RGB fallback sigma, the spectral melanin path reads eu/ph. Noted on #1128 |
-| Hair | Principled Hair | prop:model | partial | `hair_model` | 0 (bit-identical) | pixels identical (Huang is rendered as Chiang); already reported; row APPROXIMATED |
+| Hair | Principled Hair | prop:model | partial | `hair_model` | 0 (bit-identical) | pixels identical (Huang is rendered as Chiang); already reported; row APPROXIMATED; #1140 |
 | Hair | Principled Hair | Random | REAL | `hair_random` | 0 (bit-identical) | #1128, now reported |
 | Hair | Principled Hair | Random Roughness | REAL | `hair_random_roughness` | 0 (bit-identical) | #1128, now reported |
 | Hair | Principled Hair | Random Color | REAL | `hair_random_color` | 0 (bit-identical) | #1128, now reported |

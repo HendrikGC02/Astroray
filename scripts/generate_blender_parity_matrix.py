@@ -2984,10 +2984,10 @@ PKG321_PROBE_CREDITS = {
 # Hair `model`: the node is consumed and the Huang model is reported as approximated with Chiang (pixels identical).
 PKG321_REPORTED_APPROXIMATIONS = {
     ('ShaderNodeBsdfHairPrincipled', 'prop:model'): (
-        'hair_model', 'Huang 2022 is rendered with Chiang 2016 and reported (the render is identical)'),
+        'hair_model', 'Huang 2022 is rendered with Chiang 2016 and reported (the render is identical)', 1140),
     ('ShaderNodeTexSky', 'prop:sun_direction'): (
         's_sun_direction', 'inert for the Nishita sky types (Cycles too); legacy PREETHAM / HOSEK_WILKIE, where '
-        'Cycles reads it, are rendered as Nishita and the warning names it'),
+        'Cycles reads it, are rendered as Nishita and the warning names it', 1135),
 }
 # Real drops: the probe leaves the CPU render bit-identical. The row stays DROPPED (never credited); since pkg321 the
 # addon names each one in the per-render DegradationReport, so the pkg310 audit reads them as "reported", and the
@@ -3040,9 +3040,9 @@ def _apply_pkg321_probe_audit(matrix_rows):
             probe, cls = PKG321_PROBE_CREDITS[key]
             row['classification'], row['notes'] = cls, _P321 % probe
         elif key in PKG321_REPORTED_APPROXIMATIONS:
-            probe, why = PKG321_REPORTED_APPROXIMATIONS[key]
+            probe, why, issue = PKG321_REPORTED_APPROXIMATIONS[key]
             row['classification'] = 'APPROXIMATED'
-            row['notes'] = 'pkg321 probe `%s`: %s' % (probe, why)
+            row['notes'] = 'pkg321 probe `%s`: %s (#%d)' % (probe, why, issue)
         elif key in PKG321_REPORTED_DROPS:
             probe, issue = PKG321_REPORTED_DROPS[key]
             note = 'pkg321 probe `%s` leaves the CPU render identical: dropped, reported at runtime (#%d)' % (probe, issue)

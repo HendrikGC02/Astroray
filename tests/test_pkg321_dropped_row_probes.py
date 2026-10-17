@@ -112,8 +112,9 @@ def test_every_reported_drop_has_an_inert_probe_and_an_issue():
         assert PROBE_VERDICT[probe][0] in ("inert", "reported"), (key, probe)
         assert PROBE_VERDICT[probe][1], f"{key}: a drop needs a named DegradationReport entry"
         assert isinstance(issue, int) and issue > 0
-    for key, (probe, _why) in gen.PKG321_REPORTED_APPROXIMATIONS.items():
+    for key, (probe, _why, issue) in gen.PKG321_REPORTED_APPROXIMATIONS.items():
         assert PROBE_VERDICT[probe][0] == "inert", (key, probe)
+        assert isinstance(issue, int) and issue > 0
 
 
 def test_committed_matrix_carries_the_pkg321_classifications():
@@ -122,8 +123,9 @@ def test_committed_matrix_carries_the_pkg321_classifications():
     for key, (probe, cls) in gen.PKG321_PROBE_CREDITS.items():
         assert rows[key]["classification"] == cls, key
         assert probe in rows[key]["notes"], key
-    for key, (probe, why) in gen.PKG321_REPORTED_APPROXIMATIONS.items():
+    for key, (probe, why, issue) in gen.PKG321_REPORTED_APPROXIMATIONS.items():
         assert rows[key]["classification"] == "APPROXIMATED", key
+        assert f"(#{issue})" in rows[key]["notes"], key
     for key, (probe, issue) in gen.PKG321_REPORTED_DROPS.items():
         assert rows[key]["classification"] == "DROPPED-SILENT", key     # a drop is never credited
         assert f"(#{issue})" in rows[key]["notes"] and probe in rows[key]["notes"], key
@@ -287,6 +289,50 @@ def test_probe(probe_results, probe):
         assert r["d_ab"] == 0.0, f"{probe}: expected a bit-identical render (input dropped), d_ab={r['d_ab']}"
     if warning:
         assert warning in r["warn_A"] + " | " + r["warn_B"], (probe, r["warn_A"], r["warn_B"])
+
+
+GPU_PROBES = sorted(p for p, (verdict, _w) in PROBE_VERDICT.items() if verdict == "moves")   # credits + controls
+
+
+def _cuda_available():
+    if os.environ.get("CUDA_VISIBLE_DEVICES") == "-1":
+        return False
+    try:
+        sys.path.insert(0, str(REPO / "tests"))
+        from runtime_setup import configure_test_imports
+        configure_test_imports()
+        import astroray
+        return bool(astroray.__features__.get("cuda", False)) and bool(getattr(astroray.Renderer(), "gpu_available", False))
+    except Exception:  # noqa: BLE001 - no module / no driver: skip
+        return False
+
+
+@pytest.fixture(scope="module")
+def gpu_probe_results():
+    """The credited `moves` probes and the two controls, rendered with the Astroray device set to GPU."""
+    blender, pyd = _find_blender(), _pyd_dir()
+    if blender is None or pyd is None:
+        pytest.skip("needs Blender 5.x and an engine .pyd (ASTRORAY_PYD_DIR)")
+    if not _cuda_available():
+        pytest.skip("CUDA is hidden or unavailable")
+    out = tempfile.mkdtemp(prefix="pkg321_gpu_probes_")
+    env = dict(os.environ, ASTRORAY_PYD_DIR=str(pyd), PKG321_DEVICE="gpu", OMP_NUM_THREADS="8")
+    proc = subprocess.run([str(blender), "--background", "--factory-startup", "--python",
+                           str(REPO / "tests" / "pkg321_probe_blender.py"), "--", out, *GPU_PROBES],
+                          capture_output=True, text=True, timeout=900, env=env, check=False)
+    assert "PKG321_PROBES_DONE" in proc.stdout, proc.stdout[-3000:] + proc.stderr[-2000:]
+    return json.loads((Path(out) / "results.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.gpu
+@pytest.mark.serial
+@pytest.mark.parametrize("probe", GPU_PROBES)
+def test_probe_moves_on_gpu(gpu_probe_results, probe):
+    """Same `_moved` outcome as the CPU leg (the hardware lead runs this under gpu_locked_run.py)."""
+    r = gpu_probe_results[probe]
+    assert "error" not in r, r
+    assert r["finite"], r
+    assert _moved(r), f"{probe}: the input does not move the GPU render, got {r}"
 
 
 @pytest.mark.serial

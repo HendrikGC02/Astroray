@@ -9,7 +9,8 @@ and the DegradationReport text each variant produced; `<out_dir>/<id>_{A,B}.npy`
 tests/test_pkg321_dropped_row_probes.py is the pytest driver and owns the probe table (PROBES below is
 only the scene description); .astroray_plan/docs/pkg321-dropped-row-audit.md is the verdict table.
 
-Environment: ASTRORAY_PYD_DIR (a copy of the engine .pyd), CUDA_VISIBLE_DEVICES=-1, OMP_NUM_THREADS=8.
+Environment: ASTRORAY_PYD_DIR (a copy of the engine .pyd), CUDA_VISIBLE_DEVICES=-1 (CPU) and OMP_NUM_THREADS=8;
+PKG321_DEVICE=gpu renders on the CUDA device instead (the test's gpu leg).
 """
 import json
 import math
@@ -257,7 +258,7 @@ def _configure(scene):
     cr.samples = SPP
     if hasattr(cr, "preview_samples"):
         cr.preview_samples = SPP
-    cr.device_mode = "cpu"
+    cr.device_mode = os.environ.get("PKG321_DEVICE", "cpu")   # "gpu": the GPU leg of the test
     cr.use_adaptive_sampling = False
 
 

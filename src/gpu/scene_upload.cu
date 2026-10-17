@@ -246,6 +246,10 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
                 // 704 B and leaks +STACK into the shared <false> by-value copy; see
                 // GPrincipledClosure comment). thin_wall=false → -8 sentinel.
                 gp.thinWallAniso = c.thinWall ? c.subsurfaceAnisotropy : -8.f;
+                // i16 review minor: the pkg265 Heitz walk has no GPU twin (not planned).
+                if (c.roughGlassWalk && c.transmission > 1e-4f && !c.thinWall)
+                    fprintf(stderr, "[i16] DEGRADED: rough_glass_walk (pkg265 Heitz walk) is "
+                                    "CPU-only; the GPU renders Cycles MULTI_GGX rough glass\n");
             }
             g.closures[i] = gc;
         }

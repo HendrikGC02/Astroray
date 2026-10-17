@@ -2171,6 +2171,7 @@ public:
         c.thinFilmIor = thinFilmIor_;
         c.thinWall = thinWall_;                       // pkg178 Stage 4 PR-4
         c.subsurfaceAnisotropy = subsurfaceAnisotropy_;
+        c.roughGlassWalk = msWalk_;                   // CPU-only; GPU reports DEGRADED
         graph.add(c);
         return graph;
     }
@@ -2184,6 +2185,8 @@ public:
         caps.gpuType = "closure_graph";
         caps.notes = "pkg178 Stage 3: native Principled core lobes + coat/sheen(LTC)/"
                      "approx-subsurface/emission via GMAT_CLOSURE_GRAPH + GCLOSURE_PRINCIPLED";
+        if (msWalk_)
+            caps.notes += "; rough_glass_walk is CPU-only: the GPU renders Cycles MULTI_GGX rough glass";
         return caps;
     }
 

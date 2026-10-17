@@ -86,6 +86,9 @@ struct MaterialClosure {
     // svm/closure.h thin_wall load :360 + bsdf_thin_glass_setup / bsdf_thin_subsurface_setup.
     bool thinWall = false;              // Cycles thin_wall
     float subsurfaceAnisotropy = 0.0f; // Cycles subsurface_anisotropy (thin subsurface split)
+    // i16 review: "rough_glass_walk" (pkg265 Heitz walk) is CPU-only. Host-only flag so
+    // scene_upload can report the GPU's MULTI_GGX substitution; never uploaded.
+    bool roughGlassWalk = false;
 };
 
 class MaterialClosureGraph {

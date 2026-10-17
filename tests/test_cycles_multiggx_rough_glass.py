@@ -100,6 +100,29 @@ def test_walk_option_still_conserves_cpu():
         f"walk {centre:.4f} vs default {mg_centre:.4f}: rough_glass_walk not honoured")
 
 
+def test_walk_option_reports_cpu_only():
+    """i16 review: rough_glass_walk has no GPU twin, so the capability notes say so
+    (RED before: the GPU substitution was silent)."""
+    r = astroray.Renderer()
+    params = {"transmission_weight": 1.0, "roughness": 0.5}
+    walk = r.create_material("principled", [1.0, 1.0, 1.0], {**params, "rough_glass_walk": 1.0})
+    plain = r.create_material("principled", [1.0, 1.0, 1.0], params)
+    assert "rough_glass_walk is CPU-only" in r.get_material_backend_capabilities(walk)["notes"]
+    assert "rough_glass_walk" not in r.get_material_backend_capabilities(plain)["notes"]
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(AVAILABLE and not astroray.__features__.get("cuda", False),
+                    reason="CUDA feature not in this build")
+def test_walk_option_gpu_reports_degraded(capfd):
+    """The GPU upload prints a DEGRADED line for rough_glass_walk (RED before: silent)."""
+    if not astroray.Renderer().gpu_available:
+        pytest.skip("CUDA GPU not available")
+    capfd.readouterr()
+    _furnace(1.5, 0.5, use_gpu=True, walk=True, spp=4)
+    assert "DEGRADED: rough_glass_walk" in capfd.readouterr().err
+
+
 def _fibonacci_sphere(n):
     i = np.arange(n) + 0.5
     z = 1.0 - 2.0 * i / n

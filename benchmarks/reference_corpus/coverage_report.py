@@ -2347,10 +2347,46 @@ def _study_provisional_scores(candidates: Mapping[str, Any], rows: list[dict[str
     return out
 
 
+def study_combined_markdown(results: Mapping[str, Mapping[str, Any]]) -> str:
+    """The doc's tables: witness x {rectangle, mask} x backend, then the provisional S per population."""
+    backends = [b for b in ("CPU", "GPU") if b in results]
+    by_backend = {b: {r["id"]: r for r in results[b]["rows"]} for b in backends}
+    ids = [r["id"] for r in results[backends[0]]["rows"]]
+
+    def cell(row: Mapping[str, Any] | None, region: str) -> str:
+        if row is None or "error" in row:
+            return "n/a"
+        if not row["effect_pass"]:
+            return "NO-EFFECT"
+        m = row[region]
+        return f"{'PASS' if m['pass'] else 'FAIL'} {m['ssim']:.3f}/{m['delta_e']:.2f}"
+    head = ["witness", "family", "mask px"] + [f"rect {b}" for b in backends] + [f"mask {b}" for b in backends]
+    lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    for wid in ids:
+        first = by_backend[backends[0]][wid]
+        lines.append("| " + " | ".join([wid, first["family"], str(first["mask_px"])]
+                                        + [cell(by_backend[b].get(wid), "rect") for b in backends]
+                                        + [cell(by_backend[b].get(wid), "mask") for b in backends]) + " |")
+    lines += ["", "Cell = verdict ssim/dE2000 (predicate: effect passes in both engines, ssim >= 0.95, dE <= 5).", "",
+              "## Provisional S if exactly these witnesses were registered", "",
+              "| population | predicate | credit | " + " | ".join(f"S_{b}" for b in backends) + " |",
+              "|---|---|---|" + "---|" * len(backends)]
+    for population in results[backends[0]]["scores"]:
+        for region in ("rect", "mask"):
+            for rule in ("rep", "fanout"):
+                vals = [results[b]["scores"][population][f"{region}_{rule}"]["S"] for b in backends]
+                lines.append(f"| {population} | {region} | {rule} | " + " | ".join(f"{v:.3f}" for v in vals) + " |")
+    lines += ["", "## Cases needed to credit a family completely", "", "| population | family | (scene, variant) cases needed | candidate witnesses |", "|---|---|---|---|"]
+    for population, scores in results[backends[0]]["scores"].items():
+        for family, counts in scores["family_variants"].items():
+            lines.append(f"| {population} | {family} | {counts['needed']} | {counts['candidate']} |")
+    return chr(10).join(lines) + chr(10)
+
+
 def study_markdown(result: Mapping[str, Any]) -> str:
     lines = [f"# pkg323 witness study - {result['backend']}", "",
-             "| witness | family | kind | effect astro/cycles | rect ssim / dE | rect | mask ssim / dE | mask "
-             "| masked ratio rgb | outside ratio rgb |",
+             ("| witness | family | kind | effect astro/cycles | rect ssim / dE | rect | mask ssim / dE | mask "
+              "| masked ratio rgb | outside ratio rgb |"),
              "|---|---|---|---|---|---|---|---|---|---|"]
 
     def fmt(v):
@@ -2409,6 +2445,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="pkg323 (inside Blender): apply the witness selection rule to both candidate populations and write --candidates")
     p.add_argument("--study", action="store_true",
                    help="pkg323: render (unless --no-render) and score the --candidates witnesses under the rectangle and mask predicates")
+    p.add_argument("--study-report", action="store_true",
+                   help="pkg323: combine study_CPU.json / study_GPU.json in --study-out into study_combined.md")
     p.add_argument("--candidates", type=Path, default=Path("benchmarks/reference_corpus/witness_candidates_v5.json"))
     p.add_argument("--study-out", type=Path, default=None, help="pkg323 working/evidence directory")
     p.add_argument("--backend", choices=("CPU", "GPU"), default="CPU", help="pkg323 Astroray backend")
@@ -2424,6 +2462,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.population is not None:
         args.manifest = write_population_manifest(args.population, repo_root)
+
+    if args.study_report:
+        found = {b: _load_json(Path(args.study_out) / f"study_{b}.json") for b in ("CPU", "GPU")
+                 if (Path(args.study_out) / f"study_{b}.json").is_file()}
+        if not found:
+            print("--study-report found no study_CPU.json / study_GPU.json", file=sys.stderr)
+            return 2
+        out_md = Path(args.study_out) / "study_combined.md"
+        out_md.write_text(study_combined_markdown(found), encoding="utf-8", newline=chr(10))
+        print(f"[pkg323] wrote {out_md}")
+        return 0
 
     if args.study_enumerate or args.study:
         study_out = Path(args.study_out) if args.study_out else Path("study_out")

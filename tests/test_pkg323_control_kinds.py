@@ -24,9 +24,9 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from benchmarks.blender_parity import harness  # noqa: E402
-from benchmarks.blender_parity import render_leg as R  # noqa: E402
-from benchmarks.reference_corpus import coverage_report as C  # noqa: E402
+from benchmarks.blender_parity import harness
+from benchmarks.blender_parity import render_leg as R
+from benchmarks.reference_corpus import coverage_report as C
 
 CANDIDATES = REPO / "benchmarks" / "reference_corpus" / "witness_candidates_v5.json"
 

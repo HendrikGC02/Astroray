@@ -2312,9 +2312,11 @@ __device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, con
         gpu_pr_glassEnergy(c, L, etap, cosO, dark, eScale);
         float scalar = ss.value * (transmit ? 1.f - F : F) * eScale;
         if (!(scalar > 0.f)) return GVec3(0.f);
-        GVec3 colour = L.weight * (transmit ? gpu_pr_sqrtColor(c.color) : c.specularTint) * dark;
-        if (outColour) { *outColour = colour; *outScalar = scalar; }
-        return colour * scalar;
+        GVec3 tint = transmit ? gpu_pr_sqrtColor(c.color) : c.specularTint;
+        // #1120: the split colour carries NO lobe weight (twin of principled.cpp
+        // multiGgxGlass); the spectral caller applies L.weightSpec per lambda.
+        if (outColour) { *outColour = tint * dark; *outScalar = scalar; }
+        return L.weight * tint * dark * scalar;
     }
     // Thin-film glass: the pkg178 Stage 4 PR-3 film Fresnel with the same MULTI_GGX
     // energy terms (Cycles generalized-Schlick setup, Fss = transmission tint).
@@ -2648,13 +2650,15 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClos
             if (gpu_pr_filmActive(c)) return gpu_pr_transmissionEvalSpectral(c, L, rec, wo, wi, wl);
             // pkg188 Finding A (twin of principled.cpp Transmission case): upsample the
             // reflectance COLOUR at natural magnitude, apply the achromatic scalar
-            // (incl. eta²) post-upsample — not the RGB product.
+            // (incl. eta²) post-upsample — not the RGB product. #1120: the colour is
+            // tint x darkening only; the chromatic lobe weight enters per lambda as
+            // wSpec, as on the CPU (wSpec * upsample(colour) * scalar).
             GVec3 colour(0.f);
             float scalar = 0.f;
             GVec3 rgb = gpu_pr_transmissionEval(c, L, rec, wo, wi, &colour, &scalar);
             if (rgb.x <= 0.f && rgb.y <= 0.f && rgb.z <= 0.f) return GSampledSpectrum(0.f);
             float maxc = fmaxf(fmaxf(fmaxf(colour.x, colour.y), colour.z), 1.f);
-            return gpu_rgbToSampledSpectrum(colour * (1.f / maxc), wl, GSPEC_RGB_ALBEDO) * (maxc * scalar);
+            return wSpec * gpu_rgbToSampledSpectrum(colour * (1.f / maxc), wl, GSPEC_RGB_ALBEDO) * (maxc * scalar);
         }
         case GPR_THINGLASS_REFLECT: {  // GGX reflection, constant F=R' (in weight)
             if (nl <= 0.f || nv <= 0.f) return GSampledSpectrum(0.f);

@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done — #1101, merged 2026-10-06
 **Estimated effort:** 1 session (~3 h), Python tooling only
 **Depends on:** pkg260, pkg318
 

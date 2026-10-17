@@ -2,7 +2,7 @@
 
 **Pillar:** 2
 **Track:** A
-**Status:** open
+**Status:** done — #1083, merged 2026-10-06
 **Estimated effort:** 1 session (~3 h) + one lead CUDA build and one gate (a) re-measure
 **Depends on:** pkg291, pkg278
 

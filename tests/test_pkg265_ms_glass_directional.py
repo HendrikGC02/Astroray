@@ -10,6 +10,10 @@ directions equals the normalised BSDF*cos distribution. We therefore compare the
 engine's raw sampled-direction histogram (debug_bsdf_sample_batch) directly against
 the oracle's, and the reflected/transmitted split against the oracle albedo.
 
+Owner 2026-10-06: the Principled/Glass default is now Cycles' MULTI_GGX single
+scatter + 1/E albedo scaling (tests/test_cycles_multiggx_rough_glass.py); the walk is
+the opt-in `rough_glass_walk` model, so this gate selects it explicitly.
+
 RED on main: the shipped lobe is single-scatter + the #771 delta reroute + a pkg138
 delta fallback -- rerouted grazing samples collapse into a Dirac (specular) bin and
 dead samples (pdf==0) drop energy, so both the per-bin histogram and the R:T split
@@ -59,7 +63,8 @@ def _front_face_supported():
     """The exit-interface probe needs the pkg265 front_face binding arg."""
     r = astroray.Renderer()
     mid = r.create_material("principled", [1, 1, 1],
-                            {"transmission_weight": 1.0, "roughness": 0.5, "ior": IOR})
+                            {"transmission_weight": 1.0, "roughness": 0.5, "ior": IOR,
+                             "rough_glass_walk": 1.0})
     u2 = np.ascontiguousarray(np.random.rand(2, 4), dtype=np.float32)
     try:
         r.debug_bsdf_sample_batch(mid, [0.5, 0.8, 0.0], u2, False)
@@ -77,7 +82,8 @@ def _engine_hist(roughness, mu, front_face):
     r = astroray.Renderer()
     mid = r.create_material(
         "principled", [1.0, 1.0, 1.0],
-        {"transmission_weight": 1.0, "roughness": roughness, "ior": IOR, "metallic": 0.0})
+        {"transmission_weight": 1.0, "roughness": roughness, "ior": IOR, "metallic": 0.0,
+         "rough_glass_walk": 1.0})
     st = math.sqrt(max(0.0, 1.0 - mu * mu))
     wo = [st, mu, 0.0]                      # cosine mu to normal +Y
     u2 = np.ascontiguousarray(np.random.rand(2, N), dtype=np.float32)

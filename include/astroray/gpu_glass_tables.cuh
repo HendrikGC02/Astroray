@@ -27,6 +27,7 @@
 // Only include this from .cu files compiled by nvcc.
 
 #include "gpu_types.h"
+#include "ggx_glass_energy.h"  // Cycles MULTI_GGX glass, shared with principled.cpp
 #include <cuda_runtime.h>
 
 static constexpr int G_GLASS_TABLE_SIZE = 16;  // Cycles' 16^3 / 16^2 resolution.
@@ -40,6 +41,12 @@ extern __device__ const float* g_ggxGlassInvEavg;   // [16*16]
 // Host-callable one-time upload (defined in gpu_glass_tables.cu); copies the
 // same host-side DisneyEnergyCompensationTables data CPU disney.cpp uses.
 void uploadGgxGlassTables();
+
+// The device tables in the shape the shared Cycles MULTI_GGX glass code
+// (ggx_glass_energy.h) reads; null pointers = not uploaded = no compensation.
+__device__ inline astroray::ggxglass::Tables gpu_ggxGlassTables() {
+    return {g_ggxGlassE, g_ggxGlassEavg, g_ggxGlassInvE, g_ggxGlassInvEavg};
+}
 
 // ---------------------------------------------------------------------------
 // Device-side lookups — mirror

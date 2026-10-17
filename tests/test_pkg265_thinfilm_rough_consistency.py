@@ -31,6 +31,11 @@ plain-dielectric Fresnel, so routing a thin-film glass through it would still
 erase the iridescence. This gate and the fix it guards stand unchanged. See
 .astroray_plan/docs/pkg265-multiscatter-microfacet-research.md §7.
 
+Owner 2026-10-06: the default rough glass is Cycles' MULTI_GGX (no walk at all), so
+the routing gate below selects the opt-in walk (`rough_glass_walk`); the energy gate
+runs both models. Under MULTI_GGX a lossless film glass is invisible in a white
+furnace exactly like plain glass (R+T=1 per wavelength, 1/E restores the loss).
+
 Note on the gate choice: a naive "uniform furnace stays ~1.0" gate does NOT go RED
 pre-fix (the walk conserves energy in a uniform field just fine; the double count
 only surfaces where a hittable emitter dominates), and render-level film/nonfilm
@@ -58,23 +63,23 @@ FILM_THICKNESS = 500.0   # nm, well above the 0.1nm filmActive() cutoff
 FILM_IOR = 1.33
 
 
-def _params(roughness, film):
+def _params(roughness, film, walk=True):
     p = {"transmission_weight": 1.0, "ior": IOR, "roughness": roughness,
-         "metallic": 0.0}
+         "metallic": 0.0, "rough_glass_walk": 1.0 if walk else 0.0}
     if film:
         p["thin_film_thickness"] = FILM_THICKNESS
         p["thin_film_ior"] = FILM_IOR
     return p
 
 
-def _world_only(roughness, film, *, spp=256, depth=32):
+def _world_only(roughness, film, *, spp=256, depth=32, walk=True):
     """Rough glass lit PURELY by a uniform white world background (no lights → no
     NEE), so this is a BSDF-sampling-only render. render()'s 4th arg is
     applyGamma; False keeps it LINEAR so energy gain is detectable
     (memory: gamma-furnace-cannot-detect-energy-gain)."""
     r = astroray.Renderer()
     r.set_background_color([1.0, 1.0, 1.0])
-    g = r.create_material("principled", [1.0, 1.0, 1.0], _params(roughness, film))
+    g = r.create_material("principled", [1.0, 1.0, 1.0], _params(roughness, film, walk))
     r.add_sphere([0.0, 0.0, 0.0], 1.0, g)
     r.set_integrator("path_tracer")
     r.setup_camera([0, 0, 4], [0, 0, 0], [0, 1, 0], 40.0, 1.0, 0.0, 4.0, 80, 80)
@@ -101,15 +106,17 @@ def test_thinfilm_rough_glass_not_ignored_by_walk_cpu():
         f"plain={np.round(plain,4)}")
 
 
+@pytest.mark.parametrize("walk", [True, False], ids=["walk", "multiggx"])
 @pytest.mark.parametrize("roughness", [0.5, 0.85])
-def test_thinfilm_rough_glass_no_energy_gain_cpu(roughness):
+def test_thinfilm_rough_glass_no_energy_gain_cpu(roughness, walk):
     """No double-count ENERGY GAIN. A lossless glass (R+T=1) in a uniform white
     field can only LOSE energy (single-scatter) — never exceed the field. A
     reading above ~1.0 would mean direct light was added twice. The single-scatter
     fallback reads at/below 1.0 (r0.5≈0.965, r0.85≈0.836 — the accepted single-
     scatter deficit that #783's thin-film-aware walk would recover); it must never
-    exceed 1.02."""
-    film = _world_only(roughness, True)
+    exceed 1.02. The MULTI_GGX default compensates the film lobe with 1/E (Cycles),
+    reading ~1.0 (0.9998/0.9967/1.004 RGB at r0.85, 2026-10-06)."""
+    film = _world_only(roughness, True, walk=walk)
     val = float(film.mean())
     assert val <= 1.02, (
         f"thin-film rough glass white furnace = {val:.3f} > 1.02 at r{roughness}: "

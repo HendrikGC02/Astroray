@@ -59,16 +59,22 @@ _REL_FLOOR = 0.03
 
 def _fast_only_r05_principled(kind, roughness):
     """R5: only the r0.5 principled case of each family stays in the fast profile."""
-    fast = (kind, roughness) == ("principled", 0.5)
+    fast = (kind, roughness) in (("principled", 0.5), ("principled_walk", 0.5))
     return pytest.param(kind, roughness, marks=[] if fast else [pytest.mark.slow])
 
 
-_KIND_ROUGH = [_fast_only_r05_principled(k, r) for k in ("principled", "disney") for r in _ROUGH]
+# Owner 2026-10-06: "principled" is now Cycles' MULTI_GGX single scatter (default);
+# "principled_walk" is the opt-in pkg265 Heitz walk (rough_glass_walk) this gate was
+# written for. Both must be NEE-invariant.
+_KIND_ROUGH = [_fast_only_r05_principled(k, r)
+               for k in ("principled", "principled_walk", "disney") for r in _ROUGH]
 
 
 def _glass_material(r, kind, roughness):
-    if kind == "principled":
-        params = {"transmission_weight": 1.0, "ior": _IOR, "roughness": roughness}
+    if kind in ("principled", "principled_walk"):
+        params = {"transmission_weight": 1.0, "ior": _IOR, "roughness": roughness,
+                  "rough_glass_walk": 1.0 if kind == "principled_walk" else 0.0}
+        kind = "principled"
     else:
         params = {"transmission": 1.0, "ior": _IOR, "roughness": roughness,
                   "metallic": 0.0}

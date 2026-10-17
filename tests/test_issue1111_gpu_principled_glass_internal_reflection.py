@@ -62,6 +62,7 @@ def test_gpu_principled_rough_glass_furnace_rim(roughness):
 
 @pytest.mark.parametrize("roughness", [0.05, 0.3])
 def test_cpu_principled_rough_glass_furnace_rim(roughness):
-    # CPU control (Heitz-2016 walk, pkg265): conserves at the rim too.
+    # CPU control (Cycles MULTI_GGX default, the GPU's shared evaluator since
+    # 2026-10-06; Cycles itself reads rim 0.997 at r 0.3): conserves at the rim too.
     v = _furnace_rim(roughness, use_gpu=False)
     assert 0.97 <= v <= 1.03, f"CPU principled glass r={roughness} furnace rim = {v:.4f} (want ~1.0)"

@@ -1,0 +1,1385 @@
+{
+  "excluded": [
+    {
+      "family": "Bump",
+      "node": "Bump",
+      "population": "candidate_v2",
+      "reason": "R1 not a material tree (group)",
+      "scene_id": "prod_pbr_group",
+      "tree": "group:PBRGroup",
+      "variant_digest": "9a9ae0302d4908dd78771025c2cfa62eaff78dc40baf1303f46bf2dc659e771d"
+    },
+    {
+      "family": "Mapping",
+      "node": "Mapping",
+      "population": "candidate_v2",
+      "reason": "R1 not a material tree (group)",
+      "scene_id": "prod_pbr_group",
+      "tree": "group:PBRGroup",
+      "variant_digest": "f7690f07004b209512ab605379dfb959159bde5e7b97f44c00c6003be90b986c"
+    },
+    {
+      "family": "Bump",
+      "node": "Bump",
+      "population": "nine_scene",
+      "reason": "R3 visible mask 237 px < 300",
+      "scene_id": "materials_hall",
+      "tree": "material:BustMat",
+      "variant_digest": "9b5e7a5e5614e9ce97eed7d2ce5c5c8ff02a82f9f68b7239552a5c90e2383b5d"
+    },
+    {
+      "family": "Noise",
+      "node": "Noise Texture",
+      "population": "nine_scene",
+      "reason": "R3 visible mask 237 px < 300",
+      "scene_id": "materials_hall",
+      "tree": "material:BustMat",
+      "variant_digest": "99eff2a2d14838da6b1b5e2eaf0578224be7e5f542dac396eb0e398c5d5fb8bf"
+    },
+    {
+      "family": "Mapping",
+      "node": "Mapping",
+      "population": "nine_scene",
+      "reason": "R3 visible mask 299 px < 300",
+      "scene_id": "textures_mapping",
+      "tree": "material:VectorRotateCardMat",
+      "variant_digest": "7c2bf20656f30e121ae88748038b4b97172c93482da9ae577f338f67a64ff178"
+    },
+    {
+      "family": "Mapping",
+      "node": "Mapping",
+      "population": "nine_scene",
+      "reason": "R1 not a material tree (world)",
+      "scene_id": "world_sky_hdri",
+      "tree": "world:W",
+      "variant_digest": "64d09eff90b0c7539e5b3e2c0f3b995d1a6d406eae49988337d006096fb6d7d4"
+    }
+  ],
+  "populations": [
+    "candidate_v2",
+    "nine_scene"
+  ],
+  "schema": "pkg323.witness_candidates.v5",
+  "selection_rule": [
+    "R1 node: reachable from an active output (computed trace), not muted, bl_idname in the five families, in a material tree.",
+    "R2 region: its material is assigned to exactly one mesh object, so the node has one screen-space region.",
+    "R3 visibility: that object's camera-visible face mask (first ray hit is the object), eroded 4 px, has >= 300 px.",
+    "R4 control: the family control would change something (strength != 0 and unlinked, mapping not already identity, brick colours differ, a linked output exists).",
+    "R5 one witness per (scene, variant digest): the eligible node with the largest mask, ties by object then node name; the rest are listed as covered by it.",
+    "ROI: the object's visible-face bounding box (no erosion) padded 10 % each side, clipped to the frame, rounded to 4 places."
+  ],
+  "status": "CANDIDATE: not frozen, not read by --score",
+  "witnesses": [
+    {
+      "also_covers": [],
+      "family": "Bump",
+      "id": "prod_car_paint/Hero/Bump",
+      "identities": [
+        "ShaderNodeBump|input:Distance",
+        "ShaderNodeBump|input:Filter Width",
+        "ShaderNodeBump|input:Height",
+        "ShaderNodeBump|input:Normal",
+        "ShaderNodeBump|input:Strength",
+        "ShaderNodeBump|output:Normal"
+      ],
+      "identity": "ShaderNodeBump|input:Distance",
+      "mask_px": 17894,
+      "node": "Bump",
+      "object": "Hero",
+      "population": "candidate_v2",
+      "scene_id": "prod_car_paint",
+      "tree": "material:CarPaint",
+      "variant_digest": "c4f5192306f783ac6564aa6c9991a32db1d58ced7e887dfaedbff77b8e89599e",
+      "witness": {
+        "control": {
+          "kind": "bump_zero",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "CarPaint",
+          "node": "Bump",
+          "object": "Hero"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2038,
+          0.0838,
+          0.7963,
+          0.8788
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Noise",
+      "id": "prod_curves_geometry/Bowl/Noise Texture",
+      "identities": [
+        "ShaderNodeTexNoise|input:Detail",
+        "ShaderNodeTexNoise|input:Distortion",
+        "ShaderNodeTexNoise|input:Lacunarity",
+        "ShaderNodeTexNoise|input:Roughness",
+        "ShaderNodeTexNoise|input:Scale",
+        "ShaderNodeTexNoise|input:Vector",
+        "ShaderNodeTexNoise|output:Color",
+        "ShaderNodeTexNoise|output:Fac",
+        "ShaderNodeTexNoise|prop:noise_dimensions",
+        "ShaderNodeTexNoise|prop:noise_type",
+        "ShaderNodeTexNoise|prop:normalize"
+      ],
+      "identity": "ShaderNodeTexNoise|input:Detail",
+      "mask_px": 14431,
+      "node": "Noise Texture",
+      "object": "Bowl",
+      "population": "candidate_v2",
+      "scene_id": "prod_curves_geometry",
+      "tree": "material:CurvesGeometry",
+      "variant_digest": "80364b7e7164d0bb7080c2d7997f0e9d3feecc9b2676dcec924db977e03b0981",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "noise_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "CurvesGeometry",
+          "node": "Noise Texture",
+          "object": "Bowl"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2062,
+          0.1579,
+          0.8063,
+          0.8129
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Mapping",
+      "id": "prod_marble/Hero/Mapping",
+      "identities": [
+        "ShaderNodeMapping|input:Location",
+        "ShaderNodeMapping|input:Rotation",
+        "ShaderNodeMapping|input:Scale",
+        "ShaderNodeMapping|input:Vector",
+        "ShaderNodeMapping|output:Vector"
+      ],
+      "identity": "ShaderNodeMapping|input:Location",
+      "mask_px": 17894,
+      "node": "Mapping",
+      "object": "Hero",
+      "population": "candidate_v2",
+      "scene_id": "prod_marble",
+      "tree": "material:Marble",
+      "variant_digest": "2722b499eb77910c6e7b2ac646818d048d1be598998eb3b27b1414e78420a7b5",
+      "witness": {
+        "control": {
+          "kind": "mapping_identity",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "Marble",
+          "node": "Mapping",
+          "object": "Hero"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2038,
+          0.0838,
+          0.7963,
+          0.8788
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Noise",
+      "id": "prod_marble/Hero/Noise Texture",
+      "identities": [
+        "ShaderNodeTexNoise|input:Detail",
+        "ShaderNodeTexNoise|input:Distortion",
+        "ShaderNodeTexNoise|input:Lacunarity",
+        "ShaderNodeTexNoise|input:Roughness",
+        "ShaderNodeTexNoise|input:Scale",
+        "ShaderNodeTexNoise|input:Vector",
+        "ShaderNodeTexNoise|output:Color",
+        "ShaderNodeTexNoise|prop:noise_dimensions",
+        "ShaderNodeTexNoise|prop:noise_type",
+        "ShaderNodeTexNoise|prop:normalize"
+      ],
+      "identity": "ShaderNodeTexNoise|input:Detail",
+      "mask_px": 17894,
+      "node": "Noise Texture",
+      "object": "Hero",
+      "population": "candidate_v2",
+      "scene_id": "prod_marble",
+      "tree": "material:Marble",
+      "variant_digest": "62a4347464eaa427ef43e78d89226eb64ee13f20125d04944896e2b4cc4ff80e",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "noise_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "Marble",
+          "node": "Noise Texture",
+          "object": "Hero"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2038,
+          0.0838,
+          0.7963,
+          0.8788
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Wave",
+      "id": "prod_marble/Hero/Wave Texture",
+      "identities": [
+        "ShaderNodeTexWave|input:Detail",
+        "ShaderNodeTexWave|input:Detail Roughness",
+        "ShaderNodeTexWave|input:Detail Scale",
+        "ShaderNodeTexWave|input:Distortion",
+        "ShaderNodeTexWave|input:Phase Offset",
+        "ShaderNodeTexWave|input:Scale",
+        "ShaderNodeTexWave|input:Vector",
+        "ShaderNodeTexWave|output:Fac",
+        "ShaderNodeTexWave|prop:bands_direction",
+        "ShaderNodeTexWave|prop:wave_profile"
+      ],
+      "identity": "ShaderNodeTexWave|input:Detail",
+      "mask_px": 17894,
+      "node": "Wave Texture",
+      "object": "Hero",
+      "population": "candidate_v2",
+      "scene_id": "prod_marble",
+      "tree": "material:Marble",
+      "variant_digest": "8b3480a0c8f65fdf7fa63a309c774b1b71f5e18da08b13ea442740defe732efc",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "wave_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "Marble",
+          "node": "Wave Texture",
+          "object": "Hero"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2038,
+          0.0838,
+          0.7963,
+          0.8788
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Noise",
+      "id": "prod_shader_stack/Hero/Noise Texture.001",
+      "identities": [
+        "ShaderNodeTexNoise|input:Detail",
+        "ShaderNodeTexNoise|input:Distortion",
+        "ShaderNodeTexNoise|input:Lacunarity",
+        "ShaderNodeTexNoise|input:Roughness",
+        "ShaderNodeTexNoise|input:Scale",
+        "ShaderNodeTexNoise|input:Vector",
+        "ShaderNodeTexNoise|output:Fac",
+        "ShaderNodeTexNoise|prop:noise_dimensions",
+        "ShaderNodeTexNoise|prop:noise_type",
+        "ShaderNodeTexNoise|prop:normalize"
+      ],
+      "identity": "ShaderNodeTexNoise|input:Detail",
+      "mask_px": 17894,
+      "node": "Noise Texture.001",
+      "object": "Hero",
+      "population": "candidate_v2",
+      "scene_id": "prod_shader_stack",
+      "tree": "material:ShaderStack",
+      "variant_digest": "25019232c7d3893ea5b0bf12776d0e50c26fa5069744abe7b6e9af16369521cf",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "noise_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "ShaderStack",
+          "node": "Noise Texture.001",
+          "object": "Hero"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2038,
+          0.0838,
+          0.7963,
+          0.8788
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Noise",
+      "id": "prod_shader_stack/Hero/Noise Texture",
+      "identities": [
+        "ShaderNodeTexNoise|input:Detail",
+        "ShaderNodeTexNoise|input:Distortion",
+        "ShaderNodeTexNoise|input:Lacunarity",
+        "ShaderNodeTexNoise|input:Roughness",
+        "ShaderNodeTexNoise|input:Scale",
+        "ShaderNodeTexNoise|input:Vector",
+        "ShaderNodeTexNoise|output:Fac",
+        "ShaderNodeTexNoise|prop:noise_dimensions",
+        "ShaderNodeTexNoise|prop:noise_type",
+        "ShaderNodeTexNoise|prop:normalize"
+      ],
+      "identity": "ShaderNodeTexNoise|input:Detail",
+      "mask_px": 17894,
+      "node": "Noise Texture",
+      "object": "Hero",
+      "population": "candidate_v2",
+      "scene_id": "prod_shader_stack",
+      "tree": "material:ShaderStack",
+      "variant_digest": "8cc95a1a3957a7dab7b5524e1afd5e65cbbbe0041a9217c11071f7e5338952e8",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "noise_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "ShaderStack",
+          "node": "Noise Texture",
+          "object": "Hero"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2038,
+          0.0838,
+          0.7963,
+          0.8788
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Bump",
+      "id": "prod_wood/Hero/Bump",
+      "identities": [
+        "ShaderNodeBump|input:Distance",
+        "ShaderNodeBump|input:Filter Width",
+        "ShaderNodeBump|input:Height",
+        "ShaderNodeBump|input:Normal",
+        "ShaderNodeBump|input:Strength",
+        "ShaderNodeBump|output:Normal"
+      ],
+      "identity": "ShaderNodeBump|input:Distance",
+      "mask_px": 17894,
+      "node": "Bump",
+      "object": "Hero",
+      "population": "candidate_v2",
+      "scene_id": "prod_wood",
+      "tree": "material:Wood",
+      "variant_digest": "19efac72367eb267caed5a4d7bef28ca251d28d6ba524d0bd904c442f2d3997c",
+      "witness": {
+        "control": {
+          "kind": "bump_zero",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "Wood",
+          "node": "Bump",
+          "object": "Hero"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2038,
+          0.0838,
+          0.7963,
+          0.8788
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Wave",
+      "id": "prod_wood/Hero/Wave Texture",
+      "identities": [
+        "ShaderNodeTexWave|input:Detail",
+        "ShaderNodeTexWave|input:Detail Roughness",
+        "ShaderNodeTexWave|input:Detail Scale",
+        "ShaderNodeTexWave|input:Distortion",
+        "ShaderNodeTexWave|input:Phase Offset",
+        "ShaderNodeTexWave|input:Scale",
+        "ShaderNodeTexWave|input:Vector",
+        "ShaderNodeTexWave|output:Fac",
+        "ShaderNodeTexWave|prop:wave_type"
+      ],
+      "identity": "ShaderNodeTexWave|input:Detail",
+      "mask_px": 17894,
+      "node": "Wave Texture",
+      "object": "Hero",
+      "population": "candidate_v2",
+      "scene_id": "prod_wood",
+      "tree": "material:Wood",
+      "variant_digest": "5670b78e6a8220765ea4c22d859635bf3f11ef0af0eb6a0c5f0a163df31f5451",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "wave_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "Wood",
+          "node": "Wave Texture",
+          "object": "Hero"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2038,
+          0.0838,
+          0.7963,
+          0.8788
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Mapping",
+      "id": "prod_wood/Hero/Mapping",
+      "identities": [
+        "ShaderNodeMapping|input:Location",
+        "ShaderNodeMapping|input:Rotation",
+        "ShaderNodeMapping|input:Scale",
+        "ShaderNodeMapping|input:Vector",
+        "ShaderNodeMapping|output:Vector"
+      ],
+      "identity": "ShaderNodeMapping|input:Location",
+      "mask_px": 17894,
+      "node": "Mapping",
+      "object": "Hero",
+      "population": "candidate_v2",
+      "scene_id": "prod_wood",
+      "tree": "material:Wood",
+      "variant_digest": "b43534b373265ecbb6dced404324414f876c594bdb65f9c2172db0fe40f3368e",
+      "witness": {
+        "control": {
+          "kind": "mapping_identity",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "Wood",
+          "node": "Mapping",
+          "object": "Hero"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2038,
+          0.0838,
+          0.7963,
+          0.8788
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Noise",
+      "id": "prod_wood/Hero/Noise Texture",
+      "identities": [
+        "ShaderNodeTexNoise|input:Detail",
+        "ShaderNodeTexNoise|input:Distortion",
+        "ShaderNodeTexNoise|input:Lacunarity",
+        "ShaderNodeTexNoise|input:Roughness",
+        "ShaderNodeTexNoise|input:Scale",
+        "ShaderNodeTexNoise|input:Vector",
+        "ShaderNodeTexNoise|output:Fac",
+        "ShaderNodeTexNoise|prop:noise_dimensions",
+        "ShaderNodeTexNoise|prop:noise_type",
+        "ShaderNodeTexNoise|prop:normalize"
+      ],
+      "identity": "ShaderNodeTexNoise|input:Detail",
+      "mask_px": 17894,
+      "node": "Noise Texture",
+      "object": "Hero",
+      "population": "candidate_v2",
+      "scene_id": "prod_wood",
+      "tree": "material:Wood",
+      "variant_digest": "e859141dc5b806b9b63b7be693ccaad6e56768c4304d3c32bd7ec3237e297633",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "noise_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "Wood",
+          "node": "Noise Texture",
+          "object": "Hero"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2038,
+          0.0838,
+          0.7963,
+          0.8788
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Noise",
+      "id": "v2_textures_opvm/RoughnessProg/Noise Texture",
+      "identities": [
+        "ShaderNodeTexNoise|input:Detail",
+        "ShaderNodeTexNoise|input:Distortion",
+        "ShaderNodeTexNoise|input:Lacunarity",
+        "ShaderNodeTexNoise|input:Roughness",
+        "ShaderNodeTexNoise|input:Scale",
+        "ShaderNodeTexNoise|input:Vector",
+        "ShaderNodeTexNoise|output:Fac",
+        "ShaderNodeTexNoise|prop:noise_dimensions",
+        "ShaderNodeTexNoise|prop:noise_type",
+        "ShaderNodeTexNoise|prop:normalize"
+      ],
+      "identity": "ShaderNodeTexNoise|input:Detail",
+      "mask_px": 2079,
+      "node": "Noise Texture",
+      "object": "RoughnessProg",
+      "population": "candidate_v2",
+      "scene_id": "v2_textures_opvm",
+      "tree": "material:RoughnessProgMat",
+      "variant_digest": "1a99a01341018ed82c3fd2ab8698c8c51c00d47c5db19a203cb2512526939b47",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "noise_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "RoughnessProgMat",
+          "node": "Noise Texture",
+          "object": "RoughnessProg"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.3523,
+          0.6559,
+          0.4998,
+          0.9181
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Noise",
+      "id": "v2_textures_opvm/CardMapAfterWarp/Noise Texture",
+      "identities": [
+        "ShaderNodeTexNoise|input:Detail",
+        "ShaderNodeTexNoise|input:Distortion",
+        "ShaderNodeTexNoise|input:Lacunarity",
+        "ShaderNodeTexNoise|input:Roughness",
+        "ShaderNodeTexNoise|input:Scale",
+        "ShaderNodeTexNoise|input:Vector",
+        "ShaderNodeTexNoise|output:Color",
+        "ShaderNodeTexNoise|prop:noise_dimensions",
+        "ShaderNodeTexNoise|prop:noise_type",
+        "ShaderNodeTexNoise|prop:normalize"
+      ],
+      "identity": "ShaderNodeTexNoise|input:Detail",
+      "mask_px": 2809,
+      "node": "Noise Texture",
+      "object": "CardMapAfterWarp",
+      "population": "candidate_v2",
+      "scene_id": "v2_textures_opvm",
+      "tree": "material:MapAfterWarpMat",
+      "variant_digest": "3ef312460a0f6403956d4c17ee266c583f7ef1e64b61ced6f9a284b1ed635d00",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "noise_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "MapAfterWarpMat",
+          "node": "Noise Texture",
+          "object": "CardMapAfterWarp"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.4977,
+          0.3404,
+          0.6502,
+          0.6115
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Wave",
+      "id": "v2_textures_opvm/CardWave/Wave Texture",
+      "identities": [
+        "ShaderNodeTexWave|input:Detail",
+        "ShaderNodeTexWave|input:Detail Roughness",
+        "ShaderNodeTexWave|input:Detail Scale",
+        "ShaderNodeTexWave|input:Distortion",
+        "ShaderNodeTexWave|input:Phase Offset",
+        "ShaderNodeTexWave|input:Scale",
+        "ShaderNodeTexWave|input:Vector",
+        "ShaderNodeTexWave|output:Color"
+      ],
+      "identity": "ShaderNodeTexWave|input:Detail",
+      "mask_px": 2809,
+      "node": "Wave Texture",
+      "object": "CardWave",
+      "population": "candidate_v2",
+      "scene_id": "v2_textures_opvm",
+      "tree": "material:WaveMat",
+      "variant_digest": "459090797d855772cca4ae9c048940cafe06eb487d3e3d8735a71028f9504de4",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "wave_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "WaveMat",
+          "node": "Wave Texture",
+          "object": "CardWave"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.6456,
+          0.0774,
+          0.7981,
+          0.3485
+        ]
+      }
+    },
+    {
+      "also_covers": [
+        "v2_textures_opvm/CardMapBeforeWarp/Mapping"
+      ],
+      "family": "Mapping",
+      "id": "v2_textures_opvm/CardMapAfterWarp/Mapping",
+      "identities": [
+        "ShaderNodeMapping|input:Location",
+        "ShaderNodeMapping|input:Rotation",
+        "ShaderNodeMapping|input:Scale",
+        "ShaderNodeMapping|input:Vector",
+        "ShaderNodeMapping|output:Vector"
+      ],
+      "identity": "ShaderNodeMapping|input:Location",
+      "mask_px": 2809,
+      "node": "Mapping",
+      "object": "CardMapAfterWarp",
+      "population": "candidate_v2",
+      "scene_id": "v2_textures_opvm",
+      "tree": "material:MapAfterWarpMat",
+      "variant_digest": "97caedc8566f87bbb0d9f0c80f7c16f123a49b0d0ba9bc58327a73830cba4f35",
+      "witness": {
+        "control": {
+          "kind": "mapping_identity",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "MapAfterWarpMat",
+          "node": "Mapping",
+          "object": "CardMapAfterWarp"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.4977,
+          0.3404,
+          0.6502,
+          0.6115
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Noise",
+      "id": "v2_textures_opvm/CardNoise/Noise Texture",
+      "identities": [
+        "ShaderNodeTexNoise|input:Detail",
+        "ShaderNodeTexNoise|input:Distortion",
+        "ShaderNodeTexNoise|input:Lacunarity",
+        "ShaderNodeTexNoise|input:Roughness",
+        "ShaderNodeTexNoise|input:Scale",
+        "ShaderNodeTexNoise|input:Vector",
+        "ShaderNodeTexNoise|output:Color",
+        "ShaderNodeTexNoise|prop:noise_dimensions",
+        "ShaderNodeTexNoise|prop:noise_type",
+        "ShaderNodeTexNoise|prop:normalize"
+      ],
+      "identity": "ShaderNodeTexNoise|input:Detail",
+      "mask_px": 2809,
+      "node": "Noise Texture",
+      "object": "CardNoise",
+      "population": "candidate_v2",
+      "scene_id": "v2_textures_opvm",
+      "tree": "material:NoiseMat",
+      "variant_digest": "ac7746f7c01160e1daba7cc242066aba2594269a6c2f2fa07f40f98f78c61532",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "noise_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "NoiseMat",
+          "node": "Noise Texture",
+          "object": "CardNoise"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.3498,
+          0.0774,
+          0.5023,
+          0.3485
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Wave",
+      "id": "textures_mapping/TexWaveRings/Wave Texture",
+      "identities": [
+        "ShaderNodeTexWave|input:Detail",
+        "ShaderNodeTexWave|input:Detail Roughness",
+        "ShaderNodeTexWave|input:Detail Scale",
+        "ShaderNodeTexWave|input:Distortion",
+        "ShaderNodeTexWave|input:Phase Offset",
+        "ShaderNodeTexWave|input:Scale",
+        "ShaderNodeTexWave|input:Vector",
+        "ShaderNodeTexWave|output:Color",
+        "ShaderNodeTexWave|prop:rings_direction",
+        "ShaderNodeTexWave|prop:wave_profile",
+        "ShaderNodeTexWave|prop:wave_type"
+      ],
+      "identity": "ShaderNodeTexWave|input:Detail",
+      "mask_px": 857,
+      "node": "Wave Texture",
+      "object": "TexWaveRings",
+      "population": "nine_scene",
+      "scene_id": "textures_mapping",
+      "tree": "material:TexWaveRingsMat",
+      "variant_digest": "1010623db4b20bb8ea50d54fc119b02cfa64342b0febf48eda55830987fb1e38",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "wave_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "TexWaveRingsMat",
+          "node": "Wave Texture",
+          "object": "TexWaveRings"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.5395,
+          0.3241,
+          0.6032,
+          0.3907
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Noise",
+      "id": "textures_mapping/DisplacementDemo/Noise Texture",
+      "identities": [
+        "ShaderNodeTexNoise|input:Detail",
+        "ShaderNodeTexNoise|input:Distortion",
+        "ShaderNodeTexNoise|input:Lacunarity",
+        "ShaderNodeTexNoise|input:Roughness",
+        "ShaderNodeTexNoise|input:Scale",
+        "ShaderNodeTexNoise|input:Vector",
+        "ShaderNodeTexNoise|output:Fac",
+        "ShaderNodeTexNoise|prop:noise_dimensions",
+        "ShaderNodeTexNoise|prop:noise_type",
+        "ShaderNodeTexNoise|prop:normalize"
+      ],
+      "identity": "ShaderNodeTexNoise|input:Detail",
+      "mask_px": 1756,
+      "node": "Noise Texture",
+      "object": "DisplacementDemo",
+      "population": "nine_scene",
+      "scene_id": "textures_mapping",
+      "tree": "material:DisplacementDemoMat",
+      "variant_digest": "256a283a63050d2585023a68ad66a613e5db2f2221e27d9ca16c850a090eab1e",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "noise_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "DisplacementDemoMat",
+          "node": "Noise Texture",
+          "object": "DisplacementDemo"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.3859,
+          0.4298,
+          0.4547,
+          0.5387
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Noise",
+      "id": "textures_mapping/CurvesCard/Noise Texture",
+      "identities": [
+        "ShaderNodeTexNoise|input:Detail",
+        "ShaderNodeTexNoise|input:Distortion",
+        "ShaderNodeTexNoise|input:Lacunarity",
+        "ShaderNodeTexNoise|input:Offset",
+        "ShaderNodeTexNoise|input:Roughness",
+        "ShaderNodeTexNoise|input:Scale",
+        "ShaderNodeTexNoise|input:Vector",
+        "ShaderNodeTexNoise|output:Color",
+        "ShaderNodeTexNoise|output:Fac",
+        "ShaderNodeTexNoise|prop:noise_dimensions",
+        "ShaderNodeTexNoise|prop:noise_type"
+      ],
+      "identity": "ShaderNodeTexNoise|input:Detail",
+      "mask_px": 1424,
+      "node": "Noise Texture",
+      "object": "CurvesCard",
+      "population": "nine_scene",
+      "scene_id": "textures_mapping",
+      "tree": "material:CurvesCardMat",
+      "variant_digest": "3530c483f169528da469723ee31dca6f61459fd29a7a60ede97b8bff53c876fe",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "noise_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "CurvesCardMat",
+          "node": "Noise Texture",
+          "object": "CurvesCard"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.6855,
+          0.3781,
+          0.7718,
+          0.4626
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Brick",
+      "id": "textures_mapping/TexBrick/Brick Texture",
+      "identities": [
+        "ShaderNodeTexBrick|input:Bias",
+        "ShaderNodeTexBrick|input:Brick Width",
+        "ShaderNodeTexBrick|input:Color1",
+        "ShaderNodeTexBrick|input:Color2",
+        "ShaderNodeTexBrick|input:Mortar",
+        "ShaderNodeTexBrick|input:Mortar Size",
+        "ShaderNodeTexBrick|input:Mortar Smooth",
+        "ShaderNodeTexBrick|input:Row Height",
+        "ShaderNodeTexBrick|input:Scale",
+        "ShaderNodeTexBrick|input:Vector",
+        "ShaderNodeTexBrick|output:Color",
+        "ShaderNodeTexBrick|prop:offset_frequency",
+        "ShaderNodeTexBrick|prop:squash",
+        "ShaderNodeTexBrick|prop:squash_frequency"
+      ],
+      "identity": "ShaderNodeTexBrick|input:Bias",
+      "mask_px": 786,
+      "node": "Brick Texture",
+      "object": "TexBrick",
+      "population": "nine_scene",
+      "scene_id": "textures_mapping",
+      "tree": "material:TexBrickMat",
+      "variant_digest": "4ca409108ba82b9f647a616c687b9d7c0a4c4f96b96f7768d4e74db057aaae68",
+      "witness": {
+        "control": {
+          "kind": "brick_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "TexBrickMat",
+          "node": "Brick Texture",
+          "object": "TexBrick"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.6091,
+          0.3241,
+          0.6753,
+          0.3907
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Bump",
+      "id": "textures_mapping/BumpDemo/Bump",
+      "identities": [
+        "ShaderNodeBump|input:Distance",
+        "ShaderNodeBump|input:Filter Width",
+        "ShaderNodeBump|input:Height",
+        "ShaderNodeBump|input:Normal",
+        "ShaderNodeBump|input:Strength",
+        "ShaderNodeBump|output:Normal"
+      ],
+      "identity": "ShaderNodeBump|input:Distance",
+      "mask_px": 1583,
+      "node": "Bump",
+      "object": "BumpDemo",
+      "population": "nine_scene",
+      "scene_id": "textures_mapping",
+      "tree": "material:BumpDemoMat",
+      "variant_digest": "533a05145c3d6e04c47e9dc794b6212daa5aaa96a9ee19712429e00a27a26d26",
+      "witness": {
+        "control": {
+          "kind": "bump_zero",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "BumpDemoMat",
+          "node": "Bump",
+          "object": "BumpDemo"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.6164,
+          0.3619,
+          0.6826,
+          0.4641
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Noise",
+      "id": "textures_mapping/Noise4DCard/Noise Texture",
+      "identities": [
+        "ShaderNodeTexNoise|input:Detail",
+        "ShaderNodeTexNoise|input:Distortion",
+        "ShaderNodeTexNoise|input:Lacunarity",
+        "ShaderNodeTexNoise|input:Roughness",
+        "ShaderNodeTexNoise|input:Scale",
+        "ShaderNodeTexNoise|input:Vector",
+        "ShaderNodeTexNoise|input:W",
+        "ShaderNodeTexNoise|output:Color",
+        "ShaderNodeTexNoise|prop:noise_dimensions",
+        "ShaderNodeTexNoise|prop:noise_type",
+        "ShaderNodeTexNoise|prop:normalize"
+      ],
+      "identity": "ShaderNodeTexNoise|input:Detail",
+      "mask_px": 464,
+      "node": "Noise Texture",
+      "object": "Noise4DCard",
+      "population": "nine_scene",
+      "scene_id": "textures_mapping",
+      "tree": "material:Noise4DCardMat",
+      "variant_digest": "5d8ed01f81891ab126a9d54504d9d29bd9dd5d6dde7ed2c3f1c147cf97e9b7f5",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "noise_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "Noise4DCardMat",
+          "node": "Noise Texture",
+          "object": "Noise4DCard"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2568,
+          0.327,
+          0.313,
+          0.3804
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Noise",
+      "id": "textures_mapping/TexNoise/Noise Texture",
+      "identities": [
+        "ShaderNodeTexNoise|input:Detail",
+        "ShaderNodeTexNoise|input:Distortion",
+        "ShaderNodeTexNoise|input:Lacunarity",
+        "ShaderNodeTexNoise|input:Offset",
+        "ShaderNodeTexNoise|input:Roughness",
+        "ShaderNodeTexNoise|input:Scale",
+        "ShaderNodeTexNoise|input:Vector",
+        "ShaderNodeTexNoise|output:Fac",
+        "ShaderNodeTexNoise|prop:noise_dimensions",
+        "ShaderNodeTexNoise|prop:noise_type"
+      ],
+      "identity": "ShaderNodeTexNoise|input:Detail",
+      "mask_px": 857,
+      "node": "Noise Texture",
+      "object": "TexNoise",
+      "population": "nine_scene",
+      "scene_id": "textures_mapping",
+      "tree": "material:TexNoiseMat",
+      "variant_digest": "791de22b4482ffb2550999846928612de7717a0310d0fa4d183bb7f70562ae00",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "noise_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "TexNoiseMat",
+          "node": "Noise Texture",
+          "object": "TexNoise"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.3247,
+          0.3241,
+          0.3909,
+          0.3907
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Mapping",
+      "id": "textures_mapping/VectorMixCard/Mapping",
+      "identities": [
+        "ShaderNodeMapping|input:Location",
+        "ShaderNodeMapping|input:Rotation",
+        "ShaderNodeMapping|input:Scale",
+        "ShaderNodeMapping|input:Vector",
+        "ShaderNodeMapping|output:Vector"
+      ],
+      "identity": "ShaderNodeMapping|input:Location",
+      "mask_px": 300,
+      "node": "Mapping",
+      "object": "VectorMixCard",
+      "population": "nine_scene",
+      "scene_id": "textures_mapping",
+      "tree": "material:VectorMixCardMat",
+      "variant_digest": "7c2bf20656f30e121ae88748038b4b97172c93482da9ae577f338f67a64ff178",
+      "witness": {
+        "control": {
+          "kind": "mapping_identity",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "VectorMixCardMat",
+          "node": "Mapping",
+          "object": "VectorMixCard"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.6642,
+          0.5441,
+          0.7067,
+          0.593
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Mapping",
+      "id": "textures_mapping/TexImage/Mapping",
+      "identities": [
+        "ShaderNodeMapping|input:Location",
+        "ShaderNodeMapping|input:Rotation",
+        "ShaderNodeMapping|input:Scale",
+        "ShaderNodeMapping|input:Vector",
+        "ShaderNodeMapping|output:Vector"
+      ],
+      "identity": "ShaderNodeMapping|input:Location",
+      "mask_px": 1082,
+      "node": "Mapping",
+      "object": "TexImage",
+      "population": "nine_scene",
+      "scene_id": "textures_mapping",
+      "tree": "material:TexImageMat",
+      "variant_digest": "9dc5fb814c21c82bbd8329106e6e578ca4cba04250c48b600fdea032b8e9f01c",
+      "witness": {
+        "control": {
+          "kind": "mapping_identity",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "TexImageMat",
+          "node": "Mapping",
+          "object": "TexImage"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.5424,
+          0.3826,
+          0.6086,
+          0.4581
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Wave",
+      "id": "textures_mapping/TexWaveBands/Wave Texture",
+      "identities": [
+        "ShaderNodeTexWave|input:Detail",
+        "ShaderNodeTexWave|input:Detail Roughness",
+        "ShaderNodeTexWave|input:Detail Scale",
+        "ShaderNodeTexWave|input:Distortion",
+        "ShaderNodeTexWave|input:Phase Offset",
+        "ShaderNodeTexWave|input:Scale",
+        "ShaderNodeTexWave|input:Vector",
+        "ShaderNodeTexWave|output:Fac",
+        "ShaderNodeTexWave|prop:bands_direction",
+        "ShaderNodeTexWave|prop:wave_profile"
+      ],
+      "identity": "ShaderNodeTexWave|input:Detail",
+      "mask_px": 858,
+      "node": "Wave Texture",
+      "object": "TexWaveBands",
+      "population": "nine_scene",
+      "scene_id": "textures_mapping",
+      "tree": "material:TexWaveBandsMat",
+      "variant_digest": "c4fc98262770c444fd2f667ee7b16f6a6fb724337f0d20fda6bd7a0ee325bcac",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "wave_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "TexWaveBandsMat",
+          "node": "Wave Texture",
+          "object": "TexWaveBands"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.47,
+          0.3241,
+          0.53,
+          0.3907
+        ]
+      }
+    },
+    {
+      "also_covers": [],
+      "family": "Noise",
+      "id": "textures_mapping/Noise2DCard/Noise Texture",
+      "identities": [
+        "ShaderNodeTexNoise|input:Detail",
+        "ShaderNodeTexNoise|input:Distortion",
+        "ShaderNodeTexNoise|input:Lacunarity",
+        "ShaderNodeTexNoise|input:Roughness",
+        "ShaderNodeTexNoise|input:Scale",
+        "ShaderNodeTexNoise|input:Vector",
+        "ShaderNodeTexNoise|output:Color",
+        "ShaderNodeTexNoise|prop:noise_dimensions",
+        "ShaderNodeTexNoise|prop:noise_type",
+        "ShaderNodeTexNoise|prop:normalize"
+      ],
+      "identity": "ShaderNodeTexNoise|input:Detail",
+      "mask_px": 599,
+      "node": "Noise Texture",
+      "object": "Noise2DCard",
+      "population": "nine_scene",
+      "scene_id": "textures_mapping",
+      "tree": "material:Noise2DCardMat",
+      "variant_digest": "c58ac241a1c975a6c5d3f92da3cd7769ac1aca377c1e8a318fa47f75fb0c2fd4",
+      "witness": {
+        "control": {
+          "const": 0.5,
+          "kind": "noise_const",
+          "mask": {
+            "inset_px": 4,
+            "kind": "object_faces"
+          },
+          "material": "Noise2DCardMat",
+          "node": "Noise Texture",
+          "object": "Noise2DCard"
+        },
+        "effect": {
+          "kind": "changed",
+          "min_coverage": 0.05,
+          "min_delta": 0.01,
+          "min_signal": 0.001
+        },
+        "roi": [
+          0.2386,
+          0.4024,
+          0.2999,
+          0.4624
+        ]
+      }
+    }
+  ]
+}

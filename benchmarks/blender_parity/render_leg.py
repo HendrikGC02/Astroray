@@ -391,6 +391,7 @@ def _object_faces_mask(bpy, scene, obj, shape, inset_px):
     """
     import numpy as np
     from bpy_extras.object_utils import world_to_camera_view
+    from mathutils import Vector
     h, w = shape
     deps = bpy.context.evaluated_depsgraph_get()
     ev = obj.evaluated_get(deps)
@@ -428,8 +429,11 @@ def _object_faces_mask(bpy, scene, obj, shape, inset_px):
     for y, x in zip(*np.nonzero(covered)):
         # view_frame corners: 0 top-right, 1 bottom-right, 2 bottom-left, 3 top-left.
         u, v = (x + .5) / w, (y + .5) / h
-        local = frame[3].lerp(frame[0], u).lerp(frame[2].lerp(frame[1], u), v).normalized()
-        hit = scene.ray_cast(deps, origin, (rot @ local).normalized())
+        local = frame[3].lerp(frame[0], u).lerp(frame[2].lerp(frame[1], u), v)
+        if scene.camera.data.type == "ORTHO":  # parallel rays: start on the frame plane, look down the camera axis
+            hit = scene.ray_cast(deps, scene.camera.matrix_world @ Vector((local.x, local.y, 0.0)), (rot @ Vector((0.0, 0.0, -1.0))).normalized())
+        else:
+            hit = scene.ray_cast(deps, origin, (rot @ local.normalized()).normalized())
         if hit[0] and hit[4] is not None and hit[4].original == obj.original:
             mask[y, x] = 255
     return mask

@@ -2123,7 +2123,7 @@ def enumerate_witness_candidates_in_blender(repo_root: Path, manifests: Mapping[
                 witnesses.append({**rows[0], "also_covers": [r["id"] for r in rows[1:]]})
     return {"schema": STUDY_SCHEMA, "selection_rule": STUDY_SELECTION_RULE,
             "status": "CANDIDATE: not frozen, not read by --score",
-            "populations": {k: str(v) for k, v in manifests.items()},
+            "populations": sorted(manifests),
             "witnesses": witnesses, "excluded": excluded}
 
 

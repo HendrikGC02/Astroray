@@ -1,9 +1,9 @@
 # Gate (b) witness control kinds study (pkg323, 2026-10-18)
 
-**Status: CPU measured, GPU legs pending (lead runs them, commands below). Nothing frozen, no gate changed.** `coverage_input_v4*.json`,
+**Status: CPU and GPU measured. Nothing frozen, no gate changed.** `coverage_input_v4*.json`,
 the predicate and `acceptance_manifest.json` are untouched; `--score` output is byte-identical before and after this branch
 (`astra_run\2026-10-18\pkg323\score_before` vs `score_after`, `cmp` clean). Evidence: `astra_run\2026-10-18\pkg323\study\`
-(`study_CPU.json/.md`, `sheets\*_CPU.png`, `sheets_contact\`, `witness_candidates_v5.json`, fresh `node_uses_*.json`, the 4 retained legs per witness under `CPU\`).
+(`study_CPU.json/.md`, `study_GPU.json/.md`, `study_combined.md`, `sheets\*_CPU.png`, `sheets\*_GPU.png`, `sheets_contact\`, `witness_candidates_v5.json`, fresh `node_uses_*.json`, the 4 retained legs per witness under `CPU\`).
 
 ## What was built
 
@@ -35,7 +35,7 @@ prod_pbr_group Bump and Mapping (inside a node group), world_sky_hdri Mapping (w
 
 ## Build and settings
 
-CPU legs: a copy of the lead's `build_cuda` module made 2026-10-18 00:38 (`build_id` "dev", module sha256 `53cf7d35...e77361`, addon sha256 `8885d152...ed381`; predates #1116 / #1123 glass, which
+CPU and GPU legs (same module, GPU legs under the GPU lock, Cycles legs reused from the CPU run): a copy of the lead's `build_cuda` module made 2026-10-18 00:38 (`build_id` "dev", module sha256 `53cf7d35...e77361`, addon sha256 `8885d152...ed381`; predates #1116 / #1123 glass, which
 these families do not touch), Blender 5.2.0 LTS, `CUDA_VISIBLE_DEVICES=-1`, 8 threads, corpus-declared settings (textures_mapping 960x540 @ 192 spp; production 320x240 @ 64; v2 480x270 @ 64), seed 7,
 no denoise, no adaptive. A leg re-run is bit-identical (checked on CardNoise). Cycles legs are CPU and do not depend on the backend, so the GPU run reuses them.
 
@@ -43,35 +43,35 @@ no denoise, no adaptive. A leg re-run is bit-identical (checked on CardNoise). C
 
 Predicate = effect shows in both engines AND ssim >= 0.95 AND dE2000 <= 5, over the ROI rectangle (`rect`, frozen) or the feature mask (`mask`, proposed).
 
-| witness | family | mask px | rect CPU | mask CPU |
-|---|---|---|---|---|
-| prod_car_paint/Hero/Bump | Bump | 17894 | NO-EFFECT | NO-EFFECT |
-| prod_curves_geometry/Bowl/Noise Texture | Noise | 14431 | FAIL 0.640/4.85 | FAIL 0.585/4.93 |
-| prod_marble/Hero/Mapping | Mapping | 17894 | FAIL 0.711/3.93 | FAIL 0.580/4.84 |
-| prod_marble/Hero/Noise Texture | Noise | 17894 | FAIL 0.711/3.93 | FAIL 0.580/4.84 |
-| prod_marble/Hero/Wave Texture | Wave | 17894 | FAIL 0.711/3.93 | FAIL 0.580/4.84 |
-| prod_shader_stack/Hero/Noise Texture.001 | Noise | 17894 | NO-EFFECT | NO-EFFECT |
-| prod_shader_stack/Hero/Noise Texture | Noise | 17894 | NO-EFFECT | NO-EFFECT |
-| prod_wood/Hero/Bump | Bump | 17894 | NO-EFFECT | NO-EFFECT |
-| prod_wood/Hero/Wave Texture | Wave | 17894 | FAIL 0.732/3.69 | FAIL 0.678/4.59 |
-| prod_wood/Hero/Mapping | Mapping | 17894 | FAIL 0.732/3.69 | FAIL 0.678/4.59 |
-| prod_wood/Hero/Noise Texture | Noise | 17894 | FAIL 0.732/3.69 | FAIL 0.678/4.59 |
-| v2_textures_opvm/RoughnessProg/Noise Texture | Noise | 2079 | FAIL 0.937/2.13 | FAIL 0.910/3.34 |
-| v2_textures_opvm/CardMapAfterWarp/Noise Texture | Noise | 2809 | PASS 0.997/0.51 | PASS 0.996/0.51 |
-| v2_textures_opvm/CardWave/Wave Texture | Wave | 2809 | PASS 0.999/1.23 | PASS 1.000/1.53 |
-| v2_textures_opvm/CardMapAfterWarp/Mapping | Mapping | 2809 | PASS 0.997/0.51 | PASS 0.996/0.51 |
-| v2_textures_opvm/CardNoise/Noise Texture | Noise | 2809 | PASS 0.999/0.41 | PASS 0.999/0.32 |
-| textures_mapping/TexWaveRings/Wave Texture | Wave | 857 | PASS 0.999/0.83 | PASS 1.000/0.62 |
-| textures_mapping/DisplacementDemo/Noise Texture | Noise | 1756 | NO-EFFECT | NO-EFFECT |
-| textures_mapping/CurvesCard/Noise Texture | Noise | 1424 | PASS 0.981/0.96 | PASS 0.988/1.15 |
-| textures_mapping/TexBrick/Brick Texture | Brick | 786 | PASS 0.978/1.19 | PASS 0.991/1.42 |
-| textures_mapping/BumpDemo/Bump | Bump | 1583 | NO-EFFECT | NO-EFFECT |
-| textures_mapping/Noise4DCard/Noise Texture | Noise | 464 | NO-EFFECT | NO-EFFECT |
-| textures_mapping/TexNoise/Noise Texture | Noise | 857 | PASS 0.998/1.95 | PASS 0.999/2.24 |
-| textures_mapping/VectorMixCard/Mapping | Mapping | 300 | PASS 0.996/1.17 | PASS 0.997/0.57 |
-| textures_mapping/TexImage/Mapping | Mapping | 1082 | PASS 0.986/1.52 | PASS 0.990/1.17 |
-| textures_mapping/TexWaveBands/Wave Texture | Wave | 858 | PASS 1.000/0.49 | PASS 1.000/0.19 |
-| textures_mapping/Noise2DCard/Noise Texture | Noise | 599 | NO-EFFECT | NO-EFFECT |
+| witness | family | mask px | rect CPU | rect GPU | mask CPU | mask GPU |
+|---|---|---|---|---|---|---|
+| prod_car_paint/Hero/Bump | Bump | 17894 | NO-EFFECT | NO-EFFECT | NO-EFFECT | NO-EFFECT |
+| prod_curves_geometry/Bowl/Noise Texture | Noise | 14431 | FAIL 0.640/4.85 | FAIL 0.625/4.91 | FAIL 0.585/4.93 | FAIL 0.570/5.00 |
+| prod_marble/Hero/Mapping | Mapping | 17894 | FAIL 0.711/3.93 | FAIL 0.710/3.98 | FAIL 0.580/4.84 | FAIL 0.580/4.91 |
+| prod_marble/Hero/Noise Texture | Noise | 17894 | FAIL 0.711/3.93 | FAIL 0.710/3.98 | FAIL 0.580/4.84 | FAIL 0.580/4.91 |
+| prod_marble/Hero/Wave Texture | Wave | 17894 | FAIL 0.711/3.93 | FAIL 0.710/3.98 | FAIL 0.580/4.84 | FAIL 0.580/4.91 |
+| prod_shader_stack/Hero/Noise Texture.001 | Noise | 17894 | NO-EFFECT | NO-EFFECT | NO-EFFECT | NO-EFFECT |
+| prod_shader_stack/Hero/Noise Texture | Noise | 17894 | NO-EFFECT | NO-EFFECT | NO-EFFECT | NO-EFFECT |
+| prod_wood/Hero/Bump | Bump | 17894 | NO-EFFECT | NO-EFFECT | NO-EFFECT | NO-EFFECT |
+| prod_wood/Hero/Wave Texture | Wave | 17894 | FAIL 0.732/3.69 | FAIL 0.729/3.75 | FAIL 0.678/4.59 | FAIL 0.676/4.64 |
+| prod_wood/Hero/Mapping | Mapping | 17894 | FAIL 0.732/3.69 | FAIL 0.729/3.75 | FAIL 0.678/4.59 | FAIL 0.676/4.64 |
+| prod_wood/Hero/Noise Texture | Noise | 17894 | FAIL 0.732/3.69 | FAIL 0.729/3.75 | FAIL 0.678/4.59 | FAIL 0.676/4.64 |
+| v2_textures_opvm/RoughnessProg/Noise Texture | Noise | 2079 | FAIL 0.937/2.13 | FAIL 0.939/2.10 | FAIL 0.910/3.34 | FAIL 0.905/3.35 |
+| v2_textures_opvm/CardMapAfterWarp/Noise Texture | Noise | 2809 | PASS 0.997/0.51 | PASS 0.977/1.42 | PASS 0.996/0.51 | PASS 0.971/1.77 |
+| v2_textures_opvm/CardWave/Wave Texture | Wave | 2809 | PASS 0.999/1.23 | PASS 0.996/1.87 | PASS 1.000/1.53 | PASS 0.997/2.43 |
+| v2_textures_opvm/CardMapAfterWarp/Mapping | Mapping | 2809 | PASS 0.997/0.51 | PASS 0.977/1.42 | PASS 0.996/0.51 | PASS 0.971/1.77 |
+| v2_textures_opvm/CardNoise/Noise Texture | Noise | 2809 | PASS 0.999/0.41 | PASS 0.998/0.47 | PASS 0.999/0.32 | PASS 0.998/0.40 |
+| textures_mapping/TexWaveRings/Wave Texture | Wave | 857 | PASS 0.999/0.83 | PASS 0.999/0.81 | PASS 1.000/0.62 | PASS 1.000/0.62 |
+| textures_mapping/DisplacementDemo/Noise Texture | Noise | 1756 | NO-EFFECT | NO-EFFECT | NO-EFFECT | NO-EFFECT |
+| textures_mapping/CurvesCard/Noise Texture | Noise | 1424 | PASS 0.981/0.96 | PASS 0.981/0.96 | PASS 0.988/1.15 | PASS 0.987/1.15 |
+| textures_mapping/TexBrick/Brick Texture | Brick | 786 | PASS 0.978/1.19 | PASS 0.977/1.20 | PASS 0.991/1.42 | PASS 0.991/1.43 |
+| textures_mapping/BumpDemo/Bump | Bump | 1583 | NO-EFFECT | NO-EFFECT | NO-EFFECT | NO-EFFECT |
+| textures_mapping/Noise4DCard/Noise Texture | Noise | 464 | NO-EFFECT | NO-EFFECT | NO-EFFECT | NO-EFFECT |
+| textures_mapping/TexNoise/Noise Texture | Noise | 857 | PASS 0.998/1.95 | PASS 0.998/1.97 | PASS 0.999/2.24 | PASS 0.999/2.24 |
+| textures_mapping/VectorMixCard/Mapping | Mapping | 300 | PASS 0.996/1.17 | PASS 0.996/1.19 | PASS 0.997/0.57 | PASS 0.997/0.57 |
+| textures_mapping/TexImage/Mapping | Mapping | 1082 | PASS 0.986/1.52 | PASS 0.986/1.51 | PASS 0.990/1.17 | PASS 0.990/1.17 |
+| textures_mapping/TexWaveBands/Wave Texture | Wave | 858 | PASS 1.000/0.49 | PASS 1.000/0.51 | PASS 1.000/0.19 | PASS 1.000/0.19 |
+| textures_mapping/Noise2DCard/Noise Texture | Noise | 599 | NO-EFFECT | NO-EFFECT | NO-EFFECT | NO-EFFECT |
 
 Cell = verdict ssim/dE2000 (predicate: effect passes in both engines, ssim >= 0.95, dE <= 5).
 
@@ -83,7 +83,7 @@ Per-leg numbers (effect values, relative effect, masked and outside-mask mean ra
   Neutralising the feature flattens the card to a constant in both engines.
 - Production hero spheres (marble, wood, curves bowl, roughness sphere): patterns and controls match by eye; the SSIM (0.58-0.73 on 64 spp) is MC noise between independent renders, not a feature difference. Masked mean ratios are 0.96-1.01.
 - Real engine differences the witnesses surfaced (not investigated or fixed here):
-  - Bump has zero effect in Astroray (|effect| = 0.0000, 0 % coverage) in all three scenes (prod_car_paint Voronoi height, prod_wood procedural height, textures_mapping BumpDemo) while Cycles shows 0.056 / 0.015 / 0.009; the Cycles bump is visible on the sheets and the Astroray sphere is smooth. The matrix says SUPPORTED.
+  - Bump has zero effect in Astroray (CPU and GPU; #1005) (|effect| = 0.0000, 0 % coverage) in all three scenes (prod_car_paint Voronoi height, prod_wood procedural height, textures_mapping BumpDemo) while Cycles shows 0.056 / 0.015 / 0.009; the Cycles bump is visible on the sheets and the Astroray sphere is smooth. The matrix says SUPPORTED.
   - textures_mapping DisplacementDemo: Cycles shows the Noise-driven displacement, Astroray a smooth sphere (effect 0.000 vs 0.009).
   - prod_shader_stack: Astroray renders a flat orange sphere where Cycles shows the glass/translucent mix; masked mean ratio 0.50/0.34/0.14 and zero effect for both Noise nodes in Astroray.
   - Brick: the control does not neutralise Astroray (pattern persists, effect 0.029 vs Cycles 0.320). `blender_addon/__init__.py` reads the mortar colour from `inputs['Color3']`, which does not exist on the Blender 5.2 Brick node (it is `Mortar`), so the mortar stays black. The baseline matches Cycles only because the authored mortar is black. Same family as the DROPPED-SILENT `TexBrick|input:Mortar` row (pkg321 / #1089).
@@ -95,16 +95,16 @@ Per-leg numbers (effect values, relative effect, masked and outside-mask mean ra
 If exactly these witnesses were registered (score_use rule: an identity scores only when every (scene, variant) it is exercised in has a passing witness; SUPPORTED identities only; weights from a fresh collect of the current corpus):
 `rep` = a witness credits only its registered representative identity, `fanout` = it credits every exercised identity of its node (sockets, outputs, properties).
 
-| population | predicate | credit | S_CPU |
-|---|---|---|---|
-| candidate_v2 | rect | rep | 0.000 |
-| candidate_v2 | rect | fanout | 0.002 |
-| candidate_v2 | mask | rep | 0.000 |
-| candidate_v2 | mask | fanout | 0.002 |
-| nine_scene | rect | rep | 0.004 |
-| nine_scene | rect | fanout | 0.058 |
-| nine_scene | mask | rep | 0.004 |
-| nine_scene | mask | fanout | 0.058 |
+| population | predicate | credit | S_CPU | S_GPU |
+|---|---|---|---|---|
+| candidate_v2 | rect | rep | 0.000 | 0.000 |
+| candidate_v2 | rect | fanout | 0.002 | 0.002 |
+| candidate_v2 | mask | rep | 0.000 | 0.000 |
+| candidate_v2 | mask | fanout | 0.002 | 0.002 |
+| nine_scene | rect | rep | 0.004 | 0.004 |
+| nine_scene | rect | fanout | 0.058 | 0.058 |
+| nine_scene | mask | rep | 0.004 | 0.004 |
+| nine_scene | mask | fanout | 0.058 | 0.058 |
 
 Cases needed to credit a family completely:
 
@@ -122,7 +122,7 @@ Cases needed to credit a family completely:
 
 - Verdicts are identical under rect and mask for all 27 witnesses on CPU (11 pass, 8 NO-EFFECT, 8 fail ssim), so S is identical under both predicates: nine-scene 0.004 (rep) / 0.058 (fanout), candidate-v2 0.000 / 0.002.
   The matrix-only ceiling is 0.42 (0.64-0.69 once pkg320 credits are counted); the same witnesses all passing would give 0.062 (nine) / 0.127 (candidate-v2) under fan-out, so witnesses alone cannot reach 0.95.
-- GPU: S_GPU pending the lead's run.
+- GPU: every witness has the same effect and predicate verdict as on CPU (11 pass, 8 NO-EFFECT, 8 fail SSIM), under both regions, so S_GPU equals S_CPU in every row: nine-scene 0.004 (rep) / 0.058 (fanout), candidate-v2 0.000 / 0.002. SSIM/dE differ slightly: the largest move is v2 CardMapAfterWarp (ssim 0.997 -> 0.977, dE 0.51 -> 1.42, thin pattern-edge lines in the diff panel), still a pass; GPU sheets inspected, same picture as CPU.
 
 ## Owner question (#1087), as the axes the data shows (not a ballot)
 
@@ -136,11 +136,11 @@ Cases needed to credit a family completely:
 ## Caveats
 
 - Frozen inputs are stale on main, so `--score` on `coverage_input_v4.json` reports UNMEASURED today (scene bytes changed by #1113, matrix hash changed by pkg320, registry ROI differs from the frozen case). The committed `populations/nine_scene.json` is stale too (textures_mapping hash and crops). The study uses fresh derived manifests and fresh collects, never the repo copies. A re-freeze belongs to its own change.
-- One a-priori effect threshold, nominal constant 0.5 for Noise/Wave (not the measured texture mean), one 4 px mask erosion; none tuned. Seed 7 only, one build, CPU only so far.
+- One a-priori effect threshold, nominal constant 0.5 for Noise/Wave (not the measured texture mean), one 4 px mask erosion; none tuned. Seed 7 only, one build.
 - `_gate_c_mask` kind `sky_rays` (not touched) pairs the view-frame corners with u and v swapped (`frame[0].lerp(frame[1], u)` runs along the vertical edge); the new `object_faces` mask uses the corrected mapping and was checked against projected geometry. Worth a look before the sky mask is relied on.
 - Production witnesses on one hero object share one parity verdict (the baseline is the same render); only the effect column differs per node.
 
-## Reproduce / GPU legs for the lead
+## Reproduce (how the GPU legs were run)
 
 ```
 cd <worktree pkg323>
@@ -151,4 +151,5 @@ python <main>\scripts\build\gpu_locked_run.py pkg323 -- python -m benchmarks.ref
 python -m benchmarks.reference_corpus.coverage_report --study-report --study-out <EV>\study      (writes study_combined.md with CPU + GPU columns)
 python <main>\scripts\build\gpu_locked_run.py pkg323 -- python -m pytest tests/test_pkg323_control_kinds.py -m gpu -q
 ```
+The GPU test is report-only: the legs must run and score; `effect_pass` is recorded per row, not asserted. `prod_wood/Hero/Bump` is a known zero-effect row (Astroray Bump gap, #1005).
 (`<EV>` = `C:\Users\hgcom\OneDrive\Astroray\astra_run\2026-10-18\pkg323`.) CPU: same `--study` with `--backend CPU` and `CUDA_VISIBLE_DEVICES=-1`; candidates: `blender --background --factory-startup --python benchmarks/reference_corpus/coverage_report.py -- --study-enumerate --study-out <dir> --candidates <file>`.

@@ -65,6 +65,21 @@ def _compile_socket_value(socket, builder, depth=0):
         if out_name in ('Soft', 'Hard'):
             builder.log.append(out_name)  # NEGATIVE: not an approximation report
         return 0
+    if ntype == 'SERVED':
+        if out_name == 'Extra':
+            return _served_extra(node, out_name, builder)
+        return _shading(node, out_name, builder)
+    if ntype == 'UNSERVED':
+        return _shading(node, out_name, builder)
+    if ntype == 'SERVED_LATE':
+        _shading(node, out_name, builder)
+        if out_name == 'Late':
+            return 1
+        return 0
+    if ntype == 'SERVED_RAISE':
+        if out_name == 'Boom':
+            raise VMCompileError("refused")
+        return _shading(node, out_name, builder)
     if _is_leaf(node):
         return _push_leaf(node, out_name)
     return None
@@ -82,6 +97,16 @@ def _push_leaf(node, out_name):
     if out_name not in ('Fac', 'Factor'):
         return 0
     return 1
+
+
+def _shading(node, out_name, builder):
+    if out_name != 'Back':
+        raise VMCompileError("only Back")
+    return 1
+
+
+def _served_extra(node, out_name, builder):
+    return 2
 
 
 def _guarded(node, out_name, builder):
@@ -200,6 +225,29 @@ def _rule(fx, node_type):
 def test_guard_membership_in_a_module_tuple_is_an_allow_list(fx_out):
     assert _rule(fx_out, "GUARDED") == {"accepted": frozenset({"A", "B"}), "rejected": frozenset()}
     assert fx_out["GUARDED"]["named"] == frozenset({"A", "B"})
+
+
+def test_early_return_branch_exempts_its_output_from_a_later_allow_list(fx_out):
+    """#1117: Geometry's `if out_name == 'Pointiness': return _attribute_input(..)` precedes the helper that
+    refuses everything but Backfacing, so Pointiness is served (and credited), not refused."""
+    assert fx_out["SERVED"]["accepted"] == frozenset({"Extra", "Back"})
+    assert fx_out["SERVED"]["named"] >= frozenset({"Extra", "Back"})
+
+
+def test_without_the_early_return_branch_the_output_stays_refused_negative_fixture(fx_out):
+    """NEGATIVE (#1117): the same helper with no `if out_name == 'Extra': return` branch credits only Back."""
+    assert fx_out["UNSERVED"]["accepted"] == frozenset({"Back"})
+    outs = [_out("Back"), _out("Extra")]
+    assert [_classify_out("UNSERVED", o, fx_out, outputs=outs) for o in outs] == ["SUPPORTED", "DROPPED-SILENT"]
+    assert [_classify_out("SERVED", o, fx_out, outputs=outs) for o in outs] == ["SUPPORTED", "SUPPORTED"]
+
+
+def test_a_return_after_the_allow_list_or_a_raising_branch_serves_nothing_negative_fixture(fx_out):
+    """NEGATIVE: `if out_name == 'Late': return` AFTER the refusing helper is dead code for Late, and an
+    `if out_name == 'Boom': raise` branch is a rejection, not service."""
+    assert fx_out["SERVED_LATE"]["accepted"] == frozenset({"Back"})
+    assert fx_out["SERVED_RAISE"]["accepted"] == frozenset({"Back"})
+    assert fx_out["SERVED_RAISE"]["rejected"] == frozenset({"Boom"})
 
 
 def test_helper_shared_by_two_node_types_is_pruned_per_node_type(fx_out):
@@ -348,8 +396,9 @@ def test_real_object_info_and_attribute_outputs(real_out):
     assert real_out["VERTEX_COLOR"]["accepted"] == real_out["ATTRIBUTE"]["accepted"]
 
 
-def test_real_geometry_only_backfacing_and_layer_weight_two_outputs(real_out):
-    assert real_out["NEW_GEOMETRY"]["accepted"] == frozenset({"Backfacing"})
+def test_real_geometry_backfacing_and_pointiness_and_layer_weight_two_outputs(real_out):
+    # Pointiness: the early `if out_name == 'Pointiness': return _attribute_input(..)` branch (pkg322, #1117).
+    assert real_out["NEW_GEOMETRY"]["accepted"] == frozenset({"Backfacing", "Pointiness"})
     assert real_out["LAYER_WEIGHT"]["accepted"] == frozenset({"Fresnel", "Facing"})
     assert real_out["SEPXYZ"]["accepted"] == frozenset({"X", "Y", "Z"})
     assert real_out["MATH"]["accepted"] is None  # one output, never inspected
@@ -662,12 +711,13 @@ def test_committed_matrix_credits_the_listed_rows_and_keeps_the_negatives():
         "ShaderNodeOutputMaterial|prop:is_active_output", "ShaderNodeOutputLight|input:Surface",
         "ShaderNodeOutputWorld|input:Volume", "ShaderNodeBackground|input:Color", "ShaderNodeBackground|input:Strength",
         "ShaderNodeTexIES|input:Strength", "ShaderNodeBsdfDiffuse|output:BSDF", "ShaderNodeTexNoise|output:Fac",
+        "ShaderNodeNewGeometry|output:Pointiness",  # #1117: the early `out_name == 'Pointiness'` return
     )
     for key in credited:
         assert m[key] in ("SUPPORTED", "APPROXIMATED"), key
     refused = (  # nothing in the compiler or the engine consumes these: no false credit
         "ShaderNodeLightPath|output:Portal Depth", "ShaderNodeNewGeometry|output:Normal",
-        "ShaderNodeNewGeometry|output:Pointiness", "ShaderNodeMapRange|output:Vector",
+        "ShaderNodeMapRange|output:Vector",
         "ShaderNodeMix|output:Result_Rotation", "ShaderNodeOutputMaterial|input:Thickness",
         "ShaderNodeOutputWorld|input:Surface", "ShaderNodeTexEnvironment|input:Vector",
         "ShaderNodeTexIES|input:Vector", "ShaderNodeHairInfo|output:Intercept", "ShaderNodeRaycast|output:Is Hit",

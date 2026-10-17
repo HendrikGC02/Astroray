@@ -191,8 +191,8 @@ def test_input_node_outputs_follow_the_compiler_evidence(matrix_rows):
     for sock in ("Location", "Color", "Alpha", "Object Index", "Material Index", "Random"):
         assert cls[("ShaderNodeObjectInfo", f"output:{sock}")] == "SUPPORTED", sock
     assert cls[("ShaderNodeNewGeometry", "output:Backfacing")] == "SUPPORTED"
-    for sock in ("Position", "Normal", "Tangent", "True Normal", "Incoming", "Parametric", "Pointiness",
-                 "Random Per Island"):
+    assert cls[("ShaderNodeNewGeometry", "output:Pointiness")] == "SUPPORTED"  # pkg322 layer; credited by #1117
+    for sock in ("Position", "Normal", "Tangent", "True Normal", "Incoming", "Parametric", "Random Per Island"):
         assert cls[("ShaderNodeNewGeometry", f"output:{sock}")] == "DROPPED-SILENT", sock
     for (bl, sock), c in cls.items():
         if bl == "ShaderNodeHairInfo":

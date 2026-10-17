@@ -6069,8 +6069,8 @@
     "feature": "NEW_GEOMETRY",
     "bl_idname": "ShaderNodeNewGeometry",
     "socket_or_prop": "output:Pointiness",
-    "classification": "DROPPED-SILENT",
-    "notes": "output refused by the op-VM compiler (VMCompileError, reported by the addon)",
+    "classification": "SUPPORTED",
+    "notes": "output consumed by the node handler (pkg320)",
     "socket_id": "Pointiness"
   },
   {

@@ -1296,6 +1296,11 @@ def _appends_to_approx_list(body, aliases):
     return False
 
 
+def _is_unreachable_name(names, state):
+    """True when an earlier allow-list already refuses every one of `names` (a later `return` for them is dead)."""
+    return state['accepted'] is not None and not (set(names) & state['accepted'])
+
+
 def _branch_output_rule(body, node_type, functions, consts):
     """Which output sockets one op-VM dispatch branch rejects (#1039).
 
@@ -1307,11 +1312,14 @@ def _branch_output_rule(body, node_type, functions, consts):
     `out_name` comparison or literal-dict lookup, whatever its polarity: the positive evidence a multi-output
     node needs, #1101 review finding 1), `approximate` the names a non-raising `if out_name in <names>` branch
     appends to a builder `*approx*` list (the compiler's approximation report, e.g. Light Path's
-    `builder.light_path_approx`, which the addon turns into a `_warn_shader_fallback`)."""
-    state = {'accepted': None, 'rejected': set(), 'named': set(), 'approximate': set()}
+    `builder.light_path_approx`, which the addon turns into a `_warn_shader_fallback`). An output served by an
+    earlier `if out_name == 'X': return ...` branch (Geometry's Pointiness, #1117) is not subject to a LATER
+    allow-list in the same branch: that code is never reached for X, so `served` exempts it from `narrow`."""
+    state = {'accepted': None, 'rejected': set(), 'named': set(), 'approximate': set(), 'served': set()}
 
     def narrow(names):
-        state['accepted'] = set(names) if state['accepted'] is None else state['accepted'] & set(names)
+        names = set(names) | state['served']
+        state['accepted'] = names if state['accepted'] is None else state['accepted'] & names
 
     def visit(stmts, aliases, dict_gets, following):
         """Walk `stmts`; True when every path through them ends in `return` / `raise` (the rest of the
@@ -1342,6 +1350,9 @@ def _branch_output_rule(body, node_type, functions, consts):
                         and stmt.test.left.id in dict_gets and _has_raise(stmt.body)):
                     narrow(dict_gets[stmt.test.left.id])
                 body_ends = visit(stmt.body, aliases, dict_gets, following)
+                if (body_ends and guard and guard[0] == 'in' and not _has_raise(stmt.body)
+                        and not _is_unreachable_name(guard[1], state)):
+                    state['served'].update(guard[1])  # `if out_name == 'X': return <value>` (#1117)
                 else_ends = visit(stmt.orelse, aliases, dict_gets, following)
                 if body_ends and else_ends and stmt.orelse:
                     return True

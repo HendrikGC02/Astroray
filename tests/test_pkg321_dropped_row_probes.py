@@ -9,7 +9,8 @@ Three layers:
    and the committed `coverage_matrix.json` carries exactly those classifications.
 3. The probes themselves (real `blender --background`, CPU, skips without Blender or an engine .pyd): one scene per
    family, variant A vs variant B differing in ONE input. `moves`: the render changes by more than the seed-noise
-   floor. `inert`: the render is bit-identical under the same seed (the engine drops the input) AND the report names
+   floor (`faint`: it does not, yet the render is not bit-identical, so the row is neither credited nor called a
+   drop). `inert`: the render is bit-identical under the same seed (the engine drops the input) AND the report names
    it. `reported`: the report names the lowering whatever the pixels do.
 
 Probe scenes and driver: tests/pkg321_probe_blender.py. Verdicts and evidence:
@@ -35,7 +36,8 @@ PROBE_VERDICT = {
     # Hair Principled
     "hair_color": ("moves", ""), "hair_roughness": ("moves", ""), "hair_radial_roughness": ("moves", ""),
     "hair_coat": ("moves", ""), "hair_ior": ("moves", ""), "hair_offset": ("moves", ""),
-    "hair_melanin": ("moves", ""), "hair_melanin_redness": ("moves", ""), "hair_tint": ("moves", ""),
+    "hair_melanin": ("moves", ""), "hair_melanin_redness": ("moves", ""),
+    "hair_tint": ("faint", ""),          # not credited: <1% change at Melanin 0 (engine: spectral melanin path skips Tint)
     "hair_absorption": ("moves", ""), "hair_parametrization": ("moves", ""),
     "hair_model": ("inert", "Huang 2022 near-field hair model is approximated with Chiang"),
     "hair_random": ("inert", "no per-strand randomisation"),
@@ -279,6 +281,8 @@ def test_probe(probe_results, probe):
     assert r["finite"], r
     if verdict == "moves":
         assert _moved(r), f"{probe}: expected the input to move the CPU render, got {r}"
+    elif verdict == "faint":
+        assert not _moved(r), f"{probe}: expected no change above the noise floor, got {r}"
     elif verdict == "inert":
         assert r["d_ab"] == 0.0, f"{probe}: expected a bit-identical render (input dropped), d_ab={r['d_ab']}"
     if warning:

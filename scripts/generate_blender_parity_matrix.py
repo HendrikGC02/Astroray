@@ -2969,7 +2969,6 @@ PKG321_PROBE_CREDITS = {
     ('ShaderNodeBsdfHairPrincipled', 'input:Offset'): ('hair_offset', 'SUPPORTED'),
     ('ShaderNodeBsdfHairPrincipled', 'input:Melanin'): ('hair_melanin', 'SUPPORTED'),
     ('ShaderNodeBsdfHairPrincipled', 'input:Melanin Redness'): ('hair_melanin_redness', 'SUPPORTED'),
-    ('ShaderNodeBsdfHairPrincipled', 'input:Tint'): ('hair_tint', 'SUPPORTED'),
     ('ShaderNodeBsdfHairPrincipled', 'input:Absorption Coefficient'): ('hair_absorption', 'SUPPORTED'),
     ('ShaderNodeBsdfHairPrincipled', 'prop:parametrization'): ('hair_parametrization', 'SUPPORTED'),
     # Principled Volume: volume_export.py is outside every scanned function.
@@ -3027,11 +3026,14 @@ PKG321_REPORTED_DROPS = {
 }
 
 
+_P321_CATEGORIES = ('shader_node', 'shader_node_output', 'input_node')
+
+
 def _apply_pkg321_probe_audit(matrix_rows):
     """Credit / annotate the #1089 rows from the probe tables above. Only DROPPED-SILENT rows are touched, so a later
     scanner credit is never overwritten or lowered."""
     for row in matrix_rows:
-        if row['category'] != 'shader_node' or row['classification'] != 'DROPPED-SILENT':
+        if row['category'] not in _P321_CATEGORIES or row['classification'] != 'DROPPED-SILENT':
             continue
         key = (row['bl_idname'], row['socket_or_prop'])
         if key in PKG321_PROBE_CREDITS:

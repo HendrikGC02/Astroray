@@ -10,9 +10,9 @@
 
 ## Summary
 
-- **SUPPORTED**: 307 features
-- **APPROXIMATED**: 96 features
-- **DROPPED-SILENT**: 334 features ⚠️
+- **SUPPORTED**: 321 features
+- **APPROXIMATED**: 101 features
+- **DROPPED-SILENT**: 315 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 737 features
 
@@ -22,8 +22,8 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5588)
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5588)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5661)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5661)
 - **TEX_BRICK**: socket `Color3` (addon __init__.py line 4174, line 4315)
 - **TEX_BRICK**: socket `Offset` (addon __init__.py line 4174, line 4315)
 
@@ -31,15 +31,15 @@ The addon's `node.inputs.get('...')` returns None at runtime, default silently w
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5588)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5588)
-- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5588)
-- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5588)
-- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5588)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5588)
-- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5588)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5588)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5588)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5661)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5661)
+- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5661)
+- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5661)
+- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5661)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5661)
+- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5661)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5661)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5661)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -63,7 +63,7 @@ These features are silently ignored by the addon with no warning:
 ### input_node
 
 - **NEW_GEOMETRY**: `output:Position` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
-- **NEW_GEOMETRY**: `output:Normal` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
+- **NEW_GEOMETRY**: `output:Normal` — output refused by the op-VM compiler (VMCompileError, reported by the addon); pkg321 probe `m_geometry_normal` leaves the CPU render identical: dropped, reported at runtime (#989)
 - **NEW_GEOMETRY**: `output:Tangent` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
 - **NEW_GEOMETRY**: `output:True Normal` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
 - **NEW_GEOMETRY**: `output:Incoming` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
@@ -122,19 +122,19 @@ These features are silently ignored by the addon with no warning:
 - **BEVEL**: `input:Radius` — no handler in addon translation layer
 - **BEVEL**: `input:Normal` — no handler in addon translation layer
 - **BEVEL**: `prop:samples` — property INT
-- **BSDF_GLOSSY**: `input:Anisotropy`
-- **BSDF_GLOSSY**: `input:Rotation`
-- **BSDF_GLOSSY**: `input:Normal`
-- **BSDF_GLOSSY**: `input:Tangent`
+- **BSDF_GLOSSY**: `input:Anisotropy` — pkg321 probe `a_anisotropy` leaves the CPU render identical: dropped, reported at runtime (#1131)
+- **BSDF_GLOSSY**: `input:Rotation` — pkg321 probe `a_rotation` leaves the CPU render identical: dropped, reported at runtime (#1131)
+- **BSDF_GLOSSY**: `input:Normal` — pkg321 probe `n_anisotropic` leaves the CPU render identical: dropped, reported at runtime (#1129)
+- **BSDF_GLOSSY**: `input:Tangent` — pkg321 probe `t_anisotropic` leaves the CPU render identical: dropped, reported at runtime (#1130)
 - **BSDF_GLOSSY**: `input:Weight`
-- **BSDF_GLOSSY**: `prop:distribution` — property ENUM
-- **BSDF_DIFFUSE**: `input:Normal`
+- **BSDF_GLOSSY**: `prop:distribution` — property ENUM; pkg321 probe `e_anisotropic_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)
+- **BSDF_DIFFUSE**: `input:Normal` — pkg321 probe `n_diffuse` leaves the CPU render identical: dropped, reported at runtime (#1129)
 - **BSDF_DIFFUSE**: `input:Weight`
-- **BSDF_GLASS**: `input:Normal`
+- **BSDF_GLASS**: `input:Normal` — pkg321 probe `n_glass` leaves the CPU render identical: dropped, reported at runtime (#1129)
 - **BSDF_GLASS**: `input:Weight`
-- **BSDF_GLASS**: `input:Thin Film Thickness`
-- **BSDF_GLASS**: `input:Thin Film IOR`
-- **BSDF_GLASS**: `prop:distribution` — property ENUM
+- **BSDF_GLASS**: `input:Thin Film Thickness` — pkg321 probe `g_thin_film_thickness` leaves the CPU render identical: dropped, reported at runtime (#1136)
+- **BSDF_GLASS**: `input:Thin Film IOR` — pkg321 probe `g_thin_film_ior` leaves the CPU render identical: dropped, reported at runtime (#1136)
+- **BSDF_GLASS**: `prop:distribution` — property ENUM; pkg321 probe `e_glass_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)
 - **BSDF_HAIR**: `input:Color`
 - **BSDF_HAIR**: `input:Offset`
 - **BSDF_HAIR**: `input:RoughnessU`
@@ -142,57 +142,46 @@ These features are silently ignored by the addon with no warning:
 - **BSDF_HAIR**: `input:Tangent`
 - **BSDF_HAIR**: `input:Weight`
 - **BSDF_HAIR**: `prop:component` — property ENUM
-- **BSDF_HAIR_PRINCIPLED**: `input:Color`
-- **BSDF_HAIR_PRINCIPLED**: `input:Melanin`
-- **BSDF_HAIR_PRINCIPLED**: `input:Melanin Redness`
 - **BSDF_HAIR_PRINCIPLED**: `input:Tint`
-- **BSDF_HAIR_PRINCIPLED**: `input:Absorption Coefficient`
 - **BSDF_HAIR_PRINCIPLED**: `input:Aspect Ratio`
-- **BSDF_HAIR_PRINCIPLED**: `input:Roughness`
-- **BSDF_HAIR_PRINCIPLED**: `input:Radial Roughness`
-- **BSDF_HAIR_PRINCIPLED**: `input:Coat`
-- **BSDF_HAIR_PRINCIPLED**: `input:IOR`
-- **BSDF_HAIR_PRINCIPLED**: `input:Offset`
-- **BSDF_HAIR_PRINCIPLED**: `input:Random Color`
-- **BSDF_HAIR_PRINCIPLED**: `input:Random Roughness`
-- **BSDF_HAIR_PRINCIPLED**: `input:Random`
+- **BSDF_HAIR_PRINCIPLED**: `input:Random Color` — pkg321 probe `hair_random_color` leaves the CPU render identical: dropped, reported at runtime (#1128)
+- **BSDF_HAIR_PRINCIPLED**: `input:Random Roughness` — pkg321 probe `hair_random_roughness` leaves the CPU render identical: dropped, reported at runtime (#1128)
+- **BSDF_HAIR_PRINCIPLED**: `input:Random` — pkg321 probe `hair_random` leaves the CPU render identical: dropped, reported at runtime (#1128)
 - **BSDF_HAIR_PRINCIPLED**: `input:Weight`
 - **BSDF_HAIR_PRINCIPLED**: `input:Reflection`
 - **BSDF_HAIR_PRINCIPLED**: `input:Transmission`
 - **BSDF_HAIR_PRINCIPLED**: `input:Secondary Reflection`
-- **BSDF_HAIR_PRINCIPLED**: `prop:model` — property ENUM
-- **BSDF_HAIR_PRINCIPLED**: `prop:parametrization` — property ENUM
 - **BSDF_METALLIC**: `input:IOR`
 - **BSDF_METALLIC**: `input:Extinction`
-- **BSDF_METALLIC**: `input:Normal`
-- **BSDF_METALLIC**: `input:Tangent`
+- **BSDF_METALLIC**: `input:Normal` — pkg321 probe `n_metallic` leaves the CPU render identical: dropped, reported at runtime (#1129)
+- **BSDF_METALLIC**: `input:Tangent` — pkg321 probe `t_metallic` leaves the CPU render identical: dropped, reported at runtime (#1130)
 - **BSDF_METALLIC**: `input:Weight`
 - **BSDF_PRINCIPLED**: `input:Weight`
-- **BSDF_PRINCIPLED**: `input:Subsurface IOR`
-- **BSDF_PRINCIPLED**: `input:Tangent`
-- **BSDF_PRINCIPLED**: `input:Coat Normal`
-- **BSDF_PRINCIPLED**: `prop:distribution` — property ENUM
-- **BSDF_PRINCIPLED**: `prop:subsurface_method` — property ENUM
+- **BSDF_PRINCIPLED**: `input:Subsurface IOR` — pkg321 probe `e_principled_subsurface_ior` leaves the CPU render identical: dropped, reported at runtime (#1133)
+- **BSDF_PRINCIPLED**: `input:Tangent` — pkg321 probe `t_principled` leaves the CPU render identical: dropped, reported at runtime (#1130)
+- **BSDF_PRINCIPLED**: `input:Coat Normal` — pkg321 probe `n_principled_coat` leaves the CPU render identical: dropped, reported at runtime (#1130)
+- **BSDF_PRINCIPLED**: `prop:distribution` — property ENUM; pkg321 probe `e_principled_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)
+- **BSDF_PRINCIPLED**: `prop:subsurface_method` — property ENUM; pkg321 probe `e_principled_subsurface_method` leaves the CPU render identical: dropped, reported at runtime (#1133)
 - **BSDF_RAY_PORTAL**: `input:Color` — no handler in addon translation layer
 - **BSDF_RAY_PORTAL**: `input:Position` — no handler in addon translation layer
 - **BSDF_RAY_PORTAL**: `input:Direction` — no handler in addon translation layer
 - **BSDF_RAY_PORTAL**: `input:Weight` — no handler in addon translation layer
-- **BSDF_REFRACTION**: `input:Normal`
+- **BSDF_REFRACTION**: `input:Normal` — pkg321 probe `n_refraction` leaves the CPU render identical: dropped, reported at runtime (#1129)
 - **BSDF_REFRACTION**: `input:Weight`
-- **BSDF_REFRACTION**: `prop:distribution` — property ENUM
-- **BSDF_SHEEN**: `input:Normal`
-- **BSDF_SHEEN**: `prop:distribution` — property ENUM
+- **BSDF_REFRACTION**: `prop:distribution` — property ENUM; pkg321 probe `e_refraction_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)
+- **BSDF_SHEEN**: `input:Normal` — pkg321 probe `n_sheen` leaves the CPU render identical: dropped, reported at runtime (#1129)
+- **BSDF_SHEEN**: `prop:distribution` — property ENUM; pkg321 probe `e_sheen_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)
 - **BSDF_TOON**: `input:Color` — no handler in addon translation layer
 - **BSDF_TOON**: `input:Size` — no handler in addon translation layer
 - **BSDF_TOON**: `input:Smooth` — no handler in addon translation layer
 - **BSDF_TOON**: `input:Normal` — no handler in addon translation layer
 - **BSDF_TOON**: `input:Weight` — no handler in addon translation layer
 - **BSDF_TOON**: `prop:component` — property ENUM
-- **BSDF_TRANSLUCENT**: `input:Normal`
+- **BSDF_TRANSLUCENT**: `input:Normal` — pkg321 probe `n_translucent` leaves the CPU render identical: dropped, reported at runtime (#1129)
 - **BSDF_TRANSLUCENT**: `input:Weight`
 - **BSDF_TRANSPARENT**: `input:Weight`
 - **BUMP**: `prop:invert` — property BOOLEAN
-- **DISPLACEMENT**: `input:Normal` — Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed
+- **DISPLACEMENT**: `input:Normal` — Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed; pkg321 probe `disp_normal` leaves the CPU render identical: dropped, reported at runtime (#1129)
 - **DISPLACEMENT**: `prop:space` — property ENUM
 - **EEVEE_SPECULAR**: `input:Base Color` — no handler in addon translation layer
 - **EEVEE_SPECULAR**: `input:Specular` — no handler in addon translation layer
@@ -290,13 +279,9 @@ These features are silently ignored by the addon with no warning:
 - **TEX_IMAGE**: `prop:projection_blend` — property FLOAT
 - **TEX_SKY**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **TEX_SKY**: `prop:air_density` — Rayleigh axis (more air -> bluer); folding onto Perez turbidity (a haziness axis) would invert its direction, so dropped + named in the runtime degradation warning (pkg256, PR #793 review)
-- **TEX_SKY**: `prop:altitude` — property FLOAT
-- **TEX_SKY**: `prop:ground_albedo` — property FLOAT
+- **TEX_SKY**: `prop:ground_albedo` — property FLOAT; pkg321 probe `s_ground_albedo` leaves the CPU render identical: dropped, reported at runtime (#1135)
 - **TEX_SKY**: `prop:ozone_density` — property FLOAT
-- **TEX_SKY**: `prop:sun_direction` — property FLOAT
 - **TEX_SKY**: `prop:sun_disc` — property BOOLEAN
-- **TEX_SKY**: `prop:sun_intensity` — property FLOAT
-- **TEX_SKY**: `prop:sun_size` — property FLOAT
 - **TEX_WHITE_NOISE**: `input:Vector` — no handler in addon translation layer
 - **TEX_WHITE_NOISE**: `input:W` — no handler in addon translation layer
 - **TEX_WHITE_NOISE**: `prop:noise_dimensions` — property ENUM
@@ -321,11 +306,7 @@ These features are silently ignored by the addon with no warning:
 - **VOLUME_COEFFICIENTS**: `input:Diameter` — no handler in addon translation layer
 - **VOLUME_COEFFICIENTS**: `input:Emission Coefficients` — no handler in addon translation layer
 - **VOLUME_COEFFICIENTS**: `prop:phase` — property ENUM
-- **PRINCIPLED_VOLUME**: `input:Color Attribute` — mapped to glass IOR=1.0 (volume not fully implemented)
-- **PRINCIPLED_VOLUME**: `input:Density Attribute` — mapped to glass IOR=1.0 (volume not fully implemented)
-- **PRINCIPLED_VOLUME**: `input:Absorption Color` — mapped to glass IOR=1.0 (volume not fully implemented)
-- **PRINCIPLED_VOLUME**: `input:Blackbody Tint` — mapped to glass IOR=1.0 (volume not fully implemented)
-- **PRINCIPLED_VOLUME**: `input:Temperature Attribute` — mapped to glass IOR=1.0 (volume not fully implemented)
+- **PRINCIPLED_VOLUME**: `input:Color Attribute` — mapped to glass IOR=1.0 (volume not fully implemented); pkg321 probe `v_color_attribute` leaves the CPU render identical: dropped, reported at runtime (#1134)
 - **PRINCIPLED_VOLUME**: `input:Weight` — mapped to glass IOR=1.0 (volume not fully implemented)
 - **VOLUME_SCATTER**: `input:IOR` — mapped to glass IOR=1.0 (volume not fully implemented)
 - **VOLUME_SCATTER**: `input:Backscatter` — mapped to glass IOR=1.0 (volume not fully implemented)
@@ -445,7 +426,7 @@ These features are silently ignored by the addon with no warning:
 | Feature | Socket/Property | Classification | Notes |
 |---------|-----------------|----------------|-------|
 | NEW_GEOMETRY | output:Position | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
-| NEW_GEOMETRY | output:Normal | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
+| NEW_GEOMETRY | output:Normal | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon); pkg321 probe `m_geometry_normal` leaves the CPU render identical: dropped, reported at runtime (#989) |
 | NEW_GEOMETRY | output:Tangent | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
 | NEW_GEOMETRY | output:True Normal | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
 | NEW_GEOMETRY | output:Incoming | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
@@ -583,24 +564,24 @@ These features are silently ignored by the addon with no warning:
 | BRIGHTCONTRAST | input:Contrast | SUPPORTED | op-VM / vector-input path (pkg219/pkg223) |
 | BSDF_GLOSSY | input:Color | SUPPORTED |  |
 | BSDF_GLOSSY | input:Roughness | SUPPORTED |  |
-| BSDF_GLOSSY | input:Anisotropy | DROPPED-SILENT |  |
-| BSDF_GLOSSY | input:Rotation | DROPPED-SILENT |  |
-| BSDF_GLOSSY | input:Normal | DROPPED-SILENT |  |
-| BSDF_GLOSSY | input:Tangent | DROPPED-SILENT |  |
+| BSDF_GLOSSY | input:Anisotropy | DROPPED-SILENT | pkg321 probe `a_anisotropy` leaves the CPU render identical: dropped, reported at runtime (#1131) |
+| BSDF_GLOSSY | input:Rotation | DROPPED-SILENT | pkg321 probe `a_rotation` leaves the CPU render identical: dropped, reported at runtime (#1131) |
+| BSDF_GLOSSY | input:Normal | DROPPED-SILENT | pkg321 probe `n_anisotropic` leaves the CPU render identical: dropped, reported at runtime (#1129) |
+| BSDF_GLOSSY | input:Tangent | DROPPED-SILENT | pkg321 probe `t_anisotropic` leaves the CPU render identical: dropped, reported at runtime (#1130) |
 | BSDF_GLOSSY | input:Weight | DROPPED-SILENT |  |
-| BSDF_GLOSSY | prop:distribution | DROPPED-SILENT | property ENUM |
+| BSDF_GLOSSY | prop:distribution | DROPPED-SILENT | property ENUM; pkg321 probe `e_anisotropic_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132) |
 | BSDF_DIFFUSE | input:Color | APPROXIMATED |  |
 | BSDF_DIFFUSE | input:Roughness | APPROXIMATED |  |
-| BSDF_DIFFUSE | input:Normal | DROPPED-SILENT |  |
+| BSDF_DIFFUSE | input:Normal | DROPPED-SILENT | pkg321 probe `n_diffuse` leaves the CPU render identical: dropped, reported at runtime (#1129) |
 | BSDF_DIFFUSE | input:Weight | DROPPED-SILENT |  |
 | BSDF_GLASS | input:Color | SUPPORTED |  |
 | BSDF_GLASS | input:Roughness | SUPPORTED |  |
 | BSDF_GLASS | input:IOR | SUPPORTED |  |
-| BSDF_GLASS | input:Normal | DROPPED-SILENT |  |
+| BSDF_GLASS | input:Normal | DROPPED-SILENT | pkg321 probe `n_glass` leaves the CPU render identical: dropped, reported at runtime (#1129) |
 | BSDF_GLASS | input:Weight | DROPPED-SILENT |  |
-| BSDF_GLASS | input:Thin Film Thickness | DROPPED-SILENT |  |
-| BSDF_GLASS | input:Thin Film IOR | DROPPED-SILENT |  |
-| BSDF_GLASS | prop:distribution | DROPPED-SILENT | property ENUM |
+| BSDF_GLASS | input:Thin Film Thickness | DROPPED-SILENT | pkg321 probe `g_thin_film_thickness` leaves the CPU render identical: dropped, reported at runtime (#1136) |
+| BSDF_GLASS | input:Thin Film IOR | DROPPED-SILENT | pkg321 probe `g_thin_film_ior` leaves the CPU render identical: dropped, reported at runtime (#1136) |
+| BSDF_GLASS | prop:distribution | DROPPED-SILENT | property ENUM; pkg321 probe `e_glass_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132) |
 | BSDF_HAIR | input:Color | DROPPED-SILENT |  |
 | BSDF_HAIR | input:Offset | DROPPED-SILENT |  |
 | BSDF_HAIR | input:RoughnessU | DROPPED-SILENT |  |
@@ -608,26 +589,26 @@ These features are silently ignored by the addon with no warning:
 | BSDF_HAIR | input:Tangent | DROPPED-SILENT |  |
 | BSDF_HAIR | input:Weight | DROPPED-SILENT |  |
 | BSDF_HAIR | prop:component | DROPPED-SILENT | property ENUM |
-| BSDF_HAIR_PRINCIPLED | input:Color | DROPPED-SILENT |  |
-| BSDF_HAIR_PRINCIPLED | input:Melanin | DROPPED-SILENT |  |
-| BSDF_HAIR_PRINCIPLED | input:Melanin Redness | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Color | SUPPORTED | pkg321 probe `hair_color` moves the CPU render (consumed) |
+| BSDF_HAIR_PRINCIPLED | input:Melanin | SUPPORTED | pkg321 probe `hair_melanin` moves the CPU render (consumed) |
+| BSDF_HAIR_PRINCIPLED | input:Melanin Redness | SUPPORTED | pkg321 probe `hair_melanin_redness` moves the CPU render (consumed) |
 | BSDF_HAIR_PRINCIPLED | input:Tint | DROPPED-SILENT |  |
-| BSDF_HAIR_PRINCIPLED | input:Absorption Coefficient | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Absorption Coefficient | SUPPORTED | pkg321 probe `hair_absorption` moves the CPU render (consumed) |
 | BSDF_HAIR_PRINCIPLED | input:Aspect Ratio | DROPPED-SILENT |  |
-| BSDF_HAIR_PRINCIPLED | input:Roughness | DROPPED-SILENT |  |
-| BSDF_HAIR_PRINCIPLED | input:Radial Roughness | DROPPED-SILENT |  |
-| BSDF_HAIR_PRINCIPLED | input:Coat | DROPPED-SILENT |  |
-| BSDF_HAIR_PRINCIPLED | input:IOR | DROPPED-SILENT |  |
-| BSDF_HAIR_PRINCIPLED | input:Offset | DROPPED-SILENT |  |
-| BSDF_HAIR_PRINCIPLED | input:Random Color | DROPPED-SILENT |  |
-| BSDF_HAIR_PRINCIPLED | input:Random Roughness | DROPPED-SILENT |  |
-| BSDF_HAIR_PRINCIPLED | input:Random | DROPPED-SILENT |  |
+| BSDF_HAIR_PRINCIPLED | input:Roughness | SUPPORTED | pkg321 probe `hair_roughness` moves the CPU render (consumed) |
+| BSDF_HAIR_PRINCIPLED | input:Radial Roughness | SUPPORTED | pkg321 probe `hair_radial_roughness` moves the CPU render (consumed) |
+| BSDF_HAIR_PRINCIPLED | input:Coat | SUPPORTED | pkg321 probe `hair_coat` moves the CPU render (consumed) |
+| BSDF_HAIR_PRINCIPLED | input:IOR | SUPPORTED | pkg321 probe `hair_ior` moves the CPU render (consumed) |
+| BSDF_HAIR_PRINCIPLED | input:Offset | SUPPORTED | pkg321 probe `hair_offset` moves the CPU render (consumed) |
+| BSDF_HAIR_PRINCIPLED | input:Random Color | DROPPED-SILENT | pkg321 probe `hair_random_color` leaves the CPU render identical: dropped, reported at runtime (#1128) |
+| BSDF_HAIR_PRINCIPLED | input:Random Roughness | DROPPED-SILENT | pkg321 probe `hair_random_roughness` leaves the CPU render identical: dropped, reported at runtime (#1128) |
+| BSDF_HAIR_PRINCIPLED | input:Random | DROPPED-SILENT | pkg321 probe `hair_random` leaves the CPU render identical: dropped, reported at runtime (#1128) |
 | BSDF_HAIR_PRINCIPLED | input:Weight | DROPPED-SILENT |  |
 | BSDF_HAIR_PRINCIPLED | input:Reflection | DROPPED-SILENT |  |
 | BSDF_HAIR_PRINCIPLED | input:Transmission | DROPPED-SILENT |  |
 | BSDF_HAIR_PRINCIPLED | input:Secondary Reflection | DROPPED-SILENT |  |
-| BSDF_HAIR_PRINCIPLED | prop:model | DROPPED-SILENT | property ENUM |
-| BSDF_HAIR_PRINCIPLED | prop:parametrization | DROPPED-SILENT | property ENUM |
+| BSDF_HAIR_PRINCIPLED | prop:model | APPROXIMATED | pkg321 probe `hair_model`: Huang 2022 is rendered with Chiang 2016 and reported (the render is identical) |
+| BSDF_HAIR_PRINCIPLED | prop:parametrization | SUPPORTED | pkg321 probe `hair_parametrization` moves the CPU render (consumed) |
 | BSDF_METALLIC | input:Base Color | APPROXIMATED |  |
 | BSDF_METALLIC | input:Edge Tint | APPROXIMATED |  |
 | BSDF_METALLIC | input:IOR | DROPPED-SILENT |  |
@@ -635,8 +616,8 @@ These features are silently ignored by the addon with no warning:
 | BSDF_METALLIC | input:Roughness | APPROXIMATED |  |
 | BSDF_METALLIC | input:Anisotropy | APPROXIMATED |  |
 | BSDF_METALLIC | input:Rotation | APPROXIMATED |  |
-| BSDF_METALLIC | input:Normal | DROPPED-SILENT |  |
-| BSDF_METALLIC | input:Tangent | DROPPED-SILENT |  |
+| BSDF_METALLIC | input:Normal | DROPPED-SILENT | pkg321 probe `n_metallic` leaves the CPU render identical: dropped, reported at runtime (#1129) |
+| BSDF_METALLIC | input:Tangent | DROPPED-SILENT | pkg321 probe `t_metallic` leaves the CPU render identical: dropped, reported at runtime (#1130) |
 | BSDF_METALLIC | input:Weight | DROPPED-SILENT |  |
 | BSDF_METALLIC | input:Thin Film Thickness | APPROXIMATED |  |
 | BSDF_METALLIC | input:Thin Film IOR | APPROXIMATED |  |
@@ -654,19 +635,19 @@ These features are silently ignored by the addon with no warning:
 | BSDF_PRINCIPLED | input:Subsurface Weight | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Subsurface Radius | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Subsurface Scale | APPROXIMATED |  |
-| BSDF_PRINCIPLED | input:Subsurface IOR | DROPPED-SILENT |  |
+| BSDF_PRINCIPLED | input:Subsurface IOR | DROPPED-SILENT | pkg321 probe `e_principled_subsurface_ior` leaves the CPU render identical: dropped, reported at runtime (#1133) |
 | BSDF_PRINCIPLED | input:Subsurface Anisotropy | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Specular IOR Level | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Specular Tint | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Anisotropic | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Anisotropic Rotation | APPROXIMATED |  |
-| BSDF_PRINCIPLED | input:Tangent | DROPPED-SILENT |  |
+| BSDF_PRINCIPLED | input:Tangent | DROPPED-SILENT | pkg321 probe `t_principled` leaves the CPU render identical: dropped, reported at runtime (#1130) |
 | BSDF_PRINCIPLED | input:Transmission Weight | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Coat Weight | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Coat Roughness | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Coat IOR | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Coat Tint | APPROXIMATED |  |
-| BSDF_PRINCIPLED | input:Coat Normal | DROPPED-SILENT |  |
+| BSDF_PRINCIPLED | input:Coat Normal | DROPPED-SILENT | pkg321 probe `n_principled_coat` leaves the CPU render identical: dropped, reported at runtime (#1130) |
 | BSDF_PRINCIPLED | input:Sheen Weight | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Sheen Roughness | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Sheen Tint | APPROXIMATED |  |
@@ -674,8 +655,8 @@ These features are silently ignored by the addon with no warning:
 | BSDF_PRINCIPLED | input:Emission Strength | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Thin Film Thickness | APPROXIMATED |  |
 | BSDF_PRINCIPLED | input:Thin Film IOR | APPROXIMATED |  |
-| BSDF_PRINCIPLED | prop:distribution | DROPPED-SILENT | property ENUM |
-| BSDF_PRINCIPLED | prop:subsurface_method | DROPPED-SILENT | property ENUM |
+| BSDF_PRINCIPLED | prop:distribution | DROPPED-SILENT | property ENUM; pkg321 probe `e_principled_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132) |
+| BSDF_PRINCIPLED | prop:subsurface_method | DROPPED-SILENT | property ENUM; pkg321 probe `e_principled_subsurface_method` leaves the CPU render identical: dropped, reported at runtime (#1133) |
 | BSDF_RAY_PORTAL | input:Color | DROPPED-SILENT | no handler in addon translation layer |
 | BSDF_RAY_PORTAL | input:Position | DROPPED-SILENT | no handler in addon translation layer |
 | BSDF_RAY_PORTAL | input:Direction | DROPPED-SILENT | no handler in addon translation layer |
@@ -683,14 +664,14 @@ These features are silently ignored by the addon with no warning:
 | BSDF_REFRACTION | input:Color | APPROXIMATED |  |
 | BSDF_REFRACTION | input:Roughness | APPROXIMATED |  |
 | BSDF_REFRACTION | input:IOR | APPROXIMATED |  |
-| BSDF_REFRACTION | input:Normal | DROPPED-SILENT |  |
+| BSDF_REFRACTION | input:Normal | DROPPED-SILENT | pkg321 probe `n_refraction` leaves the CPU render identical: dropped, reported at runtime (#1129) |
 | BSDF_REFRACTION | input:Weight | DROPPED-SILENT |  |
-| BSDF_REFRACTION | prop:distribution | DROPPED-SILENT | property ENUM |
+| BSDF_REFRACTION | prop:distribution | DROPPED-SILENT | property ENUM; pkg321 probe `e_refraction_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132) |
 | BSDF_SHEEN | input:Color | APPROXIMATED |  |
 | BSDF_SHEEN | input:Roughness | APPROXIMATED |  |
-| BSDF_SHEEN | input:Normal | DROPPED-SILENT |  |
+| BSDF_SHEEN | input:Normal | DROPPED-SILENT | pkg321 probe `n_sheen` leaves the CPU render identical: dropped, reported at runtime (#1129) |
 | BSDF_SHEEN | input:Weight | APPROXIMATED |  |
-| BSDF_SHEEN | prop:distribution | DROPPED-SILENT | property ENUM |
+| BSDF_SHEEN | prop:distribution | DROPPED-SILENT | property ENUM; pkg321 probe `e_sheen_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132) |
 | BSDF_TOON | input:Color | DROPPED-SILENT | no handler in addon translation layer |
 | BSDF_TOON | input:Size | DROPPED-SILENT | no handler in addon translation layer |
 | BSDF_TOON | input:Smooth | DROPPED-SILENT | no handler in addon translation layer |
@@ -698,7 +679,7 @@ These features are silently ignored by the addon with no warning:
 | BSDF_TOON | input:Weight | DROPPED-SILENT | no handler in addon translation layer |
 | BSDF_TOON | prop:component | DROPPED-SILENT | property ENUM |
 | BSDF_TRANSLUCENT | input:Color | SUPPORTED |  |
-| BSDF_TRANSLUCENT | input:Normal | DROPPED-SILENT |  |
+| BSDF_TRANSLUCENT | input:Normal | DROPPED-SILENT | pkg321 probe `n_translucent` leaves the CPU render identical: dropped, reported at runtime (#1129) |
 | BSDF_TRANSLUCENT | input:Weight | DROPPED-SILENT |  |
 | BSDF_TRANSPARENT | input:Color | SUPPORTED |  |
 | BSDF_TRANSPARENT | input:Weight | DROPPED-SILENT |  |
@@ -722,7 +703,7 @@ These features are silently ignored by the addon with no warning:
 | DISPLACEMENT | input:Height | APPROXIMATED | Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed |
 | DISPLACEMENT | input:Midlevel | APPROXIMATED | Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed |
 | DISPLACEMENT | input:Scale | APPROXIMATED | Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed |
-| DISPLACEMENT | input:Normal | DROPPED-SILENT | Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed |
+| DISPLACEMENT | input:Normal | DROPPED-SILENT | Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed; pkg321 probe `disp_normal` leaves the CPU render identical: dropped, reported at runtime (#1129) |
 | DISPLACEMENT | prop:space | DROPPED-SILENT | property ENUM |
 | EEVEE_SPECULAR | input:Base Color | DROPPED-SILENT | no handler in addon translation layer |
 | EEVEE_SPECULAR | input:Specular | DROPPED-SILENT | no handler in addon translation layer |
@@ -925,16 +906,16 @@ These features are silently ignored by the addon with no warning:
 | TEX_SKY | input:Vector | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6) |
 | TEX_SKY | prop:aerosol_density | APPROXIMATED | folded into effective Perez turbidity for the Nishita family (pkg256, approx) |
 | TEX_SKY | prop:air_density | DROPPED-SILENT | Rayleigh axis (more air -> bluer); folding onto Perez turbidity (a haziness axis) would invert its direction, so dropped + named in the runtime degradation warning (pkg256, PR #793 review) |
-| TEX_SKY | prop:altitude | DROPPED-SILENT | property FLOAT |
-| TEX_SKY | prop:ground_albedo | DROPPED-SILENT | property FLOAT |
+| TEX_SKY | prop:altitude | APPROXIMATED | pkg321 probe `s_altitude` moves the CPU render (consumed) |
+| TEX_SKY | prop:ground_albedo | DROPPED-SILENT | property FLOAT; pkg321 probe `s_ground_albedo` leaves the CPU render identical: dropped, reported at runtime (#1135) |
 | TEX_SKY | prop:ozone_density | DROPPED-SILENT | property FLOAT |
 | TEX_SKY | prop:sky_type | APPROXIMATED | sky_type -> Preetham turbidity source (pkg256, Preetham/Perez bake) |
-| TEX_SKY | prop:sun_direction | DROPPED-SILENT | property FLOAT |
+| TEX_SKY | prop:sun_direction | APPROXIMATED | pkg321 probe `s_sun_direction`: inert for the Nishita sky types (Cycles too); legacy PREETHAM / HOSEK_WILKIE, where Cycles reads it, are rendered as Nishita and the warning names it |
 | TEX_SKY | prop:sun_disc | DROPPED-SILENT | property BOOLEAN |
 | TEX_SKY | prop:sun_elevation | APPROXIMATED | drives baked sun elevation in the equirect image (pkg256) |
-| TEX_SKY | prop:sun_intensity | DROPPED-SILENT | property FLOAT |
+| TEX_SKY | prop:sun_intensity | APPROXIMATED | pkg321 probe `s_sun_intensity` moves the CPU render (consumed) |
 | TEX_SKY | prop:sun_rotation | APPROXIMATED | drives baked sun azimuth in the equirect image (pkg256) |
-| TEX_SKY | prop:sun_size | DROPPED-SILENT | property FLOAT |
+| TEX_SKY | prop:sun_size | APPROXIMATED | pkg321 probe `s_sun_size` moves the CPU render (consumed) |
 | TEX_SKY | prop:turbidity | APPROXIMATED | Perez turbidity for PREETHAM/HOSEK_WILKIE sky_type (pkg256) |
 | TEX_VORONOI | input:Vector | SUPPORTED |  |
 | TEX_VORONOI | input:W | SUPPORTED |  |
@@ -1002,17 +983,17 @@ These features are silently ignored by the addon with no warning:
 | VOLUME_COEFFICIENTS | input:Emission Coefficients | DROPPED-SILENT | no handler in addon translation layer |
 | VOLUME_COEFFICIENTS | prop:phase | DROPPED-SILENT | property ENUM |
 | PRINCIPLED_VOLUME | input:Color | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
-| PRINCIPLED_VOLUME | input:Color Attribute | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Color Attribute | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented); pkg321 probe `v_color_attribute` leaves the CPU render identical: dropped, reported at runtime (#1134) |
 | PRINCIPLED_VOLUME | input:Density | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
-| PRINCIPLED_VOLUME | input:Density Attribute | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Density Attribute | SUPPORTED | pkg321 probe `v_density_attribute` moves the CPU render (consumed) |
 | PRINCIPLED_VOLUME | input:Anisotropy | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
-| PRINCIPLED_VOLUME | input:Absorption Color | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Absorption Color | SUPPORTED | pkg321 probe `v_absorption_color` moves the CPU render (consumed) |
 | PRINCIPLED_VOLUME | input:Emission Strength | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
 | PRINCIPLED_VOLUME | input:Emission Color | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
 | PRINCIPLED_VOLUME | input:Blackbody Intensity | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
-| PRINCIPLED_VOLUME | input:Blackbody Tint | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Blackbody Tint | SUPPORTED | pkg321 probe `v_blackbody_tint` moves the CPU render (consumed) |
 | PRINCIPLED_VOLUME | input:Temperature | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
-| PRINCIPLED_VOLUME | input:Temperature Attribute | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
+| PRINCIPLED_VOLUME | input:Temperature Attribute | SUPPORTED | pkg321 probe `v_temperature_attribute` moves the CPU render (consumed) |
 | PRINCIPLED_VOLUME | input:Weight | DROPPED-SILENT | mapped to glass IOR=1.0 (volume not fully implemented) |
 | VOLUME_SCATTER | input:Color | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |
 | VOLUME_SCATTER | input:Density | APPROXIMATED | mapped to glass IOR=1.0 (volume not fully implemented) |

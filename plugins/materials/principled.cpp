@@ -1116,6 +1116,14 @@ class PrincipledPlugin : public Material {
                 L.isDelta = roughness_ <= kDeltaGlassRoughness || std::fabs(ior_ - 1.0f) < 1e-4f;
                 L.ior = ior_;
                 L.sel = std::max(luminance(L.weight), 1e-4f);
+                if (!L.isDelta && !msWalk_) {
+                    // Cycles microfacet_ggx_preserve_energy: `bsdf->sample_weight *=
+                    // average(darkening)` (Blender 5.2 kernel/closure/bsdf_microfacet.h:483,
+                    // BSD-3-Clause). Selection only (variance); eval/pdf use the same sel.
+                    Vec3 dark; float eScale;
+                    glassEnergyTerms(L, rec.frontFace ? ior_ : (1.0f / ior_), nv, dark, eScale);
+                    L.sel = std::max(luminance(L.weight) * ((dark.x + dark.y + dark.z) / 3.0f), 1e-4f);
+                }
                 // Film-off transmission eval uses L.weight directly (pkg188 Finding A
                 // colour/scalar split); the film-on spectral path reads weightSpec.
                 if (lam) L.weightSpec = weightSp * transmission_;

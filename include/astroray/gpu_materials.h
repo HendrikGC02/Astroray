@@ -1910,6 +1910,19 @@ struct GPrincipledLobe {
 static constexpr int   kMaxPrincipledLobes  = 10;
 static constexpr float kPrincipledDeltaGlassRoughness = 0.03f;  // principled.cpp:43
 
+// Cycles MULTI_GGX glass energy terms (see the rough-glass block below); defined here
+// because gpu_pr_assembleLobes also uses the darkening for the lobe selection weight.
+__device__ inline void gpu_pr_glassEnergy(const GPrincipledClosure& c, const GPrincipledLobe& L,
+                                          float etap, float cosO, GVec3& dark, float& scale) {
+    namespace gg = astroray::ggxglass;
+    float alpha = fmaxf(L.roughness * L.roughness, 0.0064f);
+    float E, Eavg;
+    gg::albedo(gpu_ggxGlassTables(), sqrtf(alpha), cosO, etap, E, Eavg);
+    scale = gg::energyScale(E);
+    GVec3 fss = gpu_pr_sqrtColor(c.color);
+    dark = GVec3(gg::darkening(fss.x, E, Eavg), gg::darkening(fss.y, E, Eavg),
+                 gg::darkening(fss.z, E, Eavg));
+}
 __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GHitRecord& rec,
                                            const GVec3& wo, GPrincipledLobe lobes[kMaxPrincipledLobes],
                                            const GSampledWavelengths* wl = nullptr) {
@@ -2023,6 +2036,14 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
             L.isDelta = c.roughness <= kPrincipledDeltaGlassRoughness || fabsf(c.ior - 1.f) < 1e-4f;
             L.ior = c.ior;
             L.sel = fmaxf(luminance(L.weight), 1e-4f);
+            if (!L.isDelta) {
+                // Cycles microfacet_ggx_preserve_energy: `bsdf->sample_weight *=
+                // average(darkening)` (Blender 5.2 bsdf_microfacet.h:483, BSD-3-Clause);
+                // twin of principled.cpp. Selection only; transient locals.
+                GVec3 dk; float es;
+                gpu_pr_glassEnergy(c, L, rec.frontFace ? c.ior : (1.f / c.ior), nv, dk, es);
+                L.sel = fmaxf(luminance(L.weight) * ((dk.x + dk.y + dk.z) * (1.f / 3.f)), 1e-4f);
+            }
             if (wl) L.weightSpec = weightSp * c.transmission;
         }
         weight = weight * (1.f - c.transmission);
@@ -2254,17 +2275,6 @@ __device__ inline float gpu_pr_thinGlassTransmitPdf(const GPrincipledLobe& L, co
 // gpu_ggxGlassCompensationFactor (Fss = dielectric Fss; rim furnace 0.41-0.55).
 // All values are locals of eval/pdf/sample (nothing is carried across the shade
 // kernel); the table reads replace the old factor's E/Eavg reads.
-__device__ inline void gpu_pr_glassEnergy(const GPrincipledClosure& c, const GPrincipledLobe& L,
-                                          float etap, float cosO, GVec3& dark, float& scale) {
-    namespace gg = astroray::ggxglass;
-    float alpha = fmaxf(L.roughness * L.roughness, 0.0064f);
-    float E, Eavg;
-    gg::albedo(gpu_ggxGlassTables(), sqrtf(alpha), cosO, etap, E, Eavg);
-    scale = gg::energyScale(E);
-    GVec3 fss = gpu_pr_sqrtColor(c.color);
-    dark = GVec3(gg::darkening(fss.x, E, Eavg), gg::darkening(fss.y, E, Eavg),
-                 gg::darkening(fss.z, E, Eavg));
-}
 __device__ inline bool gpu_pr_glassHalfVector(const GPrincipledLobe& L, const GHitRecord& rec,
                                               const GVec3& wo, const GVec3& wi,
                                               bool& transmit, float& etap, GVec3& wm) {

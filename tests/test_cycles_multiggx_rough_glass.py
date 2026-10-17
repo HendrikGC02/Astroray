@@ -153,3 +153,43 @@ def test_pdf_matches_sampler_mass_cpu(rough, mu, front_face):
     assert abs(mass - kept) <= 0.02, (
         f"integral of pdf {mass:.4f} != sampler kept fraction {kept:.4f} "
         f"(r {rough}, mu {mu}, {'entry' if front_face else 'exit'})")
+
+
+_TINT = [0.85, 0.22, 0.10]
+
+
+def test_glass_selection_weight_includes_darkening_cpu():
+    """Cycles microfacet_ggx_preserve_energy scales the glass closure's sample_weight by
+    average(darkening) (bsdf_microfacet.h:483). Coat over glass has two lobes, so the
+    mixture pdf at a refracted direction is pdf_glass * selT / (selC + selT). With a
+    tinted glass selT must drop by d = average(darkening), read from eval() as
+    f_tint / (f_white * sqrt(colour)). RED before: the selection ignored darkening."""
+    r = astroray.Renderer()
+    glass = {"transmission_weight": 1.0, "roughness": 1.0, "ior": 1.5}
+    coat = {**glass, "coat_weight": 1.0, "coat_roughness": 0.3}
+    mu = 0.7
+    wo = [math.sqrt(1.0 - mu * mu), mu, 0.0]
+    wi = np.array([[-0.476, -0.879, 0.0], [-0.3, -0.9, 0.2], [-0.6, -0.78, -0.15]], dtype=np.float32)
+    wi /= np.linalg.norm(wi, axis=1, keepdims=True)
+
+    def sel_ratio(colour):
+        pure = r.create_material("principled", colour, glass)
+        mixed = r.create_material("principled", colour, coat)
+        p_pure = np.asarray(r.debug_bsdf_pdf_batch(pure, wo, wi), dtype=np.float64)
+        p_mix = np.asarray(r.debug_bsdf_pdf_batch(mixed, wo, wi), dtype=np.float64)
+        assert np.all(p_pure > 0.0)
+        q = p_mix / p_pure
+        assert np.ptp(q) <= 1e-4 * q.mean(), q  # one constant selection share
+        return float(q.mean()), pure
+
+    q_white, white_id = sel_ratio([1.0, 1.0, 1.0])
+    q_tint, tint_id = sel_ratio(_TINT)
+    f_w = np.asarray(r.eval_material(white_id, wo, wi[0].tolist()), dtype=np.float64)
+    f_t = np.asarray(r.eval_material(tint_id, wo, wi[0].tolist()), dtype=np.float64)
+    d = float(np.mean(f_t / (f_w * np.sqrt(_TINT))))
+    assert d < 0.97, d  # the scene must exercise a real darkening
+    k = 1.0 / q_white - 1.0  # selC / selT for white glass
+    expected = d / (k + d)
+    assert abs(q_tint - expected) <= 1e-3, (
+        f"tinted selection share {q_tint:.5f} != {expected:.5f} (white {q_white:.5f}, "
+        f"avg darkening {d:.4f}): glass sample weight misses average(darkening)")

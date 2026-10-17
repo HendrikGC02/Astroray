@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done
 **Estimated effort:** 1 session (~4 h); CPU legs in-lane, GPU legs via the lead (~10 min)
 **Depends on:** pkg318, pkg320
 
@@ -44,8 +44,8 @@ predicate effects from a real scene bias.
 
 ## Prerequisites
 
-- [ ] pkg320 merged (identities resolve for the witnesses).
-- [ ] #1099 diagnosed (textures_mapping wall bias), so a failing witness is attributable.
+- [x] pkg320 merged (identities resolve for the witnesses).
+- [x] #1099 diagnosed (textures_mapping wall bias), so a failing witness is attributable.
 
 ---
 
@@ -77,10 +77,10 @@ predicate effects from a real scene bias.
 
 ## Acceptance criteria
 
-- [ ] Control-kind tests pass; frozen `--score` output byte-identical.
-- [ ] At least 10 witnesses across the five families scored under both predicates on CPU and GPU, with sheets (Astroray | Cycles | diff | mask) inspected.
-- [ ] Study doc states, per predicate, the provisional S_CPU / S_GPU these witnesses would give and the owner question.
-- [ ] `python scripts/project_index.py lint` passes.
+- [x] Control-kind tests pass; frozen `--score` output byte-identical.
+- [x] At least 10 witnesses across the five families scored under both predicates on CPU and GPU, with sheets (Astroray | Cycles | diff | mask) inspected.
+- [x] Study doc states, per predicate, the provisional S_CPU / S_GPU these witnesses would give and the owner question.
+- [x] `python scripts/project_index.py lint` passes.
 
 ---
 
@@ -93,12 +93,13 @@ predicate effects from a real scene bias.
 
 ## Progress
 
-- [ ] Control kinds + tests
-- [ ] Candidate map + selection rule
-- [ ] CPU legs, GPU legs (lead), study doc
+- [x] Control kinds + tests
+- [x] Candidate map + selection rule
+- [x] CPU legs, study doc (CPU)
+- [x] GPU legs (lead), S_GPU filled
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The rectangle-vs-mask predicate changed no verdict on 27 witnesses (CPU and GPU); noise at 64 spp on hero objects and real engine gaps (Bump, Displacement, shader stack, Brick Mortar) are what block credit. Credit needs every scene variant of an identity, so the witness count binds. See the study doc.

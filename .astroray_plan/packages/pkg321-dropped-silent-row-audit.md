@@ -96,11 +96,12 @@ go to later batches). No owner decision is involved.
 
 ## Progress
 
-- [ ] Hair family (after #1093)
-- [ ] BSDF Normal / Tangent / Coat Normal
-- [ ] Enum props + Anisotropic
-- [ ] Principled Volume, Sky, Glass thin film, misc
-- [ ] Regenerate, audit doc, PR
+- [x] Hair family (CPU probes; #1093 not needed for the probes)
+- [x] BSDF Normal / Tangent / Coat Normal
+- [x] Enum props + Anisotropic
+- [x] Principled Volume, Sky, Glass thin film, misc
+- [x] Regenerate, audit doc (`.astroray_plan/docs/pkg321-dropped-row-audit.md`); issues #1128-#1136
+- [ ] GPU confirmation of the probe table under `gpu_locked_run.py` (lead), then PR; flip Status to done
 
 ---
 

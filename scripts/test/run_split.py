@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 """Two-pass CPU/GPU test runner (open-model-research-2026-08 latency lever 6).
 
-Pass 1 (CPU): ``pytest -m cpu -n 4`` — the CPU-only subset in parallel via
-              pytest-xdist, with OMP_NUM_THREADS=2 (4 workers x 2 threads = the
-              8 physical cores; ``-n auto`` x all-core OpenMP oversubscribes 8x)
+Pass 1 (CPU): ``pytest -m cpu -n 6`` — the CPU-only subset in parallel via
+              pytest-xdist, with OMP_NUM_THREADS=2 (6 workers x 2 threads = 12 of
+              the 16 SMT threads on the 8-core 7800X3D, SMT on since 2026-10-18;
+              ``-n auto`` x all-core OpenMP oversubscribes 16x)
               and CUDA_VISIBLE_DEVICES=-1, so a misclassified test cannot start
               concurrent CUDA (memory cuda_verifier_concurrency). A test that
               only passes with a visible GPU must be tagged @pytest.mark.gpu.
@@ -20,7 +21,7 @@ Usage:
     python scripts/test/run_split.py --gpu-only      # just the serial GPU pass
     python scripts/test/run_split.py --fast          # skip @pytest.mark.slow tests
     python scripts/test/run_split.py --junit DIR     # DIR/cpu.xml, DIR/gpu.xml + duration charts
-    python scripts/test/run_split.py --jobs 8        # override -n 4
+    python scripts/test/run_split.py --jobs 8        # override -n 6
     python scripts/test/run_split.py -- -x -q tests/test_foo.py   # extra pytest args
 
 Extra pytest args after ``--`` are forwarded to BOTH passes.
@@ -57,7 +58,7 @@ def _run(label: str, marker: str, *, parallel: bool, jobs: str,
     if parallel:
         env["CUDA_VISIBLE_DEVICES"] = "-1"
     if parallel and omp:
-        # 4 xdist workers x 2 OpenMP threads = 8 cores. (OMP=1 starves the
+        # 6 xdist workers x 2 OpenMP threads = 12 of 16 SMT threads. (OMP=1 starves the
         # OpenMP-heavy reference renders; all-core x N workers oversubscribes.)
         env["OMP_NUM_THREADS"] = omp
         omp_note = f"  (OMP_NUM_THREADS={omp})"
@@ -76,7 +77,7 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cpu-only", action="store_true", help="run only the parallel CPU pass")
     ap.add_argument("--gpu-only", action="store_true", help="run only the serial GPU pass")
-    ap.add_argument("--jobs", default="4", help="xdist worker count for the CPU pass (default: 4)")
+    ap.add_argument("--jobs", default="6", help="xdist worker count for the CPU pass (default: 6)")
     ap.add_argument("--omp", default=os.environ.get("ASTRORAY_TEST_OMP_THREADS", "2"),
                     help="OMP_NUM_THREADS for the CPU pass (default: 2)")
     ap.add_argument("--fast", action="store_true", help='AND "not slow" into both passes')

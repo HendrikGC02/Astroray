@@ -77,10 +77,25 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - **Model policy (owner 2026-09-22, supersedes the 2026-08/09 rules):**
   - Claude judgment tier = **Opus 5.5** (`claude-opus-5-5`); the Opus 4.8 pins and
     the "never Opus 5" rule are retired (owner 2026-09-23: 5.5 replaces 5). **Fable subagents stay banned.**
-  - **Haiku 4.5** summarises short files when surveying the repo; **Sonnet 5.5**
+  - **Haiku 5.5** (`claude-haiku-5-5`, Agent `model: "haiku"`, the
+    `file-summarizer` agent) sifts files, logs, transcripts and issue lists and
+    returns cited digests; it never edits or decides. Keep each call's prompt
+    under 100K tokens (Haiku bills 5x above that). **Sonnet 5.5**
     (`claude-sonnet-5-5`, owner 2026-09-29: replaces Sonnet 5) is the Claude
     workhorse for well-scoped tasks — fast and strong, use it; prefer opencode
     models when they fit.
+  - **Subagent effort + cache (owner 2026-10-18, from
+    `.astroray_plan/docs/anthropic-agentic-practices-2026-10.md`):** pin
+    `effort:` on every agent (defaults differ per model): Opus `high` for
+    architect / physics lanes / parity review, `medium` for pr-review and
+    ABI-guard; Sonnet `medium` (`high` for long lanes); Haiku `medium`. Prompt
+    cache TTL is `1h` for main and subagents (`.claude/settings.json`): lanes
+    idle 5-60 min between build requests and resumes are the win case. Never
+    switch model, effort, tools or MCP servers mid-session (cache reset); use a
+    subagent instead. Brief every subagent as a stranger (objective, output
+    format, files, boundaries). Fan out only for independent work; a dependent
+    chain runs on one stronger agent at lower effort. Idle compaction fires
+    after ~54 min idle on 200K+ contexts.
   - **DeepSeek V4.1 Flash** (`opencode-go/deepseek-v4.1-flash`) is the
     implement AND grunt primary: highly capable on long tasks and cheap; use it
     to its full potential, still evidence-verified behind build+test+lint.

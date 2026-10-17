@@ -1,5 +1,5 @@
 {
-  "updated": "2026-09-22",
+  "updated": "2026-10-18",
   "note": "Tier -> model policy for opencode delegation. Update models here as the roster shifts; never hardcode model ids in skills/hooks. Evidence: .astroray_plan/docs/open-model-research-2026-08.md + scripts/model_bench.py. Open-model diffs are evidence-verified, never trusted. 2026-09-22 owner directive: deepseek-v4.1-flash is implement AND grunt primary (highly capable even on longer tasks, cheap); deepseek-v4-pro is implement fallback; Codex Terra reviews AND implements bounded work with no per-session cap; Astra fenced to the 2026-09-22 planning session and the render-speed optimisation session; Opus 5.5 replaces Opus 4.8 as the Claude judgment tier; Haiku 4.5 summarises short files; Sonnet 5 is the Claude grunt workhorse; 2026-09-29 owner: Sonnet 5.5 (claude-sonnet-5-5) replaces Sonnet 5 as the Claude workhorse for well-scoped tasks. Earlier history (muse-spark errored, opencode/ provider unauthenticated, glm-5.3-flash docs variant) unchanged.",
   "avoid": [
     "opencode-go/muse-spark-1.2-contributor"
@@ -41,5 +41,33 @@
     "invocation": "codex exec -m <model> -s read-only - < prompt.txt   (implementation: -s workspace-write inside a worktree)",
     "budget_note": "owner 2026-09-22: Terra = reviews, small implementations, light thinking; NO per-session cap (usage tracked in the run report). Luna free. Astra: this planning session (<=4 turns) + the optimisation session only; Astra may spawn cheap Codex subagents (Luna/Terra), never Sol/Astra.",
     "credits_check": "login status != credits; one cheap Luna call is the only test"
+  },
+  "claude": {
+    "note": "Claude-side subagent routing (owner 2026-10-18). Agent tool `model:` values in parentheses. Fable subagents are BANNED (owner 2026-09-19); the Fable lead does its own deep thinking in-session.",
+    "judgment": {
+      "model": "claude-opus-5-5",
+      "agent_model": "opus",
+      "use_for": "architect/specs, hard multi-file physics or shade-kernel lanes, cycles-parity, ABI reachability, gate-failure root cause, merge decisions, visual inspection"
+    },
+    "workhorse": {
+      "model": "claude-sonnet-5-5",
+      "agent_model": "sonnet",
+      "use_for": "well-scoped implementation lanes, fact-gathering, verification runs, docs-updater, hardware-verifier"
+    },
+    "sift": {
+      "model": "claude-haiku-5-5",
+      "agent_model": "haiku",
+      "agent_def": ".claude/agents/file-summarizer.md",
+      "use_for": "reading many files/logs/transcripts to extract a few facts, directory surveys, spec/issue tabulation, log triage, doc diffs; read-only, never decides"
+    },
+    "banned": [
+      "fable",
+      "claude-fable-5-1"
+    ]
+  },
+  "machine": {
+    "cpu": "AMD Ryzen 7 7800X3D, 8 cores / 16 threads (SMT enabled 2026-10-18; was 8/8)",
+    "gpu": "RTX 5070 Ti (sm_120)",
+    "load_rule": "one heavy job at a time (2026-09-26 hard resets): GPU suite never overlaps a CUDA build; <=2 CPU lanes with OMP_NUM_THREADS<=8 and MinGW -j 6; lead's own single build/suite may use all 16 threads"
   }
 }

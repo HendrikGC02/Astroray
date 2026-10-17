@@ -2,6 +2,7 @@
 name: hardware-verifier
 description: Run gate tests on RTX hardware after a fix/feat PR, report measured numbers, flag visual regressions. Multimodal — reads rendered PNG outputs for inspection.
 model: claude-sonnet-5-5
+effort: medium
 tools:
   - Read
   - Bash

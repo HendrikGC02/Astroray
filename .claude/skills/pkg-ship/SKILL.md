@@ -79,7 +79,7 @@ This is the cheapest 30-second check that has caught a recurring failure mode (p
 ## Step 5 — Run the full local test suite
 
 ```powershell
-cmake --build build_cuda --config Release -j 8
+cmake --build build_cuda --config Release -j 12
 pytest tests/ --ignore=tests/test_wavefront_parity.py -v --tb=short -x
 ```
 

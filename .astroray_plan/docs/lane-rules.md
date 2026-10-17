@@ -27,7 +27,8 @@ Brief every implementation lane with this file. Proven over the 2026-09-24..27 s
    keep a stale test green.
 10. Attribute failures against a baseline build, never by reasoning about the diff.
 11. Before done: list changed signatures, grep all callers (tests, mocks, bindings, conftest).
-12. **Machine load (2026-09-26, two hardware resets):** OMP_NUM_THREADS=8, MinGW `-j 6`, no stress
+12. **Machine load (2026-09-26, two hardware resets; CPU is 8 cores / 16 SMT threads since 2026-10-18,
+    the physical core count did not change):** lanes keep OMP_NUM_THREADS=8, MinGW `-j 6`, no stress
     loops over ~10 min, small renders. The lead never overlaps a GPU suite with a build.
 13. GPU shade kernel is register-saturated (REG 254): no new per-hit live state there; describe the
     expected register impact of GPU changes (the lead measures with cuobjdump).

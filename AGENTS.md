@@ -106,6 +106,8 @@ Astroray/
   Owner 2026-09-22: Terra reviews and implements bounded work (no cap), Luna
   is free, Astra is fenced to named sessions (owner 2026-09-23: plus the
   long-haul orchestrator session, supervised by Claude). Claude judgment tier is Opus 5.5;
+  Haiku 5.5 (`file-summarizer` agent) is the read-only sifter for logs, transcripts and
+  doc sets; every Claude agent pins `effort:`; prompt cache TTL is 1h (owner 2026-10-18);
   DeepSeek V4.1 Flash is the open-model implement+grunt primary (see
   `CLAUDE.md` §5 "Model policy").
   Codex model and provider choice stays user-level so it can evolve. For cheap

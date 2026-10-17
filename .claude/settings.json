@@ -59,9 +59,6 @@
       }
     ]
   },
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
-  },
   "permissions": {
     "allow": [
       "Bash(python scripts/dev/run_tests.py *)",
@@ -72,5 +69,7 @@
       "mcp__Claude_Preview__preview_stop",
       "mcp__Claude_Preview__preview_console_logs"
     ]
-  }
+  },
+  "subagentPromptCacheTtl": "1h",
+  "promptCacheTtl": "1h"
 }

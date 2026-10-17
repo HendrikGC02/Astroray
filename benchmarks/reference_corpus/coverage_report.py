@@ -71,6 +71,7 @@ import datetime
 import hashlib
 import json
 import math
+import os
 import re
 import subprocess
 import sys
@@ -196,8 +197,8 @@ POPULATIONS: dict[str, tuple[tuple[str, tuple[str, ...] | None], ...]] = {
 }
 
 
-def write_population_manifest(name: str, repo_root: Path) -> Path:
-    """Write the derived corpus manifest for population ``name``; return its path."""
+def write_population_manifest(name: str, repo_root: Path, out_dir: Path | None = None) -> Path:
+    """Write the derived corpus manifest for population ``name``; return its path (``out_dir`` default: the repo's populations dir)."""
     if name not in POPULATIONS:
         raise ValueError(f"unknown population {name!r}; choose from {sorted(POPULATIONS)}")
     scenes: dict[str, Any] = {}
@@ -207,7 +208,7 @@ def write_population_manifest(name: str, repo_root: Path) -> Path:
             if scene_id not in source_scenes:
                 raise ValueError(f"population {name!r}: scene {scene_id!r} not in {source}")
             scenes[scene_id] = source_scenes[scene_id]
-    out = Path(repo_root) / POPULATIONS_DIR / f"{name}.json"
+    out = (Path(out_dir) if out_dir is not None else Path(repo_root) / POPULATIONS_DIR) / f"{name}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"scenes": scenes}, indent=2, sort_keys=True) + "\n",
                    encoding="utf-8", newline="\n")
@@ -316,8 +317,15 @@ def _witness_roi(shape: tuple[int, ...], witness: Mapping[str, Any]) -> tuple[sl
 
 
 def witness_metrics(actual, reference, actual_control, reference_control,
-                    actual_mask, reference_mask, witness: Mapping[str, Any]) -> tuple[dict[str, Any] | None, str]:
-    """Compute local parity and counterfactual effect from frozen case data."""
+                    actual_mask, reference_mask, witness: Mapping[str, Any],
+                    region: str = "rect") -> tuple[dict[str, Any] | None, str]:
+    """Compute local parity and counterfactual effect from frozen case data.
+
+    ``region="rect"`` (default, the frozen predicate) takes SSIM / dE2000 over the whole ROI rectangle.
+    ``region="mask"`` (pkg323 study only, never read by ``--score``) averages the same per-pixel SSIM and dE2000
+    maps over the pixels inside the feature mask, so non-feature pixels in the rectangle cannot decide the verdict.
+    An effect with ``kind`` other than ``checker`` skips the two-sided checker phase test (default: checker).
+    """
     import numpy as np
 
     from benchmarks.blender_parity.harness import _gate_c_paired_probe
@@ -345,13 +353,21 @@ def witness_metrics(actual, reference, actual_control, reference_control,
             return None, f"{name} witness mask is empty in frozen ROI"
         signal = float(base[selected].mean())
         paired = _gate_c_paired_probe(base, changed, selected,
-                                      {"kind": "checker", "min_delta": effect["min_delta"],
+                                      {"kind": effect.get("kind", "checker"), "min_delta": effect["min_delta"],
                                        "min_coverage": effect["min_coverage"]})
         results[name] = {"signal": signal, **paired,
                          "ok": signal > float(effect["min_signal"]) and paired["ok"]}
     patch_actual, patch_reference = actual[roi], reference[roi]
-    ssim, _ = compute_ssim(patch_actual, patch_reference)
-    delta_e, _ = compute_delta_e_2000(patch_actual, patch_reference)
+    ssim, ssim_map = compute_ssim(patch_actual, patch_reference)
+    delta_e, de_map = compute_delta_e_2000(patch_actual, patch_reference)
+    if region == "mask":
+        # Both legs freeze the same source-geometry region; a pixel counts only if both masks include it.
+        selected = np.asarray(actual_mask[roi], dtype=bool) & np.asarray(reference_mask[roi], dtype=bool)
+        if not selected.any():
+            return None, "witness mask is empty in frozen ROI"
+        ssim, delta_e = ssim_map[selected].mean(), de_map[selected].mean()
+    elif region != "rect":
+        return None, f"unknown witness region {region!r}"
     return {"ssim": float(ssim), "delta_e": float(delta_e), "effects": results,
             "roi": list(witness["roi"]), "pass": all(result["ok"] for result in results.values())}, ""
 
@@ -1982,6 +1998,375 @@ def _load_json(path: Path) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+
+# --------------------------------------------------------------------------- #
+# pkg323 witness-kinds study (#1087, non-predicate part).  Nothing here is read by ``--score`` and nothing
+# changes the frozen v4 input, the predicate or acceptance_manifest.json: it builds a CANDIDATE witness map for the
+# largest SUPPORTED families, renders both engines, and scores every witness under the frozen rectangle predicate
+# and the proposed feature-mask predicate side by side.  Report, never tune.
+# --------------------------------------------------------------------------- #
+STUDY_SCHEMA = "pkg323.witness_candidates.v5"
+# bl_idname -> (family, control kind, extra control fields).  const = nominal texture mean of the 0..1 outputs.
+STUDY_FAMILIES: dict[str, tuple[str, str, dict[str, Any]]] = {
+    "ShaderNodeTexNoise": ("Noise", "noise_const", {"const": 0.5}),
+    "ShaderNodeTexBrick": ("Brick", "brick_const", {}),
+    "ShaderNodeTexWave": ("Wave", "wave_const", {"const": 0.5}),
+    "ShaderNodeBump": ("Bump", "bump_zero", {}),
+    "ShaderNodeMapping": ("Mapping", "mapping_identity", {}),
+}
+STUDY_MASK_INSET_PX = 4
+STUDY_MIN_MASK_PX = 300
+STUDY_ROI_PAD = 0.10
+# One a-priori effect threshold for every new kind (linear RGB, mean |baseline - control| over the mask).
+STUDY_EFFECT = {"kind": "changed", "min_delta": 0.01, "min_coverage": 0.05, "min_signal": 0.001}
+STUDY_SELECTION_RULE = [
+    "R1 node: reachable from an active output (computed trace), not muted, bl_idname in the five families, in a material tree.",
+    "R2 region: its material is assigned to exactly one mesh object, so the node has one screen-space region.",
+    f"R3 visibility: that object's camera-visible face mask (first ray hit is the object), eroded {STUDY_MASK_INSET_PX} px, has >= {STUDY_MIN_MASK_PX} px.",
+    "R4 control: the family control would change something (strength != 0 and unlinked, mapping not already identity, brick colours differ, a linked output exists).",
+    "R5 one witness per (scene, variant digest): the eligible node with the largest mask, ties by object then node name; the rest are listed as covered by it.",
+    f"ROI: the object's visible-face bounding box (no erosion) padded {int(STUDY_ROI_PAD * 100)} % each side, clipped to the frame, rounded to 4 places.",
+]
+
+
+def _study_noop_reason(bnode: Any, kind: str) -> str:
+    if kind in ("noise_const", "wave_const"):
+        return "" if any(out.is_linked for out in bnode.outputs) else "no linked output"
+    if kind == "brick_const":
+        c1, c2, mortar = (tuple(bnode.inputs[n].default_value) for n in ("Color1", "Color2", "Mortar"))
+        flat = tuple((c1[i] + c2[i]) / 2.0 for i in range(4))
+        return "brick colours already equal" if c1 == c2 == mortar == flat else ""
+    if kind == "bump_zero":
+        s = bnode.inputs["Strength"]
+        return "bump strength linked or already 0" if s.is_linked or s.default_value == 0.0 else ""
+    if kind == "mapping_identity":
+        ident = (tuple(bnode.inputs["Location"].default_value) == (0.0,) * 3
+                 and tuple(bnode.inputs["Rotation"].default_value) == (0.0,) * 3
+                 and tuple(bnode.inputs["Scale"].default_value) == (1.0,) * 3)
+        return "mapping already identity or not a POINT mapping" if ident or bnode.vector_type != "POINT" else ""
+    return "unknown kind"
+
+
+def enumerate_witness_candidates_in_blender(repo_root: Path, manifests: Mapping[str, Path]) -> dict[str, Any]:
+    """Inside Blender: apply the selection rule to every scene of ``manifests`` and return the candidate map."""
+    import importlib.util
+
+    import bpy
+
+    spec = importlib.util.spec_from_file_location(
+        "pkg323_render_leg", Path(repo_root) / "benchmarks" / "blender_parity" / "render_leg.py")
+    leg = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = leg
+    spec.loader.exec_module(leg)
+    witnesses: list[dict[str, Any]] = []
+    excluded: list[dict[str, Any]] = []
+    for population, manifest_path in manifests.items():
+        scenes = _load_json(manifest_path)["scenes"]
+        for scene_id in sorted(scenes):
+            entry = scenes[scene_id]
+            bpy.ops.wm.open_mainfile(filepath=str((Path(repo_root) / entry["blend_path"]).resolve()))
+            scene = bpy.context.scene
+            res_x, res_y = int(entry["settings"]["res_x"]), int(entry["settings"]["res_y"])
+            scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage = res_x, res_y, 100
+            trees = _build_trees_from_bpy()
+            reachable, _errors = trace_reachable(trees)
+            users: dict[str, set[str]] = {}
+            for obj in scene.objects:
+                if obj.type == "MESH":
+                    for slot in obj.material_slots:
+                        if slot.material is not None:
+                            users.setdefault(slot.material.name, set()).add(obj.name)
+            eligible: dict[str, list[dict[str, Any]]] = {}
+            for tree_id, node_name in sorted(reachable):
+                model = trees[tree_id]["nodes"][node_name]
+                family = STUDY_FAMILIES.get(model["bl_idname"])
+                if family is None or model.get("mute"):
+                    continue
+                sockets, fingerprint = exercised_sockets_for(model)
+                digest = variant_digest(fingerprint)
+                row = {"population": population, "scene_id": scene_id, "node": node_name, "family": family[0],
+                       "variant_digest": digest, "tree": tree_id}
+                if not tree_id.startswith("material:"):
+                    excluded.append({**row, "reason": f"R1 not a material tree ({tree_id.split(':')[0]})"})
+                    continue
+                material = tree_id.split(":", 1)[1]
+                objects = sorted(users.get(material, ()))
+                if len(objects) != 1:
+                    excluded.append({**row, "reason": f"R2 material assigned to {len(objects)} mesh objects"})
+                    continue
+                obj = bpy.data.objects[objects[0]]
+                bnode = bpy.data.materials[material].node_tree.nodes[node_name]
+                noop = _study_noop_reason(bnode, family[1])
+                if noop:
+                    excluded.append({**row, "reason": f"R4 {noop}"})
+                    continue
+                full = leg._object_faces_mask(bpy, scene, obj, (res_y, res_x), 0)
+                eroded = leg._object_faces_mask(bpy, scene, obj, (res_y, res_x), STUDY_MASK_INSET_PX)
+                if int((eroded > 0).sum()) < STUDY_MIN_MASK_PX:
+                    excluded.append({**row, "reason": f"R3 visible mask {int((eroded > 0).sum())} px < {STUDY_MIN_MASK_PX}"})
+                    continue
+                ys, xs = (full > 0).nonzero()
+                x0, x1, y0, y1 = int(xs.min()), int(xs.max()) + 1, int(ys.min()), int(ys.max()) + 1
+                px, py = (x1 - x0) * STUDY_ROI_PAD, (y1 - y0) * STUDY_ROI_PAD
+                roi = [round(max(0.0, (x0 - px) / res_x), 4), round(max(0.0, (y0 - py) / res_y), 4),
+                       round(min(1.0, (x1 + px) / res_x), 4), round(min(1.0, (y1 + py) / res_y), 4)]
+                ids = [canonical_identity(model["bl_idname"], s) for s in sockets]
+                rep = next((i for i in ids if "|input:" in i), ids[0])
+                control = {"kind": family[1], "object": obj.name, "material": material, "node": node_name,
+                           **family[2], "mask": {"kind": "object_faces", "inset_px": STUDY_MASK_INSET_PX}}
+                row.update({"id": f"{scene_id}/{obj.name}/{node_name}", "object": obj.name, "identity": rep,
+                            "identities": ids, "mask_px": int((eroded > 0).sum()),
+                            "witness": {"roi": roi, "control": control, "effect": dict(STUDY_EFFECT)}})
+                eligible.setdefault(digest, []).append(row)
+            for digest, rows in sorted(eligible.items()):
+                rows.sort(key=lambda r: (-r["mask_px"], r["object"], r["node"]))
+                witnesses.append({**rows[0], "also_covers": [r["id"] for r in rows[1:]]})
+    return {"schema": STUDY_SCHEMA, "selection_rule": STUDY_SELECTION_RULE,
+            "status": "CANDIDATE: not frozen, not read by --score",
+            "populations": {k: str(v) for k, v in manifests.items()},
+            "witnesses": witnesses, "excluded": excluded}
+
+
+def _study_slug(text: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "_", text).strip("_")
+
+
+def _study_build_info(blender: Path, env: Mapping[str, str]) -> dict[str, str]:
+    """Ask Blender (the process that will render) for the loaded module's build id and the module/addon hashes."""
+    import subprocess
+
+    leg = Path(__file__).resolve().parents[1] / "blender_parity" / "render_leg.py"
+    proc = subprocess.run([str(blender), "--background", "--factory-startup", "--python", str(leg), "--", "--print-build"],
+                          env=dict(env), capture_output=True, text=True, timeout=300, check=False)
+    for line in ((proc.stdout or "") + "\n" + (proc.stderr or "")).splitlines():
+        if line.startswith("PKG323_BUILD "):
+            return json.loads(line[len("PKG323_BUILD "):])
+    raise RuntimeError("could not read the Astroray build from Blender: " + ((proc.stdout or "") + (proc.stderr or ""))[-800:])
+
+
+def study_render_legs(candidates: Mapping[str, Any], manifests: Mapping[str, Path], out_dir: Path, backend: str,
+                      *, pyd_dir: Path, cycles_from: Path | None = None, only: Iterable[str] | None = None,
+                      timeout: int = 900) -> dict[str, str]:
+    """Render the four legs (Cycles/Astroray x baseline/control) of every candidate; reuse legs already on disk."""
+    import shutil
+
+    from benchmarks.blender_parity import harness
+
+    blender = harness._find_blender()
+    if blender is None:
+        raise RuntimeError("Blender not found (set BLENDER_EXE)")
+    env = os.environ.copy()
+    env["ASTRORAY_PYD_DIR"] = str(pyd_dir)
+    env.setdefault("OMP_NUM_THREADS", "8")
+    if backend == "CPU":
+        env["CUDA_VISIBLE_DEVICES"] = "-1"
+    build = _study_build_info(blender, env)
+    print(f"[pkg323] build {build}", flush=True)
+    wanted = set(only or [])
+    failures: dict[str, str] = {}
+    scene_population = {}
+    for population, path in manifests.items():
+        for scene_id in _load_json(path)["scenes"]:
+            scene_population[scene_id] = (population, path)
+    for w in candidates["witnesses"]:
+        if wanted and w["id"] not in wanted:
+            continue
+        _population, manifest = scene_population[w["scene_id"]]
+        entry = _load_json(manifest)["scenes"][w["scene_id"]]
+        settings = {"res_x": entry["settings"]["res_x"], "res_y": entry["settings"]["res_y"],
+                    "samples": entry["settings"]["samples"], "seed": 7, "denoise": False, "adaptive": False,
+                    "resolution_percentage": 100, "film_transparent": False, "view_transform": "Standard"}
+        case = {"identity": w["identity"], "scene_id": w["scene_id"], "variant_digest": w["variant_digest"],
+                "backend": backend, **{k: build[k] for k in ("build_id", "module_sha256", "addon_sha256")},
+                "settings": settings, "witness": w["witness"]}
+        case["case_id"] = _sha256_bytes(_canonical_json(case))
+        wdir = Path(out_dir) / backend / _study_slug(w["id"])
+        wdir.mkdir(parents=True, exist_ok=True)
+        case_path = wdir / "case.json"
+        case_path.write_text(json.dumps(case, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        for engine, device, name, control in (
+                ("CYCLES", "cpu", "cycles", "baseline"),
+                ("CYCLES", "cpu", "cycles_control", w["witness"]["control"]["kind"]),
+                ("CUSTOM_RAYTRACER", backend.lower(), "astroray", "baseline"),
+                ("CUSTOM_RAYTRACER", backend.lower(), "astroray_control", w["witness"]["control"]["kind"])):
+            if (wdir / f"{name}.npy").is_file() and (wdir / f"{name}_mask.npy").is_file():
+                continue
+            if cycles_from is not None and engine == "CYCLES":
+                src = Path(cycles_from) / _study_slug(w["id"])
+                if (src / f"{name}.npy").is_file() and (src / f"{name}_mask.npy").is_file():
+                    for suffix in (".npy", "_mask.npy", ".png"):
+                        if (src / f"{name}{suffix}").is_file():
+                            shutil.copyfile(src / f"{name}{suffix}", wdir / f"{name}{suffix}")
+                    continue
+            args = ["--corpus-manifest", str(manifest), "--corpus-scene", w["scene_id"], "--gate-b-case", str(case_path),
+                    "--gate-b-report", str(wdir / f"{name}_raw.json"), "--gate-b-control", control,
+                    "--gate-b-mask-out", str(wdir / f"{name}_mask.npy"), "--engine", engine, "--device", device,
+                    "--out", str(wdir / name)]
+            ok, _combined, tail = harness._run_render_leg_script(blender, args, env, timeout)
+            if not ok or not (wdir / f"{name}.npy").is_file():
+                failures[w["id"]] = f"{name} leg failed: {tail[-600:]}"
+                print(f"[pkg323] FAIL {w['id']} {name}: {tail[-300:]}", flush=True)
+                break
+            print(f"[pkg323] {backend} {w['id']} {name} ok", flush=True)
+    return failures
+
+
+def _study_predicate(m: Mapping[str, Any]) -> bool:
+    return bool(m["pass"]) and m["ssim"] >= 0.95 and m["delta_e"] <= 5.0
+
+
+def _study_sheet(wdir: Path, roi: list[float], path: Path) -> None:
+    """Astroray | Cycles | |diff| x3 | mask over the ROI (top row), the two controls underneath."""
+    import numpy as np
+    from PIL import Image
+
+    def load(name):
+        return np.load(wdir / f"{name}.npy")
+    a, c, ac, cc = load("astroray"), load("cycles"), load("astroray_control"), load("cycles_control")
+    mask = np.load(wdir / "astroray_mask.npy") > 0
+    h, w = a.shape[:2]
+    sl = (slice(int(roi[1] * h), int(roi[3] * h)), slice(int(roi[0] * w), int(roi[2] * w)))
+
+    def srgb(img):
+        x = np.clip(img, 0, 1)
+        return (np.where(x <= 0.0031308, x * 12.92, 1.055 * x ** (1 / 2.4) - 0.055) * 255 + 0.5).astype(np.uint8)
+
+    def cut(img):
+        return srgb(img[sl])
+    diff = np.clip(np.abs(a - c)[sl] * 3.0, 0, 1)
+    m3 = np.repeat((mask[sl] * 255).astype(np.uint8)[..., None], 3, axis=-1)
+    row1 = np.concatenate([cut(a), cut(c), srgb(diff), m3], axis=1)
+    row2 = np.concatenate([cut(ac), cut(cc), srgb(np.clip(np.abs(a - ac)[sl] * 3.0, 0, 1)),
+                           srgb(np.clip(np.abs(c - cc)[sl] * 3.0, 0, 1))], axis=1)
+    sheet = np.concatenate([row1, row2], axis=0)
+    scale = max(1, 960 // sheet.shape[1])
+    img = Image.fromarray(sheet).resize((sheet.shape[1] * scale, sheet.shape[0] * scale), Image.NEAREST)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(path)
+
+
+def study_score(candidates: Mapping[str, Any], out_dir: Path, backend: str,
+                snapshots: Mapping[str, Path], matrix_path: Path, sheets: bool = True) -> dict[str, Any]:
+    """Score every rendered candidate under both predicates and derive the provisional S for each."""
+    import numpy as np
+
+    rows: list[dict[str, Any]] = []
+    for w in candidates["witnesses"]:
+        wdir = Path(out_dir) / backend / _study_slug(w["id"])
+        row: dict[str, Any] = {"id": w["id"], "family": w["family"], "scene_id": w["scene_id"],
+                               "population": w["population"], "kind": w["witness"]["control"]["kind"],
+                               "mask_px": w["mask_px"]}
+        needed = ("astroray", "cycles", "astroray_control", "cycles_control")
+        if not all((wdir / f"{n}.npy").is_file() and (wdir / f"{n}_mask.npy").is_file() for n in needed):
+            row["error"] = "legs missing or failed"
+            rows.append(row)
+            continue
+        arr = {n: np.load(wdir / f"{n}.npy") for n in needed}
+        masks = {n: np.load(wdir / f"{n}_mask.npy") for n in needed}
+        res = {}
+        for region in ("rect", "mask"):
+            metrics, reason = witness_metrics(arr["astroray"], arr["cycles"], arr["astroray_control"],
+                                              arr["cycles_control"], masks["astroray"], masks["cycles"],
+                                              w["witness"], region=region)
+            if metrics is None:
+                row["error"] = reason
+                break
+            res[region] = metrics
+        if "error" in row:
+            rows.append(row)
+            continue
+        roi = _witness_roi(arr["astroray"].shape, w["witness"])
+        sel = np.asarray(masks["astroray"][roi], dtype=bool)
+        a, c = arr["astroray"][roi], arr["cycles"][roi]
+        ratio_in = (a[sel].mean(axis=0) / np.maximum(c[sel].mean(axis=0), 1e-9)).tolist()
+        ratio_out = ((a[~sel].mean(axis=0) / np.maximum(c[~sel].mean(axis=0), 1e-9)).tolist()
+                     if (~sel).any() else None)
+        row.update({"effect": res["rect"]["effects"], "effect_pass": res["rect"]["pass"],
+                    "rect": {"ssim": res["rect"]["ssim"], "delta_e": res["rect"]["delta_e"],
+                             "pass": _study_predicate(res["rect"])},
+                    "mask": {"ssim": res["mask"]["ssim"], "delta_e": res["mask"]["delta_e"],
+                             "pass": _study_predicate(res["mask"])},
+                    "masked_mean_ratio_rgb": ratio_in, "outside_mask_mean_ratio_rgb": ratio_out})
+        if sheets:
+            _study_sheet(wdir, w["witness"]["roi"], Path(out_dir) / "sheets" / f"{_study_slug(w['id'])}_{backend}.png")
+        rows.append(row)
+    return {"backend": backend, "rows": rows,
+            "scores": _study_provisional_scores(candidates, rows, snapshots, matrix_path)}
+
+
+def _study_provisional_scores(candidates: Mapping[str, Any], rows: list[dict[str, Any]],
+                              snapshots: Mapping[str, Path], matrix_path: Path) -> dict[str, Any]:
+    """Provisional S if exactly these witnesses were registered, per population x predicate x credit rule.
+
+    Credit follows ``score_use``: an identity scores 1 only if EVERY frozen (scene, variant) it is exercised in is
+    covered by a passing witness.  ``rep`` = a witness credits only its registered representative identity;
+    ``fanout`` = it credits every exercised identity of its node (the per-node reading; an owner question).
+    """
+    matrix = matrix_by_identity(_load_json(matrix_path))
+    verdict = {r["id"]: r for r in rows if "error" not in r}
+    by_id = {w["id"]: w for w in candidates["witnesses"]}
+    out: dict[str, Any] = {}
+    for population, snap_path in snapshots.items():
+        ledger = materialize_use_ledger(_load_json(snap_path))
+        denominator = float(sum(r["weight"] for r in ledger))
+        out[population] = {"denominator": denominator}
+        for region in ("rect", "mask"):
+            passing: dict[tuple[str, str], list[str]] = {}
+            for wid, v in verdict.items():
+                w = by_id[wid]
+                if w["population"] == population and v[region]["pass"]:
+                    passing.setdefault((w["scene_id"], w["variant_digest"]), []).append(wid)
+            for rule in ("rep", "fanout"):
+                num = 0.0
+                for row in ledger:
+                    if matrix.get(row["identity"]) != SUPPORTED:
+                        continue
+                    ok = True
+                    for var in row["variants"]:
+                        ids = passing.get((var["scene_id"], var["variant_digest"]), [])
+                        if rule == "rep":
+                            ids = [i for i in ids if by_id[i]["identity"] == row["identity"]]
+                        else:
+                            ids = [i for i in ids if row["identity"] in by_id[i]["identities"]]
+                        if not ids:
+                            ok = False
+                            break
+                    if ok:
+                        num += row["weight"]
+                out[population][f"{region}_{rule}"] = {"numerator": num, "S": num / denominator if denominator else None}
+        # Cost to credit a family completely: distinct (scene, variant) cases needed vs. candidates available.
+        need: dict[str, set[tuple[str, str]]] = {}
+        for row in ledger:
+            fam = STUDY_FAMILIES.get(row["identity"].split("|")[0])
+            if fam and matrix.get(row["identity"]) == SUPPORTED:
+                need.setdefault(fam[0], set()).update((v["scene_id"], v["variant_digest"]) for v in row["variants"])
+        have = {(w["scene_id"], w["variant_digest"]) for w in candidates["witnesses"] if w["population"] == population}
+        out[population]["family_variants"] = {f: {"needed": len(v), "candidate": len(v & have)}
+                                              for f, v in sorted(need.items())}
+    return out
+
+
+def study_markdown(result: Mapping[str, Any]) -> str:
+    lines = [f"# pkg323 witness study - {result['backend']}", "",
+             "| witness | family | kind | effect astro/cycles | rect ssim / dE | rect | mask ssim / dE | mask "
+             "| masked ratio rgb | outside ratio rgb |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
+
+    def fmt(v):
+        return "-" if v is None else "/".join(f"{x:.2f}" for x in v)
+    for r in result["rows"]:
+        if "error" in r:
+            lines.append(f"| {r['id']} | {r['family']} | {r['kind']} | {r['error']} | | | | | | |")
+            continue
+        e = r["effect"]
+        lines.append(f"| {r['id']} | {r['family']} | {r['kind']} | {e['astroray']['value']:.3f}/{e['cycles']['value']:.3f} "
+                     f"({'ok' if r['effect_pass'] else 'NO EFFECT'}) | {r['rect']['ssim']:.3f} / {r['rect']['delta_e']:.2f} | "
+                     f"{'PASS' if r['rect']['pass'] else 'FAIL'} | {r['mask']['ssim']:.3f} / {r['mask']['delta_e']:.2f} | "
+                     f"{'PASS' if r['mask']['pass'] else 'FAIL'} | {fmt(r['masked_mean_ratio_rgb'])} | "
+                     f"{fmt(r['outside_mask_mean_ratio_rgb'])} |")
+    return "\n".join(lines) + "\n"
+
+
 def main(argv: list[str] | None = None) -> int:
     # When run inside Blender via ``--python script.py -- <args>``, Blender
     # hands the FULL command line to sys.argv (including ``--``), so split on
@@ -2019,12 +2404,57 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--node-uses", type=Path, default=None,
                    help="node-use snapshot produced by --collect")
     p.add_argument("--out", type=Path, default=Path("docs/blender_parity/evidence/gate_b"))
+    p.add_argument("--study-enumerate", action="store_true",
+                   help="pkg323 (inside Blender): apply the witness selection rule to both candidate populations and write --candidates")
+    p.add_argument("--study", action="store_true",
+                   help="pkg323: render (unless --no-render) and score the --candidates witnesses under the rectangle and mask predicates")
+    p.add_argument("--candidates", type=Path, default=Path("benchmarks/reference_corpus/witness_candidates_v5.json"))
+    p.add_argument("--study-out", type=Path, default=None, help="pkg323 working/evidence directory")
+    p.add_argument("--backend", choices=("CPU", "GPU"), default="CPU", help="pkg323 Astroray backend")
+    p.add_argument("--pyd-dir", type=Path, default=None, help="pkg323: directory holding astroray*.pyd (default ASTRORAY_PYD_DIR)")
+    p.add_argument("--cycles-from", type=Path, default=None, help="pkg323: reuse the backend-independent Cycles legs of this run dir")
+    p.add_argument("--only", nargs="*", default=None, help="pkg323: restrict --study to these witness ids")
+    p.add_argument("--no-render", action="store_true", help="pkg323: score legs already on disk")
+    p.add_argument("--study-node-uses", action="append", default=[], metavar="POPULATION=PATH",
+                   help="pkg323: fresh --collect snapshot per population for the provisional S")
     args = p.parse_args(argv)
 
     repo_root = Path(__file__).resolve().parents[2]
 
     if args.population is not None:
         args.manifest = write_population_manifest(args.population, repo_root)
+
+    if args.study_enumerate or args.study:
+        study_out = Path(args.study_out) if args.study_out else Path("study_out")
+        study_out.mkdir(parents=True, exist_ok=True)
+        # Fresh derived manifests (the committed populations/*.json can lag the corpus bytes); never the repo copies.
+        manifests = {name: write_population_manifest(name, repo_root, study_out / "manifests") for name in sorted(POPULATIONS)}
+        if args.study_enumerate:
+            payload = enumerate_witness_candidates_in_blender(repo_root, manifests)
+            args.candidates.parent.mkdir(parents=True, exist_ok=True)
+            args.candidates.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+            print(f"[pkg323] {len(payload['witnesses'])} candidate witnesses, {len(payload['excluded'])} excluded -> {args.candidates}")
+            return 0
+        candidates = _load_json(args.candidates)
+        pyd = args.pyd_dir or (Path(os.environ["ASTRORAY_PYD_DIR"]) if os.environ.get("ASTRORAY_PYD_DIR") else None)
+        failures: dict[str, str] = {}
+        if not args.no_render:
+            if pyd is None:
+                print("--study needs --pyd-dir or ASTRORAY_PYD_DIR", file=sys.stderr)
+                return 2
+            failures = study_render_legs(candidates, manifests, study_out, args.backend, pyd_dir=pyd,
+                                         cycles_from=args.cycles_from, only=args.only)
+        snapshots = {}
+        for item in args.study_node_uses:
+            name, _, path = item.partition("=")
+            snapshots[name] = Path(path)
+        result = study_score(candidates, study_out, args.backend, snapshots, args.matrix)
+        result["render_failures"] = failures
+        (study_out / f"study_{args.backend}.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n",
+                                                              encoding="utf-8", newline="\n")
+        (study_out / f"study_{args.backend}.md").write_text(study_markdown(result), encoding="utf-8", newline="\n")
+        print(f"[pkg323] {args.backend}: {len(result['rows'])} witnesses -> {study_out}")
+        return 0 if not failures else 1
 
     if args.self_test:
         return 0 if run_self_test() else 1

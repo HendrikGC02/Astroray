@@ -214,6 +214,90 @@ def _object_and_node_report(bpy):
     }
 
 
+# pkg323: gate-(b) witness control kinds.  Each is a reversible, receipt-recorded counterfactual on exactly one
+# declared node: the feature present (baseline) versus neutralised (control).
+GATE_B_CONTROL_NODE_TYPES = {
+    "noise_const": "ShaderNodeTexNoise", "brick_const": "ShaderNodeTexBrick",
+    "wave_const": "ShaderNodeTexWave", "bump_zero": "ShaderNodeBump",
+    "mapping_identity": "ShaderNodeMapping",
+}
+
+
+def _gate_b_target_node(bpy, control, receipt):
+    """Bind the control's object/material/node, checking each is what the declaration says."""
+    obj = bpy.data.objects.get(control.get("object"))
+    mat = bpy.data.materials.get(control.get("material"))
+    node = mat and mat.node_tree and mat.node_tree.nodes.get(control.get("node"))
+    kind = control["kind"]
+    if obj is None or obj.type != "MESH" or mat is None or mat.name not in obj.data.materials:
+        raise ValueError(f"gate-b {kind} object/material binding is absent or wrong")
+    if node is None or node.bl_idname != GATE_B_CONTROL_NODE_TYPES[kind]:
+        raise ValueError(f"gate-b {kind} node binding is absent or wrong type")
+    receipt.update({"object": obj.name, "material": mat.name, "node": node.name})
+    return mat, node
+
+
+def _vec(value):
+    return [float(x) for x in value]
+
+
+def _replace_outputs_with_constant(mat, node, value):
+    """Feed every consumer of the node's linked outputs from a constant instead; the node itself is untouched."""
+    tree, replaced = mat.node_tree, []
+    for out in node.outputs:
+        links = list(out.links)
+        if not links:
+            continue
+        if out.type == "VALUE":
+            const = tree.nodes.new("ShaderNodeValue"); const.outputs[0].default_value = value
+        else:
+            const = tree.nodes.new("ShaderNodeRGB"); const.outputs[0].default_value = (value, value, value, 1.0)
+        const.name = f"{node.name}_Const_{out.name}"
+        for link in links:
+            target = link.to_socket
+            tree.links.remove(link)
+            tree.links.new(const.outputs[0], target)
+            replaced.append({"output": out.name, "to_node": target.node.name, "to_socket": target.name})
+    if not replaced:
+        raise ValueError("gate-b control target has no linked output to neutralise")
+    return replaced
+
+
+def _gate_b_control(bpy, control, receipt):
+    """Apply one of the pkg323 control kinds; returns after filling ``receipt``."""
+    kind = control["kind"]
+    mat, node = _gate_b_target_node(bpy, control, receipt)
+    if kind in ("noise_const", "wave_const"):
+        value = float(control.get("const", 0.5))
+        receipt["replaced"] = _replace_outputs_with_constant(mat, node, value)
+        receipt["const"] = value
+    elif kind == "brick_const":
+        names = ("Color1", "Color2", "Mortar")
+        before = [_vec(node.inputs[n].default_value) for n in names]
+        flat = [(before[0][i] + before[1][i]) / 2.0 for i in range(4)]
+        if all(b == flat for b in before):
+            raise ValueError("gate-b brick control would be a no-op")
+        for n in names:
+            node.inputs[n].default_value = flat
+        receipt.update({"before": before, "after": [flat] * 3})
+    elif kind == "bump_zero":
+        socket = node.inputs["Strength"]
+        before = float(socket.default_value)
+        if before == 0.0 or socket.is_linked:
+            raise ValueError("gate-b bump control would be a no-op or the strength is linked")
+        socket.default_value = 0.0
+        receipt.update({"before": before, "after": 0.0})
+    elif kind == "mapping_identity":
+        want = {"Location": (0.0, 0.0, 0.0), "Rotation": (0.0, 0.0, 0.0), "Scale": (1.0, 1.0, 1.0)}
+        before = {n: _vec(node.inputs[n].default_value) for n in want}
+        if node.vector_type != "POINT" or all(tuple(before[n]) == want[n] for n in want):
+            raise ValueError("gate-b mapping control would be a no-op or the mapping is not a POINT mapping")
+        for n, v in want.items():
+            node.inputs[n].default_value = v
+        receipt.update({"before": before, "after": {n: list(v) for n, v in want.items()}})
+    receipt["ok"] = True
+
+
 def _gate_c_control(bpy, scene, control):
     """Apply exactly one declared, reversible gate-C negative control."""
     kind = control.get("kind") if isinstance(control, dict) else ""
@@ -247,6 +331,8 @@ def _gate_c_control(bpy, scene, control):
                         "image": getattr(node.image, "filepath", ""), "ok": bool(node.image)})
         node.image = None
         receipt["after_image"] = None
+    elif kind in GATE_B_CONTROL_NODE_TYPES:
+        _gate_b_control(bpy, control, receipt)
     else: raise ValueError("unknown gate-c control")
     return receipt
 
@@ -296,6 +382,58 @@ def _gate_c_bindings(bpy, scene, controls):
     return bindings
 
 
+def _object_faces_mask(bpy, scene, obj, shape, inset_px):
+    """pkg323: pixels covered by ALL of the object's faces that the camera sees (not occluded), eroded by inset_px.
+
+    Rasterises the evaluated mesh's triangles projected through the active camera (pixel centres, top-down rows),
+    then keeps a pixel only if the first scene hit along its camera ray is this object.  Used for objects whose
+    silhouette is more than one polygon (subdivided cards, busts).
+    """
+    import numpy as np
+    from bpy_extras.object_utils import world_to_camera_view
+    h, w = shape
+    deps = bpy.context.evaluated_depsgraph_get()
+    ev = obj.evaluated_get(deps)
+    mesh = ev.to_mesh()
+    try:
+        mesh.calc_loop_triangles()
+        pts = []
+        for v in mesh.vertices:
+            c = world_to_camera_view(scene, scene.camera, ev.matrix_world @ v.co)
+            pts.append((c.x * w, (1.0 - c.y) * h))
+        covered = np.zeros((h, w), dtype=bool)
+        for tri in mesh.loop_triangles:
+            (x0, y0), (x1, y1), (x2, y2) = (pts[i] for i in tri.vertices)
+            det = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+            if abs(det) < 1e-12:
+                continue
+            xa, xb = max(0, int(min(x0, x1, x2) - 1)), min(w, int(max(x0, x1, x2) + 2))
+            ya, yb = max(0, int(min(y0, y1, y2) - 1)), min(h, int(max(y0, y1, y2) + 2))
+            if xa >= xb or ya >= yb:
+                continue
+            gx, gy = np.meshgrid(np.arange(xa, xb) + .5, np.arange(ya, yb) + .5)
+            l0 = ((y1 - y2) * (gx - x2) + (x2 - x1) * (gy - y2)) / det
+            l1 = ((y2 - y0) * (gx - x2) + (x0 - x2) * (gy - y2)) / det
+            inside = (l0 >= 0) & (l1 >= 0) & (1.0 - l0 - l1 >= 0)
+            covered[ya:yb, xa:xb] |= inside
+    finally:
+        ev.to_mesh_clear()
+    for _ in range(max(0, inset_px)):
+        padded = np.pad(covered, 1, constant_values=False)
+        covered = (covered & padded[:-2, 1:-1] & padded[2:, 1:-1] & padded[1:-1, :-2] & padded[1:-1, 2:])
+    frame = scene.camera.data.view_frame(scene=scene)
+    origin = scene.camera.matrix_world.translation
+    rot = scene.camera.matrix_world.to_3x3()
+    mask = np.zeros((h, w), dtype=np.uint8)
+    for y, x in zip(*np.nonzero(covered)):
+        u, v = (x + .5) / w, 1.0 - (y + .5) / h
+        local = frame[0].lerp(frame[1], u).lerp(frame[3].lerp(frame[2], u), v).normalized()
+        hit = scene.ray_cast(deps, origin, (rot @ local).normalized())
+        if hit[0] and hit[4] is not None and hit[4].original == obj.original:
+            mask[y, x] = 255
+    return mask
+
+
 def _gate_c_mask(bpy, scene, control, shape):
     """Return a source-geometry-derived top-down mask, never an image crop."""
     import numpy as np
@@ -303,8 +441,8 @@ def _gate_c_mask(bpy, scene, control, shape):
     mask = np.zeros((h, w), dtype=np.uint8)
     if kind == "rect":
         raise ValueError("gate-c control masks cannot be rectangles")
-    obj = bpy.data.objects.get(control.get("object")) if kind in ("object_polygon", "curves") else None
-    if kind in ("object_polygon", "curves") and obj is None: raise ValueError("gate-c mask object absent")
+    obj = bpy.data.objects.get(control.get("object")) if kind in ("object_polygon", "object_faces", "curves") else None
+    if kind in ("object_polygon", "object_faces", "curves") and obj is None: raise ValueError("gate-c mask object absent")
     from bpy_extras.object_utils import world_to_camera_view
     def point(co):
         v = world_to_camera_view(scene, scene.camera, obj.matrix_world @ co)
@@ -329,6 +467,8 @@ def _gate_c_mask(bpy, scene, control, shape):
                 pixel = Vector((x + .5, y + .5))
                 if intersect_point_tri_2d(pixel, *tri_a) or intersect_point_tri_2d(pixel, *tri_b):
                     mask[y, x] = 255
+    elif kind == "object_faces":
+        mask = _object_faces_mask(bpy, scene, obj, shape, int(spec.get("inset_px", 0)))
     elif kind == "curves":
         radius = int(spec.get("radius_px", 1))
         for curve in obj.data.curves:
@@ -441,6 +581,8 @@ def main():
                    help="pkg307: scene.render.resolution_percentage (GPU timing at >= 1280x720)")
     p.add_argument("--light-tree", choices=("on", "off"), default=None,
                    help="force native scene.cycles.use_light_tree (default: as authored)")
+    p.add_argument("--print-build", action="store_true",
+                   help="pkg323: print the loaded Astroray build id and module/addon hashes, then exit")
     p.add_argument("--report-only", action="store_true",
                    help="with --load-blend: print an object/node census as "
                         "JSON and exit, no render")
@@ -448,6 +590,18 @@ def main():
 
     repo_root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+    if args.print_build:
+        try:
+            astroray, addon = _bootstrap_astroray_addon(repo_root)
+            print("PKG323_BUILD " + json.dumps({
+                "build_id": str(getattr(astroray, "__build__", "")),
+                "module_sha256": hashlib.sha256(Path(astroray.__file__).read_bytes()).hexdigest(),
+                "addon_sha256": hashlib.sha256(Path(addon.__file__).read_bytes()).hexdigest()}), flush=True)
+        except Exception as exc:  # noqa: BLE001 - Blender leg boundary
+            traceback.print_exc()
+            print(f"PKG323_BUILD_FAIL {type(exc).__name__}: {exc}", flush=True)
+        return
 
     try:
         import bpy

@@ -1,5 +1,37 @@
 # Astroray Status
 
+## 2026-10-18 CURRENT — overnight session (Fable 5.1 lead; Opus/Sonnet/Haiku lanes)
+
+**Setup:** `architect-plan-2026-10-18.md` (Opus architect, state+refine). Anthropic agentic-practice research
+(`anthropic-agentic-practices-2026-10.md`) applied to the core: Haiku 5.5 `file-summarizer` agent, `effort:` pinned on
+every agent, prompt-cache TTL 1h for main + subagents (`.claude/settings.json`), CLAUDE.md §5 + AGENTS.md updated. The
+machine now reports 8C/16T (SMT on); lane limits unchanged (8 Kernel-Power 41 resets since 09-23, two on 10-14).
+Rendering-advances research sweep: `rendering-advances-research-2026-10.md` (14 angles, 60 sources read, 30 claims 3/3
+verified, 15 candidate packages). 32 stale worktrees pruned. No merges had happened 10-07 → 10-18.
+
+**Merged:** #1123 (rough glass = Cycles 5.2 MULTI_GGX default, owner 10-06), #1138 (pkg323 gate (b) witness control
+kinds). Docs direct to main: agents/config, architect plan, research notes, gate-e triage, gate scoring.
+
+**Gates on the stamped merged build** (`stage0-gate-scoring-2026-10-18.md`, build `3bb710b+20261017T134944Z`):
+- (c) **GREEN**: Welch-1b 0 rejected tiles in all three roles, ROI max 0.73 % (first formal run on stamped main).
+  Closes #1111.
+- (e) one open high: #1124 (prod_attributes GPU), lane in flight. #1047 closed (landed / re-tracked as #1125).
+  Two blind raters AGREE 8/8 (`gate-e-triage-2026-10-18.md`).
+- (a) formal re-run was running at handoff (see next-session prompt); (g) M2 not yet re-run; (b) pkg321 (#1139) raises
+  the matrix-only ceiling 0.639 → 0.694; pkg323 shows the predicate (rect vs mask) is not the binding axis for (b)
+  (S identical under both; 11 pass / 8 no effect / 8 SSIM-fail at 64 spp).
+
+**Open PRs / lanes at handoff:** #1139 pkg321 (review + GPU confirmation pending); `lane/issue1120` (#1120 + i16
+minors, BUILD REQUEST d7fee170 pending the lead's CUDA build); `lane/issue1124` (Opus) and `lane/issue1117` (Sonnet)
+started in the morning.
+
+**Issues filed:** #1124–#1137 (prod_attributes GPU; ReSTIR stale transparent limit; Disney delta-glass Schlick; row (d)
+POSIX paths; pkg321 real drops #1128–#1136; Brick mortar `Color3` socket #1137). pkg323 engine findings attached to
+#1005 (Bump zero effect CPU+GPU, Noise displacement ignored) and #995.
+
+**Tooling notes:** opencode critic (verify tier) did not complete twice (#865); reviews were blind Claude only.
+`launch_isolated_blender.ps1` must run in its own job (memory `isolated-blender-launcher-blocks-redirected-caller`).
+
 ## 2026-10-07 CURRENT — long-haul checkpoint (Opus 5.5 lead, 2026-10-05 → 10-07)
 
 **Gates:**

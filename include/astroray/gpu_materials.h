@@ -2290,10 +2290,21 @@ __device__ inline bool gpu_pr_glassHalfVector(const GPrincipledLobe& L, const GH
     if (transmit && wi.dot(wm) >= 0.f) return false;  // refraction needs HI < 0
     return true;
 }
-__device__ inline float gpu_pr_glassReflectProb(const GPrincipledClosure& c, float F) {
+// pdf_reflect = average(R) / average(R + T); twin of principled.cpp glassReflectProb
+// (film glass: R = rescaled thin-film F, T = (1-R) x sqrt(base_color)).
+__device__ inline float gpu_pr_glassReflectProb(const GPrincipledClosure& c, const GPrincipledLobe& L,
+                                                bool entering, float cosHO, float F) {
     GVec3 tt = gpu_pr_sqrtColor(c.color);
-    return astroray::ggxglass::reflectProb(
-        F, (c.specularTint.x + c.specularTint.y + c.specularTint.z) / 3.f, (tt.x + tt.y + tt.z) / 3.f);
+    if (!gpu_pr_filmActive(c))
+        return astroray::ggxglass::reflectProb(
+            F, (c.specularTint.x + c.specularTint.y + c.specularTint.z) / 3.f, (tt.x + tt.y + tt.z) / 3.f);
+    float etap = entering ? L.ior : (1.f / L.ior);
+    float filmIor = entering ? c.thinFilmIor : c.thinFilmIor / L.ior;
+    GVec3 R = gpu_pr_thinFilmF0RescaleRGB(gpu_pr_thinFilmFresnelRGB(c, cosHO, etap, filmIor),
+                                          GVec3(gpu_pr_F0_from_ior(etap)) * c.specularTint, etap);
+    GVec3 T = gvec3_max((GVec3(1.f) - R) * tt, GVec3(0.f));
+    float r = R.x + R.y + R.z, s = r + T.x + T.y + T.z;
+    return (s > 0.f) ? r / s : F;
 }
 
 // --- Transmission rough glass (principled.cpp transmissionEvalRGB) ----------
@@ -2383,7 +2394,7 @@ __device__ inline float gpu_pr_transmissionPdf(const GPrincipledClosure& c, cons
     float alpha = fmaxf(L.roughness * L.roughness, 0.0064f);
     float HO = wo.dot(wm), HI = wi.dot(wm);
     float etaI = rec.frontFace ? 1.f : L.ior, etaT = rec.frontFace ? L.ior : 1.f;
-    float pR = gpu_pr_glassReflectProb(c, gpu_pr_fresnelDielectric(HO, etaI, etaT));
+    float pR = gpu_pr_glassReflectProb(c, L, rec.frontFace, HO, gpu_pr_fresnelDielectric(HO, etaI, etaT));
     astroray::ggxglass::SingleScatter ss = astroray::ggxglass::evalSingleScatter(
         transmit, cosO, cosI, wm.dot(rec.normal), HO, HI, etap, alpha * alpha);
     return ss.pdf * (transmit ? 1.f - pR : pR);
@@ -2865,7 +2876,7 @@ __device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GPrincipledClos
         GVec3 wm = gpu_pr_sampleGgxVNDF(rec, wo, L.roughness, rng);
         float HdotO = wo.dot(wm);
         float F = gpu_pr_fresnelDielectric(fabsf(HdotO), etaI, etaT);
-        if (gpu_rng_uniform(rng) < gpu_pr_glassReflectProb(c, F)) {
+        if (gpu_rng_uniform(rng) < gpu_pr_glassReflectProb(c, L, rec.frontFace, fabsf(HdotO), F)) {
             ds.wi = (wm * (2.f * HdotO) - wo).normalized();
             ds.ok = ds.wi.dot(rec.normal) > 0.f;
         } else {

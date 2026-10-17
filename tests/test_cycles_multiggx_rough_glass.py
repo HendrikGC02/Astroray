@@ -193,3 +193,33 @@ def test_glass_selection_weight_includes_darkening_cpu():
     assert abs(q_tint - expected) <= 1e-3, (
         f"tinted selection share {q_tint:.5f} != {expected:.5f} (white {q_white:.5f}, "
         f"avg darkening {d:.4f}): glass sample weight misses average(darkening)")
+
+
+def test_film_glass_reflect_probability_tracks_film_reflectance_cpu():
+    """Cycles picks reflection with pdf_reflect = average(R) / average(R + T), where R is
+    the thin-film reflectance for film glass (microfacet_fresnel, generalized Schlick).
+    Then the one-sample weights f/pdf of reflected and refracted samples are balanced,
+    up to Astroray's 1/eta^2 radiance factor on refraction (Cycles omits it), divided
+    out below. A quarter-wave film (n 2.4, 57 nm) lifts R from ~0.04 to ~0.34; picking
+    with the plain dielectric F makes reflected weights ~10x the refracted ones
+    (variance only). RED before: ratio 10.6."""
+    r = astroray.Renderer()
+    mid = r.create_material("principled", [1.0, 1.0, 1.0],
+                            {"transmission_weight": 1.0, "roughness": 0.3, "ior": 1.5,
+                             "thin_film_thickness": 57.0, "thin_film_ior": 2.4})
+    mu = 0.8
+    wo = [math.sqrt(1.0 - mu * mu), mu, 0.0]
+    n_s = 20_000
+    wis, pdfs = r.debug_bsdf_sample_batch(mid, wo, np.zeros((2, n_s), dtype=np.float32))
+    wis, pdfs = np.asarray(wis), np.asarray(pdfs)
+    w_refl, w_refr = [], []
+    for wi, p in zip(wis, pdfs):
+        if p <= 0.0:
+            continue
+        w = float(np.mean(r.eval_material(mid, wo, wi.tolist()))) / float(p)
+        (w_refl if wi[1] > 0.0 else w_refr).append(w)
+    assert len(w_refl) > 500 and len(w_refr) > 500, (len(w_refl), len(w_refr))
+    ratio = float(np.mean(w_refl)) / (float(np.mean(w_refr)) * 1.5 ** 2)  # entry eta = 1.5
+    assert 0.75 <= ratio <= 1.33, (
+        f"mean f/pdf reflected / refracted = {ratio:.3f} ({len(w_refl)} refl, "
+        f"{len(w_refr)} refr): film glass picks reflection with the plain dielectric F")

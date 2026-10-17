@@ -2342,8 +2342,12 @@ def _study_provisional_scores(candidates: Mapping[str, Any], rows: list[dict[str
             if fam and matrix.get(row["identity"]) == SUPPORTED:
                 need.setdefault(fam[0], set()).update((v["scene_id"], v["variant_digest"]) for v in row["variants"])
         have = {(w["scene_id"], w["variant_digest"]) for w in candidates["witnesses"] if w["population"] == population}
-        out[population]["family_variants"] = {f: {"needed": len(v), "candidate": len(v & have)}
-                                              for f, v in sorted(need.items())}
+        why = {(e["scene_id"], e["variant_digest"]): e["reason"] for e in candidates.get("excluded", [])}
+        out[population]["family_variants"] = {
+            f: {"needed": len(v), "candidate": len(v & have),
+                "missing": [f"{sc}:{dg[:10]} {why.get((sc, dg), 'no eligible node (not a reachable screen-space material node)')}"
+                            for sc, dg in sorted(v - have)]}
+            for f, v in sorted(need.items())}
     return out
 
 
@@ -2376,10 +2380,11 @@ def study_combined_markdown(results: Mapping[str, Mapping[str, Any]]) -> str:
             for rule in ("rep", "fanout"):
                 vals = [results[b]["scores"][population][f"{region}_{rule}"]["S"] for b in backends]
                 lines.append(f"| {population} | {region} | {rule} | " + " | ".join(f"{v:.3f}" for v in vals) + " |")
-    lines += ["", "## Cases needed to credit a family completely", "", "| population | family | (scene, variant) cases needed | candidate witnesses |", "|---|---|---|---|"]
+    lines += ["", "## Cases needed to credit a family completely", "",
+              "| population | family | (scene, variant) cases needed | candidate witnesses | missing (and why) |", "|---|---|---|---|---|"]
     for population, scores in results[backends[0]]["scores"].items():
         for family, counts in scores["family_variants"].items():
-            lines.append(f"| {population} | {family} | {counts['needed']} | {counts['candidate']} |")
+            lines.append(f"| {population} | {family} | {counts['needed']} | {counts['candidate']} | {'; '.join(counts['missing']) or '-'} |")
     return chr(10).join(lines) + chr(10)
 
 
@@ -2396,8 +2401,9 @@ def study_markdown(result: Mapping[str, Any]) -> str:
             lines.append(f"| {r['id']} | {r['family']} | {r['kind']} | {r['error']} | | | | | | |")
             continue
         e = r["effect"]
+        rel = "/".join(f"{100 * e[k]['value'] / max(e[k]['signal'], 1e-9):.0f}%" for k in ("astroray", "cycles"))
         lines.append(f"| {r['id']} | {r['family']} | {r['kind']} | {e['astroray']['value']:.3f}/{e['cycles']['value']:.3f} "
-                     f"({'ok' if r['effect_pass'] else 'NO EFFECT'}) | {r['rect']['ssim']:.3f} / {r['rect']['delta_e']:.2f} | "
+                     f"= {rel} of signal ({'ok' if r['effect_pass'] else 'NO EFFECT'}) | {r['rect']['ssim']:.3f} / {r['rect']['delta_e']:.2f} | "
                      f"{'PASS' if r['rect']['pass'] else 'FAIL'} | {r['mask']['ssim']:.3f} / {r['mask']['delta_e']:.2f} | "
                      f"{'PASS' if r['mask']['pass'] else 'FAIL'} | {fmt(r['masked_mean_ratio_rgb'])} | "
                      f"{fmt(r['outside_mask_mean_ratio_rgb'])} |")

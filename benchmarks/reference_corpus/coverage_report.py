@@ -2158,6 +2158,7 @@ def study_render_legs(candidates: Mapping[str, Any], manifests: Mapping[str, Pat
     env = os.environ.copy()
     env["ASTRORAY_PYD_DIR"] = str(pyd_dir)
     env.setdefault("OMP_NUM_THREADS", "8")
+    env.setdefault("ASTRORAY_LEG_THREADS", "8")
     if backend == "CPU":
         env["CUDA_VISIBLE_DEVICES"] = "-1"
     build = _study_build_info(blender, env)
@@ -2239,7 +2240,7 @@ def _study_sheet(wdir: Path, roi: list[float], path: Path) -> None:
     row2 = np.concatenate([cut(ac), cut(cc), srgb(np.clip(np.abs(a - ac)[sl] * 3.0, 0, 1)),
                            srgb(np.clip(np.abs(c - cc)[sl] * 3.0, 0, 1))], axis=1)
     sheet = np.concatenate([row1, row2], axis=0)
-    scale = max(1, 960 // sheet.shape[1])
+    scale = max(1, 1400 // sheet.shape[1])
     img = Image.fromarray(sheet).resize((sheet.shape[1] * scale, sheet.shape[0] * scale), Image.NEAREST)
     path.parent.mkdir(parents=True, exist_ok=True)
     img.save(path)

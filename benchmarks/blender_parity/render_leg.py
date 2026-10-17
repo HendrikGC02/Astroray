@@ -426,8 +426,9 @@ def _object_faces_mask(bpy, scene, obj, shape, inset_px):
     rot = scene.camera.matrix_world.to_3x3()
     mask = np.zeros((h, w), dtype=np.uint8)
     for y, x in zip(*np.nonzero(covered)):
-        u, v = (x + .5) / w, 1.0 - (y + .5) / h
-        local = frame[0].lerp(frame[1], u).lerp(frame[3].lerp(frame[2], u), v).normalized()
+        # view_frame corners: 0 top-right, 1 bottom-right, 2 bottom-left, 3 top-left.
+        u, v = (x + .5) / w, (y + .5) / h
+        local = frame[3].lerp(frame[0], u).lerp(frame[2].lerp(frame[1], u), v).normalized()
         hit = scene.ray_cast(deps, origin, (rot @ local).normalized())
         if hit[0] and hit[4] is not None and hit[4].original == obj.original:
             mask[y, x] = 255
@@ -763,6 +764,9 @@ def main():
             scene.cycles.device = "GPU"
         elif args.engine == "CYCLES":
             scene.cycles.device = "CPU"
+        if os.environ.get("ASTRORAY_LEG_THREADS"):  # pkg323: machine-load cap (lane rule 12); unset = Blender default
+            scene.render.threads_mode = "FIXED"
+            scene.render.threads = int(os.environ["ASTRORAY_LEG_THREADS"])
         if args.res_percent is not None:
             scene.render.resolution_percentage = args.res_percent
         if args.camera:

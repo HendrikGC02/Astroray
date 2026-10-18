@@ -88,16 +88,15 @@ def test_ssim_reads_addon_leg_exr_as_rgb(tmp_path):
     and assert the SSIM-side read is identical RGB (no Blender needed)."""
     pytest.importorskip("cv2")
     pytest.importorskip("skimage")
-    import cv2
     import imageio.v3 as iio
 
     rng = np.random.default_rng(5)
     rgb = rng.random((48, 64, 3)).astype(np.float32)
     out = tmp_path / "addon_leg.exr"
     ref = tmp_path / "cycles_ref.exr"
-    # Same write path as _render_astroray_addon (cv2.imwrite of the BGR-reversed
-    # array); the Cycles reference is RGB on disk (iio.imwrite stands in for it).
-    assert cv2.imwrite(str(out), np.ascontiguousarray(rgb[..., ::-1]))
+    # Same write path as _render_astroray_addon (imageio, RGB; #1145: cv2 5.0.0
+    # cannot write EXR); the Cycles reference is also RGB on disk.
+    iio.imwrite(str(out), rgb)
     iio.imwrite(str(ref), rgb)
     # The SSIM read path returns the addon leg back in RGB order.
     back = rp._read_exr_float(out)
@@ -164,3 +163,25 @@ def test_glass_sphere_addon_leg_renders_glass(tmp_path):
         top = a[int(0.38 * h):int(0.47 * h), xs].mean()
         bottom = a[int(0.47 * h):int(0.56 * h), xs].mean()
         assert top / bottom < 0.9, f"sphere at x={x0}: top/bottom {top / bottom:.3f} (diffuse-like)"
+
+
+def test_addon_leg_does_not_need_cv2_exr_writer(monkeypatch, tmp_path):
+    """#1145: opencv-python 5.0.0 has no OpenEXR writer; the leg must not call it."""
+    cv2 = pytest.importorskip("cv2")
+
+    def no_writer(*a, **k):
+        raise cv2.error("could not find a writer for the specified extension")
+
+    monkeypatch.setattr(cv2, "imwrite", no_writer)
+    scene = rp._load_scenes()["glass_sphere"]
+    img = np.random.default_rng(4).random((scene.height, scene.width, 3)).astype(np.float32)
+
+    def fake_run(command, cwd, timeout):
+        np.save(Path(command[command.index("--out") + 1]).with_suffix(".npy"), img)
+        return 1.0, 0.0, None
+
+    monkeypatch.setattr(rp, "_run_command", fake_run)
+    out = tmp_path / "leg.exr"
+    _, _, skip = rp._render_once(scene, "astroray-cpu", out, sys.executable, None, 60)
+    assert skip is None
+    np.testing.assert_allclose(rp._read_exr_float(out), img, rtol=0, atol=1e-6)

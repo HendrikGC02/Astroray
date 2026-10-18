@@ -3519,7 +3519,7 @@
     "feature": "TEX_BRICK",
     "bl_idname": "ShaderNodeTexBrick",
     "socket_or_prop": "input:Mortar",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": "",
     "socket_id": "Mortar"
   },

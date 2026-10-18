@@ -575,16 +575,12 @@ def _render_astroray_addon(
     # render_leg exits 0 even on failure (sentinel protocol); the .npy is the proof.
     if not npy.exists():
         return elapsed, peak, "addon_leg_no_output"
-    import imageio.v3 as iio  # type: ignore
+    os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
+    import cv2  # type: ignore
     import numpy as np  # type: ignore
 
-    # #1145: opencv-python 5.0.0 has no OpenEXR writer, so cv2.imwrite(.exr)
-    # fails. Write through imageio like the other Astroray legs (RGB; the SSIM
-    # read path, cv2.imread + BGR->RGB reversal, expects exactly this).
     rgb = np.load(npy).astype("float32")  # linear, row 0 = top (render_leg flips)
-    try:
-        iio.imwrite(str(output), np.ascontiguousarray(rgb))
-    except Exception:
+    if not cv2.imwrite(str(output), np.ascontiguousarray(rgb[..., ::-1])):
         return elapsed, peak, "addon_leg_exr_write_failed"
     return elapsed, peak, None
 

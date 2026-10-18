@@ -426,23 +426,12 @@ def test_voronoi_n_sphere_radius():
     }
     val = r.eval_texture_at_3d("voronoi", params, 0.37, 0.42, 0.51)
 
-    # At randomness=0, closest neighbor to (0,0,0) is (1,0,0) or (0,1,0) or (0,0,1), distance=1.
-    # radius = 1/2 = 0.5.
-    # The output is the radius itself, not mapped through distance -> t.
-    # Legacy value() returns distance mapped to color lerp, but for N-Sphere Radius,
-    # the distance field in VoronoiOutput is the F1 distance to the closest point,
-    # and radius is the separate field. However, the value() method uses out.distance,
-    # not out.radius. Let me re-check the implementation.
-    # Actually, the current implementation returns out.distance in value(), which for
-    # N-Sphere Radius feature is the F1 distance, NOT the radius. The radius is in out.radius.
-    # This is a design choice: value() returns the primary scalar (distance for most features).
-    # For N-Sphere Radius, the radius is a separate output accessible via evalFull().
-    # So this test should verify that the F1 distance is returned (as for other features),
-    # and the radius is non-zero.
-    # At randomness=0, p=(0.37,0.42,0.51) the closest lattice cell is (0,0,1) -- z=0.51 is
-    # nearer to z=1 (0.49) than to z=0 (0.51) -- so F1 = sqrt(0.37^2 + 0.42^2 + 0.49^2).
+    # At randomness=0 the feature points sit on the unit lattice: the closest point's nearest
+    # neighbour is one cell away (distance 1), so the Cycles radius is 1/2 everywhere. Before
+    # #1108 the 3D path returned the F1 distance here (the pkg115 approximation).
+    assert abs(val[0] - 0.5) < 0.01, f"N-Sphere Radius (Cycles voronoi_n_sphere_radius): expected 0.5, got {val[0]:.4f}"
     expected_f1 = math.sqrt(0.37**2 + 0.42**2 + (1.0 - 0.51)**2)
-    assert abs(val[0] - expected_f1) < 0.01, f"N-Sphere Radius returns F1 distance: expected {expected_f1:.4f}, got {val[0]:.4f}"
+    assert abs(val[0] - expected_f1) > 0.05, "N-Sphere Radius must not be the F1 distance (pre-#1108 behaviour)"
 
 
 def test_voronoi_feature_enum_order():
@@ -501,13 +490,13 @@ def test_voronoi_feature_enum_order():
     val_edge = r.eval_texture_at_3d("voronoi", params_edge, 0.3, 0.3, 0.3)
     assert abs(val_edge[0] - val_f1[0]) > 0.05, f"Feature 3 (DistToEdge) must differ from F1: {val_edge[0]:.4f} vs {val_f1[0]:.4f}"
 
-    # Feature 4: N-Sphere Radius (returns F1 distance in value(), not radius itself)
+    # Feature 4: N-Sphere Radius is the Cycles radius since #1108 (half the distance from the
+    # closest feature point to its nearest neighbour), no longer the F1 distance.
     params_radius = dict(base_params)
     params_radius["feature"] = 4
     val_radius = r.eval_texture_at_3d("voronoi", params_radius, 0.3, 0.3, 0.3)
-    # N-Sphere Radius feature's value() still returns out.distance (F1 distance).
-    # (Radius is in out.radius, accessible via evalFull().)
-    assert abs(val_radius[0] - val_f1[0]) < 0.01, f"Feature 4 (N-Sphere Radius) value() returns F1 distance: {val_radius[0]:.4f} vs {val_f1[0]:.4f}"
+    assert 0.0 < val_radius[0] < 1.0, f"Feature 4 (N-Sphere Radius) out of range: {val_radius[0]:.4f}"
+    assert abs(val_radius[0] - val_f1[0]) > 0.001, f"Feature 4 (N-Sphere Radius) must differ from F1: {val_radius[0]:.4f} vs {val_f1[0]:.4f}"
 
 
 def test_voronoi_standalone_f1_plus_f2():

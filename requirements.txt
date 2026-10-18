@@ -6,3 +6,4 @@ pillow
 pyyaml
 scipy
 scikit-image
+opencv-python>=4.8,<5

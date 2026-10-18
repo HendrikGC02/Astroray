@@ -4318,7 +4318,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 #          bias, brick_width, row_height, offset_amount, offset_freq, squash, squash_freq]
                 c1 = list(node.inputs['Color1'].default_value[:3]) if node.inputs.get('Color1') else [0.8, 0.8, 0.8]
                 c2 = list(node.inputs['Color2'].default_value[:3]) if node.inputs.get('Color2') else [0.2, 0.2, 0.2]
-                c_mortar = list(node.inputs['Color3'].default_value[:3]) if node.inputs.get('Color3') else [0.0, 0.0, 0.0]
+                c_mortar = list(node.inputs['Mortar'].default_value[:3]) if node.inputs.get('Mortar') else [0.0, 0.0, 0.0]
                 if fac_variant:  # Fac = mortar factor
                     c1, c2, c_mortar = [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]
                 scale = float(node.inputs['Scale'].default_value) if node.inputs.get('Scale') else 5.0

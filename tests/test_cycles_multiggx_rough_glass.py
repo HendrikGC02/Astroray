@@ -223,3 +223,52 @@ def test_film_glass_reflect_probability_tracks_film_reflectance_cpu():
     assert 0.75 <= ratio <= 1.33, (
         f"mean f/pdf reflected / refracted = {ratio:.3f} ({len(w_refl)} refl, "
         f"{len(w_refr)} refr): film glass picks reflection with the plain dielectric F")
+
+
+# GPU twins of the two selection tests above (#1143 review): the BSDF-level debug
+# hooks are CPU-only, so the GPU leg is a GPU-vs-CPU render parity. Selection changes
+# are variance only, so a GPU sampler/pdf that disagreed on pdf_reflect or on the
+# darkened lobe weight would bias the GPU mean away from the CPU one.
+_PARITY_CASES = [
+    # B4: quarter-wave film (R ~0.34 vs plain F ~0.04) on rough glass.
+    ("film_glass_quarter_wave",
+     [1.0, 1.0, 1.0], {"transmission_weight": 1.0, "roughness": 0.3, "ior": 1.5,
+                       "thin_film_thickness": 57.0, "thin_film_ior": 2.4}),
+    # B3: coat over tinted rough glass, strong darkening (roughness 1.0).
+    ("coat_over_tinted_glass_r1",
+     _TINT, {"transmission_weight": 1.0, "roughness": 1.0, "ior": 1.5,
+             "coat_weight": 1.0, "coat_roughness": 0.3}),
+]
+
+
+def _parity_render(colour, params, use_gpu):
+    r = astroray.Renderer()
+    if use_gpu:
+        r.set_use_gpu(True)
+    r.set_background_color([0.40, 0.45, 0.55])
+    mid = r.create_material("principled", colour, params)
+    r.add_sphere([0.0, 0.0, 0.0], 0.9, mid)
+    r.setup_camera([0.0, 0.0, 1.35], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
+                   60.0, 1.0, 0.0, 1.35, 48, 48)
+    r.set_integrator("path_tracer")
+    r.set_seed(1143)
+    img = np.asarray(r.render(256, 6, None, False), dtype=np.float64)  # linear
+    assert np.all(np.isfinite(img))
+    return img.reshape(48, 48, 3)
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(AVAILABLE and not astroray.__features__.get("cuda", False),
+                    reason="CUDA feature not in this build")
+@pytest.mark.parametrize("label,colour,params", _PARITY_CASES, ids=[c[0] for c in _PARITY_CASES])
+def test_glass_selection_gpu_cpu_parity(label, colour, params):
+    if not astroray.Renderer().gpu_available:
+        pytest.skip("CUDA GPU not available")
+    gpu = _parity_render(colour, params, use_gpu=True)
+    cpu = _parity_render(colour, params, use_gpu=False)
+    for c, ch in enumerate("RGB"):
+        cm, gm = float(cpu[..., c].mean()), float(gpu[..., c].mean())
+        print(f"[{label}] {ch}: cpu={cm:.5f} gpu={gm:.5f} ratio={gm / cm:.4f}")
+        assert 0.95 <= gm / cm <= 1.05, (
+            f"{label} channel {ch}: GPU/CPU mean {gm / cm:.4f} outside [0.95, 1.05] "
+            f"(cpu {cm:.5f}, gpu {gm:.5f})")

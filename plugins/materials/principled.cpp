@@ -824,6 +824,8 @@ class PrincipledPlugin : public Material {
     // glass: R = thin-film F with specular_tint folded in by the F0 rescale, T = (1-R) x
     // sqrt(base_color), exactly the factors the film eval uses (Cycles microfacet_fresnel,
     // generalized Schlick + thin film). Otherwise R = F x specular_tint, T = (1-F) x tint.
+    // Blender v5.2.0 intern/cycles/kernel/closure/bsdf_microfacet.h:274-328,768,847
+    // (BSD-3-Clause).
     float glassReflectProb(const Lobe& L, bool entering, float cosHO, float F) const {
         if (!filmActive())
             return astroray::ggxglass::reflectProb(F, glassReflTintAvg(), glassTransTintAvg());

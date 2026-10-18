@@ -22,7 +22,14 @@ MULTI_GGX on CPU and GPU; the pkg265 Heitz walk stays as the opt-in CPU model
 ## The model
 
 - Lobe: isotropic single-scatter GGX glass (Walter 2007), VNDF sampling (Heitz 2018);
-  reflect with `pdf_reflect = avg(F·reflTint) / avg(F·reflTint + (1-F)·transTint)`.
+  reflect with `pdf_reflect = average(R) / average(R + T)` (eval `bsdf_microfacet.h:768`,
+  sample `:847`). Film-free: `R = F·reflTint`, `T = (1-F)·transTint`. Thin-film glass
+  (`generalized_schlick_fresnel`, `:274-328`): `R` = the per-channel iridescence F after the
+  F0 rescale (specular tint folded in), `T = (1-R)·transTint`. Astroray uses the same R and
+  T as its film eval (`glassReflectProb` / `gpu_pr_glassReflectProb`, lane i1120, #1143).
+- Lobe selection: `microfacet_ggx_preserve_energy` also does `sample_weight *=
+  average(darkening)` (`:483`); Astroray multiplies the non-delta glass lobe's `sel` by
+  the same factor (#1143). Variance only: eval, pdf and sample share `sel`.
 - `energy_scale = 1 + (1-E)/E = 1/E` on eval and sample of both sub-lobes, with
   `E = ggx_glass_E[rough, mu, z]`, `rough = sqrt(alpha)`, `mu = N·view`,
   `z = sqrt(|ior-1|/(ior+1))`, `_inv_` tables at `1/ior` when the relative IOR < 1.
@@ -63,6 +70,17 @@ encoding) and Principled transmission is the same lobe, so both use it. Smooth g
    (Cycles r 1.0 one-bounce minus zero-bounce: +0.30 at the rim, Astroray +0.00).
    Keeping the check is the physical choice and keeps NEE/BSDF MIS consistent; dropping
    it would reproduce Cycles' look at high roughness. Decision for the owner.
+5. Lobe selection weight (variance only, never bias). Cycles starts a closure's
+   `sample_weight` at `average(weight)` and multiplies `average(estimate_albedo)` in the
+   Fresnel setup (`bsdf_microfacet.h:947` dielectric tint / Glass BSDF, `:970` generalized
+   Schlick / Principled; `:1015` is the F82 metal twin). Astroray starts `sel` at
+   `luminance(weight)` (the convention of every Principled lobe) and has no
+   `estimate_albedo` factor. It does port the `average(darkening)` factor (`:483`).
+
+Optional variant (lane i1120, unmeasured, not merged): sha `4f2eed1d` moves the GPU
+`average(darkening)` lookup and the film `pdf_reflect` into `ASTRORAY_SHADE_NOINLINE`
+helpers to trim the principled shade-kernel STACK (+176..+1112 B on #1143). Not built;
+the Cornell A/B showed the merged inline version costs +0.3 %, inside the gate.
 
 ## Measurements (CPU, MinGW, 2026-10-06)
 

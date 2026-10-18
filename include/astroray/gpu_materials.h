@@ -2291,7 +2291,8 @@ __device__ inline bool gpu_pr_glassHalfVector(const GPrincipledLobe& L, const GH
     return true;
 }
 // pdf_reflect = average(R) / average(R + T); twin of principled.cpp glassReflectProb
-// (film glass: R = rescaled thin-film F, T = (1-R) x sqrt(base_color)).
+// (film glass: R = rescaled thin-film F, T = (1-R) x sqrt(base_color)). Blender v5.2.0
+// intern/cycles/kernel/closure/bsdf_microfacet.h:274-328,768,847 (BSD-3-Clause).
 __device__ inline float gpu_pr_glassReflectProb(const GPrincipledClosure& c, const GPrincipledLobe& L,
                                                 bool entering, float cosHO, float F) {
     GVec3 tt = gpu_pr_sqrtColor(c.color);

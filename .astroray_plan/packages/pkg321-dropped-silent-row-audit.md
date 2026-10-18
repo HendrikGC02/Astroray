@@ -2,7 +2,7 @@
 
 **Pillar:** 5
 **Track:** A
-**Status:** open
+**Status:** done — #1139, merged 2026-10-18
 **Estimated effort:** 1 session (~3-4 h); CPU probes, GPU confirmation legs via the lead
 **Depends on:** pkg320
 

@@ -22,7 +22,7 @@ Read first: `STATUS.md` (2026-10-18 entry), `architect-plan-2026-10-18.md` (toni
 - Lanes: `lane-i1108` (Voronoi 3D, Sonnet) killed by the 429 mid-work -- its worktree `i1108` holds uncommitted or WIP
   state; resume by name with SendMessage after Oct 22 (a send resumes a killed lane). `lane-i1117` done, unpushed
   (`79e05354`, `3c121c40`), waits for #1139 to merge, then rebase + regenerate the matrix (Blender 5.2, CPU-heavy).
-- Row (e) draft ratings for all 77 open issues: `astra_run6-10-18\gate-eatings-draft.json` (sources 10-04 file,
+- Row (e) draft ratings for all 77 open issues: `astra_run\2026-10-18\gate-e\ratings-draft.json` (sources 10-04 file,
   10-06 doc, 10-18 doc batches 1+2). The 9 pkg321 drops #1128-#1136 are **lead-provisional medium**, not blind;
   re-rate them before `--finalize-gate-e` or get the owner's OK to use the lead rating.
 

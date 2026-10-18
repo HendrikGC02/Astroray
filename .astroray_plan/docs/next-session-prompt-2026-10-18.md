@@ -4,41 +4,48 @@ Read first: `STATUS.md` (2026-10-18 entry), `architect-plan-2026-10-18.md` (toni
 `stage0-gate-scoring-2026-10-18.md`, `anthropic-agentic-practices-2026-10.md` (the rules now in CLAUDE.md §5),
 `rendering-advances-research-2026-10.md` (candidate packages), memory `isolated-blender-launcher-blocks-redirected-caller`.
 
-## State at handoff (updated 2026-10-18 midday)
-- **Usage limit:** Opus 5.5 AND Sonnet 5.5 agents hit the weekly limit (HTTP 429), resets **Oct 22 2pm Sydney**. Every
-  lane and the Opus pr-reviewer died; the Fable lead still runs. Haiku untested. Until then: no new lanes, no blind
-  Claude reviews; the lead reviews itself and says so in the PR comment (did so on #1147).
-- **Owner paused heavy work** (midday 10-18): no GPU jobs, no CUDA builds, no test sweeps until the owner says so.
-  Nothing of the lead's is running (no GPU lock holder, no Blender, no build).
-- main `443c2502`; `build_cuda` (10/18 00:49) predates HEAD -- rebuild before any GPU result.
-- Gates on the stamped build: (a) GREEN 62.9/100.6 ms, (c) GREEN, (g) RED 2/8 CPU 1/8 GPU, (e) one open high (#1137)
-  until #1146 merges; #1124 shown stale (closes with #1144). `stage0-gate-scoring-2026-10-18.md`.
-- Open PRs, all CI-pending (GitHub runners ~75 min per build-and-test):
-  - **#1139** pkg321: CI failed once (19 probe-credited rows had no corpus scene) -> lead fix `06158641` registers them
-    as `PKG321_PROOF_PENDING` (shrink-only); CI re-running. Sign-off exists. Merge, then flip the pkg321 spec to done.
-  - **#1143** (#1120) rebased onto main `f6c9e584` (dropped a stale lead-doc commit; code identical to reviewed
-    1678eda9). Sign-off exists. **#1144** (#1124) rebased `25442a82`, same reason. **#1146** (#1137) sign-off exists.
-  - **#1147** tooling (#1127/#950/#1145): lead self-review APPROVE in the PR comments (no blind reviewer available).
-- Lanes: `lane-i1108` (Voronoi 3D, Sonnet) killed by the 429 mid-work -- its worktree `i1108` holds uncommitted or WIP
-  state; resume by name with SendMessage after Oct 22 (a send resumes a killed lane). `lane-i1117` done, unpushed
-  (`79e05354`, `3c121c40`), waits for #1139 to merge, then rebase + regenerate the matrix (Blender 5.2, CPU-heavy).
-- Row (e) draft ratings for all 77 open issues: `astra_run\2026-10-18\gate-e\ratings-draft.json` (sources 10-04 file,
-  10-06 doc, 10-18 doc batches 1+2). The 9 pkg321 drops #1128-#1136 are **lead-provisional medium**, not blind;
-  re-rate them before `--finalize-gate-e` or get the owner's OK to use the lead rating.
+## State at handoff (evening 2026-10-18; owner asked the lead to stop after the in-flight jobs)
+- **Usage limit:** Opus 5.5 and Sonnet 5.5 agents hit the weekly limit (HTTP 429), resets **Oct 22 2pm Sydney**.
+  Every lane and the Opus pr-reviewer died; the Fable lead finished alone. **opencode API key expired** the same
+  day (`delegate.py` -> APIError in 3 s, fallback -> server error; memory `opencode-api-key-expired-2026-10-18`),
+  so there is no non-Claude rater/critic either until the owner renews it in the OpenCode Console.
+- **Merged today:** #1139 pkg321 (spec flipped to done), #1143 (#1120), #1144 (#1124), #1146 (#1137), #1147
+  (#1127/#950/#1145). Closed: #1089, #1120, #1124, #1127, #950, #1137, #1145. Worktrees/branches removed.
+- **Open PRs:** **#1148** (#1117 scanner Pointiness + matrix regen on Blender 5.2 + Pointiness/Mortar proof-pending;
+  worktree `i1117`): OPEN, CI build-and-test pending at handoff -- merge on green. **#1149** (#1108 Voronoi 3D Cycles 5.2 port + test re-pin; worktree `i1108`,
+  CUDA build at d8f73bf4 in `i1108\build_cuda`): OPEN, CI build-and-test pending at handoff -- merge on green. Both are lead-reviewed only (no blind reviewer
+  available); run a retroactive `cycles-parity-reviewer` pass on #1149 when agents are back.
+- **Builds:** `build_cuda` rebuilt at main `188b6374` (stamp `188b63745195`, sm_120 verified, 16:37).
+  `dist/astroray` staged addon: rebuild started at 16:5x (`build_blender_addon.py -j 12`); check
+  `dist/astroray/*.pyd` mtime and `astroray.__build__` before using it (memory `staged-addon-pyd-stale-vs-head`).
+- **Gates** (`stage0-gate-scoring-2026-10-18.md`): (a) GREEN 62.9/100.6 ms, (c) GREEN, (g) RED 2/8 CPU 1/8 GPU
+  measured on `3bb710b8` -- NOT re-measured on the merged build (the owner stopped the session before the run;
+  the test needs `ASTRORAY_PYD_DIR=dist\astroray` + Blender 5.2, which is why the first attempt skipped 32/33).
+  (e): 0 open highs on the live list after today's closures, but no independent rating exists for the nine pkg321
+  drops #1128-#1136; draft ratings for all 77 open issues at `astra_run\2026-10-18\gate-e\ratings-draft.json`
+  (the nine are lead-provisional medium). The committed manifest still carries the 10-05 snapshot.
+- Evidence: `%LOCALAPPDATA%\astroray-evidence\2026-10-18\{a,c-welch,g,g2}`, `astra_run\2026-10-18\{i1108,
+  i1117,gate-e,m5-perf,m6-glass,pkg321,pkg323,reviews,tooling}` (i1108 holds the Cycles 3D references + tools).
 
 ## First jobs
-1. `gh pr checks 1139 1143 1144 1146 1147`; squash-merge each green one (`gh pr merge N --squash --delete-branch`);
-   remove its worktree. After #1139: spec pkg321 `**Status:** done -- #1139` on main.
-2. Once the owner lifts the pause: rebuild `build_cuda` at merged main, then `lane-i1117` rebase + matrix regen + PR
-   (closes #1117); M2 row (g) on the merged build (expect 0 silent pairs, prod_attributes GPU in band).
-3. Row (e): `known_issues_report.py --capture-gate-e`, finish the ratings file (timestamp + baseline sha, replace the 9
-   provisional ratings), `--finalize-gate-e --ratings <file>`, `gate_manifest.py`. Expect 0 open highs after #1146.
-4. After Oct 22: resume `lane-i1108` (BUILD REQUEST -> `build_cuda_worktree.bat`, GPU tests under lock, cuobjdump, PR);
-   blind-review #1147 retroactively if the owner wants it; remaining architect items #1125, #1004/#1005, gate (b)
-   re-freeze, pkg306 Phase 0.
+1. `gh pr checks 1148 1149`; squash-merge each green one, remove its worktree (`git worktree remove --force
+   .claude/worktrees/{i1117,i1108}`), delete `lane/issue1117` / `lane/issue1108`.
+2. Row (g) on the merged build: confirm `dist/astroray` is stamped at HEAD, then
+   `PKG310_WORK=%LOCALAPPDATA%\astroray-evidence\2026-10-18\g2\work ASTRORAY_PYD_DIR=<repo>\dist\astroray
+   python scripts/build/gpu_locked_run.py lead -- python -m pytest tests/test_production_corpus.py -k "parity or silent" -q`
+   then `python scripts/gate_manifest.py --adapt-g <g2\work> --out <g2>\instrument.json`. Expect 0 silent pairs
+   (#1117 + pkg321) and prod_attributes GPU in band (#1144) -> GPU 2/8; 6/8 still needs #1004/#1005, #995.
+3. Row (e): get the nine pkg321 issues blind-rated (two Sonnet raters after Oct 22, or opencode once the key is
+   renewed), then `known_issues_report.py --capture-gate-e`, fill the ratings file (baseline sha + timestamp),
+   `--finalize-gate-e --ratings <file>`, `gate_manifest.py`. Expect high_count 0.
+4. After Oct 22: blind reviews of #1148/#1149 retroactively; remaining architect items #1125, #1004/#1005 bump
+   batch, gate (b) re-freeze (item 8), pkg306 Phase 0.
 5. Closeout: integration branch, full CPU+GPU sweep (no `-x`, ~52 min), `run-report`.
 
 ## Owner questions (from the architect, plus tonight)
+0. The opencode API key expired on 10-18 -- please renew it in the OpenCode Console (no lead action possible).
+   Also: may the lead's provisional medium ratings for #1128-#1136 stand for the row (e) re-reduce, or wait for
+   blind raters after Oct 22?
 1. Keep the 2-lane cap with SMT on? (two resets on 10-14)
 2. Gate (b): does the 10-06 population decision count as the b1 sign-off? pkg323 says the predicate (rect vs mask) is not
    the binding axis; the real axes are a noise-aware metric, per-identity vs per-node credit, eligibility, effect threshold.

@@ -29,6 +29,12 @@ started in the morning.
 POSIX paths; pkg321 real drops #1128–#1136; Brick mortar `Color3` socket #1137). pkg323 engine findings attached to
 #1005 (Bump zero effect CPU+GPU, Noise displacement ignored) and #995.
 
+**Evening update (10-18):** all five PRs merged (#1139, #1143, #1144, #1146, #1147); #1089 closed. New PRs #1148
+(#1117 scanner + matrix regen; OPEN, CI build-and-test pending at handoff -- merge on green) and #1149 (#1108 Voronoi 3D Cycles port, 58/58 3D cases exact vs
+Cycles 5.2; OPEN, CI build-and-test pending at handoff -- merge on green), both lead-reviewed only. `build_cuda` rebuilt at 188b6374. Row (g) not re-measured on
+the merged build (owner stopped the session); row (e) waits on an independent rater for #1128-#1136. opencode
+API key expired (owner action). Handoff: `next-session-prompt-2026-10-18.md`.
+
 **Midday update (10-18):** Opus and Sonnet agents hit the weekly usage limit (resets Oct 22 2pm Sydney); all lanes
 and the Opus reviewer died, the lead continues alone. Owner paused GPU/CPU-heavy work. PRs open and CI-pending: #1139
 (CI fix: 19 probe-credited rows registered proof-pending), #1143 and #1144 (rebased onto main), #1146 (#1137), #1147

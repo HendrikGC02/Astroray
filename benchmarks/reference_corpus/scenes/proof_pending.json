@@ -1,4 +1,34 @@
 {
+  "geometry_zoo": [
+    {
+      "bl_idname": "ShaderNodeVolumePrincipled",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "PRINCIPLED_VOLUME",
+      "socket_or_prop": "input:Density Attribute"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumePrincipled",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "PRINCIPLED_VOLUME",
+      "socket_or_prop": "input:Absorption Color"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumePrincipled",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "PRINCIPLED_VOLUME",
+      "socket_or_prop": "input:Blackbody Tint"
+    },
+    {
+      "bl_idname": "ShaderNodeVolumePrincipled",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "PRINCIPLED_VOLUME",
+      "socket_or_prop": "input:Temperature Attribute"
+    }
+  ],
   "lighting_studio": [
     {
       "bl_idname": "ShaderNodeOutputLight",
@@ -85,6 +115,83 @@
       "classification": "SUPPORTED",
       "feature": "OUTPUT_MATERIAL",
       "socket_or_prop": "prop:is_active_output"
+    },
+    {
+      "bl_idname": "ShaderNodeBsdfHairPrincipled",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "BSDF_HAIR_PRINCIPLED",
+      "socket_or_prop": "input:Color"
+    },
+    {
+      "bl_idname": "ShaderNodeBsdfHairPrincipled",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "BSDF_HAIR_PRINCIPLED",
+      "socket_or_prop": "input:Melanin"
+    },
+    {
+      "bl_idname": "ShaderNodeBsdfHairPrincipled",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "BSDF_HAIR_PRINCIPLED",
+      "socket_or_prop": "input:Melanin Redness"
+    },
+    {
+      "bl_idname": "ShaderNodeBsdfHairPrincipled",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "BSDF_HAIR_PRINCIPLED",
+      "socket_or_prop": "input:Absorption Coefficient"
+    },
+    {
+      "bl_idname": "ShaderNodeBsdfHairPrincipled",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "BSDF_HAIR_PRINCIPLED",
+      "socket_or_prop": "input:Roughness"
+    },
+    {
+      "bl_idname": "ShaderNodeBsdfHairPrincipled",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "BSDF_HAIR_PRINCIPLED",
+      "socket_or_prop": "input:Radial Roughness"
+    },
+    {
+      "bl_idname": "ShaderNodeBsdfHairPrincipled",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "BSDF_HAIR_PRINCIPLED",
+      "socket_or_prop": "input:Coat"
+    },
+    {
+      "bl_idname": "ShaderNodeBsdfHairPrincipled",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "BSDF_HAIR_PRINCIPLED",
+      "socket_or_prop": "input:IOR"
+    },
+    {
+      "bl_idname": "ShaderNodeBsdfHairPrincipled",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "BSDF_HAIR_PRINCIPLED",
+      "socket_or_prop": "input:Offset"
+    },
+    {
+      "bl_idname": "ShaderNodeBsdfHairPrincipled",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "BSDF_HAIR_PRINCIPLED",
+      "socket_or_prop": "prop:model"
+    },
+    {
+      "bl_idname": "ShaderNodeBsdfHairPrincipled",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "BSDF_HAIR_PRINCIPLED",
+      "socket_or_prop": "prop:parametrization"
     }
   ],
   "textures_mapping": [
@@ -635,6 +742,34 @@
       "classification": "APPROXIMATED",
       "feature": "OUTPUT_WORLD",
       "socket_or_prop": "input:Volume"
+    },
+    {
+      "bl_idname": "ShaderNodeTexSky",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "TEX_SKY",
+      "socket_or_prop": "prop:altitude"
+    },
+    {
+      "bl_idname": "ShaderNodeTexSky",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "TEX_SKY",
+      "socket_or_prop": "prop:sun_direction"
+    },
+    {
+      "bl_idname": "ShaderNodeTexSky",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "TEX_SKY",
+      "socket_or_prop": "prop:sun_intensity"
+    },
+    {
+      "bl_idname": "ShaderNodeTexSky",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "TEX_SKY",
+      "socket_or_prop": "prop:sun_size"
     }
   ]
 }

@@ -1488,3 +1488,19 @@ def test_reference_bank_channel_ratio_gate():
     outside[..., 2] *= 1.10  # +10 % on blue -> outside
     worst2, _ = RB.compute_channel_mean_ratio(outside, reference)
     assert worst2 == pytest.approx(0.10, abs=1e-6)
+
+
+def test_committed_manifest_evidence_paths_are_posix_and_valid():
+    """#1127: backslash evidence_path fails validate_manifest on POSIX hosts."""
+    manifest = json.loads(
+        (REPO_ROOT / "docs/blender_parity/acceptance_manifest.json").read_text(encoding="utf-8"))
+    for rid, row in manifest["rows"].items():
+        assert "\\" not in str(row.get("evidence_path") or ""), rid
+    assert GM.validate_manifest(manifest) == []
+
+
+def test_posix_normalises_backslash_evidence_paths():
+    bs = chr(92)
+    raw = bs.join(["docs", "a", "b.json"])
+    assert GM._posix(raw) == "docs/a/b.json"
+    assert GM._resolve(Path("root"), raw) == Path("root") / "docs" / "a" / "b.json"

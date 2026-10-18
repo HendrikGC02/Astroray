@@ -177,8 +177,13 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def _posix(path: Any) -> str:
+    """Manifest paths are stored with '/' so they validate on POSIX hosts (#1127)."""
+    return str(path).replace("\\", "/")
+
+
 def _resolve(repo_root: Path, rel: str) -> Path:
-    p = Path(rel)
+    p = Path(_posix(rel))
     return p if p.is_absolute() else Path(repo_root) / p
 
 
@@ -1192,7 +1197,7 @@ def adapt_c_instrument(raw_path: Path) -> dict[str, Any]:
         payload.get("records", []), raw_path.parent, payload.get("scene_sha256"),
         payload.get("build_id"), payload.get("freeze"))
     row = dict(payload)
-    row["evidence_path"] = str(raw_path)
+    row["evidence_path"] = _posix(raw_path)
     row["evidence_sha256"] = sha256_file(raw_path)
     row["dimensions"] = {
         "backend": "CPU+GPU",
@@ -1266,7 +1271,7 @@ def load_instruments(instruments_dir: Path | None,
             errors, value, subchecks = _validate_a(payload.get("records", []), path.parent,
                                                    payload.get("scene_sha256"))
             row = dict(payload)
-            row["evidence_path"] = str(path)
+            row["evidence_path"] = _posix(path)
             row["evidence_sha256"] = sha256_file(path)
             row["dimensions"] = {"scene": "frozen workload SHA", "edit_kind": "camera/material",
                                  "repetitions": "3x100 serialized edits"}
@@ -1278,7 +1283,7 @@ def load_instruments(instruments_dir: Path | None,
                 and payload.get("row") == "b" and payload.get("instrument") == "coverage_report"):
             _errors, value, subchecks = _validate_b(payload.get("records", []), path.parent)
             row = dict(payload)
-            row["evidence_path"] = str(path)
+            row["evidence_path"] = _posix(path)
             row["evidence_sha256"] = sha256_file(path)
             row["dimensions"] = {"backend": "CPU+GPU", "variant": "frozen-ledger"}
             row["subchecks"] = subchecks
@@ -1292,7 +1297,7 @@ def load_instruments(instruments_dir: Path | None,
                 and payload.get("row") == "e" and payload.get("instrument") == "issue_triage"):
             errors, value, subchecks = _validate_e(payload.get("records", []), path.parent)
             row = dict(payload)
-            row["evidence_path"] = str(path)
+            row["evidence_path"] = _posix(path)
             row["evidence_sha256"] = sha256_file(path)
             row["dimensions"] = {"issue_snapshot": "raw-artifacts", "ratings": "independent-review"}
             row["subchecks"] = subchecks if not errors else {}
@@ -1303,7 +1308,7 @@ def load_instruments(instruments_dir: Path | None,
                 and payload.get("row") == "d" and payload.get("instrument") == "native_panel_smoke"):
             errors, value, subchecks = _validate_d(payload.get("records", []), path.parent)
             row = dict(payload)
-            row["evidence_path"] = str(path)
+            row["evidence_path"] = _posix(path)
             row["evidence_sha256"] = sha256_file(path)
             row["dimensions"] = {"backend": "CPU+GPU", "panel": "native Cycles settings"}
             row["subchecks"] = subchecks if not errors else {}
@@ -1314,7 +1319,7 @@ def load_instruments(instruments_dir: Path | None,
                 and payload.get("row") == "g" and payload.get("instrument") == "production_node_score"):
             _errors, value, subchecks = _validate_g(payload, path.parent)
             row = dict(payload)
-            row["evidence_path"] = str(path)
+            row["evidence_path"] = _posix(path)
             row["evidence_sha256"] = sha256_file(path)
             row["dimensions"] = {"backend": "CPU+GPU", "material": "eight pkg310 production scenes"}
             row["subchecks"] = subchecks

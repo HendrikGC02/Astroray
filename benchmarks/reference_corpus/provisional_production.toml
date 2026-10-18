@@ -69,13 +69,6 @@ issue = "#995"
 reason = "same export as CPU: 0.28-0.45x"
 
 [[row]]
-scene = "prod_attributes"
-backend = "gpu"
-kind = "parity"
-issue = "#1124"
-reason = "GPU only (CPU passes since #990/#1069): instance0 G 2.15x; suspect shared per-instance random/attributes (#1124)"
-
-[[row]]
 scene = "prod_light_path"
 backend = "cpu"
 kind = "parity"

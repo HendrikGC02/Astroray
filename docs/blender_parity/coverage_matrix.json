@@ -252,7 +252,7 @@
     "bl_idname": "ShaderNodeBsdfAnisotropic",
     "socket_or_prop": "input:Anisotropy",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `a_anisotropy` leaves the CPU render identical: dropped, reported at runtime (#1131)",
     "socket_id": "Anisotropy"
   },
   {
@@ -261,7 +261,7 @@
     "bl_idname": "ShaderNodeBsdfAnisotropic",
     "socket_or_prop": "input:Rotation",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `a_rotation` leaves the CPU render identical: dropped, reported at runtime (#1131)",
     "socket_id": "Rotation"
   },
   {
@@ -270,7 +270,7 @@
     "bl_idname": "ShaderNodeBsdfAnisotropic",
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `n_anisotropic` leaves the CPU render identical: dropped, reported at runtime (#1129)",
     "socket_id": "Normal"
   },
   {
@@ -279,7 +279,7 @@
     "bl_idname": "ShaderNodeBsdfAnisotropic",
     "socket_or_prop": "input:Tangent",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `t_anisotropic` leaves the CPU render identical: dropped, reported at runtime (#1130)",
     "socket_id": "Tangent"
   },
   {
@@ -297,7 +297,7 @@
     "bl_idname": "ShaderNodeBsdfAnisotropic",
     "socket_or_prop": "prop:distribution",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "notes": "property ENUM; pkg321 probe `e_anisotropic_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)"
   },
   {
     "category": "shader_node_output",
@@ -332,7 +332,7 @@
     "bl_idname": "ShaderNodeBsdfDiffuse",
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `n_diffuse` leaves the CPU render identical: dropped, reported at runtime (#1129)",
     "socket_id": "Normal"
   },
   {
@@ -386,7 +386,7 @@
     "bl_idname": "ShaderNodeBsdfGlass",
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `n_glass` leaves the CPU render identical: dropped, reported at runtime (#1129)",
     "socket_id": "Normal"
   },
   {
@@ -404,7 +404,7 @@
     "bl_idname": "ShaderNodeBsdfGlass",
     "socket_or_prop": "input:Thin Film Thickness",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `g_thin_film_thickness` leaves the CPU render identical: dropped, reported at runtime (#1136)",
     "socket_id": "Thin Film Thickness"
   },
   {
@@ -413,7 +413,7 @@
     "bl_idname": "ShaderNodeBsdfGlass",
     "socket_or_prop": "input:Thin Film IOR",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `g_thin_film_ior` leaves the CPU render identical: dropped, reported at runtime (#1136)",
     "socket_id": "Thin Film IOR"
   },
   {
@@ -422,7 +422,7 @@
     "bl_idname": "ShaderNodeBsdfGlass",
     "socket_or_prop": "prop:distribution",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "notes": "property ENUM; pkg321 probe `e_glass_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)"
   },
   {
     "category": "shader_node_output",
@@ -509,8 +509,8 @@
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "",
+    "classification": "SUPPORTED",
+    "notes": "pkg321 probe `hair_color` moves the CPU render (consumed)",
     "socket_id": "Color"
   },
   {
@@ -518,8 +518,8 @@
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Melanin",
-    "classification": "DROPPED-SILENT",
-    "notes": "",
+    "classification": "SUPPORTED",
+    "notes": "pkg321 probe `hair_melanin` moves the CPU render (consumed)",
     "socket_id": "Melanin"
   },
   {
@@ -527,8 +527,8 @@
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Melanin Redness",
-    "classification": "DROPPED-SILENT",
-    "notes": "",
+    "classification": "SUPPORTED",
+    "notes": "pkg321 probe `hair_melanin_redness` moves the CPU render (consumed)",
     "socket_id": "Melanin Redness"
   },
   {
@@ -545,8 +545,8 @@
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Absorption Coefficient",
-    "classification": "DROPPED-SILENT",
-    "notes": "",
+    "classification": "SUPPORTED",
+    "notes": "pkg321 probe `hair_absorption` moves the CPU render (consumed)",
     "socket_id": "Absorption Coefficient"
   },
   {
@@ -563,8 +563,8 @@
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Roughness",
-    "classification": "DROPPED-SILENT",
-    "notes": "",
+    "classification": "SUPPORTED",
+    "notes": "pkg321 probe `hair_roughness` moves the CPU render (consumed)",
     "socket_id": "Roughness"
   },
   {
@@ -572,8 +572,8 @@
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Radial Roughness",
-    "classification": "DROPPED-SILENT",
-    "notes": "",
+    "classification": "SUPPORTED",
+    "notes": "pkg321 probe `hair_radial_roughness` moves the CPU render (consumed)",
     "socket_id": "Radial Roughness"
   },
   {
@@ -581,8 +581,8 @@
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Coat",
-    "classification": "DROPPED-SILENT",
-    "notes": "",
+    "classification": "SUPPORTED",
+    "notes": "pkg321 probe `hair_coat` moves the CPU render (consumed)",
     "socket_id": "Coat"
   },
   {
@@ -590,8 +590,8 @@
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:IOR",
-    "classification": "DROPPED-SILENT",
-    "notes": "",
+    "classification": "SUPPORTED",
+    "notes": "pkg321 probe `hair_ior` moves the CPU render (consumed)",
     "socket_id": "IOR"
   },
   {
@@ -599,8 +599,8 @@
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Offset",
-    "classification": "DROPPED-SILENT",
-    "notes": "",
+    "classification": "SUPPORTED",
+    "notes": "pkg321 probe `hair_offset` moves the CPU render (consumed)",
     "socket_id": "Offset"
   },
   {
@@ -609,7 +609,7 @@
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Random Color",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `hair_random_color` leaves the CPU render identical: dropped, reported at runtime (#1128)",
     "socket_id": "Random Color"
   },
   {
@@ -618,7 +618,7 @@
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Random Roughness",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `hair_random_roughness` leaves the CPU render identical: dropped, reported at runtime (#1128)",
     "socket_id": "Random Roughness"
   },
   {
@@ -627,7 +627,7 @@
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "input:Random",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `hair_random` leaves the CPU render identical: dropped, reported at runtime (#1128)",
     "socket_id": "Random"
   },
   {
@@ -671,16 +671,16 @@
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "prop:model",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "APPROXIMATED",
+    "notes": "pkg321 probe `hair_model`: Huang 2022 is rendered with Chiang 2016 and reported (the render is identical) (#1140)"
   },
   {
     "category": "shader_node",
     "feature": "BSDF_HAIR_PRINCIPLED",
     "bl_idname": "ShaderNodeBsdfHairPrincipled",
     "socket_or_prop": "prop:parametrization",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": "pkg321 probe `hair_parametrization` moves the CPU render (consumed)"
   },
   {
     "category": "shader_node_output",
@@ -760,7 +760,7 @@
     "bl_idname": "ShaderNodeBsdfMetallic",
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `n_metallic` leaves the CPU render identical: dropped, reported at runtime (#1129)",
     "socket_id": "Normal"
   },
   {
@@ -769,7 +769,7 @@
     "bl_idname": "ShaderNodeBsdfMetallic",
     "socket_or_prop": "input:Tangent",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `t_metallic` leaves the CPU render identical: dropped, reported at runtime (#1130)",
     "socket_id": "Tangent"
   },
   {
@@ -938,7 +938,7 @@
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Subsurface IOR",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `e_principled_subsurface_ior` leaves the CPU render identical: dropped, reported at runtime (#1133)",
     "socket_id": "Subsurface IOR"
   },
   {
@@ -992,7 +992,7 @@
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Tangent",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `t_principled` leaves the CPU render identical: dropped, reported at runtime (#1130)",
     "socket_id": "Tangent"
   },
   {
@@ -1046,7 +1046,7 @@
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "input:Coat Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `n_principled_coat` leaves the CPU render identical: dropped, reported at runtime (#1130)",
     "socket_id": "Coat Normal"
   },
   {
@@ -1118,7 +1118,7 @@
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "prop:distribution",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "notes": "property ENUM; pkg321 probe `e_principled_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)"
   },
   {
     "category": "shader_node",
@@ -1126,7 +1126,7 @@
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "prop:subsurface_method",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "notes": "property ENUM; pkg321 probe `e_principled_subsurface_method` leaves the CPU render identical: dropped, reported at runtime (#1133)"
   },
   {
     "category": "shader_node_output",
@@ -1215,7 +1215,7 @@
     "bl_idname": "ShaderNodeBsdfRefraction",
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `n_refraction` leaves the CPU render identical: dropped, reported at runtime (#1129)",
     "socket_id": "Normal"
   },
   {
@@ -1233,7 +1233,7 @@
     "bl_idname": "ShaderNodeBsdfRefraction",
     "socket_or_prop": "prop:distribution",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "notes": "property ENUM; pkg321 probe `e_refraction_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)"
   },
   {
     "category": "shader_node_output",
@@ -1268,7 +1268,7 @@
     "bl_idname": "ShaderNodeBsdfSheen",
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `n_sheen` leaves the CPU render identical: dropped, reported at runtime (#1129)",
     "socket_id": "Normal"
   },
   {
@@ -1286,7 +1286,7 @@
     "bl_idname": "ShaderNodeBsdfSheen",
     "socket_or_prop": "prop:distribution",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "notes": "property ENUM; pkg321 probe `e_sheen_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)"
   },
   {
     "category": "shader_node_output",
@@ -1374,7 +1374,7 @@
     "bl_idname": "ShaderNodeBsdfTranslucent",
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "",
+    "notes": "pkg321 probe `n_translucent` leaves the CPU render identical: dropped, reported at runtime (#1129)",
     "socket_id": "Normal"
   },
   {
@@ -1668,7 +1668,7 @@
     "bl_idname": "ShaderNodeDisplacement",
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed",
+    "notes": "Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed; pkg321 probe `disp_normal` leaves the CPU render identical: dropped, reported at runtime (#1129)",
     "socket_id": "Normal"
   },
   {
@@ -4210,8 +4210,8 @@
     "feature": "TEX_SKY",
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "prop:altitude",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
+    "classification": "APPROXIMATED",
+    "notes": "pkg321 probe `s_altitude` moves the CPU render (consumed)"
   },
   {
     "category": "shader_node",
@@ -4219,7 +4219,7 @@
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "prop:ground_albedo",
     "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
+    "notes": "property FLOAT; pkg321 probe `s_ground_albedo` leaves the CPU render identical: dropped, reported at runtime (#1135)"
   },
   {
     "category": "shader_node",
@@ -4242,8 +4242,8 @@
     "feature": "TEX_SKY",
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "prop:sun_direction",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
+    "classification": "APPROXIMATED",
+    "notes": "pkg321 probe `s_sun_direction`: inert for the Nishita sky types (Cycles too); legacy PREETHAM / HOSEK_WILKIE, where Cycles reads it, are rendered as Nishita and the warning names it (#1135)"
   },
   {
     "category": "shader_node",
@@ -4266,8 +4266,8 @@
     "feature": "TEX_SKY",
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "prop:sun_intensity",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
+    "classification": "APPROXIMATED",
+    "notes": "pkg321 probe `s_sun_intensity` moves the CPU render (consumed)"
   },
   {
     "category": "shader_node",
@@ -4282,8 +4282,8 @@
     "feature": "TEX_SKY",
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "prop:sun_size",
-    "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT"
+    "classification": "APPROXIMATED",
+    "notes": "pkg321 probe `s_sun_size` moves the CPU render (consumed)"
   },
   {
     "category": "shader_node",
@@ -5117,7 +5117,7 @@
     "bl_idname": "ShaderNodeVolumePrincipled",
     "socket_or_prop": "input:Color Attribute",
     "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)",
+    "notes": "mapped to glass IOR=1.0 (volume not fully implemented); pkg321 probe `v_color_attribute` leaves the CPU render identical: dropped, reported at runtime (#1134)",
     "socket_id": "Color Attribute"
   },
   {
@@ -5134,8 +5134,8 @@
     "feature": "PRINCIPLED_VOLUME",
     "bl_idname": "ShaderNodeVolumePrincipled",
     "socket_or_prop": "input:Density Attribute",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)",
+    "classification": "SUPPORTED",
+    "notes": "pkg321 probe `v_density_attribute` moves the CPU render (consumed)",
     "socket_id": "Density Attribute"
   },
   {
@@ -5152,8 +5152,8 @@
     "feature": "PRINCIPLED_VOLUME",
     "bl_idname": "ShaderNodeVolumePrincipled",
     "socket_or_prop": "input:Absorption Color",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)",
+    "classification": "SUPPORTED",
+    "notes": "pkg321 probe `v_absorption_color` moves the CPU render (consumed)",
     "socket_id": "Absorption Color"
   },
   {
@@ -5188,8 +5188,8 @@
     "feature": "PRINCIPLED_VOLUME",
     "bl_idname": "ShaderNodeVolumePrincipled",
     "socket_or_prop": "input:Blackbody Tint",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)",
+    "classification": "SUPPORTED",
+    "notes": "pkg321 probe `v_blackbody_tint` moves the CPU render (consumed)",
     "socket_id": "Blackbody Tint"
   },
   {
@@ -5206,8 +5206,8 @@
     "feature": "PRINCIPLED_VOLUME",
     "bl_idname": "ShaderNodeVolumePrincipled",
     "socket_or_prop": "input:Temperature Attribute",
-    "classification": "DROPPED-SILENT",
-    "notes": "mapped to glass IOR=1.0 (volume not fully implemented)",
+    "classification": "SUPPORTED",
+    "notes": "pkg321 probe `v_temperature_attribute` moves the CPU render (consumed)",
     "socket_id": "Temperature Attribute"
   },
   {
@@ -6016,7 +6016,7 @@
     "bl_idname": "ShaderNodeNewGeometry",
     "socket_or_prop": "output:Normal",
     "classification": "DROPPED-SILENT",
-    "notes": "output refused by the op-VM compiler (VMCompileError, reported by the addon)",
+    "notes": "output refused by the op-VM compiler (VMCompileError, reported by the addon); pkg321 probe `m_geometry_normal` leaves the CPU render identical: dropped, reported at runtime (#989)",
     "socket_id": "Normal"
   },
   {

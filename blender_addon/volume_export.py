@@ -242,6 +242,9 @@ def principled_volume_from_material(material):
     info = {"has_surface": has_surface, "anisotropy": 0.0,
             "absorption_color": [1.0, 1.0, 1.0], "degradations": degr}
     ntype = node.type
+    # pkg321: the DegradationReport feature name (silent_drop_audit matches it against the node's bl_idname).
+    info["label"] = {"VOLUME_PRINCIPLED": "Volume Principled", "PRINCIPLED_VOLUME": "Volume Principled", "VOLUME_SCATTER": "Volume Scatter",
+                     "VOLUME_ABSORPTION": "Volume Absorption"}.get(ntype, "Volume")
     if ntype == "VOLUME_PRINCIPLED" or "Principled" in node.bl_idname:
         info["density"] = _socket_float(node, "Density", 1.0)
         info["color"] = _socket_rgb(node, "Color", (0.8, 0.8, 0.8))

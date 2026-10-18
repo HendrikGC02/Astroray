@@ -458,7 +458,31 @@ PKG320_PROOF_PENDING = frozenset({
     "ShaderNodeVertexColor|output:Alpha",
     "ShaderNodeVertexColor|output:Color",
 })
-PROOF_PENDING_BASELINE = PROOF_PENDING_BASELINE | PKG320_PROOF_PENDING
+# pkg321 (#1089, #1140, #1135): rows the DROPPED-SILENT probes proved -- every Principled Hair BSDF input plus its
+# model / parametrization properties (materials_hall renders no hair) and the Sky Texture sun / altitude
+# properties (world_sky pins the defaults). Shrink-only as above.
+PKG321_PROOF_PENDING = frozenset({
+    "ShaderNodeBsdfHairPrincipled|input:Absorption Coefficient",
+    "ShaderNodeBsdfHairPrincipled|input:Coat",
+    "ShaderNodeBsdfHairPrincipled|input:Color",
+    "ShaderNodeBsdfHairPrincipled|input:IOR",
+    "ShaderNodeBsdfHairPrincipled|input:Melanin",
+    "ShaderNodeBsdfHairPrincipled|input:Melanin Redness",
+    "ShaderNodeBsdfHairPrincipled|input:Offset",
+    "ShaderNodeBsdfHairPrincipled|input:Radial Roughness",
+    "ShaderNodeBsdfHairPrincipled|input:Roughness",
+    "ShaderNodeBsdfHairPrincipled|prop:model",
+    "ShaderNodeBsdfHairPrincipled|prop:parametrization",
+    "ShaderNodeTexSky|prop:altitude",
+    "ShaderNodeTexSky|prop:sun_direction",
+    "ShaderNodeTexSky|prop:sun_intensity",
+    "ShaderNodeTexSky|prop:sun_size",
+    "ShaderNodeVolumePrincipled|input:Absorption Color",
+    "ShaderNodeVolumePrincipled|input:Blackbody Tint",
+    "ShaderNodeVolumePrincipled|input:Density Attribute",
+    "ShaderNodeVolumePrincipled|input:Temperature Attribute",
+})
+PROOF_PENDING_BASELINE = PROOF_PENDING_BASELINE | PKG320_PROOF_PENDING | PKG321_PROOF_PENDING
 
 
 def _proof_pending() -> dict:

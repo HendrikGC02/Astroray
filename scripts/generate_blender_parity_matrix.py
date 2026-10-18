@@ -2952,6 +2952,104 @@ def _apply_scanner_blind_overrides(matrix_rows):
     return matrix_rows
 
 
+# pkg321 (#1089) -- rows the AST scanners cannot see, decided by a COUNTERFACTUAL PROBE instead of by reading the
+# exporter: tests/pkg321_probe_blender.py renders the same scene with one input mutated, and
+# tests/test_pkg321_dropped_row_probes.py asserts every entry below against the probe it names (a credit needs a probe
+# that moves the CPU render; a reported drop needs a probe that leaves it bit-identical). Audit doc with the evidence:
+# .astroray_plan/docs/pkg321-dropped-row-audit.md. Keyed by (bl_idname, socket_or_prop): the Anisotropic BSDF shares
+# the BSDF_GLOSSY feature with Glossy, so the feature name is not unique.
+_P321 = 'pkg321 probe `%s` moves the CPU render (consumed)'
+PKG321_PROBE_CREDITS = {
+    # Principled Hair (Chiang): _hair_shader_spec reads these; the scanner does not follow the helper call.
+    ('ShaderNodeBsdfHairPrincipled', 'input:Color'): ('hair_color', 'SUPPORTED'),
+    ('ShaderNodeBsdfHairPrincipled', 'input:Roughness'): ('hair_roughness', 'SUPPORTED'),
+    ('ShaderNodeBsdfHairPrincipled', 'input:Radial Roughness'): ('hair_radial_roughness', 'SUPPORTED'),
+    ('ShaderNodeBsdfHairPrincipled', 'input:Coat'): ('hair_coat', 'SUPPORTED'),
+    ('ShaderNodeBsdfHairPrincipled', 'input:IOR'): ('hair_ior', 'SUPPORTED'),
+    ('ShaderNodeBsdfHairPrincipled', 'input:Offset'): ('hair_offset', 'SUPPORTED'),
+    ('ShaderNodeBsdfHairPrincipled', 'input:Melanin'): ('hair_melanin', 'SUPPORTED'),
+    ('ShaderNodeBsdfHairPrincipled', 'input:Melanin Redness'): ('hair_melanin_redness', 'SUPPORTED'),
+    ('ShaderNodeBsdfHairPrincipled', 'input:Absorption Coefficient'): ('hair_absorption', 'SUPPORTED'),
+    ('ShaderNodeBsdfHairPrincipled', 'prop:parametrization'): ('hair_parametrization', 'SUPPORTED'),
+    # Principled Volume: volume_export.py is outside every scanned function.
+    ('ShaderNodeVolumePrincipled', 'input:Absorption Color'): ('v_absorption_color', 'SUPPORTED'),
+    ('ShaderNodeVolumePrincipled', 'input:Blackbody Tint'): ('v_blackbody_tint', 'SUPPORTED'),
+    ('ShaderNodeVolumePrincipled', 'input:Density Attribute'): ('v_density_attribute', 'SUPPORTED'),
+    ('ShaderNodeVolumePrincipled', 'input:Temperature Attribute'): ('v_temperature_attribute', 'SUPPORTED'),
+    # Sky texture: setup_world -> engine-side Nishita sky (always reported as approximated).
+    ('ShaderNodeTexSky', 'prop:altitude'): ('s_altitude', 'APPROXIMATED'),
+    ('ShaderNodeTexSky', 'prop:sun_intensity'): ('s_sun_intensity', 'APPROXIMATED'),
+    ('ShaderNodeTexSky', 'prop:sun_size'): ('s_sun_size', 'APPROXIMATED'),
+}
+# Hair `model`: the node is consumed and the Huang model is reported as approximated with Chiang (pixels identical).
+PKG321_REPORTED_APPROXIMATIONS = {
+    ('ShaderNodeBsdfHairPrincipled', 'prop:model'): (
+        'hair_model', 'Huang 2022 is rendered with Chiang 2016 and reported (the render is identical)', 1140),
+    ('ShaderNodeTexSky', 'prop:sun_direction'): (
+        's_sun_direction', 'inert for the Nishita sky types (Cycles too); legacy PREETHAM / HOSEK_WILKIE, where '
+        'Cycles reads it, are rendered as Nishita and the warning names it', 1135),
+}
+# Real drops: the probe leaves the CPU render bit-identical. The row stays DROPPED (never credited); since pkg321 the
+# addon names each one in the per-render DegradationReport, so the pkg310 audit reads them as "reported", and the
+# issue carries the gap.
+PKG321_REPORTED_DROPS = {
+    ('ShaderNodeBsdfHairPrincipled', 'input:Random'): ('hair_random', 1128),
+    ('ShaderNodeBsdfHairPrincipled', 'input:Random Roughness'): ('hair_random_roughness', 1128),
+    ('ShaderNodeBsdfHairPrincipled', 'input:Random Color'): ('hair_random_color', 1128),
+    ('ShaderNodeBsdfDiffuse', 'input:Normal'): ('n_diffuse', 1129),
+    ('ShaderNodeBsdfGlass', 'input:Normal'): ('n_glass', 1129),
+    ('ShaderNodeBsdfRefraction', 'input:Normal'): ('n_refraction', 1129),
+    ('ShaderNodeBsdfSheen', 'input:Normal'): ('n_sheen', 1129),
+    ('ShaderNodeBsdfTranslucent', 'input:Normal'): ('n_translucent', 1129),
+    ('ShaderNodeBsdfAnisotropic', 'input:Normal'): ('n_anisotropic', 1129),
+    ('ShaderNodeBsdfMetallic', 'input:Normal'): ('n_metallic', 1129),
+    ('ShaderNodeDisplacement', 'input:Normal'): ('disp_normal', 1129),
+    ('ShaderNodeBsdfPrincipled', 'input:Tangent'): ('t_principled', 1130),
+    ('ShaderNodeBsdfPrincipled', 'input:Coat Normal'): ('n_principled_coat', 1130),
+    ('ShaderNodeBsdfMetallic', 'input:Tangent'): ('t_metallic', 1130),
+    ('ShaderNodeBsdfAnisotropic', 'input:Tangent'): ('t_anisotropic', 1130),
+    ('ShaderNodeBsdfAnisotropic', 'input:Anisotropy'): ('a_anisotropy', 1131),
+    ('ShaderNodeBsdfAnisotropic', 'input:Rotation'): ('a_rotation', 1131),
+    ('ShaderNodeBsdfPrincipled', 'prop:distribution'): ('e_principled_distribution', 1132),
+    ('ShaderNodeBsdfGlass', 'prop:distribution'): ('e_glass_distribution', 1132),
+    ('ShaderNodeBsdfRefraction', 'prop:distribution'): ('e_refraction_distribution', 1132),
+    ('ShaderNodeBsdfSheen', 'prop:distribution'): ('e_sheen_distribution', 1132),
+    ('ShaderNodeBsdfAnisotropic', 'prop:distribution'): ('e_anisotropic_distribution', 1132),
+    ('ShaderNodeBsdfPrincipled', 'prop:subsurface_method'): ('e_principled_subsurface_method', 1133),
+    ('ShaderNodeBsdfPrincipled', 'input:Subsurface IOR'): ('e_principled_subsurface_ior', 1133),
+    ('ShaderNodeVolumePrincipled', 'input:Color Attribute'): ('v_color_attribute', 1134),
+    ('ShaderNodeTexSky', 'prop:ground_albedo'): ('s_ground_albedo', 1135),
+    ('ShaderNodeBsdfGlass', 'input:Thin Film Thickness'): ('g_thin_film_thickness', 1136),
+    ('ShaderNodeBsdfGlass', 'input:Thin Film IOR'): ('g_thin_film_ior', 1136),
+    # Reported by the op-VM compiler's own warning ("Geometry output 'Normal' unsupported"); #989 owns the gap.
+    ('ShaderNodeNewGeometry', 'output:Normal'): ('m_geometry_normal', 989),
+}
+
+
+_P321_CATEGORIES = ('shader_node', 'shader_node_output', 'input_node')
+
+
+def _apply_pkg321_probe_audit(matrix_rows):
+    """Credit / annotate the #1089 rows from the probe tables above. Only DROPPED-SILENT rows are touched, so a later
+    scanner credit is never overwritten or lowered."""
+    for row in matrix_rows:
+        if row['category'] not in _P321_CATEGORIES or row['classification'] != 'DROPPED-SILENT':
+            continue
+        key = (row['bl_idname'], row['socket_or_prop'])
+        if key in PKG321_PROBE_CREDITS:
+            probe, cls = PKG321_PROBE_CREDITS[key]
+            row['classification'], row['notes'] = cls, _P321 % probe
+        elif key in PKG321_REPORTED_APPROXIMATIONS:
+            probe, why, issue = PKG321_REPORTED_APPROXIMATIONS[key]
+            row['classification'] = 'APPROXIMATED'
+            row['notes'] = 'pkg321 probe `%s`: %s (#%d)' % (probe, why, issue)
+        elif key in PKG321_REPORTED_DROPS:
+            probe, issue = PKG321_REPORTED_DROPS[key]
+            note = 'pkg321 probe `%s` leaves the CPU render identical: dropped, reported at runtime (#%d)' % (probe, issue)
+            row['notes'] = '%s; %s' % (row['notes'], note) if row['notes'] else note
+    return matrix_rows
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate Blender parity coverage matrix (AST-scanned)")
     parser.add_argument('--out', type=str, default='docs/blender_parity',
@@ -2978,6 +3076,7 @@ def main():
         evidence, vm_supported_types, found_attrs, compare_literals, vm_socket_evidence,
         output_evidence, root_node_reads, group_inlined)
     matrix_rows = _apply_scanner_blind_overrides(matrix_rows)  # #872
+    matrix_rows = _apply_pkg321_probe_audit(matrix_rows)  # pkg321 (#1089)
 
     output_dir = Path(args.out)
     write_json_report(matrix_rows, output_dir / "coverage_matrix.json")

@@ -688,7 +688,7 @@ struct VoronoiParams {
     int normalize, outputColor, distMetric, feature;
     GVec3 colorLow, colorHigh;
     // #975: dimensions 1-4 (Cycles svm_node_tex_voronoi node.dimensions). 3 is the
-    // pkg115 path above (unchanged); 1D reads only w, 2D (x, y), 4D (point, w).
+    // default; 1D reads only w, 2D (x, y), 3D (x, y, z), 4D (point, w).
     // Cycles scales w by Scale too (applied at evaluation, like NoiseParams::w).
     int dimensions = 3;
     float w = 0.0f;
@@ -701,22 +701,7 @@ struct VoronoiOut {
     float radius;
 };
 
-HD inline float voronoi_distance(const VoronoiParams& vp, const GVec3& a, const GVec3& b) {
-    GVec3 d = a - b;
-    switch (vp.distMetric) {
-        case 1: return fabsf(d.x) + fabsf(d.y) + fabsf(d.z);
-        case 2: return pmax(pmax(fabsf(d.x), fabsf(d.y)), fabsf(d.z));
-        case 3: {
-            float sum = powf(fabsf(d.x), vp.exponent) +
-                        powf(fabsf(d.y), vp.exponent) +
-                        powf(fabsf(d.z), vp.exponent);
-            return powf(sum, 1.0f / vp.exponent);
-        }
-        default: return sqrtf(d.dot(d));
-    }
-}
-
-// #975: max_distance of the 1D / 2D / 4D nodes (defined with them, below).
+// #975 / #1108: max_distance of the 1D-4D nodes (defined with them, below).
 HD inline float voronoi_nd_max_distance(const VoronoiParams& vp);
 
 // Cycles svm_node_tex_voronoi parameter conditioning (host side, once per texture).
@@ -725,268 +710,26 @@ HD inline void voronoi_condition(VoronoiParams& vp) {
     vp.roughness = pclamp(vp.roughness, 0.0f, 1.0f);
     vp.randomness = pclamp(vp.randomness, 0.0f, 1.0f);
     vp.smoothness = pclamp(vp.smoothness / 2.0f, 0.0f, 0.5f);  // UI 0-1 -> Cycles 0-0.5
-    if (vp.dimensions != 3) {
-        vp.maxDistance = voronoi_nd_max_distance(vp);
-        return;
-    }
-    GVec3 ones(0.5f + 0.5f * vp.randomness);
-    if (vp.feature == 3) {
-        vp.maxDistance = 0.5f + 0.5f * vp.randomness;
-    } else {
-        vp.maxDistance = voronoi_distance(vp, GVec3(0.0f), ones);
-        if (vp.feature == 2) vp.maxDistance *= 2.0f;
-    }
-}
-
-// Neighbour cell index. The pkg115 CPU port held it in a float Vec3 before hashing,
-// so it round-trips int -> float -> int (lossy beyond 2^24); kept for bit parity.
-HD inline int voronoi_cell(int c) { return (int)(float)c; }
-
-HD inline GVec3 voronoi_cell_hash(const GVec3& cellPositionF, int i, int j, int k) {
-    return hash_int3_to_float3(voronoi_cell((int)cellPositionF.x + i),
-                               voronoi_cell((int)cellPositionF.y + j),
-                               voronoi_cell((int)cellPositionF.z + k));
-}
-
-HD inline GVec3 voronoi_cell_point(const VoronoiParams& vp, const GVec3& cellPositionF,
-                                   int i, int j, int k) {
-    return GVec3((float)i, (float)j, (float)k) +
-        voronoi_cell_hash(cellPositionF, i, j, k) * vp.randomness;
-}
-
-HD inline VoronoiOut voronoi_f1(const VoronoiParams& vp, const GVec3& coord) {
-    GVec3 cellPositionF(floorf(coord.x), floorf(coord.y), floorf(coord.z));
-    GVec3 localPosition = coord - cellPositionF;
-    float minDistance = 1e9f;
-    GVec3 targetOffset(0.0f);
-    GVec3 targetPosition(0.0f);
-    for (int k = -1; k <= 1; ++k)
-        for (int j = -1; j <= 1; ++j)
-            for (int i = -1; i <= 1; ++i) {
-                GVec3 pointPosition = voronoi_cell_point(vp, cellPositionF, i, j, k);
-                float d = voronoi_distance(vp, pointPosition, localPosition);
-                if (d < minDistance) {
-                    minDistance = d;
-                    targetOffset = GVec3((float)i, (float)j, (float)k);
-                    targetPosition = pointPosition;
-                }
-            }
-    VoronoiOut out;
-    out.distance = minDistance;
-    GVec3 targetCell = cellPositionF + targetOffset;
-    out.color = hash_int3_to_float3((int)targetCell.x, (int)targetCell.y, (int)targetCell.z);
-    out.position = targetPosition + cellPositionF;
-    out.radius = 0.0f;
-    return out;
-}
-
-// 5x5x5 neighbourhood, polynomial smooth-min.
-HD inline VoronoiOut voronoi_smooth_f1(const VoronoiParams& vp, const GVec3& coord) {
-    GVec3 cellPositionF(floorf(coord.x), floorf(coord.y), floorf(coord.z));
-    GVec3 localPosition = coord - cellPositionF;
-    float smoothDistance = 1e9f;
-    GVec3 smoothColor(0.0f);
-    GVec3 smoothPosition(0.0f);
-    float h = -1.0f;
-    for (int k = -2; k <= 2; ++k)
-        for (int j = -2; j <= 2; ++j)
-            for (int i = -2; i <= 2; ++i) {
-                GVec3 pointPosition = voronoi_cell_point(vp, cellPositionF, i, j, k);
-                float d = voronoi_distance(vp, pointPosition, localPosition);
-                GVec3 cellColor = voronoi_cell_hash(cellPositionF, i, j, k);
-                h = (h == -1.0f) ? 1.0f :
-                    pclamp(0.5f + 0.5f * (smoothDistance - d) / vp.smoothness, 0.0f, 1.0f);
-                h = h * h * (3.0f - 2.0f * h);
-                float correction = vp.smoothness * h * (1.0f - h);
-                smoothDistance = smoothDistance * (1.0f - h) + d * h - correction;
-                correction /= 1.0f + 3.0f * vp.smoothness;
-                smoothColor = smoothColor * (1.0f - h) + cellColor * h - GVec3(correction);
-                smoothPosition = smoothPosition * (1.0f - h) + pointPosition * h - GVec3(correction);
-            }
-    VoronoiOut out;
-    out.distance = smoothDistance;
-    out.color = smoothColor;
-    out.position = smoothPosition + cellPositionF;
-    out.radius = 0.0f;
-    return out;
-}
-
-HD inline VoronoiOut voronoi_f2(const VoronoiParams& vp, const GVec3& coord) {
-    GVec3 cellPositionF(floorf(coord.x), floorf(coord.y), floorf(coord.z));
-    GVec3 localPosition = coord - cellPositionF;
-    float dist1 = 1e9f, dist2 = 1e9f;
-    GVec3 offset1(0.0f), offset2(0.0f);
-    GVec3 position1(0.0f), position2(0.0f);
-    for (int k = -1; k <= 1; ++k)
-        for (int j = -1; j <= 1; ++j)
-            for (int i = -1; i <= 1; ++i) {
-                GVec3 cellOffset((float)i, (float)j, (float)k);
-                GVec3 pointPosition = voronoi_cell_point(vp, cellPositionF, i, j, k);
-                float d = voronoi_distance(vp, pointPosition, localPosition);
-                if (d < dist1) {
-                    dist2 = dist1; offset2 = offset1; position2 = position1;
-                    dist1 = d; offset1 = cellOffset; position1 = pointPosition;
-                } else if (d < dist2) {
-                    dist2 = d; offset2 = cellOffset; position2 = pointPosition;
-                }
-            }
-    VoronoiOut out;
-    out.distance = dist2;
-    GVec3 cell2 = cellPositionF + offset2;
-    out.color = hash_int3_to_float3((int)cell2.x, (int)cell2.y, (int)cell2.z);
-    out.position = position2 + cellPositionF;
-    out.radius = 0.0f;
-    return out;
-}
-
-// IQ two-pass perpendicular edge distance; first pass squared Euclidean (metric ignored).
-HD inline VoronoiOut voronoi_distance_to_edge(const VoronoiParams& vp, const GVec3& coord) {
-    GVec3 cellPositionF(floorf(coord.x), floorf(coord.y), floorf(coord.z));
-    GVec3 localPosition = coord - cellPositionF;
-    float minDistance = 1e9f;
-    GVec3 targetOffset(0.0f);
-    GVec3 vectorToClosest(0.0f);
-    for (int k = -1; k <= 1; ++k)
-        for (int j = -1; j <= 1; ++j)
-            for (int i = -1; i <= 1; ++i) {
-                GVec3 vectorToPoint = voronoi_cell_point(vp, cellPositionF, i, j, k)
-                    - localPosition;
-                float d = vectorToPoint.dot(vectorToPoint);
-                if (d < minDistance) {
-                    minDistance = d;
-                    targetOffset = GVec3((float)i, (float)j, (float)k);
-                    vectorToClosest = vectorToPoint;
-                }
-            }
-    minDistance = 1e9f;
-    for (int k = -1; k <= 1; ++k)
-        for (int j = -1; j <= 1; ++j)
-            for (int i = -1; i <= 1; ++i) {
-                GVec3 vectorToPoint = voronoi_cell_point(vp, cellPositionF, i, j, k)
-                    - localPosition;
-                GVec3 perpendicularToEdge = vectorToPoint - vectorToClosest;
-                if (perpendicularToEdge.dot(perpendicularToEdge) > 1e-4f) {
-                    GVec3 perpN = pdiv(perpendicularToEdge,
-                                       sqrtf(perpendicularToEdge.dot(perpendicularToEdge)));
-                    float d = ((vectorToClosest + vectorToPoint) * 0.5f).dot(perpN);
-                    minDistance = pmin(minDistance, d);
-                }
-            }
-    VoronoiOut out;
-    out.distance = minDistance;
-    GVec3 targetCell = cellPositionF + targetOffset;
-    out.color = hash_int3_to_float3((int)targetCell.x, (int)targetCell.y, (int)targetCell.z);
-    out.position = vectorToClosest + localPosition + cellPositionF;
-    out.radius = 0.0f;
-    return out;
-}
-
-// Half the distance between the closest point and its closest neighbour.
-HD inline VoronoiOut voronoi_n_sphere_radius(const VoronoiParams& vp, const GVec3& coord) {
-    GVec3 cellPositionF(floorf(coord.x), floorf(coord.y), floorf(coord.z));
-    GVec3 localPosition = coord - cellPositionF;
-    float minDistance = 1e9f;
-    GVec3 targetOffset(0.0f);
-    GVec3 targetPosition(0.0f);
-    for (int k = -1; k <= 1; ++k)
-        for (int j = -1; j <= 1; ++j)
-            for (int i = -1; i <= 1; ++i) {
-                GVec3 pointPosition = voronoi_cell_point(vp, cellPositionF, i, j, k);
-                float d = voronoi_distance(vp, pointPosition, localPosition);
-                if (d < minDistance) {
-                    minDistance = d;
-                    targetOffset = GVec3((float)i, (float)j, (float)k);
-                    targetPosition = pointPosition;
-                }
-            }
-    float closestNeighborDist = 1e9f;
-    for (int k = -1; k <= 1; ++k)
-        for (int j = -1; j <= 1; ++j)
-            for (int i = -1; i <= 1; ++i) {
-                if (i == 0 && j == 0 && k == 0) continue;
-                GVec3 cellOffset((float)i, (float)j, (float)k);
-                GVec3 pointPosition = cellOffset +
-                    hash_int3_to_float3(voronoi_cell((int)cellPositionF.x + (int)targetOffset.x + i),
-                                        voronoi_cell((int)cellPositionF.y + (int)targetOffset.y + j),
-                                        voronoi_cell((int)cellPositionF.z + (int)targetOffset.z + k)) *
-                    vp.randomness;
-                float d = voronoi_distance(vp, GVec3(0.0f), pointPosition);
-                closestNeighborDist = pmin(closestNeighborDist, d);
-            }
-    VoronoiOut out;
-    out.distance = minDistance;
-    GVec3 targetCell = cellPositionF + targetOffset;
-    out.color = hash_int3_to_float3((int)targetCell.x, (int)targetCell.y, (int)targetCell.z);
-    out.position = targetPosition + cellPositionF;
-    out.radius = closestNeighborDist / 2.0f;
-    return out;
-}
-
-HD inline VoronoiOut voronoi_feature(const VoronoiParams& vp, const GVec3& coord) {
-    switch (vp.feature) {
-        case 1: return voronoi_smooth_f1(vp, coord);
-        case 2: return voronoi_f2(vp, coord);
-        case 3: return voronoi_distance_to_edge(vp, coord);
-        case 4: return voronoi_n_sphere_radius(vp, coord);
-        default: return voronoi_f1(vp, coord);
-    }
-}
-
-// Cycles fractal_voronoi_x_fx (octave loop with normalize).
-HD inline VoronoiOut fractal_voronoi(const VoronoiParams& vp, const GVec3& coord) {
-    float octaveScale = 1.0f;
-    float amplitude = 1.0f;
-    float maxAmplitude = 0.0f;
-    VoronoiOut sum;
-    sum.distance = 0.0f;
-    sum.color = GVec3(0.0f);
-    sum.position = GVec3(0.0f);
-    sum.radius = 0.0f;
-    int octaves = (int)ceilf(vp.detail);
-    for (int i = 0; i <= octaves; ++i) {
-        VoronoiOut octave = voronoi_feature(vp, coord * octaveScale);
-        if (i <= (int)vp.detail) {
-            sum.distance += octave.distance * amplitude;
-            sum.color = sum.color + octave.color * amplitude;
-            sum.position = sum.position + octave.position * amplitude;
-            sum.radius += octave.radius * amplitude;
-            maxAmplitude += amplitude;
-        } else {
-            float rmd = vp.detail - floorf(vp.detail);
-            sum.distance = sum.distance * (1.0f - rmd) + (sum.distance + octave.distance * amplitude) * rmd;
-            sum.color = sum.color * (1.0f - rmd) + (sum.color + octave.color * amplitude) * rmd;
-            sum.position = sum.position * (1.0f - rmd) + (sum.position + octave.position * amplitude) * rmd;
-            sum.radius = sum.radius * (1.0f - rmd) + (sum.radius + octave.radius * amplitude) * rmd;
-            if (vp.normalize) {
-                maxAmplitude = maxAmplitude * (1.0f - rmd) + (maxAmplitude + amplitude) * rmd;
-            }
-        }
-        octaveScale *= vp.lacunarity;
-        amplitude *= vp.roughness;
-    }
-    if (vp.normalize) {
-        sum.distance /= maxAmplitude * vp.maxDistance;
-        sum.color = pdiv(sum.color, maxAmplitude);
-    }
-    // Cycles: output.position = safe_divide(position, params.scale).
-    sum.position = (vp.scale != 0.0f) ? pdiv(sum.position, vp.scale) : sum.position;
-    return sum;
+    vp.maxDistance = voronoi_nd_max_distance(vp);
 }
 
 // ---------------------------------------------------------------------------
-// #975 - the Voronoi Texture's 1D / 2D / 4D dimensions. Cycles kernel/svm/voronoi.h
-// (Apache-2.0, blender-v5.2-release; IQ 2013 MIT for smooth F1 / distance to edge),
-// the float / float2 / float4 overloads, ported function by function (research note
-// .astroray_plan/docs/issue975-voronoi-nd-research.md). Differences from the 3-D
-// path above, all as in Cycles: cell indices are ints (no float round trip), 2D / 4D
-// use the PCG2D / PCG4D hash (util/hash.h hash_int{2,4}_to_float{2,4}), 1D hashes the
+// #975 / #1108 - the Voronoi Texture, all dimensions. Cycles kernel/svm/voronoi.h
+// (Apache-2.0, tag v5.2.0; IQ 2013 MIT for smooth F1 / distance to edge),
+// the float / float2 / float3 / float4 overloads, ported function by function (research
+// notes .astroray_plan/docs/issue975-voronoi-nd-research.md and issue1108-voronoi-3d.md).
+// As in Cycles: cell indices are ints (no float round trip), 2D / 4D use the PCG2D / PCG4D
+// hash (util/hash.h hash_int{2,4}_to_float{2,4}), 3D hash_int3_to_float3, 1D hashes the
 // float cell position (hash_float_to_float), F1 searches with the cheaper
 // voronoi_distance_bound, and Distance to Edge has its own fractal wrapper
 // (fractal_voronoi_distance_to_edge) while N-Sphere Radius is not fractal. Only the
 // Distance / Color / Radius outputs are produced; the Position / W outputs are not
-// exposed by any Astroray consumer, so they are not computed.
+// exposed by any Astroray consumer, so they are not computed. (#1108: the earlier pkg115
+// 3-D body, which returned F1 for N-Sphere Radius, clamped to [0,1] and used the F1
+// fractal for Distance to Edge, was replaced by this path.)
 // ---------------------------------------------------------------------------
 struct PInt2 { int x, y; };
+struct PInt3 { int x, y, z; };
 struct PInt4 { int x, y, z, w; };
 HD inline PVec2 operator-(const PVec2& a, const PVec2& b) { return PVec2{a.x - b.x, a.y - b.y}; }
 HD inline PVec4 operator-(const PVec4& a, const PVec4& b) {
@@ -1068,6 +811,28 @@ template<> struct VorTraits<PVec2> {
     HD static float reduceMax(const PVec2& a) { return pmax(a.x, a.y); }
     HD static PVec2 fabs_(const PVec2& a) { return PVec2{fabsf(a.x), fabsf(a.y)}; }
     HD static PVec2 pow_(const PVec2& a, float e) { return PVec2{powf(a.x, e), powf(a.y, e)}; }
+};
+
+template<> struct VorTraits<GVec3> {
+    typedef PInt3 C;
+    HD static int count(int w) { return w * w * w; }
+    HD static C offset(int idx, int w, int lo) {
+        return C{lo + idx % w, lo + (idx / w) % w, lo + (idx / (w * w)) % w};
+    }
+    HD static C zeroCell() { return C{0, 0, 0}; }
+    HD static bool isZero(const C& c) { return c.x == 0 && c.y == 0 && c.z == 0; }
+    HD static C add(const C& a, const C& b) { return C{a.x + b.x, a.y + b.y, a.z + b.z}; }
+    HD static GVec3 zero() { return GVec3(0.0f); }
+    HD static GVec3 floor_(const GVec3& a) { return GVec3(floorf(a.x), floorf(a.y), floorf(a.z)); }
+    HD static C toInt(const GVec3& a) { return C{(int)a.x, (int)a.y, (int)a.z}; }
+    HD static GVec3 toFloat(const C& c) { return GVec3((float)c.x, (float)c.y, (float)c.z); }
+    HD static GVec3 hash(const C& c) { return hash_int3_to_float3(c.x, c.y, c.z); }
+    HD static GVec3 color(const C& c) { return hash_int3_to_float3(c.x, c.y, c.z); }
+    HD static float dot(const GVec3& a, const GVec3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+    HD static float reduceAdd(const GVec3& a) { return a.x + a.y + a.z; }
+    HD static float reduceMax(const GVec3& a) { return pmax(pmax(a.x, a.y), a.z); }
+    HD static GVec3 fabs_(const GVec3& a) { return GVec3(fabsf(a.x), fabsf(a.y), fabsf(a.z)); }
+    HD static GVec3 pow_(const GVec3& a, float e) { return GVec3(powf(a.x, e), powf(a.y, e), powf(a.z, e)); }
 };
 
 template<> struct VorTraits<PVec4> {
@@ -1525,59 +1290,40 @@ HD inline float voronoi_nd_max_distance(const VoronoiParams& vp) {
     switch (vp.dimensions) {
         case 1: return m * f2;
         case 2: return vnd_distance(vp, PVec2{0.0f, 0.0f}, PVec2{m, m}) * f2;
+        case 3: return vnd_distance(vp, GVec3(0.0f), GVec3(m)) * f2;
         default: return vnd_distance(vp, PVec4{0.0f, 0.0f, 0.0f, 0.0f}, PVec4{m, m, m, m}) * f2;
     }
 }
 
 // Texture point p (3-D, scaled by Scale) and the W socket value vp.w (also scaled).
-HD inline VoronoiOut voronoi_eval_nd(const VoronoiParams& vp, const GVec3& p) {
+// Features 0-4 are the Cycles node (any dimension). The engine-only standalone features
+// 5 = (F1 + F2) / 2 and 6 = F2 - F1 (3-D, no Cycles counterpart) combine the plain
+// F1 / F2 searches; they ignore detail.
+HD inline VoronoiOut voronoi_eval(const VoronoiParams& vp, const GVec3& p) {
     const GVec3 co = p * vp.scale;
     const float w = vp.w * vp.scale;
     switch (vp.dimensions) {
         case 1: return vnd_node(vp, w);
         case 2: return vnd_node(vp, PVec2{co.x, co.y});
-        default: return vnd_node(vp, PVec4{co.x, co.y, co.z, w});
+        case 4: return vnd_node(vp, PVec4{co.x, co.y, co.z, w});
+        default: break;
     }
-}
-
-// Features 0-4 always go through the fractal wrapper (Cycles calls it even at
-// detail 0, so normalize applies there too); 5/6 have no Cycles counterpart.
-HD inline VoronoiOut voronoi_eval_full(const VoronoiParams& vp, const GVec3& p) {
-    GVec3 coord = p * vp.scale;
-    if (vp.feature <= 4) return fractal_voronoi(vp, coord);
-    switch (vp.feature) {
-        case 5: {
-            VoronoiOut f1 = voronoi_f1(vp, coord);
-            VoronoiOut f2 = voronoi_f2(vp, coord);
-            f1.distance = (f1.distance + f2.distance) * 0.5f;
-            return f1;
-        }
-        case 6: {
-            VoronoiOut f1 = voronoi_f1(vp, coord);
-            VoronoiOut f2 = voronoi_f2(vp, coord);
-            f1.distance = f2.distance - f1.distance;
-            return f1;
-        }
-        default: return voronoi_f1(vp, coord);
-    }
-}
-
-// #975: the node entry for every dimension. The 3-D body (voronoi_eval_full) is left
-// untouched so its code generation, and with it the 3-D output, is unchanged.
-HD inline VoronoiOut voronoi_eval(const VoronoiParams& vp, const GVec3& p) {
-    return (vp.dimensions != 3) ? voronoi_eval_nd(vp, p) : voronoi_eval_full(vp, p);
+    if (vp.feature <= 4) return vnd_node(vp, co);
+    VoronoiOut f1 = vnd_f1(vp, co);
+    const VoronoiOut f2 = vnd_f2(vp, co);
+    f1.distance = (vp.feature == 5) ? (f1.distance + f2.distance) * 0.5f : f2.distance - f1.distance;
+    return f1;
 }
 
 // Color output (hashed cell colour) or Distance as a colorLow->colorHigh lerp.
 HD inline GVec3 voronoi_texture(const VoronoiParams& vp, GVec3 p) {
     VoronoiOut out = voronoi_eval(vp, p);
     if (vp.outputColor) return out.color;
-    // #975: 1D / 2D / 4D return the node's Distance (or Radius for N-Sphere Radius,
-    // whose Distance is 0 in Cycles) unclamped: Cycles distances exceed 1 (F2,
-    // Manhattan) and Smooth F1 dips below 0. The 3-D path keeps its pkg115 [0,1] clamp.
-    float t;
-    if (vp.dimensions != 3) t = (vp.feature == 4) ? out.radius : out.distance;
-    else t = pclamp(out.distance, 0.0f, 1.0f);
+    // #975 / #1108: Cycles features return Distance (or Radius for N-Sphere Radius,
+    // whose Distance is 0 in Cycles) unclamped: F2 / Manhattan exceed 1 and Smooth F1
+    // dips below 0. Only the engine-only standalone features 5 / 6 keep the old [0,1] clamp.
+    float t = (vp.feature == 4) ? out.radius : out.distance;
+    if (vp.feature > 4) t = pclamp(t, 0.0f, 1.0f);
     return vp.colorLow * (1.0f - t) + vp.colorHigh * t;
 }
 

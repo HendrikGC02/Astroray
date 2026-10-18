@@ -228,7 +228,7 @@ def test_brick_translation_param_vector(monkeypatch):
         'Vector': _Socket(),  # unlinked → GENERATED
         'Color1': _Socket(default=(0.9, 0.4, 0.3, 1.0)),
         'Color2': _Socket(default=(0.7, 0.3, 0.2, 1.0)),
-        'Color3': _Socket(default=(0.1, 0.1, 0.1, 1.0)),
+        'Mortar': _Socket(default=(0.1, 0.1, 0.1, 1.0)),
         'Scale': _Socket(default=6.0),
         'Mortar Size': _Socket(default=0.03),
         'Mortar Smooth': _Socket(default=0.15),

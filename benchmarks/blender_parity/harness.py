@@ -336,12 +336,27 @@ def _pyd_dir(root: Path) -> Path | None:
     # (memory mingw_openmp_blender_deadlock). Prefer the addon build dirs
     # (build_blender_addon.py forces -DASTRORAY_DISABLE_OPENMP=ON) over the
     # plain build_cuda (OpenMP ON â€” deadlocks headless-Blender renders).
+    # #950: a caller-supplied ASTRORAY_PYD_DIR wins; a MinGW build with OpenMP
+    # ON (a lane's CPU worktree build) fails "DLL load failed" inside Blender,
+    # so it is skipped.
+    override = os.environ.get("ASTRORAY_PYD_DIR")
+    if override and list(Path(override).glob("astroray*.pyd")):
+        return Path(override)
     for cand in (root / "build_blender_addon_cuda", root / "build_blender_addon_tcnn",
                  root / "build_blender_addon", root / "build_cuda",
                  root / "build_cuda" / "Release"):
-        if list(cand.glob("astroray*.pyd")):
+        if list(cand.glob("astroray*.pyd")) and not _is_mingw_openmp_on(cand):
             return cand
     return None
+
+
+def _is_mingw_openmp_on(build_dir: Path) -> bool:
+    try:
+        cache = (build_dir / "CMakeCache.txt").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return ("CMAKE_GENERATOR:INTERNAL=MinGW Makefiles" in cache
+            and "ASTRORAY_DISABLE_OPENMP:BOOL=ON" not in cache)
 
 
 def _run_render_leg_script(blender: Path, script_args: list[str], env: dict,

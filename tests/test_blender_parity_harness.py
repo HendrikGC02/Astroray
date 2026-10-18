@@ -551,3 +551,32 @@ def test_hdri_background_roi_reads_the_top_of_a_top_down_array():
     img_dark_top[-5:, :, :] = 0.5  # bright BOTTOM rows only - must not satisfy the top-strip ROI
     ok2, mean2 = H.hdri_background_ok(img_dark_top, min_mean=0.05)
     assert not ok2 and mean2 < 0.05
+
+
+def _fake_build(root: Path, name: str, *, mingw: bool, openmp_off: bool) -> Path:
+    d = root / name
+    d.mkdir(parents=True)
+    (d / "astroray.pyd").write_bytes(b"")
+    gen = "MinGW Makefiles" if mingw else "Ninja"
+    (d / "CMakeCache.txt").write_text(
+        f"CMAKE_GENERATOR:INTERNAL={gen}\nASTRORAY_DISABLE_OPENMP:BOOL={'ON' if openmp_off else 'OFF'}\n")
+    return d
+
+
+def test_pyd_dir_skips_mingw_openmp_on_and_honours_env(tmp_path, monkeypatch):
+    """#950: a worktree holding only an OpenMP-ON MinGW build must not be picked."""
+    monkeypatch.delenv("ASTRORAY_PYD_DIR", raising=False)
+    wt = tmp_path / "wt"
+    _fake_build(wt, "build_blender_addon", mingw=True, openmp_off=False)
+    assert H._pyd_dir(wt) is None
+    shared = _fake_build(tmp_path, "shared", mingw=False, openmp_off=False)
+    monkeypatch.setenv("ASTRORAY_PYD_DIR", str(shared))
+    assert H._pyd_dir(wt) == shared
+
+
+def test_pyd_dir_default_order_keeps_openmp_off_mingw_and_prefers_it_over_cuda(tmp_path, monkeypatch):
+    monkeypatch.delenv("ASTRORAY_PYD_DIR", raising=False)
+    root = tmp_path / "main"
+    addon = _fake_build(root, "build_blender_addon", mingw=True, openmp_off=True)
+    _fake_build(root, "build_cuda", mingw=False, openmp_off=False)
+    assert H._pyd_dir(root) == addon

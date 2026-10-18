@@ -1910,6 +1910,19 @@ struct GPrincipledLobe {
 static constexpr int   kMaxPrincipledLobes  = 10;
 static constexpr float kPrincipledDeltaGlassRoughness = 0.03f;  // principled.cpp:43
 
+// Cycles MULTI_GGX glass energy terms (see the rough-glass block below); defined here
+// because gpu_pr_assembleLobes also uses the darkening for the lobe selection weight.
+__device__ inline void gpu_pr_glassEnergy(const GPrincipledClosure& c, const GPrincipledLobe& L,
+                                          float etap, float cosO, GVec3& dark, float& scale) {
+    namespace gg = astroray::ggxglass;
+    float alpha = fmaxf(L.roughness * L.roughness, 0.0064f);
+    float E, Eavg;
+    gg::albedo(gpu_ggxGlassTables(), sqrtf(alpha), cosO, etap, E, Eavg);
+    scale = gg::energyScale(E);
+    GVec3 fss = gpu_pr_sqrtColor(c.color);
+    dark = GVec3(gg::darkening(fss.x, E, Eavg), gg::darkening(fss.y, E, Eavg),
+                 gg::darkening(fss.z, E, Eavg));
+}
 __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GHitRecord& rec,
                                            const GVec3& wo, GPrincipledLobe lobes[kMaxPrincipledLobes],
                                            const GSampledWavelengths* wl = nullptr) {
@@ -2023,6 +2036,14 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
             L.isDelta = c.roughness <= kPrincipledDeltaGlassRoughness || fabsf(c.ior - 1.f) < 1e-4f;
             L.ior = c.ior;
             L.sel = fmaxf(luminance(L.weight), 1e-4f);
+            if (!L.isDelta) {
+                // Cycles microfacet_ggx_preserve_energy: `bsdf->sample_weight *=
+                // average(darkening)` (Blender 5.2 bsdf_microfacet.h:483, BSD-3-Clause);
+                // twin of principled.cpp. Selection only; transient locals.
+                GVec3 dk; float es;
+                gpu_pr_glassEnergy(c, L, rec.frontFace ? c.ior : (1.f / c.ior), nv, dk, es);
+                L.sel = fmaxf(luminance(L.weight) * ((dk.x + dk.y + dk.z) * (1.f / 3.f)), 1e-4f);
+            }
             if (wl) L.weightSpec = weightSp * c.transmission;
         }
         weight = weight * (1.f - c.transmission);
@@ -2254,17 +2275,6 @@ __device__ inline float gpu_pr_thinGlassTransmitPdf(const GPrincipledLobe& L, co
 // gpu_ggxGlassCompensationFactor (Fss = dielectric Fss; rim furnace 0.41-0.55).
 // All values are locals of eval/pdf/sample (nothing is carried across the shade
 // kernel); the table reads replace the old factor's E/Eavg reads.
-__device__ inline void gpu_pr_glassEnergy(const GPrincipledClosure& c, const GPrincipledLobe& L,
-                                          float etap, float cosO, GVec3& dark, float& scale) {
-    namespace gg = astroray::ggxglass;
-    float alpha = fmaxf(L.roughness * L.roughness, 0.0064f);
-    float E, Eavg;
-    gg::albedo(gpu_ggxGlassTables(), sqrtf(alpha), cosO, etap, E, Eavg);
-    scale = gg::energyScale(E);
-    GVec3 fss = gpu_pr_sqrtColor(c.color);
-    dark = GVec3(gg::darkening(fss.x, E, Eavg), gg::darkening(fss.y, E, Eavg),
-                 gg::darkening(fss.z, E, Eavg));
-}
 __device__ inline bool gpu_pr_glassHalfVector(const GPrincipledLobe& L, const GHitRecord& rec,
                                               const GVec3& wo, const GVec3& wi,
                                               bool& transmit, float& etap, GVec3& wm) {
@@ -2280,10 +2290,22 @@ __device__ inline bool gpu_pr_glassHalfVector(const GPrincipledLobe& L, const GH
     if (transmit && wi.dot(wm) >= 0.f) return false;  // refraction needs HI < 0
     return true;
 }
-__device__ inline float gpu_pr_glassReflectProb(const GPrincipledClosure& c, float F) {
+// pdf_reflect = average(R) / average(R + T); twin of principled.cpp glassReflectProb
+// (film glass: R = rescaled thin-film F, T = (1-R) x sqrt(base_color)). Blender v5.2.0
+// intern/cycles/kernel/closure/bsdf_microfacet.h:274-328,768,847 (BSD-3-Clause).
+__device__ inline float gpu_pr_glassReflectProb(const GPrincipledClosure& c, const GPrincipledLobe& L,
+                                                bool entering, float cosHO, float F) {
     GVec3 tt = gpu_pr_sqrtColor(c.color);
-    return astroray::ggxglass::reflectProb(
-        F, (c.specularTint.x + c.specularTint.y + c.specularTint.z) / 3.f, (tt.x + tt.y + tt.z) / 3.f);
+    if (!gpu_pr_filmActive(c))
+        return astroray::ggxglass::reflectProb(
+            F, (c.specularTint.x + c.specularTint.y + c.specularTint.z) / 3.f, (tt.x + tt.y + tt.z) / 3.f);
+    float etap = entering ? L.ior : (1.f / L.ior);
+    float filmIor = entering ? c.thinFilmIor : c.thinFilmIor / L.ior;
+    GVec3 R = gpu_pr_thinFilmF0RescaleRGB(gpu_pr_thinFilmFresnelRGB(c, cosHO, etap, filmIor),
+                                          GVec3(gpu_pr_F0_from_ior(etap)) * c.specularTint, etap);
+    GVec3 T = gvec3_max((GVec3(1.f) - R) * tt, GVec3(0.f));
+    float r = R.x + R.y + R.z, s = r + T.x + T.y + T.z;
+    return (s > 0.f) ? r / s : F;
 }
 
 // --- Transmission rough glass (principled.cpp transmissionEvalRGB) ----------
@@ -2312,9 +2334,11 @@ __device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, con
         gpu_pr_glassEnergy(c, L, etap, cosO, dark, eScale);
         float scalar = ss.value * (transmit ? 1.f - F : F) * eScale;
         if (!(scalar > 0.f)) return GVec3(0.f);
-        GVec3 colour = L.weight * (transmit ? gpu_pr_sqrtColor(c.color) : c.specularTint) * dark;
-        if (outColour) { *outColour = colour; *outScalar = scalar; }
-        return colour * scalar;
+        GVec3 tint = transmit ? gpu_pr_sqrtColor(c.color) : c.specularTint;
+        // #1120: the split colour carries NO lobe weight (twin of principled.cpp
+        // multiGgxGlass); the spectral caller applies L.weightSpec per lambda.
+        if (outColour) { *outColour = tint * dark; *outScalar = scalar; }
+        return L.weight * tint * dark * scalar;
     }
     // Thin-film glass: the pkg178 Stage 4 PR-3 film Fresnel with the same MULTI_GGX
     // energy terms (Cycles generalized-Schlick setup, Fss = transmission tint).
@@ -2371,7 +2395,7 @@ __device__ inline float gpu_pr_transmissionPdf(const GPrincipledClosure& c, cons
     float alpha = fmaxf(L.roughness * L.roughness, 0.0064f);
     float HO = wo.dot(wm), HI = wi.dot(wm);
     float etaI = rec.frontFace ? 1.f : L.ior, etaT = rec.frontFace ? L.ior : 1.f;
-    float pR = gpu_pr_glassReflectProb(c, gpu_pr_fresnelDielectric(HO, etaI, etaT));
+    float pR = gpu_pr_glassReflectProb(c, L, rec.frontFace, HO, gpu_pr_fresnelDielectric(HO, etaI, etaT));
     astroray::ggxglass::SingleScatter ss = astroray::ggxglass::evalSingleScatter(
         transmit, cosO, cosI, wm.dot(rec.normal), HO, HI, etap, alpha * alpha);
     return ss.pdf * (transmit ? 1.f - pR : pR);
@@ -2648,13 +2672,15 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClos
             if (gpu_pr_filmActive(c)) return gpu_pr_transmissionEvalSpectral(c, L, rec, wo, wi, wl);
             // pkg188 Finding A (twin of principled.cpp Transmission case): upsample the
             // reflectance COLOUR at natural magnitude, apply the achromatic scalar
-            // (incl. eta²) post-upsample — not the RGB product.
+            // (incl. eta²) post-upsample — not the RGB product. #1120: the colour is
+            // tint x darkening only; the chromatic lobe weight enters per lambda as
+            // wSpec, as on the CPU (wSpec * upsample(colour) * scalar).
             GVec3 colour(0.f);
             float scalar = 0.f;
             GVec3 rgb = gpu_pr_transmissionEval(c, L, rec, wo, wi, &colour, &scalar);
             if (rgb.x <= 0.f && rgb.y <= 0.f && rgb.z <= 0.f) return GSampledSpectrum(0.f);
             float maxc = fmaxf(fmaxf(fmaxf(colour.x, colour.y), colour.z), 1.f);
-            return gpu_rgbToSampledSpectrum(colour * (1.f / maxc), wl, GSPEC_RGB_ALBEDO) * (maxc * scalar);
+            return wSpec * gpu_rgbToSampledSpectrum(colour * (1.f / maxc), wl, GSPEC_RGB_ALBEDO) * (maxc * scalar);
         }
         case GPR_THINGLASS_REFLECT: {  // GGX reflection, constant F=R' (in weight)
             if (nl <= 0.f || nv <= 0.f) return GSampledSpectrum(0.f);
@@ -2851,7 +2877,7 @@ __device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GPrincipledClos
         GVec3 wm = gpu_pr_sampleGgxVNDF(rec, wo, L.roughness, rng);
         float HdotO = wo.dot(wm);
         float F = gpu_pr_fresnelDielectric(fabsf(HdotO), etaI, etaT);
-        if (gpu_rng_uniform(rng) < gpu_pr_glassReflectProb(c, F)) {
+        if (gpu_rng_uniform(rng) < gpu_pr_glassReflectProb(c, L, rec.frontFace, fabsf(HdotO), F)) {
             ds.wi = (wm * (2.f * HdotO) - wo).normalized();
             ds.ok = ds.wi.dot(rec.normal) > 0.f;
         } else {

@@ -67,16 +67,12 @@ CASES = [
     # layering `weight` chromatic before it reaches the transmission lobe, so this
     # row exercises the Finding-B weight-path guard together with Finding A.
     # Both backends now run the same Cycles MULTI_GGX glass (owner 2026-10-06), which
-    # removed the old walk-vs-single-scatter gap (GPU/CPU R 1.26). What remains is
-    # #1120: the GPU folds L.weight into the colour before the JH upsample, while the CPU
-    # applies it per lambda, giving GPU/CPU R 0.848 on this chromatic-coat row (RTX 5070 Ti).
-    pytest.param(
-        "coat_over_tinted_glass",
-        GLASS_TINT, {"metallic": 0.0, "transmission_weight": 0.8, "ior": 1.5, "roughness": 0.25,
-                     "coat_weight": 1.0, "coat_roughness": 0.1, "coat_tint": [0.3, 0.7, 1.0]},
-        id="coat_over_tinted_glass",
-        marks=pytest.mark.xfail(strict=True, reason="#1120: GPU folds L.weight into the colour "
-                                "before upsampling (GPU/CPU R 0.848)")),
+    # removed the old walk-vs-single-scatter gap (GPU/CPU R 1.26). #1120 then left GPU/CPU
+    # R 0.848: the GPU folded L.weight into the colour before the JH upsample, while the
+    # CPU applies it per lambda. Fixed: the GPU now applies L.weightSpec per lambda too.
+    ("coat_over_tinted_glass",
+     GLASS_TINT, {"metallic": 0.0, "transmission_weight": 0.8, "ior": 1.5, "roughness": 0.25,
+                  "coat_weight": 1.0, "coat_roughness": 0.1, "coat_tint": [0.3, 0.7, 1.0]}),
 ]
 
 

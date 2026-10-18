@@ -815,10 +815,27 @@ class PrincipledPlugin : public Material {
         float HO = wo.dot(wm), HI = wi.dot(wm);
         float etaI = rec.frontFace ? 1.0f : L.ior, etaT = rec.frontFace ? L.ior : 1.0f;
         float F = fresnelDielectric(HO, etaI, etaT);
-        float pR = astroray::ggxglass::reflectProb(F, glassReflTintAvg(), glassTransTintAvg());
+        float pR = glassReflectProb(L, rec.frontFace, HO, F);
         auto ss = astroray::ggxglass::evalSingleScatter(transmit, cosO, cosI, wm.dot(rec.normal),
                                                         HO, HI, etap, alpha * alpha);
         return ss.pdf * (transmit ? 1.0f - pR : pR);
+    }
+    // pdf_reflect = average(R) / average(R + T) (Cycles bsdf_microfacet_sample). Film
+    // glass: R = thin-film F with specular_tint folded in by the F0 rescale, T = (1-R) x
+    // sqrt(base_color), exactly the factors the film eval uses (Cycles microfacet_fresnel,
+    // generalized Schlick + thin film). Otherwise R = F x specular_tint, T = (1-F) x tint.
+    // Blender v5.2.0 intern/cycles/kernel/closure/bsdf_microfacet.h:274-328,768,847
+    // (BSD-3-Clause).
+    float glassReflectProb(const Lobe& L, bool entering, float cosHO, float F) const {
+        if (!filmActive())
+            return astroray::ggxglass::reflectProb(F, glassReflTintAvg(), glassTransTintAvg());
+        float etap = entering ? L.ior : (1.0f / L.ior);
+        float filmIor = entering ? thinFilmIor_ : thinFilmIor_ / L.ior;
+        Vec3 R = thinFilmF0RescaleRGB(thinFilmFresnelRGB(cosHO, etap, filmIor),
+                                      Vec3(F0_from_ior(etap)) * specularTint_, etap);
+        Vec3 T = Vec3::max((Vec3(1.0f) - R) * sqrtColor(baseColor_), Vec3(0.0f));
+        float r = R.x + R.y + R.z, s = r + T.x + T.y + T.z;
+        return (s > 0.0f) ? r / s : F;
     }
     float glassReflTintAvg() const {
         return (specularTint_.x + specularTint_.y + specularTint_.z) / 3.0f;
@@ -1116,6 +1133,14 @@ class PrincipledPlugin : public Material {
                 L.isDelta = roughness_ <= kDeltaGlassRoughness || std::fabs(ior_ - 1.0f) < 1e-4f;
                 L.ior = ior_;
                 L.sel = std::max(luminance(L.weight), 1e-4f);
+                if (!L.isDelta && !msWalk_) {
+                    // Cycles microfacet_ggx_preserve_energy: `bsdf->sample_weight *=
+                    // average(darkening)` (Blender 5.2 kernel/closure/bsdf_microfacet.h:483,
+                    // BSD-3-Clause). Selection only (variance); eval/pdf use the same sel.
+                    Vec3 dark; float eScale;
+                    glassEnergyTerms(L, rec.frontFace ? ior_ : (1.0f / ior_), nv, dark, eScale);
+                    L.sel = std::max(luminance(L.weight) * ((dark.x + dark.y + dark.z) / 3.0f), 1e-4f);
+                }
                 // Film-off transmission eval uses L.weight directly (pkg188 Finding A
                 // colour/scalar split); the film-on spectral path reads weightSpec.
                 if (lam) L.weightSpec = weightSp * transmission_;
@@ -1917,7 +1942,7 @@ class PrincipledPlugin : public Material {
             Vec3 wm = sampleGgxVNDF(rec, wo, L.roughness, gen);
             float HdotO = wo.dot(wm);
             float F = fresnelDielectric(std::abs(HdotO), etaI, etaT);
-            float pR = astroray::ggxglass::reflectProb(F, glassReflTintAvg(), glassTransTintAvg());
+            float pR = glassReflectProb(L, rec.frontFace, std::abs(HdotO), F);
             if (dist(gen) < pR) {
                 ds.wi = (wm * (2.0f * HdotO) - wo).normalized();
                 ds.ok = ds.wi.dot(rec.normal) > 0.0f;
@@ -2171,6 +2196,7 @@ public:
         c.thinFilmIor = thinFilmIor_;
         c.thinWall = thinWall_;                       // pkg178 Stage 4 PR-4
         c.subsurfaceAnisotropy = subsurfaceAnisotropy_;
+        c.roughGlassWalk = msWalk_;                   // CPU-only; GPU reports DEGRADED
         graph.add(c);
         return graph;
     }
@@ -2184,6 +2210,8 @@ public:
         caps.gpuType = "closure_graph";
         caps.notes = "pkg178 Stage 3: native Principled core lobes + coat/sheen(LTC)/"
                      "approx-subsurface/emission via GMAT_CLOSURE_GRAPH + GCLOSURE_PRINCIPLED";
+        if (msWalk_)
+            caps.notes += "; rough_glass_walk is CPU-only: the GPU renders Cycles MULTI_GGX rough glass";
         return caps;
     }
 

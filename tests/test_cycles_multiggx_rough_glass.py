@@ -100,6 +100,29 @@ def test_walk_option_still_conserves_cpu():
         f"walk {centre:.4f} vs default {mg_centre:.4f}: rough_glass_walk not honoured")
 
 
+def test_walk_option_reports_cpu_only():
+    """i16 review: rough_glass_walk has no GPU twin, so the capability notes say so
+    (RED before: the GPU substitution was silent)."""
+    r = astroray.Renderer()
+    params = {"transmission_weight": 1.0, "roughness": 0.5}
+    walk = r.create_material("principled", [1.0, 1.0, 1.0], {**params, "rough_glass_walk": 1.0})
+    plain = r.create_material("principled", [1.0, 1.0, 1.0], params)
+    assert "rough_glass_walk is CPU-only" in r.get_material_backend_capabilities(walk)["notes"]
+    assert "rough_glass_walk" not in r.get_material_backend_capabilities(plain)["notes"]
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(AVAILABLE and not astroray.__features__.get("cuda", False),
+                    reason="CUDA feature not in this build")
+def test_walk_option_gpu_reports_degraded(capfd):
+    """The GPU upload prints a DEGRADED line for rough_glass_walk (RED before: silent)."""
+    if not astroray.Renderer().gpu_available:
+        pytest.skip("CUDA GPU not available")
+    capfd.readouterr()
+    _furnace(1.5, 0.5, use_gpu=True, walk=True, spp=4)
+    assert "DEGRADED: rough_glass_walk" in capfd.readouterr().err
+
+
 def _fibonacci_sphere(n):
     i = np.arange(n) + 0.5
     z = 1.0 - 2.0 * i / n
@@ -130,3 +153,122 @@ def test_pdf_matches_sampler_mass_cpu(rough, mu, front_face):
     assert abs(mass - kept) <= 0.02, (
         f"integral of pdf {mass:.4f} != sampler kept fraction {kept:.4f} "
         f"(r {rough}, mu {mu}, {'entry' if front_face else 'exit'})")
+
+
+_TINT = [0.85, 0.22, 0.10]
+
+
+def test_glass_selection_weight_includes_darkening_cpu():
+    """Cycles microfacet_ggx_preserve_energy scales the glass closure's sample_weight by
+    average(darkening) (bsdf_microfacet.h:483). Coat over glass has two lobes, so the
+    mixture pdf at a refracted direction is pdf_glass * selT / (selC + selT). With a
+    tinted glass selT must drop by d = average(darkening), read from eval() as
+    f_tint / (f_white * sqrt(colour)). RED before: the selection ignored darkening."""
+    r = astroray.Renderer()
+    glass = {"transmission_weight": 1.0, "roughness": 1.0, "ior": 1.5}
+    coat = {**glass, "coat_weight": 1.0, "coat_roughness": 0.3}
+    mu = 0.7
+    wo = [math.sqrt(1.0 - mu * mu), mu, 0.0]
+    wi = np.array([[-0.476, -0.879, 0.0], [-0.3, -0.9, 0.2], [-0.6, -0.78, -0.15]], dtype=np.float32)
+    wi /= np.linalg.norm(wi, axis=1, keepdims=True)
+
+    def sel_ratio(colour):
+        pure = r.create_material("principled", colour, glass)
+        mixed = r.create_material("principled", colour, coat)
+        p_pure = np.asarray(r.debug_bsdf_pdf_batch(pure, wo, wi), dtype=np.float64)
+        p_mix = np.asarray(r.debug_bsdf_pdf_batch(mixed, wo, wi), dtype=np.float64)
+        assert np.all(p_pure > 0.0)
+        q = p_mix / p_pure
+        assert np.ptp(q) <= 1e-4 * q.mean(), q  # one constant selection share
+        return float(q.mean()), pure
+
+    q_white, white_id = sel_ratio([1.0, 1.0, 1.0])
+    q_tint, tint_id = sel_ratio(_TINT)
+    f_w = np.asarray(r.eval_material(white_id, wo, wi[0].tolist()), dtype=np.float64)
+    f_t = np.asarray(r.eval_material(tint_id, wo, wi[0].tolist()), dtype=np.float64)
+    d = float(np.mean(f_t / (f_w * np.sqrt(_TINT))))
+    assert d < 0.97, d  # the scene must exercise a real darkening
+    k = 1.0 / q_white - 1.0  # selC / selT for white glass
+    expected = d / (k + d)
+    assert abs(q_tint - expected) <= 1e-3, (
+        f"tinted selection share {q_tint:.5f} != {expected:.5f} (white {q_white:.5f}, "
+        f"avg darkening {d:.4f}): glass sample weight misses average(darkening)")
+
+
+def test_film_glass_reflect_probability_tracks_film_reflectance_cpu():
+    """Cycles picks reflection with pdf_reflect = average(R) / average(R + T), where R is
+    the thin-film reflectance for film glass (microfacet_fresnel, generalized Schlick).
+    Then the one-sample weights f/pdf of reflected and refracted samples are balanced,
+    up to Astroray's 1/eta^2 radiance factor on refraction (Cycles omits it), divided
+    out below. A quarter-wave film (n 2.4, 57 nm) lifts R from ~0.04 to ~0.34; picking
+    with the plain dielectric F makes reflected weights ~10x the refracted ones
+    (variance only). RED before: ratio 10.6."""
+    r = astroray.Renderer()
+    mid = r.create_material("principled", [1.0, 1.0, 1.0],
+                            {"transmission_weight": 1.0, "roughness": 0.3, "ior": 1.5,
+                             "thin_film_thickness": 57.0, "thin_film_ior": 2.4})
+    mu = 0.8
+    wo = [math.sqrt(1.0 - mu * mu), mu, 0.0]
+    n_s = 20_000
+    wis, pdfs = r.debug_bsdf_sample_batch(mid, wo, np.zeros((2, n_s), dtype=np.float32))
+    wis, pdfs = np.asarray(wis), np.asarray(pdfs)
+    w_refl, w_refr = [], []
+    for wi, p in zip(wis, pdfs):
+        if p <= 0.0:
+            continue
+        w = float(np.mean(r.eval_material(mid, wo, wi.tolist()))) / float(p)
+        (w_refl if wi[1] > 0.0 else w_refr).append(w)
+    assert len(w_refl) > 500 and len(w_refr) > 500, (len(w_refl), len(w_refr))
+    ratio = float(np.mean(w_refl)) / (float(np.mean(w_refr)) * 1.5 ** 2)  # entry eta = 1.5
+    assert 0.75 <= ratio <= 1.33, (
+        f"mean f/pdf reflected / refracted = {ratio:.3f} ({len(w_refl)} refl, "
+        f"{len(w_refr)} refr): film glass picks reflection with the plain dielectric F")
+
+
+# GPU twins of the two selection tests above (#1143 review): the BSDF-level debug
+# hooks are CPU-only, so the GPU leg is a GPU-vs-CPU render parity. Selection changes
+# are variance only, so a GPU sampler/pdf that disagreed on pdf_reflect or on the
+# darkened lobe weight would bias the GPU mean away from the CPU one.
+_PARITY_CASES = [
+    # B4: quarter-wave film (R ~0.34 vs plain F ~0.04) on rough glass.
+    ("film_glass_quarter_wave",
+     [1.0, 1.0, 1.0], {"transmission_weight": 1.0, "roughness": 0.3, "ior": 1.5,
+                       "thin_film_thickness": 57.0, "thin_film_ior": 2.4}),
+    # B3: coat over tinted rough glass, strong darkening (roughness 1.0).
+    ("coat_over_tinted_glass_r1",
+     _TINT, {"transmission_weight": 1.0, "roughness": 1.0, "ior": 1.5,
+             "coat_weight": 1.0, "coat_roughness": 0.3}),
+]
+
+
+def _parity_render(colour, params, use_gpu):
+    r = astroray.Renderer()
+    if use_gpu:
+        r.set_use_gpu(True)
+    r.set_background_color([0.40, 0.45, 0.55])
+    mid = r.create_material("principled", colour, params)
+    r.add_sphere([0.0, 0.0, 0.0], 0.9, mid)
+    r.setup_camera([0.0, 0.0, 1.35], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0],
+                   60.0, 1.0, 0.0, 1.35, 48, 48)
+    r.set_integrator("path_tracer")
+    r.set_seed(1143)
+    img = np.asarray(r.render(256, 6, None, False), dtype=np.float64)  # linear
+    assert np.all(np.isfinite(img))
+    return img.reshape(48, 48, 3)
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(AVAILABLE and not astroray.__features__.get("cuda", False),
+                    reason="CUDA feature not in this build")
+@pytest.mark.parametrize("label,colour,params", _PARITY_CASES, ids=[c[0] for c in _PARITY_CASES])
+def test_glass_selection_gpu_cpu_parity(label, colour, params):
+    if not astroray.Renderer().gpu_available:
+        pytest.skip("CUDA GPU not available")
+    gpu = _parity_render(colour, params, use_gpu=True)
+    cpu = _parity_render(colour, params, use_gpu=False)
+    for c, ch in enumerate("RGB"):
+        cm, gm = float(cpu[..., c].mean()), float(gpu[..., c].mean())
+        print(f"[{label}] {ch}: cpu={cm:.5f} gpu={gm:.5f} ratio={gm / cm:.4f}")
+        assert 0.95 <= gm / cm <= 1.05, (
+            f"{label} channel {ch}: GPU/CPU mean {gm / cm:.4f} outside [0.95, 1.05] "
+            f"(cpu {cm:.5f}, gpu {gm:.5f})")

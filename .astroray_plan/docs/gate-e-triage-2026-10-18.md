@@ -30,3 +30,15 @@ medium = degraded but flagged / narrow reach; low = cosmetic or tooling. Raw tab
 Row (e) stays RED until #1124 is fixed or re-rated; the 10-06 pass found 0 open highs, so #1124 is the only
 open high on 2026-10-18. The committed `acceptance_manifest.json` still carries the 10-05 snapshot (10 highs) and is
 re-reduced from the live issue list in this session's closeout.
+
+## Batch 2 (filed during the session; two blind Sonnet raters A2/B2)
+
+| # | Title | A | B | Severity | Rationale |
+|---|---|---|---|---|---|
+| 1137 | Brick Texture mortar read from non-existent `Color3` socket; Mortar always black | high | high | **high** | Native socket silently ignored on CPU+GPU, no warning. Lane filed. |
+| 1140 | Hair Principled HUANG renders as CHIANG | low | medium | **medium** | Reported approximation (flagged) = medium by the rubric letter; narrow reach. |
+| 1141 | prod_curves_geometry inner_backface: saturated albedo loses red after 2+ spectral bounces | medium | medium | **medium** | Unflagged but gamut-edge only; spectral-vs-RGB divergence, owner physics rule. |
+| 1142 | Rough-glass sampler lacks the Ng side check (needs Ng in HitRecord) | low | medium | **medium** | Unflagged, shadow-terminator region of smooth-shaded low-poly glass only. |
+| 1145 | run_parity.py OpenCV 5.0 EXR writer missing | low | low | **low** | Tooling. |
+
+Closed during the session with evidence: #1047, #1111, #721, #855, #1038, #968; #1124 closes with PR #1144. Open highs after batch 2: **#1137** only (lane `i1137`).

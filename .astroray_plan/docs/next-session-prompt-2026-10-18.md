@@ -12,7 +12,13 @@ Read first: `STATUS.md` (2026-10-18 entry), `architect-plan-2026-10-18.md` (toni
 - **Merged today:** #1139 pkg321 (spec flipped to done), #1143 (#1120), #1144 (#1124), #1146 (#1137), #1147
   (#1127/#950/#1145). Closed: #1089, #1120, #1124, #1127, #950, #1137, #1145. Worktrees/branches removed.
 - **Open PRs:** **#1148** (#1117 scanner Pointiness + matrix regen on Blender 5.2 + Pointiness/Mortar proof-pending;
-  worktree `i1117`): OPEN, CI build-and-test pending at handoff -- merge on green. **#1149** (#1108 Voronoi 3D Cycles 5.2 port + test re-pin; worktree `i1108`,
+  worktree `i1117`): OPEN, **CI RED** -- three tests manufacture their silent pair from the live matrix and
+  Pointiness was the last DROPPED-SILENT pair in the production corpus: `tests/test_pkg310_manifest_row_g.py`
+  (`_log(report_all=False)` -> `AUDIT.audit_scene(...)["silent"]` is now empty, so
+  `test_silent_drop_reds_the_row_even_with_8_of_8_in_band` and `test_caller_supplied_status_and_value_are_never_trusted`
+  fail) and `tests/test_production_corpus.py::test_audit_still_flags_an_unhandled_output_socket` (asserts Pointiness
+  is flagged). Fix in the PR: give the fixtures a synthetic DROPPED-SILENT pair (patch `MATRIX` / `USES` in the test,
+  or pick an output socket the matrix still drops) instead of a live one; then re-run CI and merge. **#1149** (#1108 Voronoi 3D Cycles 5.2 port + test re-pin; worktree `i1108`,
   CUDA build at d8f73bf4 in `i1108\build_cuda`): OPEN, CI build-and-test pending at handoff -- merge on green. Both are lead-reviewed only (no blind reviewer
   available); run a retroactive `cycles-parity-reviewer` pass on #1149 when agents are back.
 - **Builds:** `build_cuda` rebuilt at main `188b6374` (stamp `188b63745195`, sm_120 verified, 16:37).

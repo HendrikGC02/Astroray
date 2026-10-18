@@ -29,6 +29,13 @@ started in the morning.
 POSIX paths; pkg321 real drops #1128–#1136; Brick mortar `Color3` socket #1137). pkg323 engine findings attached to
 #1005 (Bump zero effect CPU+GPU, Noise displacement ignored) and #995.
 
+**Midday update (10-18):** Opus and Sonnet agents hit the weekly usage limit (resets Oct 22 2pm Sydney); all lanes
+and the Opus reviewer died, the lead continues alone. Owner paused GPU/CPU-heavy work. PRs open and CI-pending: #1139
+(CI fix: 19 probe-credited rows registered proof-pending), #1143 and #1144 (rebased onto main), #1146 (#1137), #1147
+(lead self-review). (a) GREEN 62.9/100.6 ms, (g) RED 2/8 / 1/8 recorded; #1124 confirmed stale (5 GPU seeds).
+Row (e) draft ratings for 77 open issues at `astra_run6-10-18\gate-eatings-draft.json`. Handoff:
+`next-session-prompt-2026-10-18.md`.
+
 **Tooling notes:** opencode critic (verify tier) did not complete twice (#865); reviews were blind Claude only.
 `launch_isolated_blender.ps1` must run in its own job (memory `isolated-blender-launcher-blocks-redirected-caller`).
 

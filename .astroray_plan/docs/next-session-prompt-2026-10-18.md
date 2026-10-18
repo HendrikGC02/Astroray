@@ -4,30 +4,38 @@ Read first: `STATUS.md` (2026-10-18 entry), `architect-plan-2026-10-18.md` (toni
 `stage0-gate-scoring-2026-10-18.md`, `anthropic-agentic-practices-2026-10.md` (the rules now in CLAUDE.md §5),
 `rendering-advances-research-2026-10.md` (candidate packages), memory `isolated-blender-launcher-blocks-redirected-caller`.
 
-## State at handoff
-- main `57a0c934`+: #1123 and #1138 merged; `build_cuda` and `dist/astroray` rebuilt at `3bb710b8`
-  (stamped `3bb710b+20261017T134944Z`). Local main == origin/main.
-- Gates: (c) GREEN formal on stamped main; (e) one open high (#1124, lane running); (a) formal driver running at
-  handoff (`%LOCALAPPDATA%\astroray-evidence\2026-10-18\a\`, lock holder `lead`); (b)/(g) not re-measured.
-- Open PR **#1139** pkg321 (CI pending, blind Opus review pending, GPU confirmation of the probe table pending:
-  `gpu_locked_run.py lead -- python -m pytest tests/test_pkg321_dropped_row_probes.py -m gpu -q` in its worktree
-  with `ASTRORAY_PYD_DIR` = a copy of `build_cuda`). Merge after both; flip the spec to done.
-- Lanes (worktrees under `.claude/worktrees/`): `i1120` (Opus; 4 commits, **BUILD REQUEST d7fee170** waiting for the
-  lead's `build_cuda_worktree.bat <wt> d7fee170` + the GPU commands in its report; B2 Ng check blocked by rule 13 →
-  file a follow-up), `i1124` (Opus; prod_attributes GPU, started 10:30), `i1117` (Sonnet; scanner Pointiness +
-  curves inner_backface, started 10:30). Resume a lane by name with SendMessage; they end turns with BUILD REQUEST.
-- Lane cap 2 + lead; OMP 8 / `-j 6` for lanes; one heavy lead job at a time (8 hardware resets since 09-23).
+## State at handoff (updated 2026-10-18 midday)
+- **Usage limit:** Opus 5.5 AND Sonnet 5.5 agents hit the weekly limit (HTTP 429), resets **Oct 22 2pm Sydney**. Every
+  lane and the Opus pr-reviewer died; the Fable lead still runs. Haiku untested. Until then: no new lanes, no blind
+  Claude reviews; the lead reviews itself and says so in the PR comment (did so on #1147).
+- **Owner paused heavy work** (midday 10-18): no GPU jobs, no CUDA builds, no test sweeps until the owner says so.
+  Nothing of the lead's is running (no GPU lock holder, no Blender, no build).
+- main `443c2502`; `build_cuda` (10/18 00:49) predates HEAD -- rebuild before any GPU result.
+- Gates on the stamped build: (a) GREEN 62.9/100.6 ms, (c) GREEN, (g) RED 2/8 CPU 1/8 GPU, (e) one open high (#1137)
+  until #1146 merges; #1124 shown stale (closes with #1144). `stage0-gate-scoring-2026-10-18.md`.
+- Open PRs, all CI-pending (GitHub runners ~75 min per build-and-test):
+  - **#1139** pkg321: CI failed once (19 probe-credited rows had no corpus scene) -> lead fix `06158641` registers them
+    as `PKG321_PROOF_PENDING` (shrink-only); CI re-running. Sign-off exists. Merge, then flip the pkg321 spec to done.
+  - **#1143** (#1120) rebased onto main `f6c9e584` (dropped a stale lead-doc commit; code identical to reviewed
+    1678eda9). Sign-off exists. **#1144** (#1124) rebased `25442a82`, same reason. **#1146** (#1137) sign-off exists.
+  - **#1147** tooling (#1127/#950/#1145): lead self-review APPROVE in the PR comments (no blind reviewer available).
+- Lanes: `lane-i1108` (Voronoi 3D, Sonnet) killed by the 429 mid-work -- its worktree `i1108` holds uncommitted or WIP
+  state; resume by name with SendMessage after Oct 22 (a send resumes a killed lane). `lane-i1117` done, unpushed
+  (`79e05354`, `3c121c40`), waits for #1139 to merge, then rebase + regenerate the matrix (Blender 5.2, CPU-heavy).
+- Row (e) draft ratings for all 77 open issues: `astra_run6-10-18\gate-eatings-draft.json` (sources 10-04 file,
+  10-06 doc, 10-18 doc batches 1+2). The 9 pkg321 drops #1128-#1136 are **lead-provisional medium**, not blind;
+  re-rate them before `--finalize-gate-e` or get the owner's OK to use the lead rating.
 
 ## First jobs
-1. Read the gate (a) result (`a\instrument.json`; pass p95 ≤ 100, p99 ≤ 150) and record it in the scoring doc.
-2. Build `i1120` at d7fee170 (`cmd /c scripts\build\build_cuda_worktree.bat <wt> d7fee170`, no other nvcc running),
-   run its GPU command list under the lock, cuobjdump REG/STACK on the principled shade kernels, resume the lane with
-   the numbers; PR when `coat_over_tinted_glass` is in [0.95, 1.05] with the xfail removed and the glass suite 42/42.
-3. #1139: merge on CI green + review SIGN-OFF + GPU probe confirmation. Then rebase `i1117` if it touched the scanner.
-4. M2 row (g) on the merged build (`PKG310_WORK=<dir> gpu_locked_run.py lead -- pytest tests/test_production_corpus.py
-   -k "parity or silent"`, then `gate_manifest.py --adapt-g`); M5 (#1123 perf, Cornell min-of-5) and M6 (glass issues
-   #957/#968/#773/#1038/#954 re-measure); M7 (#721/#855 viewport re-measure). Row (e) re-reduce: fresh snapshot +
-   ratings for all 69 open issues (sources: 10-04 file, 10-06 doc, 10-18 doc; Haiku join table in this session).
+1. `gh pr checks 1139 1143 1144 1146 1147`; squash-merge each green one (`gh pr merge N --squash --delete-branch`);
+   remove its worktree. After #1139: spec pkg321 `**Status:** done -- #1139` on main.
+2. Once the owner lifts the pause: rebuild `build_cuda` at merged main, then `lane-i1117` rebase + matrix regen + PR
+   (closes #1117); M2 row (g) on the merged build (expect 0 silent pairs, prod_attributes GPU in band).
+3. Row (e): `known_issues_report.py --capture-gate-e`, finish the ratings file (timestamp + baseline sha, replace the 9
+   provisional ratings), `--finalize-gate-e --ratings <file>`, `gate_manifest.py`. Expect 0 open highs after #1146.
+4. After Oct 22: resume `lane-i1108` (BUILD REQUEST -> `build_cuda_worktree.bat`, GPU tests under lock, cuobjdump, PR);
+   blind-review #1147 retroactively if the owner wants it; remaining architect items #1125, #1004/#1005, gate (b)
+   re-freeze, pkg306 Phase 0.
 5. Closeout: integration branch, full CPU+GPU sweep (no `-x`, ~52 min), `run-report`.
 
 ## Owner questions (from the architect, plus tonight)

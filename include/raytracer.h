@@ -3950,10 +3950,16 @@ public:
         int diffuseBounceCount = 0;
         int glossyBounceCount = 0;
         int transmissionBounceCount = 0;
-        // pkg271 — volume scatter count + the sticky terminate-after flag
-        // (maxVolumeBounces; research batchq-volumes-3-research.md §4).
+        // pkg271 — volume scatter count (maxVolumeBounces; research
+        // batchq-volumes-3-research.md §4).
         int volumeBounceCount = 0;
-        bool volTerminateAfter = false;
+        // #1165 — sticky terminate-after (Cycles PATH_RAY_TERMINATE_AFTER_TRANSPARENT,
+        // kernel/integrator/path_state.h:143-208, Apache-2.0): set by the scatter that
+        // reaches the total (bounce > maxDepth, Cycles max_bounce = max_bounces + 1,
+        // scene/integrator.cpp:222) or a per-type / volume cap. That scatter's
+        // continuation is still traced; the next surface adds its emission only and
+        // ends the path, and media on the way only attenuate and emit.
+        bool terminateAfter = false;
         // pkg201 Stage 3 (Finding E) — native caustic toggles. Sticky path-lifetime
         // flag mirroring Cycles PATH_RAY_DIFFUSE_ANCESTOR: set once a path bounces
         // off a genuinely diffuse surface, never cleared. A subsequent specular
@@ -4015,8 +4021,10 @@ public:
         const bool mediumScatters = hasWorldVolume && worldVolumeDensity > 0.0f &&
                                     worldVolumeScatter > 0.0f;
 
-        for (int bounce = 0; bounce < maxDepth; ++bounce) {
+        // #1165: `bounce` = scatters so far; vertex maxDepth+1 is the emission-only one.
+        for (int bounce = 0; bounce <= maxDepth + 1; ++bounce) {
             lastBounce = bounce;
+            if (bounce > maxDepth) terminateAfter = true;  // #1165 total cap
             HitRecord rec;
             // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
             // camera clip planes; every secondary ray keeps the unconditional
@@ -4047,7 +4055,7 @@ public:
             // .astroray_plan/docs/pkg199-stage2-scattering-research.md.
             // pkg271: a terminate-after path (volume_bounces exhausted) does not
             // scatter in the fog; it takes the Stage-1 absorption path instead.
-            const bool fogScatter = mediumScatters && !volTerminateAfter;
+            const bool fogScatter = mediumScatters && !terminateAfter;
 
             // pkg181: dedicated-light visibility to BSDF rays (Cycles
             // lights_intersect parity). Lamps are invisible to camera rays
@@ -4145,7 +4153,7 @@ public:
                 // scatter decision (Kulla & Fajardo 2012; Cycles shade_volume.h):
                 // one distance on the media hull (equiangular / exponential
                 // one-sample MIS), NEE there weighted by Tr(0,t)·σ_s(t).
-                if (lightNeeEnabled && !lights.empty() && !volTerminateAfter) {
+                if (lightNeeEnabled && !lights.empty() && !terminateAfter) {
                     astroray::SampledSpectrum c =
                         boundedSegmentDirect(ray, dUnit, mediaT0, surfaceT, segX, lambdas, gen,
                                              shadowTransparentHits((int)lpc.transparentDepth));
@@ -4159,7 +4167,7 @@ public:
                 int mi = -1;
                 astroray::volume::SpectralFlight ff = astroray::volume::spectralTrackSegment(
                     gridMedia_, ray.origin, dUnit, mediaT0, surfaceT, lambdas, beta, volRu, gen,
-                    /*noScatter=*/volTerminateAfter, entered, mi, &segX);
+                    /*noScatter=*/terminateAfter, entered, mi, &segX);
                 if (entered) {
                     const float medG = (mi >= 0) ? gridMedia_[mi].g : 0.0f;
                     if (!ff.emission.isZero()) {
@@ -4186,7 +4194,7 @@ public:
                         // pkg271: Cycles volume_bounce (+1 at this scatter); past
                         // the limit the continuation is terminate-after.
                         if (maxVolumeBounces >= 0 && volumeBounceCount >= maxVolumeBounces)
-                            volTerminateAfter = true;
+                            terminateAfter = true;
                         ++volumeBounceCount;
                         // --- HG phase-sampled continuation from P ---
                         float phasePdf;
@@ -4308,7 +4316,7 @@ public:
                     // the free flight; this vertex only continues.
                     // pkg271: count the volume scatter (see the grid block).
                     if (maxVolumeBounces >= 0 && volumeBounceCount >= maxVolumeBounces)
-                        volTerminateAfter = true;
+                        terminateAfter = true;
                     ++volumeBounceCount;
                     // --- HG phase-sampled continuation from P ---
                     float phasePdf;
@@ -4522,8 +4530,8 @@ public:
                 // shade_surface.h:817-868).
                 if (!rec.material->hasBSDF()) break;
             }
-            // pkg271: a terminate-after path ends at a non-emissive surface.
-            if (volTerminateAfter) break;
+            // pkg271/#1165: a terminate-after path ends here, after this surface's emission.
+            if (terminateAfter) break;
             // #1033: transparent_max_bounces exhausted (Cycles transparent_bounce >=
             // transparent_max_bounce sets TERMINATE_ON_NEXT_SURFACE): this surface
             // took its emission above and the path ends (no NEE / continuation).
@@ -4776,7 +4784,7 @@ public:
             // (stage_advance_device.cuh).
             const bool capPass = dielectricBounceCapPassthrough && !transparentPass &&
                 wo.dot(rec.normal) * bss.wi.dot(rec.normal) < 0.0f &&
-                (bounce + 1 >= maxDepth ||
+                (bounce >= maxDepth ||  // #1165: the scatters that set terminate-after
                  (maxTransmissionBounces >= 0 && transmissionBounceCount >= maxTransmissionBounces));
             if (capPass) {
                 transparentPass = true;
@@ -4878,17 +4886,17 @@ public:
             // .astroray_plan/docs/pkg172a-guarded-pdf.md.
             throughput *= bss.f_spectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
 
-            // pkg201 Stage 3 (Finding A) — per-type bounce limit. This vertex has
-            // already contributed its NEE/emission; a limit of N for lobeCat's
-            // type allows N such bounces, so the (N+1)-th terminates the path
-            // (no continuation ray). -1 = unlimited (the loop then ends only on
-            // the total maxDepth, RR, or pdf<=0 — byte-identical to pre-pkg201).
+            // pkg201 Stage 3 (Finding A) / #1165 — per-type bounce limit (Cycles
+            // max_<type>_bounce = limit + 1, path_state.h:177-208): the scatter that
+            // makes the type count exceed its limit sets terminate-after, so a limit
+            // of N allows N+1 such scatters and the next surface is emission-only.
+            // -1 = unlimited.
             if (!transparentPass) {
                 int typeLimit, typeCount;
                 if (lobeCat == 0)      { typeLimit = maxDiffuseBounces;      typeCount = diffuseBounceCount; }
                 else if (lobeCat == 1) { typeLimit = maxGlossyBounces;       typeCount = glossyBounceCount; }
                 else                   { typeLimit = maxTransmissionBounces; typeCount = transmissionBounceCount; }
-                if (typeLimit >= 0 && typeCount >= typeLimit) break;
+                if (typeLimit >= 0 && typeCount >= typeLimit) terminateAfter = true;
                 if (lobeCat == 0)      ++diffuseBounceCount;
                 else if (lobeCat == 1) ++glossyBounceCount;
                 else                   ++transmissionBounceCount;
@@ -4988,7 +4996,7 @@ public:
         Vec3 vertexOrigin = r.origin;  // #1033 (see pathTraceSpectral)
         bool passPrev = false;
 
-        for (int bounce = 0; bounce < maxDepth; ++bounce) {
+        for (int bounce = 0; bounce <= maxDepth + 1; ++bounce) {  // #1165 (see pathTraceSpectral)
             lastBounce = bounce;
             HitRecord rec;
             // pkg274 (#724): the PRIMARY camera ray (bounce 0) honours the Blender
@@ -5095,6 +5103,7 @@ public:
                     color += clampContribSpectral(throughput * Le_spec, lambdas, bounce);
                 break;
             }
+            if (bounce > maxDepth) break;  // #1165: the emission-only vertex (see pathTraceSpectral)
             // #1033: transparent_max_bounces exhausted (see pathTraceSpectral).
             if (maxTransparentBounces >= 0 && lpc.transparentDepth > 0 &&
                 (int)lpc.transparentDepth >= maxTransparentBounces) break;
@@ -5467,8 +5476,8 @@ public:
     // alpha 0, so the background shows through. Returns 1.0 immediately when
     // transparent film is off — the default render path is byte-identical and
     // consumes no RNG; only the transparentGlass walk samples a BSDF (to follow
-    // the refraction), matching the original. The cap mirrors the old loop's
-    // `bounce < maxDepth`.
+    // the refraction), matching the original. The cap mirrors the radiance loop's
+    // `bounce <= maxDepth + 1` (#1165).
     // #36 — closest hit for a CAMERA ray (Cycles PATH_RAY_CAMERA: the primary ray and
     // any ray that has only passed straight through transparent surfaces, i.e. while
     // PathContext.flags & LPF_CAMERA): indirect-only objects are skipped, the ray
@@ -5493,7 +5502,7 @@ public:
         if (!bvh) return 0.0f;
         Ray ray = primary;
         astroray::lightpath::PathContext lpc;  // #36: camera-ray flag (see hitCameraRay)
-        const int cap = std::max(1, maxDepth);
+        const int cap = std::max(1, maxDepth + 2);  // #1165: rays the radiance loop traces
         // #1033: alpha pass-throughs (below) are not bounces; `passes` bounds them,
         // `travelled` is the camera-ray distance already covered (far clip).
         int passes = 0;

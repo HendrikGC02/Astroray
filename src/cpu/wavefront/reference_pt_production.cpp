@@ -76,7 +76,8 @@ SampledSpectrum tracePathSpectral(
     const auto& lights = renderer.getLights();
     const int worldMaxBounces = 1024;  // lambertian-cornell: no env map, hardcoded
 
-    for (int bounce = 0; bounce < maxDepth; ++bounce) {
+    // #1165: Cycles max_bounces convention (production twin): vertex maxDepth+1 is emission-only.
+    for (int bounce = 0; bounce <= maxDepth + 1; ++bounce) {
         HitRecord rec;
         bool hit = bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec);
 
@@ -140,6 +141,7 @@ SampledSpectrum tracePathSpectral(
             }
             if (!rec.material->hasBSDF()) break;   // #995 (production twin)
         }
+        if (bounce > maxDepth) break;  // #1165 terminate-after (production twin)
 
         Vec3 wo = -ray.direction.normalized();
 

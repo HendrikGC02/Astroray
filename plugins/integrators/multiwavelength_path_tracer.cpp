@@ -186,7 +186,7 @@ private:
         // emit correctly outside 380-780 nm. No new estimator (CLAUDE.md §6).
         const LightList& lights = renderer_->getLights();
 
-        for (int bounce = 0; bounce < maxDepth; ++bounce) {
+        for (int bounce = 0; bounce <= maxDepth + 1; ++bounce) {  // #1165 (pathTraceSpectral twin)
             lastBounce = bounce;
             HitRecord rec;
             bool didHit = bvh && bvh->hit(ray, 0.001f, std::numeric_limits<float>::max(), rec);
@@ -298,6 +298,7 @@ private:
                 }
                 if (!rec.material->hasBSDF()) break;   // #995 (pathTraceSpectral twin)
             }
+            if (bounce > maxDepth) break;  // #1165: emission-only vertex (pathTraceSpectral twin)
 
             Vec3 wo = -ray.direction.normalized();
 

@@ -129,7 +129,7 @@ public:
         bool  wasSpecular = true;
         const int rrDepth = 3;
 
-        for (int bounce = 0; bounce < maxDepth_; ++bounce) {
+        for (int bounce = 0; bounce <= maxDepth_ + 1; ++bounce) {  // #1165 (pathTraceSpectral twin)
             HitRecord rec;
             // #873: camera clip planes bound the primary ray (pathTraceSpectral twin).
             float tMin = 0.001f, tMax = std::numeric_limits<float>::max();
@@ -204,6 +204,7 @@ public:
                 if (bounce == 0 || wasSpecular) color += throughput * Le;
                 break;
             }
+            if (bounce > maxDepth_) break;  // #1165: emission-only vertex (pathTraceSpectral twin)
 
             Vec3 wo = -pathRay.direction.normalized();
 

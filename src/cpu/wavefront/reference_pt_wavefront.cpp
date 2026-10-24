@@ -56,7 +56,7 @@ ReferencePTResult reference_pt_wavefront_render(
                 // Per-bounce loop — EXACTLY the shared kernel, called per
                 // bounce. No second transcription of the per-bounce math.
                 HitRecord rec;
-                for (int bounce = 0; bounce < max_depth; ++bounce) {
+                for (int bounce = 0; bounce <= max_depth + 1; ++bounce) {  // #1165
                     if (!advance_one_bounce(ps, rec, renderer, max_depth, sink)) {
                         break;
                     }

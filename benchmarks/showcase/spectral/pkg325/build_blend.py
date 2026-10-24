@@ -2,7 +2,7 @@
 
 Same triangles as the engine-only tests: ``scene_geometry.scene_meshes()``.
 
-    blender -b --factory-startup --python benchmarks/pkg325/build_blend.py -- --out <file.blend>
+    blender -b --factory-startup --python benchmarks/showcase/spectral/pkg325/build_blend.py -- --out <file.blend>
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import bpy  # type: ignore
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parents[1]
+REPO = HERE.parents[3]
 sys.path.insert(0, str(REPO / "benchmarks" / "blender_parity"))
 sys.path.insert(0, str(HERE))
 import scene_library as sl  # noqa: E402

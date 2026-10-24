@@ -1,6 +1,6 @@
 """pkg325: dielectric bounce-cap passthrough (``dielectric_bounce_cap: terminate | passthrough``).
 
-Scene: benchmarks/pkg325 (three glass panes + a solid tumbler + diffuse props, white world). A camera
+Scene: benchmarks/showcase/spectral/pkg325 (three glass panes + a solid tumbler + diffuse props, white world). A camera
 ray through all three panes crosses 6 glass interfaces; under ``terminate`` (Cycles semantics, the
 default) a path-depth cap below 7 leaves that region dark. Dead = ROI luminance < 0.25 of the uncapped
 white-world reference (1.0), per pixel. ROIs are rectangles whose every pixel crosses exactly 2 / 4 / 6
@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from benchmarks.pkg325 import scene_geometry as G  # noqa: E402
+from benchmarks.showcase.spectral.pkg325 import scene_geometry as G  # noqa: E402
 
 W, H = 320, 240
 DEAD_BELOW = 0.25
@@ -51,7 +51,7 @@ def _renderer(backend):
 
 
 def _render(backend, cap, spp=32, seed=325, mode=None, transparent=None):
-    from benchmarks.pkg325 import engine_scene as E
+    from benchmarks.showcase.spectral.pkg325 import engine_scene as E
     r = _renderer(backend)
     E.build(r, W, H)
     if mode is not None:
@@ -137,7 +137,7 @@ _BASELINE_SNIPPET = textwrap.dedent("""
     sys.path.insert(0, {root!r}); sys.path.insert(0, {tests!r})
     import runtime_setup; runtime_setup.configure_test_imports()
     import astroray
-    from benchmarks.pkg325 import engine_scene as E
+    from benchmarks.showcase.spectral.pkg325 import engine_scene as E
     backend, cap, spp, out = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
     r = astroray.Renderer()
     if backend == "gpu":

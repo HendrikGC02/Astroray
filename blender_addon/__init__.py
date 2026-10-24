@@ -5443,7 +5443,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 and self.get_float_input(node, 'Roughness', 0.0) <= 0.03):
             self._warn_shader_fallback(
                 label, "Thin Film is not rendered on a smooth Glass BSDF (Roughness <= 0.03 uses "
-                "the delta-glass path without film Fresnel); raise Roughness above 0.03 for iridescence")
+                "the delta-glass path without film Fresnel, #1162); raise Roughness above 0.03 for iridescence")
         if (ntype == 'BSDF_GLASS' and not self._use_native_principled()
                 and self._input_is_set(node.inputs.get('Thin Film Thickness'))):
             self._warn_shader_fallback(

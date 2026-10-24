@@ -218,7 +218,7 @@ def test_zero_thickness_glass_equals_plain_glass(monkeypatch, use_gpu):
 @pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
 @pytest.mark.xfail(strict=True, reason="smooth glass (Roughness <= 0.03) takes the delta-glass sampler with "
                    "plain dielectric Fresnel on CPU and GPU; Cycles applies the film there "
-                   "(bsdf_microfacet.h:795-917). Un-xfail when the delta path gets the film Fresnel.")
+                   "(bsdf_microfacet.h:795-917). #1162 owns the fix; un-xfail when the delta path gets the film Fresnel.")
 def test_smooth_glass_bubble_shows_film(monkeypatch):
     f_base, f_params = _native_args(monkeypatch, _glass_node(roughness=0.0))
     n_base, n_params = _native_args(monkeypatch, _glass_node(thickness=0.0, roughness=0.0))

@@ -2,7 +2,7 @@
 
 **Pillar:** 1
 **Track:** A
-**Status:** in-progress — lane/pkg326: addon + tests + matrix on the branch; smooth-glass gap needs an owner decision (see Progress)
+**Status:** in-progress — addon export + matrix landed; smooth-glass delta path -> #1162
 **Estimated effort:** 1 session (~3 h) + GPU legs via the lead
 **Depends on:** none
 
@@ -96,7 +96,7 @@ Small, well-bounded, one node.
       addon forwarding the two sockets (`native_params`).
 - [x] GPU lowering: nothing to lower (see above); GPU legs of the tests are the lead's run.
 - [x] Matrix regen + tests (`tests/test_pkg326_glass_thin_film.py`, pkg321 probes, proof-pending registration).
-- [ ] **Open finding**: smooth glass (Roughness <= 0.03, the Glass node default) takes the delta-glass sampler
+- [ ] **Open finding (#1162)**: smooth glass (Roughness <= 0.03, the Glass node default) takes the delta-glass sampler
       (`principled.cpp` ~2013, `gpu_materials.h` `kPrincipledDeltaGlassRoughness`) with plain dielectric Fresnel, so a
       smooth soap bubble shows NO film on CPU or GPU, while Cycles applies it (`bsdf_microfacet.h:795-917`). Rough
       glass (> 0.03) works. Interim: reported per render; `test_smooth_glass_bubble_shows_film` is xfail(strict).

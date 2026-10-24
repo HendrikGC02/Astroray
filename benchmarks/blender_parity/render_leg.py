@@ -586,6 +586,9 @@ def main():
                    help="pkg307: scene.render.resolution_percentage (GPU timing at >= 1280x720)")
     p.add_argument("--light-tree", choices=("on", "off"), default=None,
                    help="force native scene.cycles.use_light_tree (default: as authored)")
+    p.add_argument("--max-bounces", type=int, default=None,
+                   help="pkg324: set scene.cycles.max_bounces and the diffuse/glossy/transmission/transparent caps "
+                        "(bounce-cap A/B renders); default: as authored")
     p.add_argument("--print-build", action="store_true",
                    help="pkg323: print the loaded Astroray build id and module/addon hashes, then exit")
     p.add_argument("--report-only", action="store_true",
@@ -780,6 +783,10 @@ def main():
             scene.camera = cam_obj
         if args.light_tree is not None:
             scene.cycles.use_light_tree = args.light_tree == "on"
+        if args.max_bounces is not None:
+            scene.cycles.max_bounces = args.max_bounces
+            for key in ("diffuse_bounces", "glossy_bounces", "transmission_bounces", "transparent_max_bounces"):
+                setattr(scene.cycles, key, args.max_bounces)
         if gate_b_case is not None:
             observed_settings = _gate_b_settings(scene)
             if observed_settings != gate_b_case["settings"]:

@@ -30,6 +30,9 @@ from shader_blending import blend_shader_specs, add_shader_specs
 _MIX_LERPED_PAIRS = (("principled", "principled"), ("principled", "transparent"),
                      ("transparent", "principled"), ("principled", "emission"),
                      ("emission", "principled"))
+# #995: spec kinds _create_material_from_shader_spec builds, so a Mix Shader of any two
+# of them can be a closure mix (engine MixMaterial) instead of a parameter lerp.
+_CLOSURE_MIX_KINDS = ("principled", "emission", "hair", "transparent", "add", "mix")
 # pkg176 Stage 1: read Blender's native render/sampling settings (deprecated
 # custom aliases). Pure-data translator (no bpy/engine deps); see settings_map.py.
 from native_settings import resolve_native_settings, report_unsupported_native_controls
@@ -5797,6 +5800,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return {'kind': 'light_path_mix', 'output': lp_output, 'a': a, 'b': b}
             fac = self.get_float_input(node, 'Fac', 0.5)
             self._warn_light_path_mix_nested(a, b)
+            mixed = self._closure_mix_spec(node, a, b, fac, renderer)   # #995
+            if mixed is not None:
+                return mixed
             out = blend_shader_specs(fac, a, b)
             for note in (out.pop('mix_notes', ()) if isinstance(out, dict) else ()):
                 self._warn_shader_fallback('MIX_SHADER', note)   # #1084 review M1
@@ -5822,6 +5828,45 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return add_shader_specs(a, b)
 
         return None
+
+    @staticmethod
+    def _gpu_renders_first_closure_only(renderer, mat_id):
+        """#995: True when the engine could not lower an Add / Mix node tree to a GPU
+        closure tree (closure_mix.h lowerClosureTree). A lowered tree may still carry
+        a leaf's own approximation flag (Disney), reported nowhere else either."""
+        try:
+            caps = renderer.get_material_backend_capabilities(mat_id)
+        except Exception:
+            return False
+        return bool(caps.get('gpu_approximate')) and 'closure tree (#995)' not in caps.get('notes', '')
+
+    def _closure_mix_spec(self, node, a, b, fac, renderer):
+        """#995: Mix Shader as a closure mix (Cycles kernel/svm/closure.h
+        svm_node_mix_closure: the two closure subtrees get weights (1 - fac, fac), fac
+        evaluated per shading point). Used for a per-texel Fac (a program over the Fac
+        chain; graph program first so the GPU closure tree can read it) and for a
+        constant Fac on a pair blend_shader_specs cannot lerp. Returns the 'mix' spec,
+        or None to keep the parameter lerp (constant Fac on a lerped pair, a Fac chain
+        through Light Path (#991 keeps its constant-mix report), an unconnected input)."""
+        if a is None or b is None or renderer is None:
+            return None
+        if a.get('kind') not in _CLOSURE_MIX_KINDS or b.get('kind') not in _CLOSURE_MIX_KINDS:
+            return None
+        fac_sock = node.inputs.get('Fac')
+        fac_tex = None
+        if fac_sock is not None and getattr(fac_sock, 'is_linked', False):
+            try:
+                src_node = fac_sock.links[0].from_node
+            except (IndexError, AttributeError):
+                src_node = None
+            if src_node is not None and not self._chain_reads_light_path(src_node):
+                fac_tex = (self._build_graph_program(fac_sock, node, 'Fac', renderer, allow_leaf=True)
+                           or self._maybe_build_program_texture(fac_sock, node, 'Fac', renderer,
+                                                                allow_leaf=True))
+        if fac_tex is None and (a.get('kind'), b.get('kind')) in _MIX_LERPED_PAIRS:
+            return None
+        return {'kind': 'mix', 'fac': max(0.0, min(1.0, float(fac))), 'fac_texture': fac_tex,
+                'a': a, 'b': b}
 
     def _light_path_mix_output(self, node, a, b):
         """#991: the Light Path output index (shader_vm_compiler.LIGHT_PATH_OUTPUTS)
@@ -5931,16 +5976,36 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         child[bump_key] = spec[bump_key]
                 children.append(self._create_material_from_shader_spec(child, renderer))
             add_id = renderer.create_add_material(children[0], children[1])
-            try:
-                gpu_approx = renderer.get_material_backend_capabilities(add_id).get('gpu_approximate')
-            except Exception:
-                gpu_approx = False
-            if gpu_approx:
+            if self._gpu_renders_first_closure_only(renderer, add_id):
                 self._warn_shader_fallback(
                     'ADD_SHADER', 'Add Shader of %s + %s is summed on the CPU; the GPU '
                     'backend renders only the first shader (the pair has a textured, '
                     'emissive or transparent child)' % (spec['a'].get('kind'), spec['b'].get('kind')))
             return add_id
+        if kind == 'mix':
+            # #995: Mix Shader -> closure mix, Fac per hit (engine MixMaterial).
+            if not hasattr(renderer, 'create_mix_material'):
+                keep = spec['b'] if spec.get('fac', 0.5) >= 0.5 else spec['a']
+                self._warn_shader_fallback('MIX_SHADER', 'engine without closure mixes: only '
+                                           'the dominant shader is kept')
+                return self._create_material_from_shader_spec(keep, renderer)
+            children = []
+            for key in ('a', 'b'):
+                child = dict(spec[key])
+                # A Displacement bump merged onto the Mix spec applies to both.
+                for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
+                    if bump_key in spec and bump_key not in child:
+                        child[bump_key] = spec[bump_key]
+                children.append(self._create_material_from_shader_spec(child, renderer))
+            mix_id = renderer.create_mix_material(children[0], children[1],
+                                                  float(spec.get('fac', 0.5)),
+                                                  spec.get('fac_texture') or '')
+            if self._gpu_renders_first_closure_only(renderer, mix_id):
+                self._warn_shader_fallback(
+                    'MIX_SHADER', 'Mix Shader of %s + %s is mixed per hit on the CPU; the GPU '
+                    'backend renders only the first shader' % (spec['a'].get('kind'),
+                                                               spec['b'].get('kind')))
+            return mix_id
         if kind == 'emission':
             # #1099: a Cycles Emission shader emits from BOTH faces (a one-sided emitter
             # needs a Mix with Geometry Backfacing); the engine 'light' default is front-only.

@@ -138,7 +138,7 @@ SampledSpectrum tracePathSpectral(
                 float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                 color += throughput * Le_spec * wB;
             }
-            break;
+            if (!rec.material->hasBSDF()) break;   // #995 (production twin)
         }
 
         Vec3 wo = -ray.direction.normalized();

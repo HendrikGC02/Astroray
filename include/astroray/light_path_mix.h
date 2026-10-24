@@ -49,6 +49,7 @@ public:
     Vec3 emitted(const HitRecord& r) const override { return a_->emitted(r); }
     Vec3 getEmission() const override { return a_->getEmission(); }
     bool isEmissive() const override { return a_->isEmissive(); }
+    bool hasBSDF() const override { return a_->hasBSDF(); }
     bool isTransmissive() const override { return a_->isTransmissive(); }
     bool isGlossy() const override { return a_->isGlossy(); }
     Vec3 getAlbedo() const override { return a_->getAlbedo(); }

@@ -1323,9 +1323,16 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
     // #991 — switches met by getOrAddMat; their side-table entries are filled
     // after the geometry walk (children are added then, see below).
     std::vector<std::pair<int, std::shared_ptr<Material>>> lpPending;
-    // #1072 -- (material id, partner) of every summable Add Shader met by getOrAddMat;
-    // the partner is uploaded as a hidden material and linked after the geometry walk.
-    std::vector<std::pair<int, std::shared_ptr<Material>>> addPending;
+    // #995 (generalises #1072) -- every Add / Mix Shader node tree met by getOrAddMat
+    // that lowers (closure_mix.h lowerClosureTree): its first BSDF leaf uploads at the
+    // tree's id; the other leaves are uploaded as hidden materials and the GClosureTree
+    // entry is linked after the geometry walk. facOk[k]: Fac program k uploaded.
+    struct TreePending {
+        int id;
+        std::shared_ptr<astroray::ClosureTreeLowering> tree;
+        std::vector<char> facOk;
+    };
+    std::vector<TreePending> treePending;
     // pkg314 — graph value programs (shader_graph.h). One descriptor per unique
     // GraphProgramTexture, appended to the scene arenas with rebased 32-bit
     // offsets. Each input becomes a texture id: an image with its own Mapping on
@@ -1418,6 +1425,17 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             while (auto* lp = dynamic_cast<astroray::LightPathMixMaterial*>(mIn.get()))
                 mIn = lp->childA();
         }
+        // #995 -- an Add / Mix Shader node tree uploads its first BSDF leaf at this id
+        // (from the leaf itself, not the node, whose forwarded getters follow child A).
+        // A tree that lowers is linked after the walk (treePending) and its constant-
+        // weight emission is baked into that leaf's Principled emission below; one that
+        // does not lower renders the leaf alone (the addon reports it).
+        std::shared_ptr<astroray::ClosureTreeLowering> tree;
+        if (auto* cn = dynamic_cast<astroray::ClosureNodeMaterial*>(mIn.get())) {
+            auto t = std::make_shared<astroray::ClosureTreeLowering>(astroray::lowerClosureTree(*cn));
+            if (!t->leaves.empty()) mIn = t->leaves[0];
+            if (t->reason.empty()) tree = std::move(t);
+        }
         // pkg223 — unwrap a NormalMapped decorator: the GMaterial + base-colour
         // texture come from the INNER material; the tangent-space normal texture +
         // Strength ride the parallel side arrays (materialNormalTexId/Strength),
@@ -1440,15 +1458,22 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             bmStrength = mIn->bumpMapStrength();
             bmDistance = mIn->bumpMapDistance();
         }
-        // #1072 -- Add Shader of a summable pair: child A uploads at this id (from A
-        // itself, not the Add, whose forwarded ior/transmission may be B's) and child B
-        // becomes the hidden partner attached after the geometry walk (addPending).
-        std::shared_ptr<Material> addB;
-        if (auto* am = dynamic_cast<astroray::AddMaterial*>(m.get())) {
-            if (am->gpuSummable()) { addB = am->childB(); m = am->childA(); }
-        }
         r.materials.push_back(convertMaterial(m));
-        if (addB) addPending.emplace_back(id, addB);
+        if (tree) {
+            // The intersect stage and the NEE emitter evaluation read emission from this
+            // GMaterial (gpu_principled_emitted): it must be the TREE's weighted sum, also
+            // when that is 0 (leaf 0 itself emissive with weight 0 must not keep its own;
+            // Cycles prunes a zero-weight branch, scene/shader_nodes.cpp:5359). A nonzero
+            // sum implies leaf 0 is a closure-graph Principled (lowerClosureTree).
+            const Vec3& e = tree->emission;
+            GMaterial& ge = r.materials.back();
+            if (ge.type == GMAT_CLOSURE_GRAPH && ge.closureCount >= 1 &&
+                ge.closures[0].type == GCLOSURE_PRINCIPLED) {
+                const bool any = e.x > 0.0f || e.y > 0.0f || e.z > 0.0f;
+                ge.principled.emissionColor = any ? GVec3(e.x, e.y, e.z) : GVec3(0.0f, 0.0f, 0.0f);
+                ge.principled.emissionStrength = any ? 1.0f : 0.0f;
+            }
+        }
         // pkg178 Stage-3b D4: flag scenes carrying a closure-graph Principled
         // material so the wavefront launchers select the <true> shade-kernel
         // instantiation. The predicate mirrors gpu_closure_graph_is_principled
@@ -1718,8 +1743,21 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             r.materialScalarProgId.push_back(sProgId);
             r.materialScalarTexId.push_back(sTexId);
         }
+        // #995 -- the closure tree's per-texel Mix Facs: graph programs on this
+        // material's fac slots (the graph kernel writes graphOut rows GRAPH_OUT_FAC0+k).
+        std::vector<char> treeFacOk;
+        if (tree) {
+            for (size_t k = 0; k < tree->facPrograms.size(); ++k) {
+                auto gpt = std::dynamic_pointer_cast<GraphProgramTexture>(tree->facPrograms[k]);
+                const int gid = gpt ? uploadGraphProgram(gpt.get()) : -1;
+                graphSlots[astroray::sgraph::GRAPH_SLOT_FAC0 + (int)k] = gid;
+                treeFacOk.push_back(gid >= 0 ? 1 : 0);
+                if (gid >= 0) r.hasProgram = true;
+            }
+        }
         for (int s = 0; s < astroray::sgraph::GRAPH_MAT_SLOTS; ++s)
             r.materialGraphProg.push_back(graphSlots[s]);
+        if (tree) treePending.push_back(TreePending{id, tree, std::move(treeFacOk)});
         return id;
     };
 
@@ -1794,23 +1832,43 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
     // child, below) have no corners: the walk already ran.
     const size_t attrLayersWalked = r.attrLayers.size();
 
-    // #1072 -- link each summable Add Shader to its second child. The partner is not
-    // referenced by geometry, so it is added here; GMaterial::addPartner holds index+1
-    // (16 bits, so a scene past 65535 materials keeps child A only). The partner path
-    // lives in the HasPrincipled=true shade kernels, so flag the scene to select them.
+    // #995 (generalises #1072) -- link each lowered closure tree: its hidden leaves are
+    // not referenced by geometry, so they are added here (a leaf is never a node, so
+    // this appends no new tree); GMaterial::closureTree holds the entry index + 1 (16
+    // bits). The tree path lives in the HasPrincipled=true HasAdd shade kernels, so
+    // flag the scene to select them. A Fac program that failed to upload (reported by
+    // uploadGraphProgram) keeps the Mix node's constant Fac.
     auto linkAddPartners = [&]() {
-        for (const auto& pa : addPending) {
-            const int pid = getOrAddMat(pa.second);
-            if (pid + 1 > 0xFFFF) {
-                fprintf(stderr, "[#1072] DEGRADED: Add Shader partner index %d exceeds 16 bits; "
-                                "GPU renders child A only\n", pid);
+        for (size_t p = 0; p < treePending.size(); ++p) {
+            const TreePending tp = treePending[p];
+            const astroray::ClosureTreeLowering& t = *tp.tree;
+            GClosureTree e{};
+            e.numLeaves = static_cast<uint8_t>(t.leaves.size());
+            e.numNodes = static_cast<uint8_t>(t.nodes.size());
+            for (size_t i = 0; i < t.leaves.size(); ++i) {
+                e.leafMat[i] = (i == 0) ? tp.id : getOrAddMat(t.leaves[i]);
+                if (t.leaves[i]->hasBSDF()) e.bsdfMask |= static_cast<uint8_t>(1u << i);
+            }
+            for (size_t n = 0; n < t.nodes.size(); ++n) {
+                const auto& entry = t.nodes[n];
+                const bool facOk = entry.facSlot >= 0 && entry.facSlot < (int)tp.facOk.size() &&
+                                   tp.facOk[entry.facSlot];
+                e.nodes[n] = GClosureTreeNode{entry.fac, static_cast<int8_t>(entry.mix ? 1 : 0),
+                                              static_cast<int8_t>(facOk ? entry.facSlot : -1),
+                                              static_cast<int8_t>(entry.a), static_cast<int8_t>(entry.b)};
+            }
+            const int tid = (int)r.closureTrees.size();
+            if (tid + 1 > 0xFFFF) {
+                fprintf(stderr, "[#995] DEGRADED: closure tree index %d exceeds 16 bits; "
+                                "GPU renders the first closure only\n", tid);
                 continue;
             }
-            r.materials[pa.first].addPartner = static_cast<uint16_t>(pid + 1);
+            r.closureTrees.push_back(e);
+            r.materials[tp.id].closureTree = static_cast<uint16_t>(tid + 1);
             r.hasPrincipled = true;
             r.hasAddPartner = true;
         }
-        addPending.clear();
+        treePending.clear();
     };
     linkAddPartners();
 
@@ -2460,6 +2518,8 @@ void adoptMaterialDomain(SceneUploadResult& dst, SceneUploadResult&& src) {
     dst.graphMaxSlots = src.graphMaxSlots;
     dst.lightPathSwitch = std::move(src.lightPathSwitch);
     dst.hasLightPath = src.hasLightPath;
+    dst.closureTrees = std::move(src.closureTrees);   // #995
+    dst.hasAddPartner = src.hasAddPartner;
     dst.profileTable = std::move(src.profileTable);
     dst.profileCount = src.profileCount;
 }

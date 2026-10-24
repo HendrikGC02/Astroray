@@ -209,7 +209,10 @@ def test_addon_add_diffuse_plus_glossy_sums_and_is_not_a_gpu_degradation(monkeyp
     assert (got_add > got_diffuse * 1.5).all() and (got_add > got_glossy * 1.2).all()
 
 
-def test_addon_mix_shader_unsupported_pair_is_reported(monkeypatch):
+def test_addon_mix_shader_emission_pair_is_a_closure_mix(monkeypatch):
+    # #955 asked that the silent dominant-shader fallback be reported. #995: a pair
+    # blend_shader_specs cannot lerp is now an exact closure mix (engine MixMaterial),
+    # so there is no fallback to report: L = 0.7 red + 0.3 blue emission.
     from test_pkg293_gpu_lobe_programs import _node
     from test_issue818_procedural_opvm import Sock, Link
 
@@ -219,11 +222,10 @@ def test_addon_mix_shader_unsupported_pair_is_reported(monkeypatch):
     mix = _node('MIX_SHADER', 'Mix', [Sock('Fac', 0.3),
                                       Sock('Shader', None, Link(emission([1.0, 0.0, 0.0]), 'Emission')),
                                       Sock('Shader_001', None, Link(emission([0.0, 0.0, 1.0]), 'Emission'))])
-    from test_pkg293_gpu_lobe_programs import _addon_engine, _Recorder
-    eng = _addon_engine(monkeypatch, True)
-    eng._shader_spec_from_node(mix, _Recorder(astroray.Renderer()), None)
-    lines = eng._degradation_report().messages()
-    assert any("MIX_SHADER" in m and "dominant shader" in m for m in lines), lines
+    got, info = _addon_wall(monkeypatch, mix, spp=16)
+    assert info["kind"] == "mix", info
+    assert not any("dominant shader" in m for m in info["lines"]), info["lines"]
+    np.testing.assert_allclose(got, [0.7, 0.0, 0.3], rtol=0.02, atol=0.005)
 
 
 # ---- transparent shadows: Cycles sums the closure weights ------------------------

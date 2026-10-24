@@ -129,6 +129,10 @@ __device__ inline float gpu_reconstruct_light_pdf(
         const GSphere& sph = spheres[prim.index];
         GVec3 cp = sph.center - prevPoint;
         float dist2 = cp.length2();
+        // #995: no cone strategy from a point on/inside the sphere (its own emissive
+        // surface now shades when it has a BSDF); mirrors the sampler reject below and
+        // CPU Sphere::coneSamplable (shapes.h).
+        if (dist2 <= sph.radius * sph.radius * (1.0f + 1e-4f)) return 0.f;
         float cosThetaMax = sqrtf(fmaxf(0.f, 1.f - sph.radius * sph.radius / dist2));
         saPdf = 1.f / (2.f * M_PI_F * (1.f - cosThetaMax));
     } else {  // GPRIM_TRIANGLE
@@ -720,7 +724,7 @@ __device__ __forceinline__ GNEESample gpu_nee_sample_light(
         const GSphere& sp = spheres[lp.index];
         GVec3 toC    = sp.center - point;
         float distSq = toC.length2();
-        if (distSq <= sp.radius * sp.radius + 1e-8f) return s;
+        if (distSq <= sp.radius * sp.radius * (1.0f + 1e-4f)) return s;   // #995: CPU coneSamplable twin
         GVec3 dir   = toC.normalized();
         float cosTM = sqrtf(fmaxf(0.f, 1.f - sp.radius * sp.radius / distSq));
         if (cosTM >= 1.f) return s;

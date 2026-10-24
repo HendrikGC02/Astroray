@@ -56,7 +56,18 @@ public:
 
     bool boundingBox(AABB& box) const override { box = AABB(center - Vec3(radius), center + Vec3(radius)); return true; }
 
+    // #995: no cone strategy from a point on or inside the sphere (its own emissive
+    // surface now runs NEE when it also has a BSDF): the cone formula is NaN there.
+    // pdfValue mirrors it (0), so the BSDF-hit MIS weight is 1 and the estimator stays
+    // unbiased. pbrt-v4 Sphere::Sample (shapes.h, Apache-2.0) also leaves the cone
+    // sampler for points inside the sphere but switches to area sampling there; dropping
+    // the strategy gives the same expectation with more noise for this rare case.
+    bool coneSamplable(const Vec3& origin) const {
+        return (center - origin).length2() > radius * radius * (1.0f + 1e-4f);
+    }
+
     float pdfValue(const Vec3& origin, const Vec3& direction) const override {
+        if (!coneSamplable(origin)) return 0;
         HitRecord rec;
         if (!hit(Ray(origin, direction), 0.001f, std::numeric_limits<float>::max(), rec)) return 0;
         float cosThetaMax = std::sqrt(1 - radius * radius / (center - origin).length2());
@@ -65,6 +76,7 @@ public:
 
     Vec3 random(const Vec3& origin, std::mt19937& gen) const override {
         Vec3 dir = (center - origin).normalized();
+        if (!coneSamplable(origin)) return dir;   // pdfValue 0: the light sample is dropped
         float distSq = (center - origin).length2();
         float cosThetaMax = std::sqrt(1 - radius * radius / distSq);
         std::uniform_real_distribution<float> dist(0, 1);

@@ -2193,6 +2193,7 @@ public:
         return emissionStrength_ > 0.0f &&
                (emissionColor_.x > 0.0f || emissionColor_.y > 0.0f || emissionColor_.z > 0.0f);
     }
+    bool hasBSDF() const override { return true; }   // #995: emission + lobes, path continues
 
     // pkg178 Stage 2 GPU seam (the ONLY additions to this Stage-1 file — no lobe
     // math changed): lower to GMAT_CLOSURE_GRAPH via a single monolithic

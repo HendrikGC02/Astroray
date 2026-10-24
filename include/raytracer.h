@@ -582,6 +582,12 @@ public:
     virtual Vec3 emitted(const HitRecord& rec) const { return Vec3(0); }
     virtual Vec3 getEmission() const { return Vec3(0); }
     virtual bool isEmissive() const { return false; }
+    // #995: false for a pure emitter (Cycles Emission shader: no BSDF closure). The
+    // integrators end a path at an emissive hit only when this is false; a surface with
+    // emission AND a BSDF (Principled emission, Add/Mix Shader) continues, as Cycles
+    // does (Cycles v5.2.0 kernel/integrator/shade_surface.h:817-868: emission is written, then the
+    // path continues through the BSDF closures). Default: emitters have no BSDF.
+    virtual bool hasBSDF() const { return !isEmissive(); }
     // #1099: true when emission leaves BOTH faces (Cycles Emission shader; EmissivePlugin).
     // DiffuseLight/TexturedLight default to front-face-only. Read by scene_upload.cu so the
     // GPU diffuse_light gate matches the CPU emitted()/emittedSpectral() face rule.
@@ -4512,7 +4518,9 @@ public:
                         clampContribSpectral(throughput * Le_spec * wB, lambdas, bounce - 1);
                     color += c; addPass(emitPass, c);
                 }
-                break;
+                // #995: a pure emitter ends the path; emission + BSDF continues (Cycles
+                // shade_surface.h:817-868).
+                if (!rec.material->hasBSDF()) break;
             }
             // pkg271: a terminate-after path ends at a non-emissive surface.
             if (volTerminateAfter) break;

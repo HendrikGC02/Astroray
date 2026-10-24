@@ -312,8 +312,11 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
             float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
             ps.color += ps.throughput * Le_spec * wB;
         }
-        ps.alive = false;
-        return false;
+        // #995: emission + BSDF continues (production pathTraceSpectral twin).
+        if (!rec.material->hasBSDF()) {
+            ps.alive = false;
+            return false;
+        }
     }
 
     Vec3 wo = -ps.ray_direction.normalized();

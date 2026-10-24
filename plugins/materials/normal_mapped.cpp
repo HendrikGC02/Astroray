@@ -192,6 +192,19 @@ public:
         return baseMaterial_->pdf(perturbNormal(rec), wo, wi);
     }
 
+    // #995: a Bump / Normal Map leaves emission unchanged (Cycles: bump only feeds the
+    // closure normals). The decorator used to drop the inner emission on the CPU (the
+    // GPU unwraps to the inner material and kept it); hasBSDF follows the inner one.
+    Vec3 emitted(const HitRecord& rec) const override { return baseMaterial_->emitted(rec); }
+    astroray::SampledSpectrum emittedSpectral(
+            const HitRecord& rec, const astroray::SampledWavelengths& lambdas) const override {
+        return baseMaterial_->emittedSpectral(rec, lambdas);
+    }
+    Vec3 getEmission() const override { return baseMaterial_->getEmission(); }
+    bool isEmissive() const override { return baseMaterial_->isEmissive(); }
+    bool hasBSDF() const override { return baseMaterial_->hasBSDF(); }
+    bool emitsFromBothFaces() const override { return baseMaterial_->emitsFromBothFaces(); }
+
     // pkg223 — GPU-upload unwrap. scene_upload converts the INNER material to the
     // GMaterial (BSDF + base-colour texture) and rides the tangent-space normal
     // texture + Strength on the parallel c_wfTexBinding side arrays. Only the

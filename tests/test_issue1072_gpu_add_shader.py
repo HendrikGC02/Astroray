@@ -2,7 +2,7 @@
 
 The wavefront shade kernel (HasPrincipled=true) evaluates f = f_A + f_B with the
 mixture pdf 0.5 (pdf_A + pdf_B) and a 1/2 child pick (CPU twin: AddMaterial). Child A
-uploads at the Add's id; child B is a hidden partner material (GMaterial::addPartner).
+uploads at the Add's id; child B is a hidden material of its closure tree (#995, GMaterial::closureTree).
 
 CPU tests (capability query, which pairs the GPU can sum) run everywhere; the GPU legs
 skip without a CUDA device. Reference scene: a flat wall under a uniform white sky of
@@ -74,10 +74,13 @@ def test_unsummable_children_keep_the_gpu_first_only_report():
     clear = r.create_material("principled", [0.5] * 3, dict(DIFFUSE, alpha=0.5))
     glow = r.create_material("light", [1, 1, 1], {"intensity": 2.0})
     mirror = r.create_material("mirror", [1, 1, 1], {})   # no GPU lowering at all
-    nested = r.create_add_material(diffuse, diffuse)
     for a, b in ((diffuse, clear), (clear, diffuse), (diffuse, glow), (glow, diffuse),
-                 (diffuse, mirror), (diffuse, nested)):
+                 (diffuse, mirror)):
         assert _approx(r, r.create_add_material(a, b))
+    # #995 (re-pinned): a nested Add lowers to one GPU closure tree (it was child-A-only
+    # before), so it is no longer a degradation.
+    nested = r.create_add_material(diffuse, diffuse)
+    assert not _approx(r, r.create_add_material(diffuse, nested))
 
 
 # ---- GPU gate: Add(Diffuse red, Diffuse blue) = (0.7, 0.2, 0.7) ------------------------

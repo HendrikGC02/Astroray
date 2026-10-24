@@ -323,18 +323,27 @@ def _addon_material(monkeypatch, r, case, native, chk_out='Fac', linked=True):
 
 
 @pytest.mark.parametrize("native", [False, True])
-@pytest.mark.parametrize("case", ["mix_program", "mix_textured_fac"])
-def test_pkg293_mix_shader_carries_metallic_program(monkeypatch, case, native):
-    """Before pkg293 the Principled+Principled blend dropped scalar_programs and
-    read a textured Fac as its 0.5 default: no metallic_program reached the engine."""
-    _, (kind, params), lines = _addon_material(monkeypatch, create_renderer(), case, native)
+def test_pkg293_mix_shader_carries_metallic_program(monkeypatch, native):
+    """Before pkg293 the Principled+Principled blend dropped scalar_programs: no
+    metallic_program reached the engine."""
+    _, (kind, params), lines = _addon_material(monkeypatch, create_renderer(), "mix_program", native)
     assert kind == ('principled' if native else 'disney'), kind
     assert params.get('metallic_program'), (params, lines)
-    if case == "mix_textured_fac":
-        # roughness differs (0.3 vs 0) -> also per-hit; nothing else differs
-        # (base colours match), so no constant-mix report.
-        assert params.get('roughness_program'), params
-        assert not any('MIX_SHADER' in m for m in lines), lines
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_pkg293_textured_fac_is_a_closure_mix(monkeypatch, native):
+    """#995 (re-pinned from the pkg293 lerp): a textured Fac mixes the two closures
+    per hit (Cycles svm_node_mix_closure) instead of lerping Principled parameters, so
+    each child keeps its own lobes and the Fac is a program on the mix."""
+    eng = _addon_engine(monkeypatch, native)
+    rec = _Recorder(create_renderer())
+    spec = eng._shader_spec_from_node(_graph("mix_textured_fac"), rec, None)
+    assert spec['kind'] == 'mix' and spec.get('fac_texture'), spec
+    assert spec['a']['params'].get('metallic') == 1.0 and spec['b']['kind'] == 'principled'
+    eng._create_material_from_shader_spec(spec, rec)
+    assert len(rec.materials) == 2, rec.materials
+    assert not any('constant mix' in m for m in eng._degradation_report().messages())
 
 
 def _render_addon(monkeypatch, case, use_gpu, native, chk_out='Fac', samples=256,
@@ -394,15 +403,21 @@ def _addon_material_node(monkeypatch, r, out_node, native):
 
 
 def test_pkg293_two_input_composed_program_is_a_graph_program(monkeypatch):
-    """Textured Fac + a branch program = 2 texture inputs. The op-VM GPU scalar
-    upload sampled one (this asserted a GPU-constant report); pkg314 routes the
-    chain to a graph program that samples both inputs on CPU and GPU."""
+    """Textured Fac + a branch program used to compose one 2-input program (pkg314
+    graph). #995 (re-pinned): the mix is a closure mix, so the branch keeps its own
+    one-input Metallic program and the Fac is a graph program on the mix; nothing is
+    reduced to a constant."""
     mix = _mix(0.5, _principled("P", roughness=0.3,
                                 metallic_link=Link(_checker("ChkA"), 'Fac')),
                _diffuse(), fac_link=Link(_checker("ChkB"), 'Fac'))
-    _, (_kind, params), lines = _addon_material_node(monkeypatch, create_renderer(), mix, True)
+    eng = _addon_engine(monkeypatch, True)
+    rec = _Recorder(create_renderer())
+    spec = eng._shader_spec_from_node(mix, rec, None)
+    eng._create_material_from_shader_spec(spec, rec)
+    lines = eng._degradation_report().messages()
+    assert spec['kind'] == 'mix' and str(spec['fac_texture']).startswith('_graph_'), spec
+    assert rec.materials[0][1].get('metallic_program'), rec.materials
     assert not any('multi-input shader program' in m for m in lines), lines
-    assert str(params.get('metallic_program', '')).startswith('_graph_'), params
 
 
 def test_pkg293_add_shader_with_unsummable_child_reports_gpu_first_only(monkeypatch):
@@ -425,11 +440,13 @@ def test_pkg293_add_shader_of_two_plain_bsdfs_is_not_reported(monkeypatch):
     assert not any('ADD_SHADER' in m for m in lines), lines
 
 
-def test_pkg293_textured_fac_reports_native_only_socket(monkeypatch):
+def test_pkg293_textured_fac_keeps_native_only_socket_per_child(monkeypatch):
     def pr(name, coat_ior):
         n = _principled(name, metallic=1.0, roughness=0.3)
         n.inputs = _Socks(list(n.inputs) + [Sock('Coat IOR', coat_ior)])
         return n
     mix = _mix(0.5, pr("P1", 1.5), pr("P2", 2.0), fac_link=Link(_checker(), 'Fac'))
     lines = _lines_for(monkeypatch, mix)
-    assert any('MIX_SHADER' in m and 'coat_ior' in m for m in lines), lines
+    # #995 (re-pinned): a textured Fac is a closure mix, so each child keeps its own
+    # Coat IOR; nothing is constant-mixed (this asserted the lerp's coat_ior report).
+    assert not any('MIX_SHADER' in m and 'coat_ior' in m for m in lines), lines

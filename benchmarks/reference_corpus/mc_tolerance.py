@@ -448,6 +448,130 @@ def noise_metrics(stack: np.ndarray, ref: np.ndarray, rect, floor: float | None 
             "tail_share": float(np.sort(var_l)[-k:].sum() / tot) if tot > 0 else 0.0}
 
 
+def _rect_slices(rect, h: int, w: int):
+    x0, y0, x1, y1 = rect
+    return slice(round(y0 * h), round(y1 * h)), slice(round(x0 * w), round(x1 * w))
+
+
+def _roi_z(a: np.ndarray, c: np.ndarray, rect) -> dict:
+    """Luminance ROI mean of two seed stacks (seeds x H x W), z = (m_a - m_c) / sqrt(se_a^2 + se_c^2) and the ROI's
+    per-pixel variance ratio (sum var_a / sum var_c)."""
+    sl = _rect_slices(rect, *a.shape[1:3])
+    ma, mc = a[(slice(None),) + sl].mean(axis=(1, 2)), c[(slice(None),) + sl].mean(axis=(1, 2))
+    se2 = ma.var(ddof=1) / ma.size + mc.var(ddof=1) / mc.size
+    d = float(ma.mean() - mc.mean())
+    va, vc = a[(slice(None),) + sl].var(axis=0, ddof=1).sum(), c[(slice(None),) + sl].var(axis=0, ddof=1).sum()
+    return {"mean": float(ma.mean()), "ref_mean": float(mc.mean()), "ratio": float(ma.mean() / mc.mean()) if mc.mean() else float("nan"),
+            "z": d / math.sqrt(se2) if se2 > 0 else (0.0 if d == 0 else float("inf")),
+            "var_ratio": float(va / vc) if vc > 0 else float("inf")}
+
+
+def tail_stats(stack_a: np.ndarray, stack_c: np.ndarray, crops: dict, ref: np.ndarray | None = None,
+               floor: float = NB_IMAGE_FLOOR, tail: float = NB_TAIL, trim: float = 0.01, worst: int = 5,
+               baseline: np.ndarray | None = None) -> dict:
+    """pkg306 heavy-tail decomposition of an Astroray seed stack ``stack_a`` against a reference engine's ``stack_c``
+    (both seeds x H x W x 3 linear, row 0 = top, same pixels). Rec.709 luminance, across-seed variance (ddof 1), pixels
+    with reference luminance > ``floor`` (all pixels when ``ref`` is None).
+
+    full     sum var_a / sum var_c (= relVar ratio: both engines share the reference mean)
+    trimmed  mean var_a / mean var_c, each engine's own top ``trim`` fraction of pixels dropped
+    bulk     median over pixels (var_c > 0) of var_a / var_c
+    share    share of var_a held by A's top ``tail`` fraction of pixels; ``share_ref_same`` = the reference engine's
+             share on THOSE pixels, ``share_ref_own`` = its share on its own top pixels
+    tail_rois  where A's top pixels sit: manifest ROI name -> count ('-' = outside every ROI)
+    worst    A's ``worst`` highest-variance pixels: per-seed luminance of both engines, and ``max_frac`` = the largest seed's
+             share of the seed sum (1.0 = a 1-in-N firefly in one seed; 1/N = a stable bright pixel)
+    rois     per-ROI luminance mean ratio and |z| vs the reference engine (and vs ``baseline``, an Astroray stack from
+             another build/variant, when given: an unbiased switch must not move a mean)."""
+    la, lc = stack_a.astype(np.float64) @ LUM, stack_c.astype(np.float64) @ LUM
+    h, w = la.shape[1:]
+    keep = np.ones((h, w), bool) if ref is None else (ref.astype(np.float64) @ LUM) > floor
+    va, vc = la.var(axis=0, ddof=1), lc.var(axis=0, ddof=1)
+    fa, fc = va[keep], vc[keep]
+    n = int(keep.sum())
+    k = max(1, math.ceil(tail * n))
+    kt = max(1, math.ceil(trim * n))
+
+    def trimmed_mean(v):
+        return float(np.sort(v)[:-kt].mean()) if n > kt else float("nan")
+
+    order = np.argsort(fa)[::-1]
+    top = order[:k]
+    ys, xs = np.nonzero(keep)
+    rects = {name: _rect_slices(r, h, w) for name, r in crops.items()}
+
+    def roi_of(y, x):
+        return next((nm for nm, (sy, sx) in rects.items() if sy.start <= y < sy.stop and sx.start <= x < sx.stop), "-")
+
+    tail_rois: dict = {}
+    for i in top:
+        nm = roi_of(ys[i], xs[i])
+        tail_rois[nm] = tail_rois.get(nm, 0) + 1
+    worst_px = []
+    for i in order[:worst]:
+        y, x = int(ys[i]), int(xs[i])
+        sa = la[:, y, x]
+        tot = float(np.abs(sa).sum())
+        worst_px.append({"x": x, "y": y, "roi": roi_of(y, x), "seeds": [round(float(v), 4) for v in sa],
+                         "ref_seeds": [round(float(v), 4) for v in lc[:, y, x]], "mean": float(sa.mean()),
+                         "ref_mean": float(lc[:, y, x].mean()), "var_share": float(fa[i] / fa.sum()) if fa.sum() > 0 else 0.0,
+                         "max_frac": float(np.abs(sa).max() / tot) if tot > 0 else 0.0})
+    pos = fc > 0
+    sa_tot, sc_tot = float(fa.sum()), float(fc.sum())
+    rois = {}
+    for name, rect in crops.items():
+        rois[name] = _roi_z(la, lc, rect)
+        if baseline is not None:
+            rois[name]["z_vs_baseline"] = _roi_z(la, baseline.astype(np.float64) @ LUM, rect)["z"]
+    return {"n_px": n, "k_tail": k, "full": sa_tot / sc_tot if sc_tot > 0 else float("inf"),
+            "trimmed": trimmed_mean(fa) / trimmed_mean(fc) if trimmed_mean(fc) > 0 else float("inf"),
+            "bulk": float(np.median(fa[pos] / fc[pos])) if pos.any() else float("nan"),
+            "share": float(fa[top].sum() / sa_tot) if sa_tot > 0 else 0.0,
+            "share_ref_same": float(fc[top].sum() / sc_tot) if sc_tot > 0 else 0.0,
+            "share_ref_own": float(np.sort(fc)[-k:].sum() / sc_tot) if sc_tot > 0 else 0.0,
+            "image_mean_ratio": float(la.mean() / lc.mean()) if lc.mean() else float("nan"),
+            "tail_rois": tail_rois, "worst": worst_px, "rois": rois}
+
+
+def _seed_stack(work: Path, sid: str, leg: str, seeds) -> np.ndarray:
+    paths = [work / f"{sid}_{leg}_s{s}.npy" for s in seeds]
+    missing = [p.name for p in paths if not p.is_file()]
+    if missing:
+        raise SystemExit(f"[tail-report] missing per-seed renders in {work}: {missing} (render them first: --legs ...)")
+    return np.stack([np.load(p) for p in paths])
+
+
+def tail_report(a, manifest, scenes) -> None:
+    """--tail-report: tail_stats over the per-seed renders measure_leg already left in --work-dir (no rendering).
+    Astroray legs = --legs minus the reference leg; --tail-ref-dir / --tail-baseline point at other work dirs (a
+    variant run reuses the Cycles renders and the untouched-build renders of the baseline)."""
+    work = Path(a.work_dir)
+    ref_dir = Path(a.tail_ref_dir) if a.tail_ref_dir else work
+    out = {"seeds": a.seeds, "work_dir": str(work), "ref_dir": str(ref_dir), "baseline": a.tail_baseline,
+           "tail": NB_TAIL, "floor": NB_IMAGE_FLOOR, "scenes": {}}
+    for sid in scenes:
+        entry = scene_entry(manifest, sid)
+        c = _seed_stack(ref_dir, sid, REF_LEG, a.seeds)
+        ref = read_exr(exr_path(sid)) if exr_path(sid).is_file() else None
+        for leg in (lg for lg in a.legs if lg != REF_LEG):
+            base = _seed_stack(Path(a.tail_baseline), sid, leg, a.seeds) if a.tail_baseline else None
+            st = tail_stats(_seed_stack(work, sid, leg, a.seeds), c, entry["crops"], ref=ref, baseline=base)
+            out["scenes"].setdefault(sid, {})[leg] = st
+            print(f"[tail-report] {sid} {leg}: full {st['full']:.3g}x  trimmed {st['trimmed']:.3g}x  bulk {st['bulk']:.3g}x  "
+                  f"top-0.1% share {st['share']:.3f} ({REF_LEG} same px {st['share_ref_same']:.3f}, own {st['share_ref_own']:.3f})  "
+                  f"image mean {st['image_mean_ratio']:.3f}x  tail ROIs {st['tail_rois']}")
+            for p in st["worst"]:
+                print(f"    worst ({p['x']},{p['y']}) {p['roi']}: seeds {p['seeds']} vs {REF_LEG} {p['ref_seeds']}  "
+                      f"max_frac {p['max_frac']:.2f}  var share {p['var_share']:.3f}")
+            for nm, r in st["rois"].items():
+                zb = f"  z_vs_baseline {r['z_vs_baseline']:+.2f}" if "z_vs_baseline" in r else ""
+                print(f"    roi {nm}: mean {r['mean']:.4g} / {r['ref_mean']:.4g} = {r['ratio']:.3f}  z {r['z']:+.2f}  "
+                      f"var ratio {r['var_ratio']:.3g}{zb}")
+    path = work / "tail_report.json"
+    path.write_text(json.dumps(out, indent=1), encoding="utf-8")
+    print(f"[tail-report] wrote {path}")
+
+
 def nvar_slope(spps, relvars) -> float:
     """d log(N x relVar) / d log N: 0 = plain Monte Carlo (variance ~ 1/N), < 0 = faster than MC (stratified/QMC)."""
     n = np.asarray(spps, float)
@@ -719,6 +843,12 @@ def main():
     ap.add_argument("--budgets", nargs="+", type=float, default=[2.0, 10.0, 60.0],
                     help="equal-time budgets in seconds per 1280x720 frame")
     ap.add_argument("--spps", nargs="+", type=int, default=[16, 64, 256], help="equal-spp points")
+    ap.add_argument("--tail-report", action="store_true",
+                    help="pkg306: heavy-tail report over the per-seed renders in --work-dir (top-0.1 %% variance share, "
+                         "tail pixels by ROI, worst-pixel per-seed values, ROI |z|); writes <work>/tail_report.json")
+    ap.add_argument("--tail-ref-dir", default=None, help="--tail-report: work dir holding the Cycles seed renders (default --work-dir)")
+    ap.add_argument("--tail-baseline", default=None,
+                    help="--tail-report: work dir of a baseline Astroray run (same legs/seeds); adds per-ROI z vs it")
     ap.add_argument("--table-only", action="store_true",
                     help="rewrite gates_v2.toml from <work>/results.json without rendering")
     a = ap.parse_args()
@@ -740,6 +870,9 @@ def main():
         return
     if a.arb_calibrate:
         arb_calibrate(a, manifest, a.scenes or sorted(gated))
+        return
+    if a.tail_report:
+        tail_report(a, manifest, scenes)
         return
     if a.noise_bench:
         nb_run(a, manifest, a.scenes or sorted(gated) + ([] if a.suite else sorted(VARIANTS)))

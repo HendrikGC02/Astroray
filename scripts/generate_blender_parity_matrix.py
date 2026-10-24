@@ -3030,8 +3030,6 @@ PKG321_REPORTED_DROPS = {
     ('ShaderNodeBsdfPrincipled', 'input:Subsurface IOR'): ('e_principled_subsurface_ior', 1133),
     ('ShaderNodeVolumePrincipled', 'input:Color Attribute'): ('v_color_attribute', 1134),
     ('ShaderNodeTexSky', 'prop:ground_albedo'): ('s_ground_albedo', 1135),
-    ('ShaderNodeBsdfGlass', 'input:Thin Film Thickness'): ('g_thin_film_thickness', 1136),
-    ('ShaderNodeBsdfGlass', 'input:Thin Film IOR'): ('g_thin_film_ior', 1136),
     # Reported by the op-VM compiler's own warning ("Geometry output 'Normal' unsupported"); #989 owns the gap.
     ('ShaderNodeNewGeometry', 'output:Normal'): ('m_geometry_normal', 989),
 }

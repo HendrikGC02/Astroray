@@ -66,8 +66,8 @@ Verdict classes: **stale** = the input moves the render, the row was never credi
 | Sky | Sky Texture | prop:sun_elevation (control) | control | `s_sun_elevation_control` | 95.3 (10x floor) | moves: the probe is not vacuous |
 | Sky | Sky Texture | prop:ground_albedo | REAL | `s_ground_albedo` | 0 (bit-identical) | #1135; was already named in the warning |
 | Sky | Sky Texture | prop:sun_direction | partial | `s_sun_direction` | 0 (bit-identical) | inert in Cycles too for the Nishita types (`cycles_sundir.py`: identical); Cycles reads it for PREETHAM / HOSEK_WILKIE (moves). Astroray renders those as Nishita; the warning now names it (`s_sun_direction_preetham`). Row APPROXIMATED; #1135 |
-| Glass thin film / misc | Glass | Thin Film Thickness | REAL | `g_thin_film_thickness` | 0 (bit-identical) | #1136, now reported (re-run on the 00:49 build with #1116/#1123) |
-| Glass thin film / misc | Glass | Thin Film IOR | REAL | `g_thin_film_ior` | 0 (bit-identical) | #1136, now reported |
+| Glass thin film / misc | Glass | Thin Film Thickness | REAL | `g_thin_film_thickness` | 0 (bit-identical) | #1136, now reported (re-run on the 00:49 build with #1116/#1123); **pkg326: now consumed** (probe moves at Roughness 0.2; smooth glass stays inert + reported) |
+| Glass thin film / misc | Glass | Thin Film IOR | REAL | `g_thin_film_ior` | 0 (bit-identical) | #1136, now reported; **pkg326: now consumed** (as above) |
 | Glass thin film / misc | Geometry | output:Normal | REAL | `m_geometry_normal` | 0.158 (434x floor) | op-VM refuses it and flattens to grey; reported by the compiler already; gap = #989 |
 
 Already fine since pkg320: Mix / Add Shader `Shader` (APPROXIMATED in the committed matrix, no longer silent).

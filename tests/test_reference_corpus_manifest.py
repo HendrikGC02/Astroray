@@ -488,7 +488,14 @@ I1117_PROOF_PENDING = frozenset({
     "ShaderNodeNewGeometry|output:Pointiness",
     "ShaderNodeTexBrick|input:Mortar",
 })
-PROOF_PENDING_BASELINE = PROOF_PENDING_BASELINE | PKG320_PROOF_PENDING | PKG321_PROOF_PENDING | I1117_PROOF_PENDING
+# pkg326 (#1136): the Glass BSDF Thin Film sockets are consumed (rough glass renders the film on CPU + GPU), but the
+# frozen materials_hall scene has no film glass. Shrink-only as above.
+PKG326_PROOF_PENDING = frozenset({
+    "ShaderNodeBsdfGlass|input:Thin Film IOR",
+    "ShaderNodeBsdfGlass|input:Thin Film Thickness",
+})
+PROOF_PENDING_BASELINE = (PROOF_PENDING_BASELINE | PKG320_PROOF_PENDING | PKG321_PROOF_PENDING | I1117_PROOF_PENDING
+                          | PKG326_PROOF_PENDING)
 
 
 def _proof_pending() -> dict:

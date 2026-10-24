@@ -1,6 +1,11 @@
 ﻿#include "astroray/register.h"
 #include "advanced_features.h"
 
+// #1004 - bump height finite-difference step for a Linear-sampled image, in texels. Cycles
+// steps Filter Width (default 0.1, Cycles scene/shader_nodes.cpp BumpNode) of the pixel
+// footprint; Astroray has no ray differentials, so the footprint unit is one texel.
+constexpr float kBumpLinearStepTexels = 0.1f;
+
 class NormalMappedPlugin : public Material {
     std::shared_ptr<Material> baseMaterial_;
     std::shared_ptr<Texture> normalTexture_;
@@ -58,8 +63,9 @@ class NormalMappedPlugin : public Material {
             // with Distance nor matches CPU↔GPU. ~1.5 texels reliably crosses a
             // boundary. GPU mirrors this via 1.5/bdesc.width.
             float eps = 1.0e-2f;
-            if (auto* img = dynamic_cast<const ImageTexture*>(bumpTexture_.get())) {
-                int w = std::max(img->getWidth(), img->getHeight());
+            const auto* bumpImg = dynamic_cast<const ImageTexture*>(bumpTexture_.get());
+            if (bumpImg) {
+                int w = std::max(bumpImg->getWidth(), bumpImg->getHeight());
                 if (w > 0) eps = 1.5f / static_cast<float>(w);
             }
             Vec3 T = rec.uvTangent;
@@ -80,7 +86,7 @@ class NormalMappedPlugin : public Material {
             float h_x, h_y;
             const Texture::CoordMode bcm = bumpTexture_->getCoordMode();
             if ((bcm == Texture::CoordMode::Object || bcm == Texture::CoordMode::Generated || bcm == Texture::CoordMode::Camera) &&
-                !dynamic_cast<const ImageTexture*>(bumpTexture_.get())) {
+                !bumpImg) {
                 // #1005: a procedural Height in Object / Generated / Camera coordinates
                 // is differenced along the surface in WORLD space (the UV-unit step above
                 // moves the 3-D point along an arbitrary axis at the wrong length). The
@@ -91,6 +97,31 @@ class NormalMappedPlugin : public Material {
                 dPdy = Bt * h;
                 h_x = heightValue(bumpTexture_->valueDisplaced(rec, Vec3(0), dPdx));
                 h_y = heightValue(bumpTexture_->valueDisplaced(rec, Vec3(0), dPdy));
+            } else if (bcm == Texture::CoordMode::UV && bumpImg &&
+                       bumpTexture_->uvInputAxisLength(0) > 1e-8f &&
+                       bumpTexture_->uvInputAxisLength(1) > 1e-8f) {
+                // #1004 - UV image Height, Cycles' structure: offset the INPUT UV before the
+                // Mapping (svm_node_tex_coord_derivative, src/kernel/svm/tex_coord.h) and
+                // difference the Linear-interpolated image (interp_linear) over a small step,
+                // i.e. the derivative of the bilinear height. Two defects of the old path:
+                // (1) its tap stepped eps in TEXTURE space while dPdx stepped eps in MESH UV,
+                // so a Mapping Scale s made the slope s x too weak (prod_pbr_group, s = 3);
+                // (2) a nearest-sampled forward difference over 1.5 texels puts the whole
+                // relief band on the low side of every height step (1 texel off Cycles'
+                // centred Linear ramp), where it lights the wrong material (pbr_group left
+                // ROI: metal highlight dimmed 3x more than Cycles). The step is
+                // kBumpLinearStepTexels in texture space; Cycles uses Filter Width 0.1 of
+                // the pixel footprint (no ray differentials here: a texel is the footprint).
+                // GPU twin: stage_advance_device.cuh bump block (gpu_sampleImageTextureLinear).
+                const float du = kBumpLinearStepTexels / static_cast<float>(std::max(bumpImg->getWidth(), 1)) /
+                                 bumpTexture_->uvInputAxisLength(0);
+                const float dv = kBumpLinearStepTexels / static_cast<float>(std::max(bumpImg->getHeight(), 1)) /
+                                 bumpTexture_->uvInputAxisLength(1);
+                dPdx = T * (du * rec.uvScaleU);
+                dPdy = Bt * (dv * rec.uvScaleV);
+                h_c = heightValue(bumpImg->valueLinear(bumpTexture_->mappedInputUV(rec, Vec3(0), 0.0f, 0.0f)));
+                h_x = heightValue(bumpImg->valueLinear(bumpTexture_->mappedInputUV(rec, Vec3(0), du, 0.0f)));
+                h_y = heightValue(bumpImg->valueLinear(bumpTexture_->mappedInputUV(rec, Vec3(0), 0.0f, dv)));
             } else {
                 h_x = heightValue(bumpTexture_->valueOffset(rec, Vec3(0), eps, 0.0f));
                 h_y = heightValue(bumpTexture_->valueOffset(rec, Vec3(0), 0.0f, eps));

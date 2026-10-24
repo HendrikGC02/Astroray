@@ -1931,21 +1931,29 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                         float uu = b0*btri.uv0.x + b1*btri.uv1.x + b2*btri.uv2.x;
                         float vv = b0*btri.uv0.y + b1*btri.uv1.y + b2*btri.uv2.y;
                         const GImageTexture& bdesc = c_wfTexBinding.textures[bmTexId];
-                        // valueOffset offsets in POST-mapping UV space (CPU parity).
+                        // #1004 - CPU twin: normal_mapped.cpp UV-image bump branch. The
+                        // step (kBumpLinearStepTexels = 0.1 texel in texture space) is
+                        // taken on the INPUT UV before the Mapping (Cycles
+                        // svm_node_tex_coord_derivative), so dPdx/dPdy below and the taps
+                        // describe the same surface step; the height is the bilinear
+                        // (Cycles interp_linear) image, differenced. Input offset (du, 0)
+                        // maps to texture offset (m0, m4)*du (affine Mapping).
+                        float du = 0.1f / (float)(bdesc.width > 1 ? bdesc.width : 1);
+                        float dv = 0.1f / (float)(bdesc.height > 1 ? bdesc.height : 1);
+                        float axu = du, axv = 0.0f, ayu = 0.0f, ayv = dv;
                         if (bdesc.hasMapping) {
                             const float* m = bdesc.mapping;
                             float mu = m[0]*uu + m[1]*vv + m[3];
                             float mv = m[4]*uu + m[5]*vv + m[7];
                             uu = mu; vv = mv;
+                            du /= fmaxf(sqrtf(m[0]*m[0] + m[4]*m[4]), 1e-8f);
+                            dv /= fmaxf(sqrtf(m[1]*m[1] + m[5]*m[5]), 1e-8f);
+                            axu = m[0]*du; axv = m[4]*du;
+                            ayu = m[1]*dv; ayv = m[5]*dv;
                         }
-                        // Texel-relative step (~1.5 texels) — nearest-neighbour
-                        // sampling needs the finite difference to cross a texel
-                        // boundary; mirrors the CPU NormalMappedPlugin bump branch.
-                        int bw = bdesc.width > bdesc.height ? bdesc.width : bdesc.height;
-                        float eps = (bw > 0) ? (1.5f / (float)bw) : 1.0e-2f;
-                        GVec3 hc = gpu_sampleImageTexture(bdesc, c_wfTexBinding.texelBuf, uu, vv);
-                        GVec3 hx = gpu_sampleImageTexture(bdesc, c_wfTexBinding.texelBuf, uu + eps, vv);
-                        GVec3 hy = gpu_sampleImageTexture(bdesc, c_wfTexBinding.texelBuf, uu, vv + eps);
+                        GVec3 hc = gpu_sampleImageTextureLinear(bdesc, c_wfTexBinding.texelBuf, uu, vv);
+                        GVec3 hx = gpu_sampleImageTextureLinear(bdesc, c_wfTexBinding.texelBuf, uu + axu, vv + axv);
+                        GVec3 hy = gpu_sampleImageTextureLinear(bdesc, c_wfTexBinding.texelBuf, uu + ayu, vv + ayv);
                         float h_c = 0.2126f*hc.x + 0.7152f*hc.y + 0.0722f*hc.z;
                         float h_x = 0.2126f*hx.x + 0.7152f*hx.y + 0.0722f*hx.z;
                         float h_y = 0.2126f*hy.x + 0.7152f*hy.y + 0.0722f*hy.z;
@@ -1956,7 +1964,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                         // not UV-space ones; bT/Bt are unit vectors, so scale
                         // the UV-space step `eps` by the world-per-UV-unit
                         // factor (mirrors normal_mapped.cpp's CPU fix exactly).
-                        GVec3 dPdx = bT * (eps * bScaleU), dPdy = Bt * (eps * bScaleV);
+                        GVec3 dPdx = bT * (du * bScaleU), dPdy = Bt * (dv * bScaleV);
                         GVec3 Rx = dPdy.cross(N), Ry = N.cross(dPdx);
                         float det = dPdx.dot(Rx);
                         GVec3 surfgrad = Rx * (h_x - h_c) + Ry * (h_y - h_c);

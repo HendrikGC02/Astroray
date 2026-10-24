@@ -282,6 +282,26 @@ public:
         Vec2 t = applyUVTransform(uv);
         return value(Vec2(t.u + du, t.v + dv), p);
     }
+    // #1004 - 2-D image coordinate with the INPUT coordinate offset by (du, dv) BEFORE the
+    // Mapping (3-D matrix or legacy UV transform), as Cycles offsets the texture coordinate
+    // ahead of the bump Height subgraph (svm_node_tex_coord_derivative: data.val += data.dx *
+    // bump_filter_width; Cycles src/kernel/svm/tex_coord.h@a456b761, Apache-2.0). valueOffset()
+    // steps after the Mapping, so its tap is not the surface step dP the bump pairs it with.
+    Vec2 mappedInputUV(const HitRecord& rec, const Vec3& wo, float du, float dv) const {
+        auto [uv, p] = textureCoordinates(rec, wo);
+        if (hasMapping_) {
+            Vec3 mp = applyMappingPoint(p + Vec3(du, dv, 0.0f));
+            return Vec2(mp.x, mp.y);
+        }
+        return applyUVTransform(Vec2(uv.u + du, uv.v + dv));
+    }
+    // #1004 - texture-space length of a unit input-UV step along `axis` (0 = u, 1 = v)
+    // through the linear part of the Mapping (its 2-D image coordinate rows).
+    float uvInputAxisLength(int axis) const {
+        if (hasMapping_)
+            return std::sqrt(mapping_[axis] * mapping_[axis] + mapping_[4 + axis] * mapping_[4 + axis]);
+        return std::fabs(axis == 0 ? uvScale_.u : uvScale_.v);
+    }
     void setCoordMode(CoordMode mode) { coordMode = mode; }
     // pkg115 generated-coords: object bbox baked by the exporter (see the
     // CoordMode::Generated comment above).
@@ -477,6 +497,17 @@ public:
         int i = std::min((int)(u * width), width - 1);
         int j = std::min((int)(v * height), height - 1);
         return data[j * width + i];
+    }
+    // #1004 - bilinear sample (Cycles INTERPOLATION_LINEAR, interp_linear in
+    // src/kernel/device/cpu/image.h@a456b761, Apache-2.0): the 2x2 texel footprint around
+    // (u*w - 0.5, v*h - 0.5), each texel read through value() so the extension (REPEAT /
+    // EXTEND / MIRROR / CLIP) wraps exactly like nearest sampling. Used by the bump height
+    // taps only (general Linear sampling is pkg234); GPU twin gpu_sampleImageTextureLinear.
+    Vec3 valueLinear(const Vec2& uv) const {
+        if (data.empty()) return Vec3(1, 0, 1);
+        GImageLinearTaps t = gpu_imageLinearTaps(width, height, uv.u, uv.v);
+        return (value(Vec2(t.u0, t.v0), Vec3(0)) * (1.0f - t.fx) + value(Vec2(t.u1, t.v0), Vec3(0)) * t.fx) * (1.0f - t.fy) +
+               (value(Vec2(t.u0, t.v1), Vec3(0)) * (1.0f - t.fx) + value(Vec2(t.u1, t.v1), Vec3(0)) * t.fx) * t.fy;
     }
     astroray::SampledSpectrum sampleSpectral(
             const Vec2& uv, const Vec3&,

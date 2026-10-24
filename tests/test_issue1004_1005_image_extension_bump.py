@@ -216,3 +216,75 @@ def test_cpu_procedural_bump_matches_equivalent_image_ramp():
     proc = _bump_quad(True, False)
     assert img.mean() > 0.02
     assert abs(proc.mean() / img.mean() - 1.0) < 0.12, (proc.mean(), img.mean())
+
+
+# ---------------------------------------------------------------------------
+# #1004 residual: the image bump under a Mapping, and where its relief sits
+# ---------------------------------------------------------------------------
+
+_SUN = np.array([-1.0, 0.0, -0.4]) / np.linalg.norm([-1.0, 0.0, -0.4])
+
+
+def _image_bump_quad(height_rows, use_gpu, mapping=None, dist=0.5, res=48, spp=64):
+    """Sun-lit Lambertian quad (world x in [-1, 1] <-> UV u in [0, 1]) bumped by an image."""
+    r = create_renderer()
+    if use_gpu:
+        if not (bool(astroray.__features__.get("cuda", False)) and
+                bool(getattr(r, "gpu_available", False))):
+            pytest.skip("No CUDA GPU")
+        r.set_use_gpu(True)
+    r.set_seed(5)
+    r.set_background_color([0.0, 0.0, 0.0])
+    h, w = height_rows.shape
+    img = np.repeat(height_rows[:, :, None], 3, axis=2).astype(np.float32)
+    r.load_texture("h_img", img, w, h, "UV")
+    if mapping is not None:
+        r.set_texture_mapping_matrix("h_img", mapping)
+    params = {"bump_map_texture": "h_img", "bump_distance": dist, "bump_strength": 1.0}
+    mat = r.create_material("lambertian", [0.8, 0.8, 0.8], params)
+    A, B, C, D, n = [-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [0, 0, 1]
+    r.add_triangle_layers(A, B, C, mat, {"UVMap": [[0, 0], [1, 0], [1, 1]]}, n, n, n)
+    r.add_triangle_layers(A, C, D, mat, {"UVMap": [[0, 0], [1, 1], [0, 1]]}, n, n, n)
+    r.add_sun_light_dedicated(_SUN.tolist(), 0.02, {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 3.0)
+    setup_camera(r, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0],
+                 vfov=45, width=res, height=res)
+    return np.asarray(render_image(r, samples=spp, max_depth=1, apply_gamma=False), np.float32)
+
+
+@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])
+@pytest.mark.parametrize("scale", [0.5, 0.25])
+def test_mapped_image_bump_slope_follows_mapping_scale(scale, use_gpu):
+    """#1004: a Mapping Scale s on the Height image scales the slope by s (Cycles offsets
+    the coordinate BEFORE the Mapping). The old post-Mapping tap paired a texture-space
+    step with a mesh-UV dP, so the slope ignored s (prod_pbr_group: Scale 3, bump 3x weak)."""
+    n_tex = 64
+    ramp = (np.arange(n_tex, dtype=np.float32) + 0.5) / n_tex   # h(u_tex) = u_tex between texel centres
+    im = _image_bump_quad(np.repeat(ramp[None, :], n_tex, axis=0), use_gpu,
+                          mapping=[scale, 0, 0, 0, 0, scale, 0, 0, 0, 0, 1, 0])
+    g = scale * 0.5                       # dh/dx: u_tex per world x = s / 2
+    nb = np.array([-0.5 * g, 0.0, 1.0])
+    nb /= np.linalg.norm(nb)
+    expected = 0.8 / np.pi * 3.0 * max(0.0, float(-_SUN @ nb))   # Lambert under a sun of 3 W/m^2
+    measured = float(im[16:32, 16:32].mean())
+    assert abs(measured / expected - 1.0) < 0.03, (measured, expected)
+
+
+@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])
+def test_image_bump_relief_is_centred_on_the_height_step(use_gpu):
+    """#1004: Cycles differences the Linear-interpolated Height, so the relief of a height
+    step sits on the texel boundary. The old nearest-sampled forward difference over 1.5
+    texels put the whole band on the low side (0.75 texel = 2.25 px early here), lighting
+    the wrong material next to every step (prod_pbr_group left ROI)."""
+    n_tex, res = 16, 48                   # quad spans the frame width ~exactly: 3 px per texel
+    step = np.where(np.arange(n_tex) >= n_tex // 2, 1.0, 0.0).astype(np.float32)
+    bumped = _image_bump_quad(np.repeat(step[None, :], n_tex, axis=0), use_gpu, dist=0.05, res=res)
+    flat = _image_bump_quad(np.zeros((n_tex, n_tex), np.float32), use_gpu, dist=0.05, res=res)
+    prof = np.abs(bumped[12:36].mean(axis=(0, 2)) - flat[12:36].mean(axis=(0, 2)))
+    assert prof.max() > 0.02, prof
+    cols = np.arange(res) + 0.5
+    # the quad edge (x = +-1) lands at a few pixels from the frame edge; locate u = 0.5 from
+    # the flat render's lit extent rather than assuming the projection.
+    lit = np.nonzero(flat[24].mean(axis=1) > 0.05)[0]
+    centre = 0.5 * (lit[0] + lit[-1] + 1)
+    centroid = float((prof * cols).sum() / prof.sum())
+    assert abs(centroid - centre) < 1.0, (centroid, centre, prof.round(3))

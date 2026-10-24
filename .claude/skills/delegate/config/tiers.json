@@ -32,7 +32,7 @@
     "vision": {
       "primary": "opencode/deepseek-v4.1-flash-free",
       "fallback": "opencode/nemotron-3.5-super-vl-free",
-      "use_for": "qualitative render inspection from PNG/contact sheets: black regions, fireflies, banding, clipping, missing objects, CPU-vs-GPU look differences; attach images with `opencode run -m <model> --file <png> ...` (delegate.py --image forwards it). Returns a critique the lead verifies against the numeric gate; never a merge decision.",
+      "use_for": "qualitative render inspection from PNG/contact sheets: black regions, fireflies, banding, clipping, missing objects, CPU-vs-GPU look differences; attach images with `opencode run -m <model> --file <png> ...` (delegate.py --image forwards it). Returns a critique the lead verifies against the numeric gate; never a merge decision. Reliability (2026-10-24, 8 CPU-vs-GPU sheets): brightness/noise/artefact-presence calls were correct; it invented few-pixel position/size shifts in 2/8 scenes (phase correlation = 0). Tell it not to report position or size differences, and confirm any such claim with numpy before acting (memory vision-model-hallucinates-pixel-shifts).",
       "default_timeout_s": 600,
       "note": "owner 2026-10-24: the free flash has vision; use it liberally on evidence renders"
     }

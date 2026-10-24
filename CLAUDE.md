@@ -96,9 +96,15 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
     format, files, boundaries). Fan out only for independent work; a dependent
     chain runs on one stronger agent at lower effort. Idle compaction fires
     after ~54 min idle on 200K+ contexts.
-  - **DeepSeek V4.1 Flash** (`opencode-go/deepseek-v4.1-flash`) is the
-    implement AND grunt primary: highly capable on long tasks and cheap; use it
-    to its full potential, still evidence-verified behind build+test+lint.
+  - **DeepSeek V4.1 Flash** is the implement AND grunt primary: highly capable
+    on long tasks; use it to its full potential, still evidence-verified behind
+    build+test+lint. **Owner 2026-10-24:** use the free promo id
+    `opencode/deepseek-v4.1-flash-free` (same model, no rate-limit cost; the
+    paid `opencode-go/deepseek-v4.1-flash` is the fallback). It takes images:
+    `delegate.py --tier vision --image <png>` (or `opencode run --file`) gives a
+    qualitative render critique (black regions, fireflies, banding, CPU/GPU look
+    gaps) that the lead checks against the numeric gate — use it liberally on
+    evidence renders; it never decides a merge.
   - **Codex Terra** (`gpt-5.6-terra`) does reviews, bounded implementations
     and light thinking with no per-session cap; Luna is free.
     **Owner 2026-09-23:** Astra may run as the long-haul development

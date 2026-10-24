@@ -1,32 +1,40 @@
 {
-  "updated": "2026-10-18",
-  "note": "Tier -> model policy for opencode delegation. Update models here as the roster shifts; never hardcode model ids in skills/hooks. Evidence: .astroray_plan/docs/open-model-research-2026-08.md + scripts/model_bench.py. Open-model diffs are evidence-verified, never trusted. 2026-09-22 owner directive: deepseek-v4.1-flash is implement AND grunt primary (highly capable even on longer tasks, cheap); deepseek-v4-pro is implement fallback; Codex Terra reviews AND implements bounded work with no per-session cap; Astra fenced to the 2026-09-22 planning session and the render-speed optimisation session; Opus 5.5 replaces Opus 4.8 as the Claude judgment tier; Haiku 4.5 summarises short files; Sonnet 5 is the Claude grunt workhorse; 2026-09-29 owner: Sonnet 5.5 (claude-sonnet-5-5) replaces Sonnet 5 as the Claude workhorse for well-scoped tasks. Earlier history (muse-spark errored, opencode/ provider unauthenticated, glm-5.3-flash docs variant) unchanged.",
+  "updated": "2026-10-24",
+  "note": "Tier -> model policy for opencode delegation. Update models here as the roster shifts; never hardcode model ids in skills/hooks. Evidence: .astroray_plan/docs/open-model-research-2026-08.md + scripts/model_bench.py. Open-model diffs are evidence-verified, never trusted. 2026-09-22 owner directive: deepseek-v4.1-flash is implement AND grunt primary (highly capable even on longer tasks, cheap); deepseek-v4-pro is implement fallback; Codex Terra reviews AND implements bounded work with no per-session cap; Astra fenced to the 2026-09-22 planning session and the render-speed optimisation session; Opus 5.5 replaces Opus 4.8 as the Claude judgment tier; Haiku 4.5 summarises short files; Sonnet 5 is the Claude grunt workhorse; 2026-09-29 owner: Sonnet 5.5 (claude-sonnet-5-5) replaces Sonnet 5 as the Claude workhorse for well-scoped tasks. Earlier history (muse-spark errored, opencode/ provider unauthenticated, glm-5.3-flash docs variant) unchanged. 2026-10-24 owner: opencode/deepseek-v4.1-flash-free is a free promo of the same model, does not count against rate limits and takes images (opencode run --file <png>) -- it is the grunt / implement / vision primary; the paid opencode-go/deepseek-v4.1-flash is the fallback. Probe 2026-10-24: text OK, image critique OK.",
   "avoid": [
     "opencode-go/muse-spark-1.2-contributor"
   ],
   "tiers": {
     "grunt": {
-      "primary": "opencode-go/deepseek-v4.1-flash",
-      "primary_note": "owner 2026-09-15/22: DeepSeek V4.1 Flash - hammer grunt work on it; deepseek-v4-flash kept as fallback",
+      "primary": "opencode/deepseek-v4.1-flash-free",
+      "primary_note": "owner 2026-10-24: free promo of DeepSeek V4.1 Flash, no rate-limit cost; paid flash is the fallback",
       "docs_variant": "opencode-go/glm-5.3-flash",
       "docs_variant_note": "owner 2026-09-07: extra usage available; preferred for .astroray_plan/ and *.md grunt work",
-      "fallback": "opencode-go/deepseek-v4-flash",
+      "fallback": "opencode-go/deepseek-v4.1-flash",
       "use_for": "docs status flips, standup drafts, lint-finding fixes, report assembly, summarization",
       "default_timeout_s": 600
     },
     "implement": {
-      "primary": "opencode-go/deepseek-v4.1-flash",
-      "primary_note": "owner 2026-09-22: Flash promoted to implement primary (capable on longer tasks, cheap). Still gated: build+pytest+lint verify every diff. Hard multi-file physics/shade kernels stay on Opus 5.5 (memory delegate-tier-stalls-on-hard-packages).",
+      "primary": "opencode/deepseek-v4.1-flash-free",
+      "primary_note": "owner 2026-10-24: free promo of DeepSeek V4.1 Flash (no rate-limit cost). Still gated: build+pytest+lint verify every diff. Hard multi-file physics/shade kernels stay on Opus 5.5 (memory delegate-tier-stalls-on-hard-packages).",
       "fallback": "opencode-go/deepseek-v4-pro",
       "use_for": "well-specified package implementation in a worktree, test writing; ALWAYS behind build+pytest+lint gates",
       "default_timeout_s": 3600,
-      "fallback_note": "proven on tight-spec addon/Python + small header work and on applying named review findings"
+      "fallback_note": "proven on tight-spec addon/Python + small header work and on applying named review findings",
+      "fallback_paid": "opencode-go/deepseek-v4.1-flash"
     },
     "verify": {
       "primary": "opencode-go/glm-5.3",
-      "fallback": "opencode-go/deepseek-v4.1-flash",
+      "fallback": "opencode/deepseek-v4.1-flash-free",
       "use_for": "cheap pre-review diff critique before Claude review; second opinion; read-only",
       "default_timeout_s": 900
+    },
+    "vision": {
+      "primary": "opencode/deepseek-v4.1-flash-free",
+      "fallback": "opencode/nemotron-3.5-super-vl-free",
+      "use_for": "qualitative render inspection from PNG/contact sheets: black regions, fireflies, banding, clipping, missing objects, CPU-vs-GPU look differences; attach images with `opencode run -m <model> --file <png> ...` (delegate.py --image forwards it). Returns a critique the lead verifies against the numeric gate; never a merge decision.",
+      "default_timeout_s": 600,
+      "note": "owner 2026-10-24: the free flash has vision; use it liberally on evidence renders"
     }
   },
   "codex": {

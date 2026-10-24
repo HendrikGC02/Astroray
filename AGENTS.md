@@ -109,7 +109,9 @@ Astroray/
   Haiku 5.5 (`file-summarizer` agent) is the read-only sifter for logs, transcripts and
   doc sets; every Claude agent pins `effort:`; prompt cache TTL is 1h (owner 2026-10-18);
   DeepSeek V4.1 Flash is the open-model implement+grunt primary (see
-  `CLAUDE.md` §5 "Model policy").
+  `CLAUDE.md` §5 "Model policy"); since owner 2026-10-24 via the free, rate-limit-free
+  `opencode/deepseek-v4.1-flash-free`, which also takes images (`delegate.py --tier vision
+  --image <png>`) for qualitative render checks.
   Codex model and provider choice stays user-level so it can evolve. For cheap
   external-model work, `astroray-opencode-delegator` reads the current mapping
   from `.claude/skills/delegate/config/tiers.json`; never hard-code those model

@@ -421,7 +421,9 @@ def _run_direct_child(cmd, workdir, log_path, timeout):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tier", choices=["grunt", "implement", "verify"])
+    ap.add_argument("--tier", choices=["grunt", "implement", "verify", "vision"])
+    ap.add_argument("--image", action="append", default=[], metavar="PNG",
+                    help="attach an image to the message (repeatable; `opencode run --file`); vision tier")
     ap.add_argument("--model", help="provider/model override; else tier primary")
     ap.add_argument("--fallback", action="store_true",
                     help="use the tier's fallback model instead of primary")
@@ -480,6 +482,8 @@ def main():
     oc_args = ["run", "-m", model, "--dir", workdir, "--format", "json"]
     if args.agent:
         oc_args += ["--agent", args.agent]
+    for image in args.image:  # vision tier: opencode attaches the file to the message
+        oc_args += ["--file", str(Path(image).resolve())]
     oc_args.append(prompt)
 
     t0 = time.monotonic()

@@ -283,3 +283,37 @@ def test_setting_is_an_astroray_only_row():
     spec.loader.exec_module(sm)
     rows = [e for e in sm.MAPPING if e.native_prop == "dielectric_bounce_cap"]
     assert len(rows) == 1 and rows[0].status == "astroray-only" and rows[0].cycles_path == ""
+
+
+# --------------------------------------------------------------------------- #
+# stale-binding check (#1125 pattern): a passthrough render must not leak into ReSTIR / snapshots
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.gpu
+def test_restir_and_snapshots_ignore_a_prior_passthrough_render(tmp_path):
+    """c_wfDielectricCapPass / c_wfTransparentLimit are process-global __constant__s published by
+    cuda_wavefront_render only. A passthrough render (alpha < 1 sheet in the scene, so the transparent
+    block is on either way) followed by a ReSTIR render and a snapshot in the SAME process must equal
+    the fresh-process ones to 1e-6. Reuses the #1125 child script, adding the passthrough switch."""
+    from test_issue1125_gpu_transparent_stale_binding import _CHILD
+
+    old = 'scene("path_tracer").render(16, 4, None, False, -1, -1, -1, -1, 1)'
+    new = ('_p = scene("path_tracer"); _p.set_dielectric_bounce_cap("passthrough"); '
+           '_p.render(16, 4, None, False, 4, 4, 4, -1, 4)')
+    assert old in _CHILD
+    child = _CHILD.replace(old, new)
+
+    def leg(prefix):
+        out = tmp_path / f"leg_{int(prefix)}.npz"
+        code = child.format(tests=str(ROOT / "tests"), out=str(out), prefix=prefix)
+        p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                           timeout=600, check=False)
+        assert p.returncode == 0, p.stderr[-2000:]
+        if "NOGPU" in p.stdout:
+            pytest.skip("CUDA device not available")
+        return np.load(out)
+
+    clean, after = leg(False), leg(True)
+    for key in ("restir", "snap"):
+        d = float(np.max(np.abs(after[key] - clean[key])))
+        assert d <= 1e-6, (key, d)

@@ -121,6 +121,7 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
     setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
+    setWavefrontDielectricCapPass(false);              // pkg325: nor a stale passthrough flag
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -308,6 +309,7 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
     setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
+    setWavefrontDielectricCapPass(false);              // pkg325: nor a stale passthrough flag
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -504,6 +506,7 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
     setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
+    setWavefrontDielectricCapPass(false);              // pkg325: nor a stale passthrough flag
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -678,6 +681,7 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
     setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
+    setWavefrontDielectricCapPass(false);              // pkg325: nor a stale passthrough flag
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -870,6 +874,7 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
     setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
+    setWavefrontDielectricCapPass(false);              // pkg325: nor a stale passthrough flag
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -1444,6 +1449,7 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
     setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
+    setWavefrontDielectricCapPass(false);              // pkg325: nor a stale passthrough flag
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -3294,6 +3300,7 @@ std::vector<float> cuda_wavefront_render_restir(
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
     setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
+    setWavefrontDielectricCapPass(false);              // pkg325: nor a stale passthrough flag
     publishPrimaryClip(cam);         // #873: ReSTIR primary rays clip too (CPU restir_di)
     // #877: ReSTIR-DI is its own light-sampling estimator; set_light_nee does not
     // apply (the CPU restir_di ignores it too), so emitter hits keep MIS weights.

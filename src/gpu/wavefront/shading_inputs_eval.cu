@@ -73,8 +73,8 @@ __device__ __noinline__ void gpu_countTransparentPass(uint32_t* passCount, int i
 // pkg325 - dielectric_bounce_cap=passthrough: does the total (maxDepth) or the transmission
 // cap end the path after this transmission sample? CPU twin: pathTraceSpectral capPass.
 // per_type_bounce byte 2 is the transmission count (same layout as the per-type block in
-// shadePathSlotImpl); it is read only when a transmission limit is set, because the array is
-// not allocated otherwise. Called only when c_wfDielectricCapPass is on.
+// shadePathSlotImpl); it is read only when a transmission limit is set (the counts are only
+// written then). Called only when c_wfDielectricCapPass is on.
 __device__ __noinline__ bool gpu_isDielectricCapPass(bool transmitted, const uint32_t* perTypeBounce,
                                                      int idx, int bounce, int maxDepth)
 {

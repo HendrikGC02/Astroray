@@ -466,9 +466,10 @@ def main():
     if "\n" in prompt.strip():
         task_file = Path(workdir) / f".delegate-task-{stamp}.md"
         task_file.write_text(prompt, encoding="utf-8")
-        prompt = (f"Read the file {task_file.name} in the project root and "
-                  "execute the task it contains EXACTLY. That file is your "
-                  "full task; do not treat this one-line message as the task.")
+        # 2026-10-24: the file is attached to the message (`opencode run --file`) and named by absolute
+        # path, so a workdir outside any git project (a scratch dir) works too.
+        prompt = (f"The attached file {task_file.resolve()} is your full task; execute it EXACTLY. "
+                  "Do not treat this one-line message as the task.")
 
     pre = _git_snapshot(workdir)
 
@@ -484,6 +485,8 @@ def main():
     oc_args = ["run", "-m", model, "--format", "json"]
     if args.agent:
         oc_args += ["--agent", args.agent]
+    if task_file is not None:
+        oc_args += ["--file", str(task_file.resolve())]
     for image in args.image:  # vision tier: opencode attaches the file to the message
         oc_args += ["--file", str(Path(image).resolve())]
     oc_args.append(prompt)

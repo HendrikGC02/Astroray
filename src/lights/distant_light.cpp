@@ -30,27 +30,6 @@ inline float distantSolidAngle(float angularDiameter) {
     return 4.0f * static_cast<float>(M_PI) * s * s;
 }
 
-// pkg140 fix B (power-CDF starvation): a true-delta sun (angularDiameter_ ==
-// 0, solidAngle == 0 exactly) must still have nonzero power() or
-// LightList::addLight / PowerLightSampler's power-weighted CDF gives it zero
-// selection probability (totalPower == 0 degenerates the CDF search to a
-// 0/0 selPdf -- see light_sampler.cpp PowerLightSampler::sample). pbrt-v4
-// DistantLight::Phi() returns `Pi * sceneRadius^2 * Lemit` (src/pbrt/
-// lights.cpp, Apache-2.0), i.e. a disk the size of the scene's bounding
-// sphere -- but that needs scene-bounds plumbing this Light interface does
-// not have, and threading it through is out of this package's scope (see
-// pkg140 spec non-goals). Instead we floor solidAngle at the value for a
-// 1.75e-3 rad disk: the smallest angular_diameter the pkg122 hardware
-// verifier measured as rendering correctly (~0.99x analytic; pkg140 spec
-// sweep). Flooring (rather than branching to a separate constant) keeps
-// power() continuous as angle -> 0+: every angle in [0, 1.75e-3] shares this
-// same floor, and angles above it fall through to the real identity-computed
-// value, so there is no jump anywhere (pkg140 spec gate).
-constexpr float kDeltaPowerFloorAngularDiameter = 1.75e-3f;
-inline float deltaPowerSolidAngleFloor() {
-    return distantSolidAngle(kDeltaPowerFloorAngularDiameter);
-}
-
 // #946: Cycles sky_radiance_nishita sun-disc profile (kernel/svm/sky.h,
 // Apache-2.0). `D` and `toLight` are unit vectors, world +Z up. Returns the
 // bottom->top blend factor y and the limb-darkening factor (coefficient 0.6).
@@ -240,25 +219,25 @@ bool DistantLight::intersect(const Vec3& /*rayOrigin*/, const Vec3& rayDir,
     return true;
 }
 
+// #1171: selection power of the sun is its strength (irradiance S), with NO
+// solid-angle factor -- the pkg122 convention (intensity_ is irradiance; the
+// disk radiance S/Omega is already folded into sampleLi). Omega scaled the
+// weight by ~7e-5 for 0.526 deg, so the flat power sampler almost never picked
+// the sun and the per-sample firefly clamp removed what it did pick.
+// Cycles Light::strength is the sun's irradiance too, and its light tree
+// weights it by that alone (scene/light_tree.cpp:154,237-239 LightTreeEmitter ctor:
+// measure.energy = average(fabs(strength)), no area/solid-angle factor for a
+// distant light; Apache-2.0). A true-delta sun (angularDiameter_ == 0) needs no
+// floor any more: S > 0 is its nonzero weight (pkg140 fix B is subsumed).
+// Units: W/m^2 next to the W of other lights; pbrt-v4 DistantLight::Phi()
+// (Pi * sceneRadius^2 * Lemit, Apache-2.0) would add a scene-area scale, but
+// the Light interface has no scene bounds (same non-goal as pkg140).
 float DistantLight::power() const {
-    // Distant light: power is proportional to solid angle × intensity.
-    SampledWavelengths lambdas = SampledWavelengths::sampleUniform(0.5f);
-    SampledSpectrum emissionSpec = emission_.eval(lambdas);
-    XYZ xyz = emissionSpec.toXYZ(lambdas);
-    float luminance = xyz.Y;
-    // pkg140 fix A: distantSolidAngle() identity (see sampleLi).
-    float solidAngle = distantSolidAngle(angularDiameter_);
-    // pkg140 fix B: floor so a true-delta sun (solidAngle == 0) still gets a
-    // nonzero power-CDF selection weight; see deltaPowerSolidAngleFloor().
-    float effectiveSolidAngle = std::max(solidAngle, deltaPowerSolidAngleFloor());
-    return luminance * intensity_ * normalizeFactor_ * effectiveSolidAngle;
+    return treeEnergy();
 }
 
-// #859 (post-#851): light-tree energy is the sun's strength (irradiance), NOT
-// power(): Cycles scene/light_tree.cpp LightTreeEmitter sets
-// measure.energy = average(strength) with no solid-angle factor for a sun
-// (Apache-2.0). power()'s solid-angle scale (~7e-5 for 0.526 deg) starved the
-// sun beside any mesh emitter in the tree (CPU and GPU).
+// #859: light-tree energy is the sun's strength (irradiance). Same value as
+// power() since #1171.
 float DistantLight::treeEnergy() const {
     SampledWavelengths lambdas = SampledWavelengths::sampleUniform(0.5f);
     float luminance = emission_.eval(lambdas).toXYZ(lambdas).Y;

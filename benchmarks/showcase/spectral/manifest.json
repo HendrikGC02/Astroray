@@ -1,0 +1,585 @@
+{
+  "schema": "pkg324.spectral_showcase.v1",
+  "seed": 324,
+  "scenes": {
+    "sp01_thinfilm_ladder": {
+      "res": [
+        640,
+        360
+      ],
+      "spp": 128,
+      "max_bounces": 12,
+      "cycles": "full",
+      "rois": {
+        "White": [
+          0.1661,
+          0.4858,
+          0.1821,
+          0.5142
+        ],
+        "Chrome": [
+          0.329,
+          0.4858,
+          0.345,
+          0.5142
+        ],
+        "Film300": [
+          0.492,
+          0.4858,
+          0.508,
+          0.5142
+        ],
+        "Film600": [
+          0.655,
+          0.4858,
+          0.671,
+          0.5142
+        ],
+        "Film900": [
+          0.8179,
+          0.4858,
+          0.8339,
+          0.5142
+        ]
+      },
+      "check": {
+        "kind": "airy_thin_film",
+        "film_ior": 1.33,
+        "substrate_ior": 2.0,
+        "film_nm": {
+          "Film300": 300.0,
+          "Film600": 600.0,
+          "Film900": 900.0
+        },
+        "illuminant": "D65 (RGB-white world)",
+        "tolerance_deg": 10.0,
+        "pass_rule": "hue angle of the ROI mean vs Airy prediction, per thickness"
+      },
+      "notes": "White diffuse + chrome + three Principled thin-film dielectrics (black base, mirror, film 1.33 over n=2.0) under a uniform white world (flat spectrum, D65) and one softbox. ROIs sit on the projected sphere centres (normal incidence).",
+      "blend_path": "benchmarks/showcase/spectral/scenes/sp01_thinfilm_ladder.blend",
+      "sha256": "36e1c365efc2b3a9f5294f48904f73843b4780e24efddbca8951037ac3fd1a9c",
+      "scene_digest": "775e72d5a4b0cb071c948ca2f6b86c8145583c1335beda1c389ee1264879c1dd",
+      "triangles": 45148,
+      "gallery": true,
+      "blender": "5.2.0 LTS",
+      "seed": 324
+    },
+    "sp02_prism_fan": {
+      "res": [
+        640,
+        480
+      ],
+      "spp": 256,
+      "max_bounces": 16,
+      "cycles": "no_dispersion",
+      "rois": {
+        "screen": [
+          0.0,
+          0.1469,
+          0.3828,
+          0.6802
+        ]
+      },
+      "notes": "BK7 (Abbe 64; the recipe's Abbe ~58 crown) 60 deg prism at minimum deviation, collimated sun through a window, matte screen. Cycles 5.2 has no dispersion: its column shows a black screen by design.",
+      "check": {
+        "kind": "see_check_scene",
+        "check_scene": "sp02b_prism_check"
+      },
+      "blend_path": "benchmarks/showcase/spectral/scenes/sp02_prism_fan.blend",
+      "sha256": "1d5e1a31733260c7be4a507695a20b5a0087f5f6691a4dec2b1d99e38946b98d",
+      "scene_digest": "06b4913fb38f8008334d84ba6ac856327e210410bb3b6008429858d0addd765e",
+      "triangles": 84,
+      "gallery": true,
+      "blender": "5.2.0 LTS",
+      "seed": 324
+    },
+    "sp02b_prism_check": {
+      "res": [
+        640,
+        480
+      ],
+      "spp": 128,
+      "max_bounces": 16,
+      "cycles": "no_dispersion",
+      "rois": {
+        "screen": [
+          0.3,
+          0.0,
+          0.7,
+          0.3531
+        ]
+      },
+      "notes": "BK7 (Abbe 64; the recipe's Abbe ~58 crown) 60 deg prism at minimum deviation, collimated sun through a window, matte screen. Cycles 5.2 has no dispersion: its column shows a black screen by design. Check scene (not a gallery tile): square-on camera, no fill light.",
+      "gallery": false,
+      "check": {
+        "kind": "prism_fan_sellmeier",
+        "preset": "bk7",
+        "apex_deg": 60.0,
+        "legs": [
+          "cpu",
+          "gpu"
+        ],
+        "wall_distance_m": 6.0,
+        "exit_dir_deg": -38.64669547249987,
+        "incidence_deg": 49.32334773624993,
+        "prism_rot_deg": -19.323347736249936,
+        "prism_side_m": 1.2,
+        "window_half_m": 0.45,
+        "baffle_x_m": -1.4,
+        "wall_centre": [
+          4.686070544748379,
+          -3.7470979236792883
+        ],
+        "t_dir": [
+          0.6245163206132147,
+          0.7810117574580632
+        ],
+        "px_at_s_m": {
+          "-0.4": 478.815,
+          "0.0": 320.0,
+          "0.4": 161.185
+        },
+        "rows_px": [
+          192,
+          288
+        ],
+        "tolerance": 0.05,
+        "pass_rule": "R-to-B 50 % edge separation on the screen vs a 2-D Sellmeier ray-trace prediction (same clip, same CMF)"
+      },
+      "blend_path": "benchmarks/showcase/spectral/scenes/sp02b_prism_check.blend",
+      "sha256": "0f7835af81ecb3ac55ce1e5c931ebc8fe2987179a630e59d82b5504156f88fbf",
+      "scene_digest": "97106a423c88c8a83a8770d42bfdeb2baf2b5aa95ac6844edb7cac55a1870039",
+      "triangles": 84,
+      "blender": "5.2.0 LTS",
+      "seed": 324
+    },
+    "sp03_brilliant_diamond": {
+      "res": [
+        640,
+        480
+      ],
+      "spp": 256,
+      "max_bounces": 24,
+      "cycles": "no_dispersion",
+      "rois": {
+        "gem": [
+          0.38,
+          0.34,
+          0.62,
+          0.66
+        ]
+      },
+      "check": {
+        "kind": "none",
+        "metric": "firefly count, hue spread of the gem ROI (qualitative sheet)"
+      },
+      "notes": "Procedural round-brilliant stand-in (convex hull of a girdle/table/pavilion point set, flat facets), Sellmeier Peter-1923 coefficients (n_d 2.417), table down on a dark glossy floor, two soft rectangles plus an emissive panel.",
+      "blend_path": "benchmarks/showcase/spectral/scenes/sp03_brilliant_diamond.blend",
+      "sha256": "d4144efc4d333d34632688c8e95b2d12e32594fe3d3c87fdab8c070d1b86e528",
+      "scene_digest": "08296e10aff9af1f83b0b771d457c7d6f2c8eebb41c18f90d0da3febf6308894",
+      "triangles": 124,
+      "gallery": true,
+      "blender": "5.2.0 LTS",
+      "seed": 324
+    },
+    "sp04_bubble_glass_block": {
+      "res": [
+        640,
+        480
+      ],
+      "spp": 256,
+      "max_bounces": 16,
+      "cycles": "full",
+      "rois": {
+        "bubble_centre": [
+          0.1963,
+          0.4184,
+          0.2963,
+          0.5518
+        ],
+        "block": [
+          0.6635,
+          0.5153,
+          0.7635,
+          0.6487
+        ]
+      },
+      "check": {
+        "kind": "see_check_scene",
+        "check_scene": "sp04b_film_furnace"
+      },
+      "notes": "Bubble = Add(Principled specular film 450 nm over IOR 1.8, Transparent) next to a 1.5 glass block under three softboxes. GPU backend renders only the first Add Shader child (degradation report): expect a black film mirror in the GPU column.",
+      "blend_path": "benchmarks/showcase/spectral/scenes/sp04_bubble_glass_block.blend",
+      "sha256": "668f7ba796c9c0aa13e707233d024cc1074f6624ef478b1afc7ac52c25cbd796",
+      "scene_digest": "ca15f8590468c45cf8126a9c630fbb151ad2127811bf8958aefc3e28e3561875",
+      "triangles": 9064,
+      "gallery": true,
+      "blender": "5.2.0 LTS",
+      "seed": 324
+    },
+    "sp04b_film_furnace": {
+      "res": [
+        256,
+        128
+      ],
+      "spp": 128,
+      "max_bounces": 16,
+      "cycles": "full",
+      "rois": {
+        "film_layer": [
+          0.1254,
+          0.26,
+          0.3654,
+          0.74
+        ],
+        "plain_layer": [
+          0.6346,
+          0.26,
+          0.8746,
+          0.74
+        ]
+      },
+      "check": {
+        "kind": "white_furnace_energy",
+        "expected": 1.0,
+        "tolerance": 0.03,
+        "pass_rule": "mean of each ROI == 1.0 within 3 % (white base + specular film layer is lossless)"
+      },
+      "notes": "Check scene (not a gallery tile): Principled white base + thin-film specular layer and a no-film control in a uniform white world.",
+      "gallery": false,
+      "blend_path": "benchmarks/showcase/spectral/scenes/sp04b_film_furnace.blend",
+      "sha256": "7daa38585f81b994fd79b5f57e9476b8801aa317c2961daa4f43de4bf844d07d",
+      "scene_digest": "a80610b3a285b8f7186a80b1753728b6ebf7407fca51a26508c7701eb16cb4bc",
+      "triangles": 18048,
+      "blender": "5.2.0 LTS",
+      "seed": 324
+    },
+    "sp05_absorbing_cube_caustic": {
+      "res": [
+        480,
+        480
+      ],
+      "spp": 512,
+      "max_bounces": 24,
+      "cycles": "no_dispersion",
+      "rois": {
+        "caustic_floor": [
+          0.6952,
+          0.4935,
+          0.8552,
+          0.6535
+        ],
+        "cube": [
+          0.3468,
+          0.4,
+          0.4668,
+          0.52
+        ]
+      },
+      "check": {
+        "kind": "none",
+        "metric": "caustic ROI mean vs long path-traced reference (sheet)"
+      },
+      "notes": "Orange-absorbing glass cube (mesh volume) + clear sphere, one small bright spot, white plane; photon caustics.",
+      "blend_path": "benchmarks/showcase/spectral/scenes/sp05_absorbing_cube_caustic.blend",
+      "sha256": "e947757a0dcebb0346daab7efcdfdd80ab71fb4ca44944492c3e70393a27bafa",
+      "scene_digest": "a7a8b0765180b60deb4bf0d0d96d4b3901f4892da5851de9d2394458df7d1f5c",
+      "triangles": 9038,
+      "gallery": true,
+      "blender": "5.2.0 LTS",
+      "seed": 324
+    },
+    "sp06_iridescent_head": {
+      "res": [
+        640,
+        480
+      ],
+      "spp": 256,
+      "max_bounces": 16,
+      "cycles": "full",
+      "rois": {
+        "head": [
+          0.4,
+          0.3965,
+          0.6,
+          0.6631
+        ]
+      },
+      "check": {
+        "kind": "none",
+        "metric": "hue varies with viewing angle; Airy hue per angle (sheet)"
+      },
+      "notes": "STAND-IN: Suzanne (subdivided) replaces the Stanford bunny (no bunny mesh in the repo; mesh licence unverified). Principled thin film 520 nm (1.33) over a black n=2.0 dielectric, small sun plus a dim CC0 sky HDRI (the film needs something to reflect), glossy dark floor.",
+      "blend_path": "benchmarks/showcase/spectral/scenes/sp06_iridescent_head.blend",
+      "sha256": "e6b2dbd635bc58f8e40851939ffac79f4a4b6c8721c1806c1159e7950ca9aae0",
+      "scene_digest": "41be3792f53183df684f93488fa18fb8829571efb4f2e62c94c7d579f8aa732c",
+      "triangles": 63004,
+      "gallery": true,
+      "blender": "5.2.0 LTS",
+      "seed": 324
+    },
+    "sp07_tumbler_bounce_cap": {
+      "res": [
+        640,
+        480
+      ],
+      "spp": 256,
+      "max_bounces": 12,
+      "cycles": "full",
+      "rois": {
+        "tumbler": [
+          0.36,
+          0.3295,
+          0.64,
+          0.7028
+        ]
+      },
+      "variants": [
+        {
+          "id": "b04",
+          "max_bounces": 4
+        },
+        {
+          "id": "b08",
+          "max_bounces": 8
+        },
+        {
+          "id": "b12",
+          "max_bounces": 12
+        },
+        {
+          "id": "b64",
+          "max_bounces": 64
+        }
+      ],
+      "reference_variant": "b64",
+      "check": {
+        "kind": "bounce_cap_dead_spots",
+        "metric": "dark pixel fraction in the tumbler ROI, ROI mean / median vs b64",
+        "dark_threshold_frac_of_ref_median": 0.05
+      },
+      "notes": "Thick-walled 1.5 glass tumbler on a plinth under the repo's CC0 sky HDRI (no city HDRI in the repo). Rendered at bounce caps 4/8/12 and 64 (reference): the acceptance scene for pkg325.",
+      "blend_path": "benchmarks/showcase/spectral/scenes/sp07_tumbler_bounce_cap.blend",
+      "sha256": "62d51345f672b5944414a2cf0201204bb3c0ce8aba886977c78be4d908c0d4c2",
+      "scene_digest": "c3e929528ed81fb93ab61c493ffee3b5312b1744dbe9f3f6d305f6bd82c844b2",
+      "triangles": 936,
+      "gallery": true,
+      "blender": "5.2.0 LTS",
+      "seed": 324
+    },
+    "sp08_shader_ball_bench": {
+      "res": [
+        640,
+        480
+      ],
+      "spp": 128,
+      "max_bounces": 12,
+      "cycles": "full",
+      "rois": {
+        "principled_blue_metal": [
+          0.1852,
+          0.4154,
+          0.2212,
+          0.4634
+        ],
+        "metallic_gold": [
+          0.2841,
+          0.4154,
+          0.3201,
+          0.4634
+        ],
+        "glass_rough_0p02": [
+          0.3831,
+          0.4154,
+          0.4191,
+          0.4634
+        ],
+        "diffuse_pink": [
+          0.482,
+          0.4154,
+          0.518,
+          0.4634
+        ],
+        "sheen_magenta": [
+          0.5809,
+          0.4154,
+          0.6169,
+          0.4634
+        ],
+        "emission": [
+          0.6799,
+          0.4154,
+          0.7159,
+          0.4634
+        ],
+        "mix_shader": [
+          0.7788,
+          0.4154,
+          0.8148,
+          0.4634
+        ],
+        "mapping_scale": [
+          0.1504,
+          0.5117,
+          0.1864,
+          0.5597
+        ],
+        "mapping_offset_rot": [
+          0.261,
+          0.5117,
+          0.297,
+          0.5597
+        ],
+        "bump_checker": [
+          0.3715,
+          0.5117,
+          0.4075,
+          0.5597
+        ],
+        "bump_noise_strength_1p6": [
+          0.482,
+          0.5117,
+          0.518,
+          0.5597
+        ],
+        "voronoi_bump": [
+          0.5925,
+          0.5117,
+          0.6285,
+          0.5597
+        ],
+        "noise_fbm_ramp": [
+          0.703,
+          0.5117,
+          0.739,
+          0.5597
+        ],
+        "wave_ramp": [
+          0.8136,
+          0.5117,
+          0.8496,
+          0.5597
+        ],
+        "gradient_ramp": [
+          0.1065,
+          0.6335,
+          0.1425,
+          0.6815
+        ],
+        "voronoi_color": [
+          0.2317,
+          0.6335,
+          0.2677,
+          0.6815
+        ],
+        "separate_combine_color": [
+          0.3568,
+          0.6335,
+          0.3928,
+          0.6815
+        ],
+        "separate_combine_xyz": [
+          0.482,
+          0.6335,
+          0.518,
+          0.6815
+        ],
+        "vector_math_dot_normalize": [
+          0.6072,
+          0.6335,
+          0.6432,
+          0.6815
+        ],
+        "bright_contrast_gamma": [
+          0.7323,
+          0.6335,
+          0.7683,
+          0.6815
+        ],
+        "rgb_curves": [
+          0.8575,
+          0.6335,
+          0.8935,
+          0.6815
+        ]
+      },
+      "tiles": [
+        "principled_blue_metal",
+        "metallic_gold",
+        "glass_rough_0p02",
+        "diffuse_pink",
+        "sheen_magenta",
+        "emission",
+        "mix_shader",
+        "mapping_scale",
+        "mapping_offset_rot",
+        "bump_checker",
+        "bump_noise_strength_1p6",
+        "voronoi_bump",
+        "noise_fbm_ramp",
+        "wave_ramp",
+        "gradient_ramp",
+        "voronoi_color",
+        "separate_combine_color",
+        "separate_combine_xyz",
+        "vector_math_dot_normalize",
+        "bright_contrast_gamma",
+        "rgb_curves"
+      ],
+      "check": {
+        "kind": "roi_parity_vs_cycles",
+        "metric": "per-tile luminance / channel ratio Astroray vs Cycles (report only)"
+      },
+      "notes": "21 spheres on a checker floor under the CC0 sky HDRI: Principled/Metallic/Glass/Sheen/Emission/Mix, mapping, bump, noise/wave/gradient/voronoi, colour/XYZ separate-combine, vector math, bright-contrast/gamma, RGB curves.",
+      "blend_path": "benchmarks/showcase/spectral/scenes/sp08_shader_ball_bench.blend",
+      "sha256": "d19f6df93a121355c62dfa6b968af6dd3746cee2fa3cfd6dd3b0bbf65baf80df",
+      "scene_digest": "4ff8787df1ea7747f4ec782ebf576e309ecee6b1ea676f0ae626652c7b4cef5c",
+      "triangles": 83330,
+      "gallery": true,
+      "blender": "5.2.0 LTS",
+      "seed": 324
+    },
+    "sp09_classroom": {
+      "blend_path": "benchmarks/showcase/spectral/assets/classroom/classroom.blend",
+      "linked_not_copied": true,
+      "gallery": true,
+      "source_url": "https://www.blender.org/download/demo-files/ (classroom.zip, CC0, Christophe Seux)",
+      "licence": "CC0 1.0",
+      "sha256": "5c526ea3f280566e80253673c9955640527cd0f247ea41b1742620b5bc39f7a4",
+      "status": "present",
+      "res": [
+        480,
+        270
+      ],
+      "spp": 48,
+      "seed": 324,
+      "max_bounces": 12,
+      "cycles": "full",
+      "rois": {
+        "blackboard": [
+          0.43,
+          0.38,
+          0.64,
+          0.56
+        ],
+        "window": [
+          0.85,
+          0.17,
+          0.92,
+          0.5
+        ],
+        "floor": [
+          0.42,
+          0.6,
+          0.52,
+          0.72
+        ]
+      },
+      "check": {
+        "kind": "roi_parity_vs_cycles",
+        "metric": "ROI luminance ratio Astroray / Cycles (report only)"
+      },
+      "notes": "Blender CC0 demo scene (Christophe Seux). Astroray renders its linked-library textures magenta (#1158). Not committed: copy the unzipped classroom folder to benchmarks/showcase/spectral/assets/classroom/ (gitignored); `build_scenes.py --register-classroom` records its sha256. Heavy (1.25 M triangles, ~1 min per 48 spp CPU frame at 480x270)."
+    }
+  }
+}

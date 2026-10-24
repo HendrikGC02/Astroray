@@ -39,5 +39,5 @@ Source verified by fetching blender/cycles `main` @ `a456b761` (Apache-2.0), not
 
 - General Linear/Cubic image sampling (base colour etc.): pkg234.
 - `ensure_valid_specular_reflection` (bsdf_util.h, `use_bump_map_correction`): +2 % on the
-  pbr_group centre in a trial; touches every bumped glossy lobe, not done here.
-- GPU: procedural Bump Height and the coat normal (follow-up issue).
+  pbr_group centre in a trial; touches every bumped glossy lobe, not done here (#1154).
+- GPU: procedural Bump Height and the coat normal (#1153).

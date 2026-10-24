@@ -3423,7 +3423,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         procedural / op-VM Height (#1005) is loaded like a Base Color chain and
         differenced by the CPU NormalMappedPlugin (Texture::valueDisplaced in Object /
         Generated / Camera coordinates); the GPU bump path samples uploaded images
-        only, so a GPU render reports it (#1005 follow-up)."""
+        only, so a GPU render reports it (#1153)."""
         if spec.get('bump_image') is not None:
             return self.load_blender_image(spec['bump_image'], renderer,
                                            vector_input=spec.get('bump_vector'),
@@ -3440,7 +3440,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         elif self._bump_render_on_gpu(renderer):
             self._warn_shader_fallback(
                 'BUMP', "Height from '%s' is procedural: bump applied on CPU only, the GPU "
-                "bump path samples images (#1005)" % src)
+                "bump path samples images (#1153)" % src)
         return tex_name
 
     def _bump_render_on_gpu(self, renderer):

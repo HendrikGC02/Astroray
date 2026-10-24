@@ -68,7 +68,7 @@ import astroray
 
 W = 16
 
-def scene(integrator):
+def scene(integrator, sheet=True):
     r = astroray.Renderer()
     r.setup_camera([0, 0, 4], [0, 0, 0], [0, 1, 0], 40.0, 1.0, 0.0, 4.0, W, W)
     r.set_background_color([0.0, 0.0, 0.0])
@@ -84,9 +84,9 @@ def scene(integrator):
     r.add_triangle([-2, -1, -2], [2, -1, -2], [2, -1, 2], g)
     r.add_triangle([-2, -1, -2], [2, -1, 2], [-2, -1, 2], g)
     r.add_sphere([0.0, -0.3, 0.0], 0.6, g)
-    # alpha-0 sheet between the camera and the sphere
-    r.add_triangle([-1.5, -1.5, 2.0], [1.5, -1.5, 2.0], [1.5, 1.5, 2.0], sh)
-    r.add_triangle([-1.5, -1.5, 2.0], [1.5, 1.5, 2.0], [-1.5, 1.5, 2.0], sh)
+    if sheet:   # alpha-0 sheet between the camera and the sphere
+        r.add_triangle([-1.5, -1.5, 2.0], [1.5, -1.5, 2.0], [1.5, 1.5, 2.0], sh)
+        r.add_triangle([-1.5, -1.5, 2.0], [1.5, 1.5, 2.0], [-1.5, 1.5, 2.0], sh)
     r.add_triangle([-0.5, 1.9, -0.5], [0.5, 1.9, -0.5], [0.5, 1.9, 0.5], li)
     r.add_triangle([-0.5, 1.9, -0.5], [0.5, 1.9, 0.5], [-0.5, 1.9, 0.5], li)
     r.set_use_gpu(True)
@@ -97,8 +97,15 @@ if not astroray.Renderer().gpu_available:
 if {prefix!r}:
     # transparent path-tracer render: publishes c_wfTransparentLimit = 1
     scene("path_tracer").render(16, 4, None, False, -1, -1, -1, -1, 1)
-restir = np.asarray(scene("restir-di").render(16, 1, None, False), dtype=np.float64)
+# #1150: GPU ReSTIR-DI renders black behind an alpha-0 surface (pre-existing), so this
+# leg has no sheet and only checks the reset leaves ReSTIR byte-identical to a fresh process.
+restir = np.asarray(scene("restir-di", sheet=False).render(16, 1, None, False), dtype=np.float64)
 r = scene("path_tracer")
+# CPU warmup render builds the BVH the snapshot upload needs (pkg55 gate idiom);
+# it never touches the CUDA module, so the stale c_wfTransparentLimit stays armed.
+r.set_use_gpu(False)
+r.render(1, 1, None, False)
+r.set_use_gpu(True)
 snap = np.asarray(astroray.cuda_wavefront_snapshot_post_nee_mis(r, W, W, 7), dtype=np.float64)
 np.savez({out!r}, restir=restir, snap=snap)
 print("OK")

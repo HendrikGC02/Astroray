@@ -192,6 +192,20 @@
       "classification": "SUPPORTED",
       "feature": "BSDF_HAIR_PRINCIPLED",
       "socket_or_prop": "prop:parametrization"
+    },
+    {
+      "bl_idname": "ShaderNodeBsdfGlass",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "BSDF_GLASS",
+      "socket_or_prop": "input:Thin Film Thickness"
+    },
+    {
+      "bl_idname": "ShaderNodeBsdfGlass",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "BSDF_GLASS",
+      "socket_or_prop": "input:Thin Film IOR"
     }
   ],
   "textures_mapping": [

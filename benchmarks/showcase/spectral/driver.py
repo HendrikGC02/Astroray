@@ -95,8 +95,9 @@ def render_leg(scene_id: str, entry: dict, variant: dict, leg: str, out: Path, p
     ok = "PKG119B_LEG PASS" in proc.stdout and stem.with_suffix(".npy").is_file()
     info = {}
     for line in proc.stdout.splitlines():
-        if line.startswith("PKG307_INFO "):
-            info = json.loads(line[len("PKG307_INFO "):])
+        i = line.find("PKG307_INFO ")  # may follow a log line that lacks its newline (long degradation reports)
+        if i >= 0:
+            info = json.loads(line[i + len("PKG307_INFO "):])
     return {"ok": ok, "render_s": info.get("render_s"), "wall_s": round(time.perf_counter() - t0, 1),
             "device": info.get("device"), "log": str(log)}
 

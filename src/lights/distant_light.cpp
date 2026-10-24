@@ -225,7 +225,7 @@ bool DistantLight::intersect(const Vec3& /*rayOrigin*/, const Vec3& rayDir,
 // weight by ~7e-5 for 0.526 deg, so the flat power sampler almost never picked
 // the sun and the per-sample firefly clamp removed what it did pick.
 // Cycles Light::strength is the sun's irradiance too, and its light tree
-// weights it by that alone (scene/light_tree.cpp:154,237-239 LightTreeEmitter ctor:
+// weights it by that alone (Cycles v5.2.0 scene/light_tree.cpp:154,237-239 LightTreeEmitter ctor:
 // measure.energy = average(fabs(strength)), no area/solid-angle factor for a
 // distant light; Apache-2.0). A true-delta sun (angularDiameter_ == 0) needs no
 // floor any more: S > 0 is its nonzero weight (pkg140 fix B is subsumed).

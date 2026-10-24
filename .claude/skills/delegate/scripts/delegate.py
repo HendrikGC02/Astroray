@@ -206,6 +206,7 @@ def _git_snapshot(workdir):
 def _parse_transcript(log_path):
     """Parse the JSONL event stream for evidence (defensively -- schema may drift)."""
     tokens, cost, session_id, tool_calls, errors, finish_reason = None, None, None, 0, [], None
+    saw_text = False   # a text-only answer ends the stream with no step_finish (vision tier, 2026-10-25)
     try:
         for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
             line = line.strip()
@@ -220,6 +221,8 @@ def _parse_transcript(log_path):
             part = ev.get("part", {})
             if et == "tool_use":
                 tool_calls += 1
+            elif et == "text" and part.get("text"):
+                saw_text = True
             elif et == "step_finish":
                 tokens = part.get("tokens", tokens)
                 cost = part.get("cost", cost)
@@ -229,6 +232,8 @@ def _parse_transcript(log_path):
                 errors.append(err.get("name") or str(err)[:200])
     except OSError:
         pass
+    if finish_reason is None and saw_text:
+        finish_reason = "text"   # final answer delivered; opencode emits no stop step for it
     return tokens, cost, session_id, tool_calls, errors, finish_reason
 
 
@@ -528,7 +533,7 @@ def main():
 
         if errors and status == "completed":
             status = "errored"
-        if status == "completed" and finish_reason != "stop":
+        if status == "completed" and finish_reason not in ("stop", "text"):
             # Stream ended without a clean stop -- documented unreliable-stream case.
             status = "no_clean_finish"
 

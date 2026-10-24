@@ -1583,20 +1583,20 @@ __device__ __noinline__ inline void gpu_tree_weights(const GClosureTree& t, int 
     const float* go = c_wfProgBinding.graphOut;
     const int gst = c_wfProgBinding.graphOutStride;
     for (int n = 0; n < t.numNodes; ++n) {
-        const GClosureTreeNode& nd = t.nodes[n];
+        const GClosureTreeNode& entry = t.nodes[n];
         float wa = nw[n], wb = nw[n];
-        if (nd.mix) {
-            float f = nd.fac;
-            if (nd.facSlot >= 0 && go != nullptr) {
-                const float v = go[(astroray::sgraph::GRAPH_OUT_FAC0 + nd.facSlot) * gst + idx];
+        if (entry.mix) {
+            float f = entry.fac;
+            if (entry.facSlot >= 0 && go != nullptr) {
+                const float v = go[(astroray::sgraph::GRAPH_OUT_FAC0 + entry.facSlot) * gst + idx];
                 if (!isnan(v)) f = v;
             }
             f = fminf(fmaxf(f, 0.0f), 1.0f);   // saturatef
             wa *= 1.0f - f;
             wb *= f;
         }
-        if (nd.a >= 0) nw[nd.a] = wa; else w[~nd.a] = wa;
-        if (nd.b >= 0) nw[nd.b] = wb; else w[~nd.b] = wb;
+        if (entry.a >= 0) nw[entry.a] = wa; else w[~entry.a] = wa;
+        if (entry.b >= 0) nw[entry.b] = wb; else w[~entry.b] = wb;
     }
     float sum = 0.0f;
     for (int i = 0; i < t.numLeaves; ++i) {

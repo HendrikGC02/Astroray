@@ -1846,12 +1846,12 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
                 if (t.leaves[i]->hasBSDF()) e.bsdfMask |= static_cast<uint8_t>(1u << i);
             }
             for (size_t n = 0; n < t.nodes.size(); ++n) {
-                const auto& nd = t.nodes[n];
-                const bool facOk = nd.facSlot >= 0 && nd.facSlot < (int)tp.facOk.size() &&
-                                   tp.facOk[nd.facSlot];
-                e.nodes[n] = GClosureTreeNode{nd.fac, static_cast<int8_t>(nd.mix ? 1 : 0),
-                                              static_cast<int8_t>(facOk ? nd.facSlot : -1),
-                                              static_cast<int8_t>(nd.a), static_cast<int8_t>(nd.b)};
+                const auto& entry = t.nodes[n];
+                const bool facOk = entry.facSlot >= 0 && entry.facSlot < (int)tp.facOk.size() &&
+                                   tp.facOk[entry.facSlot];
+                e.nodes[n] = GClosureTreeNode{entry.fac, static_cast<int8_t>(entry.mix ? 1 : 0),
+                                              static_cast<int8_t>(facOk ? entry.facSlot : -1),
+                                              static_cast<int8_t>(entry.a), static_cast<int8_t>(entry.b)};
             }
             const int tid = (int)r.closureTrees.size();
             if (tid + 1 > 0xFFFF) {

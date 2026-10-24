@@ -282,30 +282,30 @@ inline ClosureTreeLowering lowerClosureTree(const ClosureNodeMaterial& root) {
         int node(const ClosureNodeMaterial& n, float w, bool var) {
             const int ni = int(out.nodes.size());
             out.nodes.emplace_back();
-            L::Node nd;
+            L::Node entry;
             float wa = w, wb = w;
             bool va = var, vb = var;
             if (auto* mix = dynamic_cast<const MixMaterial*>(&n)) {
-                nd.mix = true;
-                nd.fac = mix->constantFac();
+                entry.mix = true;
+                entry.fac = mix->constantFac();
                 if (const auto& t = mix->facTexture()) {
                     if (!dynamic_cast<const GraphProgramTexture*>(t.get()) && out.reason.empty())
                         out.reason = "a Mix Fac that is not a graph program";
                     for (size_t k = 0; k < out.facPrograms.size(); ++k)
-                        if (out.facPrograms[k] == t) nd.facSlot = int(k);
-                    if (nd.facSlot < 0) {
-                        nd.facSlot = int(out.facPrograms.size());
+                        if (out.facPrograms[k] == t) entry.facSlot = int(k);
+                    if (entry.facSlot < 0) {
+                        entry.facSlot = int(out.facPrograms.size());
                         out.facPrograms.push_back(t);
                     }
                     va = vb = true;
                 } else {
-                    wa = w * (1.0f - nd.fac);
-                    wb = w * nd.fac;
+                    wa = w * (1.0f - entry.fac);
+                    wb = w * entry.fac;
                 }
             }
-            nd.a = child(n.childA(), wa, va);
-            nd.b = child(n.childB(), wb, vb);
-            out.nodes[ni] = nd;
+            entry.a = child(n.childA(), wa, va);
+            entry.b = child(n.childB(), wb, vb);
+            out.nodes[ni] = entry;
             return ni;
         }
     } walk{out, constW, varW};

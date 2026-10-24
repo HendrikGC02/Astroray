@@ -233,4 +233,4 @@ __device__ void gpu_volumeSegmentDirect(
     const GLight* lights, int numLights, float totalLightPower,
     const GDedicatedLight* dedLights, int numDed, const GLightTreeView& lightTree,
     uint32_t rpix, uint32_t rsmp, uint64_t rsd,
-    unsigned pathTransparent);  // #1073: path's transparent-pass count (lp_state bits 27-31)
+    unsigned pathTransparent);  // #1073: path's transparent-pass count (pass_count, #1125)

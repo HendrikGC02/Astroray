@@ -193,6 +193,12 @@ struct GPUWavefrontState {
     // the MIS light-pdf origin (origin - dir * pass_dist) are recovered from it.
     // Touched only when c_wfTransparentLimit is on (scene has a Principled alpha < 1).
     float*    pass_dist = nullptr;
+    // #1125 — transparent pass-throughs this path has taken (Cycles transparent_bounce).
+    // A full uint32 lane: the 5-bit lp_state field saturates at 31, so
+    // transparent_max_bounces > 31 never fired on the GPU. lp_state still carries its
+    // saturating copy for the Light Path "Transparent Depth" node output only. Reset to
+    // 0 at initPathSlot; written/read only when c_wfTransparentLimit is on.
+    uint32_t* pass_count = nullptr;
 
     // Path-continuation flags.
     int*      was_specular  = nullptr;  // 0/1
@@ -616,8 +622,8 @@ void setWavefrontBounceLimits(int diffuse, int glossy, int transmission);
 // every scene with no Principled alpha < 1) keeps the legacy path: a pass-through
 // counts as an ordinary bounce and the kernels skip the whole #1033 block
 // (byte-identical). -1 = on, unlimited; >= 0 = on, terminate-on-next-surface after
-// that many passes. The count rides lp_state bits 27-31 (light_path.h pack_state,
-// saturating at 31), so a limit above 31 never fires.
+// that many passes. The count rides GPUWavefrontState.pass_count (#1125; a full
+// uint32, so a limit above 31 fires exactly like the CPU).
 constexpr int kWfTransparentOff = -2;
 void setWavefrontTransparentLimit(int limit);
 
@@ -710,7 +716,7 @@ void setWavefrontPhotonSplit(const GWavefrontPhotonSplit& split);
 // This kernel is explicitly NOT register-critical (lean occlusion + lazy
 // resolve, unlike the REG:254 bucketed shade kernel), so the extra lane read
 // here carries none of the shade-kernel spill risk.
-// #1073: int lane 6 = the path's transparent-pass count (lp_state bits 27-31) at park
+// #1073: int lane 6 = the path's transparent-pass count (pass_count, #1125) at park
 // time, BEFORE the vertex's own continuation sample advances it. stageShadowKernel
 // subtracts it from transparent_max_bounces for the shadow ray's hit budget (Cycles
 // copies path.transparent_bounce into shadow_path). Written by the shade-stage lamp NEE

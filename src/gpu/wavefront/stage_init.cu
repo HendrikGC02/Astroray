@@ -420,6 +420,7 @@ __device__ void initPathSlot(
     state.had_diffuse_ancestor[idx] = 0;  // pkg201 Stage 3 (E) — reset ancestor flag
     state.lp_state[idx] = astroray::lightpath::kInitialState;  // #991 camera ray
     state.pass_dist[idx] = 0.f;  // #1033
+    state.pass_count[idx] = 0u;  // #1125
 
     state.rng_pixel[idx]     = rng.pixel();
     state.rng_sample[idx]    = rng.sample();

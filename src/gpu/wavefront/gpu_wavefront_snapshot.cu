@@ -120,6 +120,7 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
     // frame here wrote past them at bounce 0 and corrupted later renders. Capture neither.
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
+    setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -306,6 +307,7 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
     // frame here wrote past them at bounce 0 and corrupted later renders. Capture neither.
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
+    setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -501,6 +503,7 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     // frame here wrote past them at bounce 0 and corrupted later renders. Capture neither.
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
+    setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -674,6 +677,7 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
     // frame here wrote past them at bounce 0 and corrupted later renders. Capture neither.
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
+    setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -865,6 +869,7 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     // frame here wrote past them at bounce 0 and corrupted later renders. Capture neither.
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
+    setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -1438,6 +1443,7 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     // frame here wrote past them at bounce 0 and corrupted later renders. Capture neither.
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
+    setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -2204,13 +2210,14 @@ std::vector<float> cuda_wavefront_render(
     // on only when the scene has a Principled alpha < 1 (hasAlphaShadow), else the
     // legacy path and a byte-identical fleet render. A pass spends no max_depth
     // pass, so the host pass plan below grants up to `limit + 1` extra passes per
-    // path (the lp_state transparent count saturates at 31, so unlimited = 32).
+    // path (an unlimited limit plans for 31 passes + 1; #1125: a finite limit is
+    // planned exactly, the per-path count is a full uint32 lane).
     const bool transparentOn = res.hasAlphaShadow;
     setWavefrontTransparentLimit(transparentOn ? renderer.getMaxTransparentBounces()
                                                : kWfTransparentOff);
     const int tLim = renderer.getMaxTransparentBounces();
     const int passDepth = max_depth +
-        (transparentOn ? (tLim >= 0 ? std::min(tLim, 31) : 31) + 1 : 0);
+        (transparentOn ? (tLim >= 0 ? tLim : 31) + 1 : 0);
     ::GLight*   d_lights    = wfSync(reuse, C.lights, res.lights);
     // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
     // power CDF continues past the GLight entries; see gpu_nee.cuh).
@@ -3282,6 +3289,7 @@ std::vector<float> cuda_wavefront_render_restir(
     // frame here wrote past them at bounce 0 and corrupted later renders. Capture neither.
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
+    setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
     publishPrimaryClip(cam);         // #873: ReSTIR primary rays clip too (CPU restir_di)
     // #877: ReSTIR-DI is its own light-sampling estimator; set_light_nee does not
     // apply (the CPU restir_di ignores it too), so emitter hits keep MIS weights.

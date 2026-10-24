@@ -100,6 +100,7 @@ bool allocateGPUWavefrontState(GPUWavefrontState& s, int capacity) {
     // #991 — packed Light Path state.
     ALLOC_CHECK(s.lp_state, capacity * sizeof(uint32_t));
     ALLOC_CHECK(s.pass_dist, capacity * sizeof(float));  // #1033
+    ALLOC_CHECK(s.pass_count, capacity * sizeof(uint32_t));  // #1125
 
     // Path-continuation flags.
     ALLOC_CHECK(s.was_specular, capacity * sizeof(int));
@@ -166,6 +167,7 @@ void freeGPUWavefrontState(GPUWavefrontState& s) {
     cudaFree(s.had_diffuse_ancestor);  // pkg201 Stage 3 (E)
     cudaFree(s.lp_state);              // #991
     cudaFree(s.pass_dist);             // #1033
+    cudaFree(s.pass_count);            // #1125
     cudaFree(s.was_specular);
     cudaFree(s.env_nee_sampled_prev);  // pkg258
     cudaFree(s.path_alive);

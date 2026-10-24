@@ -199,7 +199,7 @@ extern __constant__ int c_wfBounceLimit[3];
 // #1033 — transparent pass-through budget (setWavefrontTransparentLimit):
 // kWfTransparentOff (default) = legacy, a pass counts as a bounce; otherwise a
 // pass spends no bounce / per-type / caustic budget and the transparent count
-// (lp_state bits 27-31) is compared with this limit (-1 = unlimited). Runtime
+// (GPUWavefrontState.pass_count, #1125) is compared with this limit (-1 = unlimited). Runtime
 // flag, not a template axis: the detection lives in a __noinline__ helper.
 extern __constant__ int c_wfTransparentLimit;
 
@@ -262,7 +262,7 @@ __device__ unsigned gpu_lpAdvance(unsigned lpState, const ::GMaterial* mat,
 __device__ unsigned gpu_lpVolume(unsigned lpState);
 // #1033 (shading_inputs_eval.cu): transparent pass-through test / count.
 __device__ bool gpu_isTransparentPass(const ::GMaterial* mat, GVec3 wo, GVec3 wi, bool isDelta);
-__device__ unsigned gpu_lpCountTransparent(unsigned lpState);
+__device__ void gpu_countTransparentPass(uint32_t* passCount, int idx);
 
 struct GProgInputTexel { GVec3 c; bool ok; };
 // Defined after c_wfTexBinding below.
@@ -443,14 +443,14 @@ __device__ int intersectPathSlotT(
     const int bounce = state.bounce[idx];
     // #1033 — transparent pass-throughs are not bounces. `passDist` = distance the ray
     // has travelled since its last real vertex across passes (the shade stage parks
-    // it, this stage consumes it); `tcount` = passes so far (lp_state bits 27-31). Both
+    // it, this stage consumes it); `tcount` = passes so far (pass_count, #1125). Both
     // stay 0 (no loads) unless the scene has a Principled alpha < 1.
     float passDist = 0.f;
     unsigned tcount = 0u;
     if (c_wfTransparentLimit != kWfTransparentOff) {
         passDist = state.pass_dist[idx];
         state.pass_dist[idx] = 0.f;
-        tcount = state.lp_state[idx] >> 27;
+        tcount = state.pass_count[idx];
     }
 
     // ---- Reconstruct live path state from SoA (already-normalized ray
@@ -1122,7 +1122,7 @@ __device__ int intersectPathSlotT(
     // #1033 — transparent_max_bounces exhausted (Cycles transparent_bounce >=
     // transparent_max_bounce -> TERMINATE_ON_NEXT_SURFACE): this surface took its
     // emission above and the path ends here instead of being shaded. The count is
-    // the lp_state transparent field (CPU twin: pathTraceSpectral).
+    // GPUWavefrontState.pass_count (CPU twin: pathTraceSpectral).
     if (c_wfTransparentLimit >= 0) {
         if (tcount > 0u && (int)tcount >= c_wfTransparentLimit) {
             state.path_alive[idx] = 0;
@@ -2390,7 +2390,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                         // #1073: the path's transparent-pass count, pre-advance (the
                         // continuation sample below may add one), for the shadow ray's
                         // transparent-hit budget. One load + store, no live range.
-                        nee_i[ 6 * nee_capacity + idx] = (int)(state.lp_state[idx] >> 27);
+                        nee_i[ 6 * nee_capacity + idx] = (int)state.pass_count[idx];
                         int qslot = atomicAdd(shadow_count, 1);
                         shadow_queue[qslot] = idx;
                     }
@@ -2433,7 +2433,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     if constexpr (HasPhotons) {
         // #1033: the gather belongs to the FIRST geometric hit (CPU sampleFull): a hit
         // behind a transparent pass (bounce stays 0) must not overwrite it.
-        if (bounce == 0 && (state.lp_state[idx] >> 27) == 0u && hasPhotonGrid &&
+        if (bounce == 0 && state.pass_count[idx] == 0u && hasPhotonGrid &&
             !useLuminanceOutput && photonGrid.numPhotons > 0) {
             // rec is already the primary hit from intersectPathSlot; check non-emissive.
             // #959: receivers only (a caster holds no photons; the split chain
@@ -2529,7 +2529,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // pathTraceSpectral transparentPass) is not a bounce: no pass-category lock, no
     // per-type / caustic accounting, no MIS-state update (Cycles keeps mis_ray_pdf /
     // MIS_SKIP across it, shade_surface.h), no cryptomatte credit, state.bounce not
-    // advanced; it counts in the lp_state transparent field instead. Compiled to a
+    // advanced; it counts in pass_count instead. Compiled to a
     // constant-memory compare when the scene has no Principled alpha < 1
     // (c_wfTransparentLimit off).
     const bool tp = (c_wfTransparentLimit != kWfTransparentOff) &&
@@ -2672,14 +2672,10 @@ __device__ __forceinline__ bool shadePathSlotImpl(
             state.lp_state[idx] = gpu_lpAdvance(state.lp_state[idx], &mat, wo, rec.normal,
                                                 bss.wi, bss.isDelta);
     }
-    // #1033 — count the pass in lp_state where gpu_lpAdvance (which counts it
-    // itself) is not running; the intersect stage reads the count against
-    // c_wfTransparentLimit (terminate-on-next-surface).
-    if (tp) {
-        bool lpCounted = false;
-        if constexpr (HasProgram) lpCounted = c_wfLightPath.enabled != 0;
-        if (!lpCounted) state.lp_state[idx] = gpu_lpCountTransparent(state.lp_state[idx]);
-    }
+    // #1033/#1125 — count the pass in pass_count (full uint32); the intersect stage
+    // reads it against c_wfTransparentLimit (terminate-on-next-surface). The 5-bit
+    // lp_state copy (gpu_lpAdvance, Light Path scenes) feeds only the node output.
+    if (tp) gpu_countTransparentPass(state.pass_count, idx);
 
     // ---- Throughput clamp (CPU: maxC > 10 -> scale to 10).
     float maxC = throughput.maxValue();

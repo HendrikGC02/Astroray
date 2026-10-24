@@ -61,11 +61,12 @@ __device__ __noinline__ bool gpu_isTransparentPass(const ::GMaterial* mat, GVec3
     return astroray::lightpath::is_transparent_pass(isDelta, wo.dot(wi), alphaLobe);
 }
 
-// #1033 — count one transparent pass in lp_state (bits 27-31, saturating at 31),
-// for variants where gpu_lpAdvance (which counts it itself) is not running.
-__device__ __noinline__ unsigned gpu_lpCountTransparent(unsigned lpState)
+// #1033/#1125 — count one transparent pass in the path's pass_count lane (full
+// uint32; the 5-bit lp_state field saturated at 31). __noinline__ keeps the
+// load/add/store out of the register-saturated shade kernel's live ranges.
+__device__ __noinline__ void gpu_countTransparentPass(uint32_t* passCount, int idx)
 {
-    return (lpState >> 27) < 31u ? lpState + (1u << 27) : lpState;
+    passCount[idx] += 1u;
 }
 
 // Shade stage: Cycles path_state_next across this bounce, with the pkg201

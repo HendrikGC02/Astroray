@@ -10,8 +10,9 @@ questions), `stage0-gate-scoring-2026-10-18.md` (rows (b), (e), (g) re-measures)
   #1163 (pkg326), #1166 (pkg325), #1169 (gate (b)), #1170 (#995/#955). `build_cuda` stamp c76baf57 (sm_120), `dist/astroray`
   restaged 07:46 from the same HEAD. Worktrees: only `pkg306` (branch `lane/pkg306`, PR #1173) remains; delete it once that PR is merged.
 - **Open PR:** **#1173** pkg306 Phase 0 (`--tail-report`, attribution doc, tail gates; engine byte-identical to main; diag
-  switches kept on `lane/pkg306-diag` 372da5c9 for Phase 1). Merge on green. Its pull_request CI run may still fail only on
-  the two `tests/test_delegate_process_tree.py` tests if it started before 54e736ff; main is fixed.
+  switches kept on `lane/pkg306-diag` 372da5c9 for Phase 1). Merge on green. Its first pull_request CI run failed only on
+  `test_pkg278_gate_instruments.py::test_committed_manifest_evidence_paths_are_posix_and_valid`, which was main's bug
+  (absolute evidence paths from the (e) assembly; fixed in 958a967f, memory `gate-manifest-instrument-paths-must-be-repo-relative`).
 - **Final sweep** on main c76baf57: see `run-report-2026-10-25.md` (SWEEP2 line). The pre-closeout sweep (624e32df) was
   5672 passed / 10 failed, all ten attributed (4 hair_tuft strict XPASS = improvement, 5 incomplete provisional rows
   identical on the pre-#1125 baseline, 1 OneDrive PermissionError). The `benchmarks/reference_corpus/provisional_v2.toml`

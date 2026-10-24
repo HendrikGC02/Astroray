@@ -121,6 +121,7 @@ std::vector<float> cuda_wavefront_snapshot_post_init(
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
     setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
+    setWavefrontDielectricCapPass(false);              // pkg325: nor a stale passthrough flag
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -308,6 +309,7 @@ std::vector<float> cuda_wavefront_snapshot_post_intersect(
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
     setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
+    setWavefrontDielectricCapPass(false);              // pkg325: nor a stale passthrough flag
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -504,6 +506,7 @@ std::vector<float> cuda_wavefront_snapshot_post_shade(
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
     setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
+    setWavefrontDielectricCapPass(false);              // pkg325: nor a stale passthrough flag
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -678,6 +681,7 @@ std::vector<float> cuda_wavefront_snapshot_post_light_sample(
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
     setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
+    setWavefrontDielectricCapPass(false);              // pkg325: nor a stale passthrough flag
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -870,6 +874,7 @@ std::vector<float> cuda_wavefront_snapshot_post_rr(
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
     setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
+    setWavefrontDielectricCapPass(false);              // pkg325: nor a stale passthrough flag
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -1444,6 +1449,7 @@ std::vector<float> cuda_wavefront_snapshot_post_nee_mis(
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
     setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
+    setWavefrontDielectricCapPass(false);              // pkg325: nor a stale passthrough flag
     setWavefrontPrimaryClip(GWavefrontPrimaryClip{});  // #873: no stale clip
     setWavefrontLightNeeOff(false);                      // #877
     setWavefrontEmissionTexture(0, 0x7fffffff);                      // #962
@@ -2212,9 +2218,13 @@ std::vector<float> cuda_wavefront_render(
     // pass, so the host pass plan below grants up to `limit + 1` extra passes per
     // path (an unlimited limit plans for 31 passes + 1; #1125: a finite limit is
     // planned exactly, the per-path count is a full uint32 lane).
-    const bool transparentOn = res.hasAlphaShadow;
+    // pkg325: dielectric_bounce_cap=passthrough rides the same machinery (a capped transmission
+    // sample is a null transparent pass, counted in pass_count), so it also switches it on.
+    const bool capPassOn = renderer.getDielectricBounceCapPassthrough();
+    const bool transparentOn = res.hasAlphaShadow || capPassOn;
     setWavefrontTransparentLimit(transparentOn ? renderer.getMaxTransparentBounces()
                                                : kWfTransparentOff);
+    setWavefrontDielectricCapPass(capPassOn);
     const int tLim = renderer.getMaxTransparentBounces();
     const int passDepth = max_depth +
         (transparentOn ? (tLim >= 0 ? tLim : 31) + 1 : 0);
@@ -3290,6 +3300,7 @@ std::vector<float> cuda_wavefront_render_restir(
     setWavefrontGuideBinding(GWavefrontGuideBinding{});
     setWavefrontMissCoverage(nullptr);
     setWavefrontTransparentLimit(kWfTransparentOff);   // #1125: no stale transparent limit
+    setWavefrontDielectricCapPass(false);              // pkg325: nor a stale passthrough flag
     publishPrimaryClip(cam);         // #873: ReSTIR primary rays clip too (CPU restir_di)
     // #877: ReSTIR-DI is its own light-sampling estimator; set_light_nee does not
     // apply (the CPU restir_di ignores it too), so emitter hits keep MIS weights.

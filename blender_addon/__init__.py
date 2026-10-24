@@ -368,6 +368,21 @@ class CustomRaytracerRenderSettings(PropertyGroup):
                     "emission driven directly) instead of the Disney "
                     "approximation. Disney remains the fallback when off",
     )
+    # pkg325: Astroray-only (no Cycles counterpart); see settings_map.py astroray_only.
+    dielectric_bounce_cap: EnumProperty(
+        name="Glass Bounce Cap",
+        description="What a path does when it hits the bounce cap while crossing glass",
+        items=[
+            ('terminate', 'Terminate (Cycles)',
+             'The path ends at the cap, like Cycles: thick or nested glass shows black regions at low Max Bounces'),
+            ('passthrough', 'Pass Through',
+             'A path that reaches the cap while crossing glass continues straight on as a null pass-through '
+             '(same direction, no refraction), so it can still reach lights. See-through, not physically '
+             'refracted: the path keeps its direction and its sampled transmission weight, so a path capped inside '
+             'a slab is not left dark or dimmed. Astroray-only, bounded by the Transparent bounce limit'),
+        ],
+        default='terminate',
+    )
     # pkg39: wavelength / multi-spectral settings
     wavelength_preset: EnumProperty(
         name="Preset",
@@ -1718,6 +1733,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             min(settings.transmission_bounces, depth),
             settings.volume_bounces,  # pkg271: Cycles max_volume_bounce is its own limit
             min(settings.transparent_bounces, depth),
+            getattr(settings, "dielectric_bounce_cap", "terminate"),  # pkg325
         )
 
     def _request_viewport_redraw(self):
@@ -2212,6 +2228,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         renderer.set_filter_glossy(settings.filter_glossy)
         renderer.set_use_reflective_caustics(settings.use_reflective_caustics)
         renderer.set_use_refractive_caustics(settings.use_refractive_caustics)
+        # pkg325: Astroray-only glass bounce-cap behaviour (terminate = Cycles, the default).
+        if hasattr(renderer, "set_dielectric_bounce_cap"):
+            renderer.set_dielectric_bounce_cap(getattr(settings, "dielectric_bounce_cap", "terminate"))
         # pkg217: the GPU wavefront's photon-map caustic pre-pass (pkg113) is
         # gated by a SEPARATE renderer-level master switch (usePhotonCaustics,
         # default off) from the per-object is_caustic_caster flag the mesh
@@ -8138,6 +8157,10 @@ class RENDER_PT_custom_raytracer_sampling(AstrorayPanelBase, Panel):
 
         layout.separator()
         layout.prop(settings, "light_sampler")
+
+        # pkg325: Astroray-only; Cycles always terminates at the bounce cap.
+        layout.separator()
+        layout.prop(settings, "dielectric_bounce_cap")
 
 
 # pkg176 Stage 2: the custom "Light Paths" panel (RENDER_PT_custom_raytracer_light_paths)

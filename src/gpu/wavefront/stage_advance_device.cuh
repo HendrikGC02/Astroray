@@ -203,6 +203,10 @@ extern __constant__ int c_wfBounceLimit[3];
 // flag, not a template axis: the detection lives in a __noinline__ helper.
 extern __constant__ int c_wfTransparentLimit;
 
+// pkg325 - dielectric_bounce_cap=passthrough (setWavefrontDielectricCapPass). Read only inside
+// the c_wfTransparentLimit-on block of shadePathSlotImpl, so 0 (default) is a no-op.
+extern __constant__ int c_wfDielectricCapPass;
+
 // pkg201 Stage 3 (Finding E) — native caustic toggles (index 0=reflective,
 // 1=refractive; 1=allow, 0=cull). Published once per frame by
 // cuda_wavefront_render (setWavefrontCausticGate). Both-allow (this static
@@ -258,11 +262,14 @@ __device__ astroray::lightpath::PathContext gpu_lpContext(
     unsigned lpState, int bounce, float t, GVec3 dir);
 __device__ int gpu_lpRemap(int matId, unsigned lpState, int bounce, float t, GVec3 dir);
 __device__ unsigned gpu_lpAdvance(unsigned lpState, const ::GMaterial* mat,
-                                  GVec3 wo, GVec3 n, GVec3 wi, bool isDelta);
+                                  GVec3 wo, GVec3 n, GVec3 wi, bool isDelta, bool forcePass);
 __device__ unsigned gpu_lpVolume(unsigned lpState);
 // #1033 (shading_inputs_eval.cu): transparent pass-through test / count.
 __device__ bool gpu_isTransparentPass(const ::GMaterial* mat, GVec3 wo, GVec3 wi, bool isDelta);
 __device__ void gpu_countTransparentPass(uint32_t* passCount, int idx);
+// pkg325: would the total (maxDepth) or transmission cap end the path after this transmission sample?
+__device__ bool gpu_isDielectricCapPass(bool transmitted, const uint32_t* perTypeBounce, int idx,
+                                        int bounce, int maxDepth);
 
 struct GProgInputTexel { GVec3 c; bool ok; };
 // Defined after c_wfTexBinding below.
@@ -2541,8 +2548,22 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // advanced; it counts in pass_count instead. Compiled to a
     // constant-memory compare when the scene has no Principled alpha < 1
     // (c_wfTransparentLimit off).
-    const bool tp = (c_wfTransparentLimit != kWfTransparentOff) &&
-                    gpu_isTransparentPass(&mat, wo, bss.wi, bss.isDelta);
+    bool tp = false;
+    if (c_wfTransparentLimit != kWfTransparentOff) {
+        tp = gpu_isTransparentPass(&mat, wo, bss.wi, bss.isDelta);
+        // pkg325 dielectric_bounce_cap=passthrough (CPU twin: pathTraceSpectral capPass): a
+        // transmission sample the total / transmission cap would end keeps its sampled weight
+        // (the 1/eta^2 radiance scaling of entering glass) but goes straight on (wi = -wo,
+        // delta), handled as a transparent pass below. The helper is __noinline__ and the
+        // branch sits behind two constant-memory compares: no new live state in this kernel.
+        if (!tp && c_wfDielectricCapPass != 0 &&
+            gpu_isDielectricCapPass(wo.dot(rec.normal) * bss.wi.dot(rec.normal) < 0.f,
+                                    state.per_type_bounce, idx, bounce, max_depth)) {
+            tp = true;
+            bss.wi = wo * -1.0f;
+            bss.isDelta = true;
+        }
+    }
     if (!tp) wasSpecular = bss.isDelta;
     // pkg198 Stage 2: lock the first-bounce light-path category (Cycles locks pass
     // weights at bounce 0). TRANSMISSION if the sampled wi crossed the surface (a
@@ -2679,7 +2700,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     if constexpr (HasProgram) {
         if (c_wfLightPath.enabled)
             state.lp_state[idx] = gpu_lpAdvance(state.lp_state[idx], &mat, wo, rec.normal,
-                                                bss.wi, bss.isDelta);
+                                                bss.wi, bss.isDelta, tp);
     }
     // #1033/#1125 — count the pass in pass_count (full uint32); the intersect stage
     // reads it against c_wfTransparentLimit (terminate-on-next-surface). The 5-bit

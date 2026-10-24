@@ -1887,6 +1887,9 @@ class Exporter:
         renderer.set_filter_glossy(settings.filter_glossy)
         renderer.set_use_reflective_caustics(settings.use_reflective_caustics)
         renderer.set_use_refractive_caustics(settings.use_refractive_caustics)
+        # pkg325: mirrors convert_scene (blender_addon/__init__.py).
+        if hasattr(renderer, "set_dielectric_bounce_cap"):
+            renderer.set_dielectric_bounce_cap(getattr(settings, "dielectric_bounce_cap", "terminate"))
         # pkg217: mirrors CustomRaytracerRenderEngine.convert_scene's wiring
         # (blender_addon/__init__.py) — the GPU photon-map caustic pre-pass
         # (pkg113) needs this SEPARATE renderer-level master switch on top of

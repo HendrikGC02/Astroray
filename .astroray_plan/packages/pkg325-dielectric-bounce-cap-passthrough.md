@@ -2,7 +2,7 @@
 
 **Pillar:** 1
 **Track:** A
-**Status:** open
+**Status:** in-progress — CPU + addon + tests on lane/pkg325; GPU legs pending the lead's CUDA build
 **Estimated effort:** 1 session (~4 h) + GPU legs via the lead
 **Depends on:** none
 
@@ -55,8 +55,13 @@ render-time convenience the owner asked about in `architect-plan-2026-10-25.md` 
 
 | File | What changes |
 |---|---|
-| `include/astroray/render_settings.h` | the enum (or wherever the addon-filled settings struct lives), default `terminate` |
-| `src/spectral_path_tracer.cpp` | CPU: at the cap inside a dielectric, if `passthrough`, continue the ray through the surface with unchanged throughput (null interface), counted as a transparent pass |
+| `include/raytracer.h` | Renderer setting `dielectricBounceCapPassthrough` (default off = `terminate`); CPU in `pathTraceSpectral`: a transmission sample the total or transmission cap would end goes straight on (null interface, sampled weight kept), counted as a transparent pass |
+| `module/blender_module.cpp` | `set_dielectric_bounce_cap` / `get_dielectric_bounce_cap` binding |
+| `include/astroray/gpu_wavefront_state.h` | `setWavefrontDielectricCapPass` declaration |
+| `src/gpu/wavefront/stage_advance.cu` | `__constant__ c_wfDielectricCapPass` + publish |
+| `src/gpu/wavefront/gpu_wavefront_snapshot.cu` | publish per frame; the #1033 transparent block is switched on for passthrough |
+| `blender_addon/exporter.py` | viewport wiring |
+| `blender_addon/settings_map.py` | astroray-only settings row |
 | `src/gpu/wavefront/stage_advance_device.cuh` | GPU shade/intersect: the same branch behind the existing transparent-pass path; no new template axis |
 | `src/gpu/wavefront/shading_inputs_eval.cu` | the `__noinline__` helper that applies the pass, next to `gpu_countTransparentPass` |
 | `blender_addon/__init__.py` | the setting under the Astroray panel (not a native Cycles property) |
@@ -64,8 +69,9 @@ render-time convenience the owner asked about in `architect-plan-2026-10-25.md` 
 
 ### Key design decisions
 
-- Passthrough is a null interface, not a refraction: the ray keeps its direction, so the result is a plausible
-  "see-through" rather than a physically continued path. Document that in the panel tooltip.
+- Null interface in direction; weight = the sampled BTDF weight, so a capped path inside a slab is not left at 1/eta^2
+  (resetting throughput to 1 leaves it at 1/2.25 brightness; measured 0.46 vs 0.89, see the research note). The ray keeps
+  its direction, so the result is a plausible "see-through" rather than a physically continued path; the panel tooltip says so.
 - Register pressure: the branch lives next to the transparent-pass code; verify shade REG/STACK unchanged with cuobjdump.
 - Off by default; the pkg324 tumbler A/B is the demo.
 
@@ -89,10 +95,10 @@ render-time convenience the owner asked about in `architect-plan-2026-10-25.md` 
 
 ## Progress
 
-- [ ] Setting + CPU branch
+- [x] Setting + CPU branch (scene: benchmarks/showcase/spectral/pkg325; real files: `pathTraceSpectral` in include/raytracer.h, no render_settings.h / spectral_path_tracer.cpp)
 - [ ] GPU branch + BUILD REQUEST
 - [ ] Tests green, cuobjdump checked
-- [ ] Panel + docs
+- [x] Panel + docs (Sampling panel; research note `.astroray_plan/docs/pkg325-bounce-cap-passthrough-research.md`)
 
 ---
 

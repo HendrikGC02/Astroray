@@ -964,6 +964,36 @@ HD inline GVec3 gpu_sampleImageTexture(const GImageTexture& tex,
     return texels[tex.offset + j * tex.width + i];
 }
 
+// #1004 - bilinear footprint (Cycles INTERPOLATION_LINEAR, interp_linear in
+// kernel/device/cpu/image.h:170-178, Cycles @ Blender v5.2.0 fbe62287, Apache-2.0: tx = frac(u*w - 0.5)): the
+// texel-centre coordinates of the 2x2 texels around (u, v) and the lerp weights. Each
+// centre is then fetched with the NEAREST sampler, so extension wrapping is shared.
+// One helper for CPU ImageTexture::valueLinear and the GPU bump taps (identical math).
+struct GImageLinearTaps { float u0, u1, v0, v1, fx, fy; };
+HD inline GImageLinearTaps gpu_imageLinearTaps(int w, int h, float u, float v) {
+    GImageLinearTaps t;
+    const float x = u * (float)w - 0.5f, y = v * (float)h - 0.5f;
+    const float x0 = floorf(x), y0 = floorf(y);
+    t.fx = x - x0;
+    t.fy = y - y0;
+    t.u0 = (x0 + 0.5f) / (float)w;
+    t.u1 = (x0 + 1.5f) / (float)w;
+    t.v0 = (y0 + 0.5f) / (float)h;
+    t.v1 = (y0 + 1.5f) / (float)h;
+    return t;
+}
+
+// #1004 - bilinear twin of gpu_sampleImageTexture (CPU ImageTexture::valueLinear).
+HD inline GVec3 gpu_sampleImageTextureLinear(const GImageTexture& tex,
+                                             const GVec3* texels,
+                                             float u, float v) {
+    const GImageLinearTaps t = gpu_imageLinearTaps(tex.width, tex.height, u, v);
+    return (gpu_sampleImageTexture(tex, texels, t.u0, t.v0) * (1.0f - t.fx) +
+            gpu_sampleImageTexture(tex, texels, t.u1, t.v0) * t.fx) * (1.0f - t.fy) +
+           (gpu_sampleImageTexture(tex, texels, t.u0, t.v1) * (1.0f - t.fx) +
+            gpu_sampleImageTexture(tex, texels, t.u1, t.v1) * t.fx) * t.fy;
+}
+
 // pkg190 — nearest-neighbour 3D voxel fetch for a baked Generated-coord
 // procedural. `g` is the normalized Generated coordinate in [0,1]^3, built by
 // the caller EXACTLY as the CPU does (g = clamp((objectPoint - genMin)/genSize,

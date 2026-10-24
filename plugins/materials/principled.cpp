@@ -176,7 +176,19 @@ class PrincipledPlugin : public Material {
         // pkg178 PR-4b: anisotropy (specular/metallic only; 0 → isotropic).
         float anisotropic = 0.0f;
         float anisoRotation = 0.0f;
+        // #1005: the lobe shades on its own normal N (coat / sheen under a Bump or
+        // Normal Map: Cycles' unlinked Coat Normal is sd->N, not the bumped Normal).
+        bool ownN = false;
+        Vec3 N{0.0f, 0.0f, 1.0f};
     };
+
+    // #1005: `rec` re-framed on a lobe's own shading normal (see Lobe::ownN).
+    static HitRecord lobeFrame(const HitRecord& rec, const Vec3& N) {
+        HitRecord r = rec;
+        r.normal = N;
+        buildOrthonormalBasis(r.normal, r.tangent, r.bitangent);
+        return r;
+    }
 
     // ----------------------------------------------------------------------
     // GGX + Fresnel primitives (ported verbatim from disney.cpp / metal.cpp,
@@ -985,6 +997,22 @@ class PrincipledPlugin : public Material {
                                     const astroray::SampledWavelengths* lam = nullptr) const {
         std::vector<Lobe> lobes;
         float nv = std::clamp(rec.normal.dot(wo), 1e-4f, 1.0f);
+        // #1005: Cycles svm_node_closure_bsdf (Cycles @ Blender v5.2.0 fbe62287: kernel/svm/closure.h:152-161 coat,
+        // :127-129 sheen) shades the coat on Coat Normal, whose unlinked default is the
+        // geometry normal sd->N (LINK_NORMAL, scene/shader_nodes.cpp:2680), and the sheen on
+        // normalize(mix(N, coat_normal, coat_weight)). An Output Displacement bump instead
+        // sets sd->N (scene/shader_graph.cpp:1005-1098 bump_from_displacement, svm/closure.h:
+        // 1519-1524 svm_node_set_normal), so the coat follows it.
+        // Under a Bump / Normal Map (NormalMappedPlugin) rec.normal is the bumped N and
+        // rec.svmNormal is sd->N, so the coat keeps the smooth normal (prod_car_paint:
+        // the flake bump must not break up the clear-coat reflection). An Output
+        // Displacement bump (Cycles sets sd->N) or a Coat Normal wired to the same node
+        // clears rec.coatOnSvmNormal: the coat then follows the bump. Without a
+        // decorator coatN == N and nothing changes.
+        const bool coatOwnN = coatWeight_ > 1e-4f && rec.coatOnSvmNormal && rec.hasSvmNormal &&
+                              (rec.svmNormal - rec.normal).length2() > 0.0f;
+        const Vec3 coatN = coatOwnN ? rec.svmNormal : rec.normal;
+        const float nvCoat = coatOwnN ? std::clamp(coatN.dot(wo), 1e-4f, 1.0f) : nv;
         Vec3 weight(1.0f, 1.0f, 1.0f);  // running weight (W₀ = 1)
         // pkg194 Item 1 — running per-λ layering weight (mirrors `weight`). `usp`
         // upsamples one reflectance colour; layering transmissions are achromatic
@@ -1017,8 +1045,11 @@ class PrincipledPlugin : public Material {
         //    weight = sheen_weight·sheen_tint·weight·ltc_albedo; then the running
         //    weight is attenuated by the sheen directional albedo.
         if (sheenWeight_ > 1e-4f) {
+            const Vec3 sheenN = coatOwnN ? (rec.normal * (1.0f - coatWeight_) + coatN * coatWeight_).normalized()
+                                         : rec.normal;
+            const float nvSheen = coatOwnN ? std::clamp(sheenN.dot(wo), 1e-4f, 1.0f) : nv;
             astroray::SheenLtcCoeffs sc =
-                astroray::sheenLtcFetch(std::clamp(sheenRoughness_, 1e-3f, 1.0f), nv);
+                astroray::sheenLtcFetch(std::clamp(sheenRoughness_, 1e-3f, 1.0f), nvSheen);
             if (std::abs(sc.aInv) >= 1e-5f && sc.albedo >= 1e-5f) {  // Cycles setup skip guard
                 Vec3 shAlb = sheenTint_ * (sheenWeight_ * sc.albedo);
                 Vec3 sheenW = weight * shAlb;
@@ -1028,6 +1059,8 @@ class PrincipledPlugin : public Material {
                 L.color = sheenTint_;
                 L.sheenA = sc.aInv;
                 L.sheenB = sc.bInv;
+                L.ownN = coatOwnN;
+                L.N = sheenN;
                 L.sel = std::max(luminance(sheenW), 1e-4f);
                 // sheenValue() is colourless → the sheen tint lives entirely in weightSpec.
                 if (lam) L.weightSpec = weightSp * usp(sheenTint_) * (sheenWeight_ * sc.albedo);
@@ -1041,7 +1074,7 @@ class PrincipledPlugin : public Material {
         //    albedo layering attenuate everything below.
         if (coatWeight_ > 1e-4f) {
             float f0c = F0_from_ior(coatIor_);
-            float sView = generalizedSchlickS(nv, coatIor_);
+            float sView = generalizedSchlickS(nvCoat, coatIor_);
             float Fview = f0c + (1.0f - f0c) * sView;
             Lobe L;
             L.kind = LobeKind::Coat;
@@ -1049,13 +1082,15 @@ class PrincipledPlugin : public Material {
             L.color = Vec3(f0c);
             L.roughness = coatRoughness_;
             L.ior = coatIor_;
+            L.ownN = coatOwnN;
+            L.N = coatN;
             L.sel = std::max(luminance(weight * coatWeight_) * Fview, 1e-4f);
             if (lam) L.weightSpec = weightSp * coatWeight_;
             lobes.push_back(L);
-            Vec3 coatAlb = ggxLayeringAlbedo(Vec3(f0c), coatRoughness_, nv, coatIor_) * coatWeight_;
+            Vec3 coatAlb = ggxLayeringAlbedo(Vec3(f0c), coatRoughness_, nvCoat, coatIor_) * coatWeight_;
             float layT = layeringScale(weight, coatAlb);
             weight = weight * layT;
-            Vec3 beer = coatBeerFactor(nv);  // chromatic coat-tint Beer absorption
+            Vec3 beer = coatBeerFactor(nvCoat);  // chromatic coat-tint Beer absorption
             weight = weight * beer;
             if (lam) weightSp = weightSp * layT * usp(beer);
         }
@@ -1299,6 +1334,9 @@ class PrincipledPlugin : public Material {
     // Per-lobe evaluators (the four contract methods).
     // ==================================================================
     Vec3 evalLobeRGB(const Lobe& L, const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+        return L.ownN ? evalLobeRGBAt(L, lobeFrame(rec, L.N), wo, wi) : evalLobeRGBAt(L, rec, wo, wi);
+    }
+    Vec3 evalLobeRGBAt(const Lobe& L, const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
         switch (L.kind) {
             case LobeKind::Subsurface:  // approximate SSS = Lambert (D2=a)
@@ -1675,6 +1713,9 @@ class PrincipledPlugin : public Material {
     }
 
     float pdfLobe(const Lobe& L, const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+        return L.ownN ? pdfLobeAt(L, lobeFrame(rec, L.N), wo, wi) : pdfLobeAt(L, rec, wo, wi);
+    }
+    float pdfLobeAt(const Lobe& L, const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
         switch (L.kind) {
             case LobeKind::Subsurface:
@@ -1816,6 +1857,18 @@ class PrincipledPlugin : public Material {
         }
         ds.lobe = j;
         const Lobe& L = lobes[j];
+        if (L.ownN) {  // #1005: coat / sheen sample on their own normal (Lobe::ownN)
+            DirSample d = sampleLobeDir(lobeFrame(rec, L.N), wo, gen, L, dist);
+            d.lobe = j;
+            return d;
+        }
+        DirSample d = sampleLobeDir(rec, wo, gen, L, dist);
+        d.lobe = j;
+        return d;
+    }
+    DirSample sampleLobeDir(const HitRecord& rec, const Vec3& wo, std::mt19937& gen, const Lobe& L,
+                            std::uniform_real_distribution<float>& dist) const {
+        DirSample ds;
         // Transparent (alpha) — Cycles bsdf_transparent.h sample: wo = -wi (straight
         // through), delta, matched pdf==eval (ratio 1) → pdfInternal=1, no medium
         // change (eta=1, no η² factor). Consumes ZERO rng draws (CPU/GPU aligned).
@@ -2238,6 +2291,12 @@ public:
     astroray::SampledSpectrum evalLobeSpectral(const Lobe& L, const HitRecord& rec,
                                                const Vec3& wo, const Vec3& wi,
                                                const astroray::SampledWavelengths& lam) const {
+        return L.ownN ? evalLobeSpectralAt(L, lobeFrame(rec, L.N), wo, wi, lam)
+                      : evalLobeSpectralAt(L, rec, wo, wi, lam);
+    }
+    astroray::SampledSpectrum evalLobeSpectralAt(const Lobe& L, const HitRecord& rec,
+                                                 const Vec3& wo, const Vec3& wi,
+                                                 const astroray::SampledWavelengths& lam) const {
         float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
         // pkg194 Item 1: the per-λ layering weight assembled in assembleLobes — each
         // chromatic factor (layer tints, coat Beer, base colour, thin-glass R'/T')

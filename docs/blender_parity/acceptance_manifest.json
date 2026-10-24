@@ -1,6 +1,6 @@
 {
   "schema": "pkg278.acceptance_manifest.v1",
-  "generated": "2026-10-24T20:19:36+00:00",
+  "generated": "2026-10-24T21:51:56+00:00",
   "rows": {
     "a": {
       "row": "a",
@@ -77,7 +77,7 @@
         "mean_rel_error_max": 0.02,
         "detail_preservation_min": 0.95
       },
-      "evidence_path": "C:/Users/hgcom/OneDrive/Astroray/Astroray_repo/Astroray/docs/blender_parity/evidence/d/instrument.json",
+      "evidence_path": "docs/blender_parity/evidence/d/instrument.json",
       "evidence_sha256": "709fdda4bf80471d1c81530e1025effa2924f1e762e0171ca935e690f29d1895",
       "dimensions": {
         "backend": "CPU+GPU",
@@ -126,7 +126,7 @@
       "threshold": {
         "high_count": 0
       },
-      "evidence_path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-e2/instrument.json",
+      "evidence_path": "docs/blender_parity/evidence/e/instrument.json",
       "evidence_sha256": "69b7838c696fd05ea301b4affb05148549efba4b6ec59469bc6f4bebf90e2eb4",
       "dimensions": {
         "issue_snapshot": "raw-artifacts",

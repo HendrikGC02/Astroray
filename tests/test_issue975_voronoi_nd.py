@@ -8,7 +8,9 @@ Before: voronoi_dimensions != '3D' was evaluated as 3D and reported DEGRADED.
   pixel is the node evaluated at its centre (x, y, 0) (W = the node's W socket, or the
   object x for W_CASES). Distance / Radius render as a grey, Color as the hashed colour.
   Reference + how it was produced: .astroray_plan/docs/issue975-voronoi-nd-research.md.
-* 3D: PIN_3D is the pre-change build's output - the 3-D path must not move.
+* 3D (#1108): the same Cycles 5.2 scene (exponent 1.5; astra_run/2026-10-18/i1108) - 3D runs the
+  shared vnd_* port now, so N-Sphere Radius, unclamped F2 / Manhattan and the distance-to-edge
+  fractal match Cycles point for point (58/58 cases float32-exact at the render level).
 * Addon: the dimension and W reach the engine and the DEGRADED report is gone; a linked
   W is still reported (it is read as its default value).
 """
@@ -96,6 +98,51 @@ CASES = [
      [(0.132812, 0.414062, 0.14836, 0.622926, 0.540482)]),
     ('1D_F1_EUCLIDEAN_Distance_det2.5_norTrue_w0.37', '1D', 'F1', 'EUCLIDEAN', 4.0, 1.0, 1.0, 0.5, 2.5, 0.6, 2.2, True, False, 0.37, False,
      [(0.429688, 0.414062, 0.320191)]),
+    # 3D (#1108): Cycles 5.2 values from astra_run/2026-10-18/i1108/ref3d (same scene, exponent 1.5)
+    ('3D_F1_EUCLIDEAN_Distance_det0.0', '3D', 'F1', 'EUCLIDEAN', 4.0, 1.0, 1.0, 1.5, 0.0, 0.5, 2.0, False, False, 0.0, False,
+     [(-0.132812, -0.710938, 0.70974), (0.210938, 0.960938, 0.157016), (-0.585938, -0.351562, 0.67226), (0.320312, -0.914062, 0.647023)]),
+    ('3D_F1_MANHATTAN_Distance_det0.0', '3D', 'F1', 'MANHATTAN', 4.0, 1.0, 1.0, 1.5, 0.0, 0.5, 2.0, False, False, 0.0, False,
+     [(0.304688, 0.039062, 0.889664), (-0.960938, -0.179688, 1.081763), (-0.929688, 0.929688, 0.692452), (0.445312, 0.367188, 0.906469)]),
+    ('3D_F1_CHEBYCHEV_Distance_det2.0', '3D', 'F1', 'CHEBYCHEV', 4.0, 1.0, 1.0, 1.5, 2.0, 0.6, 2.2, False, False, 0.0, False,
+     [(0.070312, -0.445312, 0.997644), (-0.648438, -0.664062, 0.663341), (0.257812, 0.257812, 1.00768), (-0.664062, -0.101562, 0.810819)]),
+    ('3D_F1_MINKOWSKI_Distance_det0.0', '3D', 'F1', 'MINKOWSKI', 4.0, 1.0, 1.0, 1.5, 0.0, 0.5, 2.0, False, False, 0.0, False,
+     [(0.726562, -0.929688, 0.548209), (-0.460938, -0.929688, 0.784927), (-0.648438, 0.710938, 0.323861), (0.789062, -0.507812, 0.271974)]),
+    ('3D_SMOOTH_F1_EUCLIDEAN_Distance_det0.0', '3D', 'SMOOTH_F1', 'EUCLIDEAN', 4.0, 1.0, 1.0, 1.5, 0.0, 0.5, 2.0, False, False, 0.0, False,
+     [(0.210938, -0.429688, 0.526845), (-0.007812, -0.382812, 0.359221), (0.960938, 0.679688, 0.391951), (-0.710938, 0.242188, 0.300236)]),
+    ('3D_SMOOTH_F1_MINKOWSKI_Distance_det2.0', '3D', 'SMOOTH_F1', 'MINKOWSKI', 4.0, 1.0, 1.0, 1.5, 2.0, 0.6, 2.2, False, False, 0.0, False,
+     [(0.445312, 0.023438, 1.051213), (-0.257812, -0.617188, 1.009334), (0.039062, -0.007812, 0.780491), (0.632812, -0.132812, 1.205294)]),
+    ('3D_SMOOTH_F1_EUCLIDEAN_Distance_det0.0_smo0.3', '3D', 'SMOOTH_F1', 'EUCLIDEAN', 4.0, 1.0, 0.3, 1.5, 0.0, 0.5, 2.0, False, False, 0.0, False,
+     [(-0.085938, -0.945312, 0.440499), (-0.898438, -0.507812, 0.622495), (-0.539062, -0.492188, 0.388015), (-0.585938, 0.710938, 0.214461)]),
+    ('3D_F2_EUCLIDEAN_Distance_det0.0', '3D', 'F2', 'EUCLIDEAN', 4.0, 1.0, 1.0, 1.5, 0.0, 0.5, 2.0, False, False, 0.0, False,
+     [(-0.960938, -0.179688, 0.918738), (0.320312, -0.351562, 0.699437), (0.179688, -0.335938, 0.722592), (0.601562, -0.867188, 0.634305)]),
+    ('3D_F2_MANHATTAN_Distance_det0.0', '3D', 'F2', 'MANHATTAN', 4.0, 1.0, 1.0, 1.5, 0.0, 0.5, 2.0, False, False, 0.0, False,
+     [(0.710938, 0.398438, 0.872101), (0.820312, 0.851562, 0.986131), (0.210938, -0.554688, 0.997973), (0.898438, -0.882812, 1.032537)]),
+    ('3D_F2_MANHATTAN_Distance_det2.5_norTrue', '3D', 'F2', 'MANHATTAN', 4.0, 1.0, 1.0, 1.5, 2.5, 0.6, 2.2, True, False, 0.0, False,
+     [(-0.414062, 0.054688, 0.182104), (0.429688, -0.179688, 0.174617), (0.445312, 0.226562, 0.198232), (-0.945312, 0.507812, 0.173375)]),
+    ('3D_F2_EUCLIDEAN_Distance_det0.0_ran0.5', '3D', 'F2', 'EUCLIDEAN', 4.0, 0.5, 1.0, 1.5, 0.0, 0.5, 2.0, False, False, 0.0, False,
+     [(0.570312, -0.304688, 0.620152), (-0.476562, -0.679688, 0.805281), (-0.804688, 0.429688, 0.661666), (0.851562, -0.117188, 0.683713)]),
+    ('3D_DISTANCE_TO_EDGE_EUCLIDEAN_Distance_det0.0', '3D', 'DISTANCE_TO_EDGE', 'EUCLIDEAN', 4.0, 1.0, 1.0, 1.5, 0.0, 0.5, 2.0, False, False, 0.0, False,
+     [(0.929688, 0.789062, 0.175619), (0.054688, -0.070312, 0.083195), (0.695312, 0.710938, 0.221304), (0.695312, 0.710938, 0.221304)]),
+    ('3D_DISTANCE_TO_EDGE_EUCLIDEAN_Distance_det2.0_ran0.5', '3D', 'DISTANCE_TO_EDGE', 'EUCLIDEAN', 4.0, 0.5, 1.0, 1.5, 2.0, 0.6, 2.2, False, False, 0.0, False,
+     [(0.632812, 0.601562, 0.095115), (0.445312, -0.742188, 0.050521), (0.773438, -0.882812, 0.058745), (0.335938, 0.539062, 0.089342)]),
+    ('3D_DISTANCE_TO_EDGE_EUCLIDEAN_Distance_det2.5_norTrue', '3D', 'DISTANCE_TO_EDGE', 'EUCLIDEAN', 4.0, 1.0, 1.0, 1.5, 2.5, 0.6, 2.2, True, False, 0.0, False,
+     [(0.960938, -0.601562, 0.036382), (0.492188, -0.789062, 0.126333), (-0.132812, -0.679688, 0.107803), (0.179688, -0.039062, 0.165196)]),
+    ('3D_N_SPHERE_RADIUS_EUCLIDEAN_Radius_det0.0', '3D', 'N_SPHERE_RADIUS', 'EUCLIDEAN', 4.0, 1.0, 1.0, 1.5, 0.0, 0.5, 2.0, False, False, 0.0, False,
+     [(-0.414062, -0.289062, 0.329075), (-0.132812, 0.429688, 0.420952), (0.617188, 0.164062, 0.308576), (0.898438, 0.742188, 0.221101)]),
+    ('3D_N_SPHERE_RADIUS_EUCLIDEAN_Radius_det2.0', '3D', 'N_SPHERE_RADIUS', 'EUCLIDEAN', 4.0, 1.0, 1.0, 1.5, 2.0, 0.6, 2.2, False, False, 0.0, False,
+     [(0.242188, 0.257812, 0.339053), (0.351562, 0.039062, 0.343943), (0.382812, 0.382812, 0.222636), (0.492188, 0.757812, 0.247249)]),
+    ('3D_F1_EUCLIDEAN_Color_det0.0', '3D', 'F1', 'EUCLIDEAN', 4.0, 1.0, 1.0, 1.5, 0.0, 0.5, 2.0, False, True, 0.0, False,
+     [(0.617188, -0.679688, 0.740863, 0.533086, 0.2475), (-0.085938, 0.742188, 0.634423, 0.561823, 0.661703), (0.398438, 0.164062, 0.266916, 0.723095, 0.593809), (0.789062, -0.570312, 0.050669, 0.093553, 0.840932)]),
+    ('3D_F2_EUCLIDEAN_Color_det2.0', '3D', 'F2', 'EUCLIDEAN', 4.0, 1.0, 1.0, 1.5, 2.0, 0.6, 2.2, False, True, 0.0, False,
+     [(0.851562, 0.570312, 0.802785, 1.153578, 0.536263), (0.273438, -0.523438, 0.422931, 0.864544, 0.76078), (0.226562, 0.710938, 0.383662, 0.598811, 0.408773), (0.679688, -0.039062, 1.544854, 1.047496, 0.791574)]),
+    ('3D_SMOOTH_F1_EUCLIDEAN_Color_det0.0', '3D', 'SMOOTH_F1', 'EUCLIDEAN', 4.0, 1.0, 1.0, 1.5, 0.0, 0.5, 2.0, False, True, 0.0, False,
+     [(-0.460938, 0.289062, 0.339891, 0.476846, 0.381827), (-0.757812, 0.304688, 0.718067, 0.438997, 0.329953), (0.460938, 0.835938, 0.18743, 0.296745, 0.325154), (0.476562, -0.335938, 0.561541, 0.251441, 0.36785)]),
+    ('3D_F2_CHEBYCHEV_Distance_det2.0_mapT', '3D', 'F2', 'CHEBYCHEV', 4.0, 1.0, 1.0, 1.5, 2.0, 0.6, 2.2, False, False, 0.0, True,
+     [(-0.039062, -0.570312, 1.270039), (-0.820312, -0.882812, 1.21384), (-0.382812, -0.820312, 1.119098), (0.773438, -0.117188, 1.208356)]),
+    ('3D_N_SPHERE_RADIUS_EUCLIDEAN_Radius_det0.0_mapT', '3D', 'N_SPHERE_RADIUS', 'EUCLIDEAN', 4.0, 1.0, 1.0, 1.5, 0.0, 0.5, 2.0, False, False, 0.0, True,
+     [(0.945312, 0.429688, 0.307173), (0.414062, 0.851562, 0.334281), (-0.039062, -0.710938, 0.35176), (-0.648438, -0.273438, 0.271857)]),
+    ('3D_DISTANCE_TO_EDGE_EUCLIDEAN_Distance_det2.0_mapT', '3D', 'DISTANCE_TO_EDGE', 'EUCLIDEAN', 4.0, 1.0, 1.0, 1.5, 2.0, 0.6, 2.2, False, False, 0.0, True,
+     [(0.117188, 0.914062, 0.038027), (-0.226562, 0.757812, 0.10435), (0.570312, -0.476562, 0.065865), (0.585938, 0.242188, 0.130434)]),
 ]
 W_CASES = [  # (name, feature, scale, detail, normalize, color, [(w, value...), ...])
     ('1DX_F1', 'F1', 4.0, 0.0, False, False, [(-0.929688, 0.011798), (-0.757812, 0.06425), (-0.585938, 0.419493), (-0.414062, 0.268007), (-0.242188, 0.132637), (-0.070312, 0.554863), (0.101562, 0.176176), (0.273438, 0.054611), (0.445312, 0.632889), (0.617188, 0.416137), (0.789062, 0.271363)]),
@@ -105,16 +152,6 @@ W_CASES = [  # (name, feature, scale, detail, normalize, color, [(w, value...), 
     ('1DX_N_SPHERE_RADIUS', 'N_SPHERE_RADIUS', 4.0, 0.0, False, False, [(-0.929688, 0.369976), (-0.757812, 0.369976), (-0.585938, 0.521371), (-0.414062, 0.521371), (-0.242188, 0.544072), (-0.070312, 0.544072), (0.101562, 0.282967), (0.273438, 0.282967), (0.445312, 0.282967), (0.617188, 0.454423), (0.789062, 0.454423)]),
     ('1DX_F1_Color', 'F1', 4.0, 0.0, False, True, [(-0.929688, 0.293048, 0.61106, 0.654128), (-0.585938, 0.075743, 0.30711, 0.034659), (-0.242188, 0.163887, 0.294934, 0.905046), (0.101562, 0.582426, 0.14956, 0.544475), (0.445312, 0.14836, 0.622926, 0.540482), (0.789062, 0.884887, 0.573694, 0.990881)]),
     ('1DX_F1_det', 'F1', 4.0, 2.5, True, False, [(-0.929688, 0.248278), (-0.585938, 0.418382), (-0.242188, 0.167222), (0.101562, 0.318219), (0.445312, 0.381416), (0.789062, 0.280965)]),
-]
-
-PIN_3D = [  # (feature, metric, detail, normalize, color, [(u, v, r, g, b)...]) from the pre-#975 build
-    (0, 0, 0, False, False, [(0.3, 0.7, 0.33233, 0.33233, 0.33233), (-2.1, 1.4, 0.923948, 0.923948, 0.923948)]),
-    (1, 1, 2.5, True, False, [(0.3, 0.7, 0.206117, 0.206117, 0.206117), (-2.1, 1.4, 0.360584, 0.360584, 0.360584)]),
-    (2, 2, 0, False, False, [(0.3, 0.7, 0.306666, 0.306666, 0.306666), (-2.1, 1.4, 0.739498, 0.739498, 0.739498)]),
-    (3, 0, 0, True, False, [(0.3, 0.7, 0.002655, 0.002655, 0.002655), (-2.1, 1.4, 0.010936, 0.010936, 0.010936)]),
-    (4, 0, 0, False, False, [(0.3, 0.7, 0.33233, 0.33233, 0.33233), (-2.1, 1.4, 0.923948, 0.923948, 0.923948)]),
-    (0, 3, 3, False, True, [(0.3, 0.7, 1.496431, 0.940644, 0.58623), (-2.1, 1.4, 0.511855, 1.410292, 1.138489)]),
-    (2, 0, 0, False, True, [(0.3, 0.7, 0.803334, 0.578182, 0.13877), (-2.1, 1.4, 0.969498, 0.124373, 0.586576)]),
 ]
 
 
@@ -175,24 +212,13 @@ def test_voronoi_dimensions_differ():
 
 
 def test_voronoi_nd_distance_is_not_clamped():
-    """Cycles' F2 / Manhattan distance exceeds 1 and Smooth F1 dips below 0; 1D/2D/4D keep
-    the value (the 3-D path keeps its [0,1] clamp)."""
+    """Cycles' F2 / Manhattan distance exceeds 1 and Smooth F1 dips below 0; every dimension
+    keeps the value (3D since #1108; only the engine-only F1+F2 / F2-F1 features clamp)."""
     r = _renderer()
     r.create_procedural_texture("f2", "voronoi", _params(
         4.0, 1.0, 1.0, 0.5, 0.0, 0.5, 2.0, False, False, 1, 2, 2, 0.0))
     vals = [r.sample_named_texture("f2", x * 0.0173, 0.31)[0] for x in range(-60, 60)]
     assert max(vals) > 1.0
-
-
-@pytest.mark.parametrize("row", PIN_3D)
-def test_voronoi_3d_unchanged(row):
-    feat, dm, det, norm, color, pts = row
-    r = _renderer()
-    r.create_procedural_texture("p", "voronoi", _params(
-        3.7, 1.0, 0.7, 0.8, float(det), 0.5, 2.1, norm, color, dm, feat, 3, 0.0))
-    for p in pts:
-        got = np.array(r.sample_named_texture("p", p[0], p[1]))
-        assert np.allclose(got, p[2:], atol=2e-6), (row[:5], p, got)
 
 
 # --- addon export: dimension + W reach the engine, no DEGRADED report ---------------------- #

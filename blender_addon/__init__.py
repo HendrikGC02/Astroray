@@ -378,7 +378,8 @@ class CustomRaytracerRenderSettings(PropertyGroup):
             ('passthrough', 'Pass Through',
              'A path that reaches the cap while crossing glass continues straight on as a null pass-through '
              '(same direction, no refraction), so it can still reach lights. See-through, not physically '
-             'refracted; Astroray-only, bounded by the Transparent bounce limit'),
+             'refracted: the path keeps its direction and its sampled transmission weight, so a path capped inside '
+             'a slab is not left dark or dimmed. Astroray-only, bounded by the Transparent bounce limit'),
         ],
         default='terminate',
     )

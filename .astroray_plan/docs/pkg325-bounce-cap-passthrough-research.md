@@ -19,7 +19,8 @@ So Cycles "terminate" = the next glass surface has no BSDF. A path through k gla
 ## Astroray terminate (unchanged)
 `pathTraceSpectral` ends a path whose continuation would be vertex `maxDepth` (`bounce + 1 >= maxDepth`) or whose lobe type
 counter reached its limit. k interfaces need `maxDepth >= k+1`: at equal Blender setting Astroray allows 2 fewer glass bounces
-than Cycles (measured, CPU = GPU = addon route). Pre-existing, not changed here; the default stays as is.
+than Cycles (measured, CPU = GPU = addon route). Pre-existing, not changed here; the default stays as is. Filed as
+#1165 (Cycles k-1 suffices for k interfaces, Astroray needs k+1).
 
 ## passthrough
 Where terminate would end the path after a TRANSMISSION sample, the sample keeps its weight f/pdf but goes straight on

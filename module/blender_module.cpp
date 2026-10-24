@@ -2494,6 +2494,16 @@ public:
     void setUseRefractiveCaustics(bool use) {
         renderer.setUseRefractiveCaustics(use);
     }
+    // pkg325: "terminate" (default, Cycles) | "passthrough" (capped transmission continues as a null
+    // transparent pass). Astroray-only render setting; see Renderer::dielectricBounceCapPassthrough.
+    void setDielectricBounceCap(const std::string& mode) {
+        if (mode != "terminate" && mode != "passthrough")
+            throw std::invalid_argument("dielectric_bounce_cap must be 'terminate' or 'passthrough', got '" + mode + "'");
+        renderer.setDielectricBounceCapPassthrough(mode == "passthrough");
+    }
+    std::string getDielectricBounceCap() const {
+        return renderer.getDielectricBounceCapPassthrough() ? "passthrough" : "terminate";
+    }
     void setUsePhotonCaustics(bool use) {  // pkg113 Phase-3: opt-in GPU photon-map caustics
         renderer.setUsePhotonCaustics(use);
     }
@@ -4495,6 +4505,11 @@ PYBIND11_MODULE(astroray, m) {
              "pdf toward target dir).")
         .def("set_use_reflective_caustics", &PyRenderer::setUseReflectiveCaustics, "use"_a)
         .def("set_use_refractive_caustics", &PyRenderer::setUseRefractiveCaustics, "use"_a)
+        .def("set_dielectric_bounce_cap", &PyRenderer::setDielectricBounceCap, "mode"_a,
+             "pkg325: 'terminate' (default, Cycles parity) | 'passthrough' - a transmission sample the "
+             "total / transmission bounce cap would end continues as a null pass-through (unchanged "
+             "direction and throughput), counted as a transparent pass. CPU + GPU.")
+        .def("get_dielectric_bounce_cap", &PyRenderer::getDielectricBounceCap)
         .def("set_use_photon_caustics", &PyRenderer::setUsePhotonCaustics, "use"_a)
         .def("set_use_progressive_sampler", &PyRenderer::setUseProgressiveSampler, "use"_a)
         .def("set_curve_thick_mode", &PyRenderer::setCurveThickMode, "thick"_a,

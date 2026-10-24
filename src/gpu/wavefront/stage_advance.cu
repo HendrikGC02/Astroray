@@ -59,6 +59,7 @@ __constant__ int c_wfLightNeeOff = 0;
 __constant__ GWavefrontLightPassBinding c_wfLpBinding;
 __constant__ int c_wfBounceLimit[3] = { -1, -1, -1 };
 __constant__ int c_wfTransparentLimit = kWfTransparentOff;   // #1033
+__constant__ int c_wfDielectricCapPass = 0;                  // pkg325
 __constant__ int c_wfCausticGate[2] = { 1, 1 };
 __constant__ int c_wfSamplerMode = 0;
 __constant__ int c_hasHair = 0;
@@ -962,6 +963,13 @@ void setWavefrontBounceLimits(int diffuse, int glossy, int transmission)
 void setWavefrontTransparentLimit(int limit)
 {
     cudaMemcpyToSymbol(c_wfTransparentLimit, &limit, sizeof(limit));
+}
+
+// pkg325 - dielectric_bounce_cap=passthrough publish (see gpu_wavefront_state.h).
+void setWavefrontDielectricCapPass(bool on)
+{
+    const int v = on ? 1 : 0;
+    cudaMemcpyToSymbol(c_wfDielectricCapPass, &v, sizeof(v));
 }
 
 // pkg201 Stage 3 (Finding E) — publish the native caustic toggles into the

@@ -627,6 +627,12 @@ void setWavefrontBounceLimits(int diffuse, int glossy, int transmission);
 constexpr int kWfTransparentOff = -2;
 void setWavefrontTransparentLimit(int limit);
 
+// pkg325 - dielectric_bounce_cap=passthrough (Renderer::getDielectricBounceCapPassthrough).
+// When on AND the #1033 transparent block is on (c_wfTransparentLimit != kWfTransparentOff), a
+// transmission sample the total / transmission cap would end becomes a null transparent pass.
+// Published once per frame by cuda_wavefront_render; default off (byte-identical).
+void setWavefrontDielectricCapPass(bool on);
+
 // pkg201 Stage 3 (Finding E) — publish the native caustic toggles into the shade
 // kernel's __constant__ c_wfCausticGate[2] (index 0=reflective, 1=refractive;
 // 1=allow, 0=cull). Call ONCE per frame in cuda_wavefront_render. Both-allow (the

@@ -2921,6 +2921,15 @@ private:
     // PATH_RAY_TERMINATE_ON_NEXT_SURFACE). Read by pathTraceSpectral and
     // cuda_wavefront_render (both backends).
     int maxTransparentBounces = -1;
+    // pkg325 — dielectric_bounce_cap. false (default) = "terminate": a path that reaches the
+    // total or transmission bounce cap on a transmission lobe ends there (Cycles
+    // path_state.h path_state_next sets PATH_RAY_TERMINATE_AFTER_TRANSPARENT; the next
+    // non-transparent hit gets no BSDF, intern/cycles/kernel/integrator/surface_shader.h:1265).
+    // true = "passthrough": that transmission sample instead continues straight on (direction
+    // unchanged, sampled weight kept) as a null interface, counted as a transparent pass
+    // (#1033/#1125) so it spends no bounce and is bounded by transparent_max_bounces.
+    // Astroray-only; read by pathTraceSpectral and cuda_wavefront_render.
+    bool dielectricBounceCapPassthrough = false;
     // pkg271 — Cycles volume_bounces (-1 = unlimited). The k-th volume scatter
     // (bounded grid/homogeneous medium or world fog) with k > limit continues
     // "terminate-after" (Cycles PATH_RAY_TERMINATE_AFTER_TRANSPARENT): media
@@ -3598,6 +3607,8 @@ public:
     int getMaxVolumeBounces() const { return maxVolumeBounces; }
     void setTransparentBounces(int n) { maxTransparentBounces = (n < 0) ? -1 : n; }  // #1033
     int getMaxTransparentBounces() const { return maxTransparentBounces; }
+    void setDielectricBounceCapPassthrough(bool on) { dielectricBounceCapPassthrough = on; }  // pkg325
+    bool getDielectricBounceCapPassthrough() const { return dielectricBounceCapPassthrough; }
     // #1073: remaining transparent-hit budget of a shadow ray leaving a vertex whose path
     // has passed `pathTransparentDepth` transparent surfaces (Cycles
     // integrate_shadow_max_transparent_hits); -1 = unlimited.
@@ -4746,8 +4757,24 @@ public:
             // path state, counts in transparent depth only and is skipped by the
             // MIS state, the pass-category lock, the per-type counters, the caustic
             // cull, cryptomatte and the bounce counter below.
-            const bool transparentPass = astroray::lightpath::is_transparent_pass(
+            bool transparentPass = astroray::lightpath::is_transparent_pass(
                 bss.isDelta, wo.dot(bss.wi), rec.material->shadowAlpha(rec) < 1.0f);
+            // pkg325 dielectric_bounce_cap=passthrough: a transmission sample at a vertex
+            // whose continuation the total (maxDepth) or transmission cap would end keeps its
+            // sampled weight f/pdf but goes straight on (wi = -wo), handled as a transparent
+            // pass below. The weight is kept (not reset to 1) because it carries the 1/eta^2
+            // radiance scaling of entering glass: dropping it at the exit would leave the
+            // pixel at 1/2.25 of the white world. The GPU twin is shadePathSlotImpl
+            // (stage_advance_device.cuh).
+            const bool capPass = dielectricBounceCapPassthrough && !transparentPass &&
+                wo.dot(rec.normal) * bss.wi.dot(rec.normal) < 0.0f &&
+                (bounce + 1 >= maxDepth ||
+                 (maxTransmissionBounces >= 0 && transmissionBounceCount >= maxTransmissionBounces));
+            if (capPass) {
+                transparentPass = true;
+                bss.wi = -wo;
+                bss.isDelta = true;
+            }
             // The MIS state describes the last REAL scatter: Cycles keeps mis_ray_pdf /
             // MIS_SKIP across LABEL_TRANSPARENT (shade_surface.h), so diffuse -> sheet
             // -> emitter still weights the BSDF leg against the NEE leg.

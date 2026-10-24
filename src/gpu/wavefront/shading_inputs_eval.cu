@@ -21,6 +21,7 @@ namespace astroray::wavefront {
 
 extern __constant__ GWavefrontLightPathBinding c_wfLightPath;   // stage_advance.cu
 extern __constant__ GWavefrontPrimaryClip c_wfPrimaryClip;      // stage_advance.cu
+extern __constant__ int c_wfBounceLimit[3];                        // stage_advance.cu (pkg325)
 
 // Light Path context of the ray that produced this hit: the packed path state,
 // the bounce, and the hit distance. A camera ray is measured from its near-clip
@@ -69,11 +70,28 @@ __device__ __noinline__ void gpu_countTransparentPass(uint32_t* passCount, int i
     passCount[idx] += 1u;
 }
 
+// pkg325 - dielectric_bounce_cap=passthrough: does the total (maxDepth) or the transmission
+// cap end the path after this transmission sample? CPU twin: pathTraceSpectral capPass.
+// per_type_bounce byte 2 is the transmission count (same layout as the per-type block in
+// shadePathSlotImpl); it is read only when a transmission limit is set, because the array is
+// not allocated otherwise. Called only when c_wfDielectricCapPass is on.
+__device__ __noinline__ bool gpu_isDielectricCapPass(bool transmitted, const uint32_t* perTypeBounce,
+                                                     int idx, int bounce, int maxDepth)
+{
+    if (!transmitted) return false;
+    if (bounce + 1 >= maxDepth) return true;
+    const int lim = c_wfBounceLimit[2];
+    return lim >= 0 && (int)((perTypeBounce[idx] >> 16) & 0xFFu) >= lim;
+}
+
 // Shade stage: Cycles path_state_next across this bounce, with the pkg201
 // bounce class (CPU twin: pathTraceSpectral lobeCat) and the transparent-pass
 // test (a straight-through delta sample keeps the flags).
+// pkg325: forcePass = the shade stage already classified this bounce a transparent pass
+// (a capped dielectric null pass-through, which has no alpha lobe to detect here).
 __device__ __noinline__ unsigned gpu_lpAdvance(unsigned lpState, const ::GMaterial* mat,
-                                               GVec3 wo, GVec3 n, GVec3 wi, bool isDelta)
+                                               GVec3 wo, GVec3 n, GVec3 wi, bool isDelta,
+                                               bool forcePass)
 {
     using namespace astroray::lightpath;
     const float sWo = wo.dot(n);
@@ -86,7 +104,7 @@ __device__ __noinline__ unsigned gpu_lpAdvance(unsigned lpState, const ::GMateri
                            mat->closures[0].type == GCLOSURE_PRINCIPLED &&
                            mat->principled.alpha < 1.0f;
     return pack_state(next_surface(unpack_state(lpState, 0, 0.f), cat, isDelta,
-                                   is_transparent_pass(isDelta, wo.dot(wi), alphaLobe)));
+                                   forcePass || is_transparent_pass(isDelta, wo.dot(wi), alphaLobe)));
 }
 
 // Volume-scatter continuation (path_state_next LABEL_VOLUME_SCATTER).

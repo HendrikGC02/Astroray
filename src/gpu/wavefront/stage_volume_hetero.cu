@@ -75,6 +75,7 @@ __device__ inline float gpu_rng_uniform(GSegRng* r)
 // Defined in stage_advance.cu (namespace astroray::wavefront; published once per
 // frame by setWavefrontGridVolumeBinding / setWavefrontLightPassBinding).
 extern __constant__ GWavefrontGridVolumeBinding c_wfGridVolume;
+__constant__ int c_wfPkg306Vol = 0;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
 extern __constant__ GWavefrontLightPassBinding  c_wfLpBinding;
 extern __constant__ GWavefrontLightPathBinding  c_wfLightPath;   // #991
 __device__ unsigned gpu_lpVolume(unsigned lpState);              // #991 shading_inputs_eval.cu
@@ -534,8 +535,8 @@ __device__ GSegDistance segSampleDistance(const GVec3& o, const GVec3& d, float 
     const float D = fmaxf((anchor - (o + d * tc)).length(), 1e-4f);
     const float thA = atan2f(a - tc, D);
     const float thB = finite ? atan2f(b - tc, D) : 1.5707962f;
-    const bool eqOk = hasAnchor && thB - thA > 1e-7f;
-    const bool distOk = nValid > 0;
+    const bool eqOk = hasAnchor && thB - thA > 1e-7f && c_wfPkg306Vol != 2;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+    const bool distOk = nValid > 0 && c_wfPkg306Vol != 1;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
     if (!eqOk && !distOk) return out;
     const bool both = eqOk && distOk;
     const bool pickEq = both ? (gpu_rng_uniform(&rng) >= 0.5f) : eqOk;
@@ -877,6 +878,11 @@ void launchStageVolumeHeteroScatter(
             throw std::runtime_error(cudaGetErrorString(err));
         }
     }
+}
+
+void setWavefrontPkg306Vol(int mode)  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+{
+    cudaMemcpyToSymbol(c_wfPkg306Vol, &mode, sizeof(mode));
 }
 
 }  // namespace astroray::wavefront

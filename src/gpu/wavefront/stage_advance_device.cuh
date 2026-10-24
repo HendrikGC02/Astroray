@@ -285,6 +285,20 @@ extern __constant__ GWavefrontAdaptiveBinding c_wfAdaptive;
 // #909 - photon-map split (setWavefrontPhotonSplit). chain == nullptr: inert.
 extern __constant__ GWavefrontPhotonSplit c_wfPhotonSplit;
 
+// PKG306_DIAG Phase 0 switch, strip in Phase 1: contribution-class keep mask
+// (setWavefrontPkg306Keep; bits = astroray::pkg306::Cls in include/astroray/pkg306_diag.h:
+// 1 camera, 2|4 glint|caustic (the GPU does not split them: a post-specular hit is both
+// bits), 8 MIS'd BSDF hit, 16 lamp NEE, 32 env NEE, 64 medium segment direct).
+// 0xffffffff (default) = production. Read only in the intersect and shadow kernels,
+// never in the REG-254 shade kernel.
+extern __constant__ unsigned int c_wfPkg306Keep;
+__device__ __forceinline__ bool wf_pkg306Keep(unsigned int cls) {
+    return (c_wfPkg306Keep & cls) != 0u;
+}
+__device__ __forceinline__ unsigned int wf_pkg306HitClass(int bounce, bool wasSpecular) {
+    return bounce == 0 ? 1u : (wasSpecular ? 6u : 8u);
+}
+
 // #909 - transmissive caustic caster (mirror of photon_caustic.cu pc_isTransmissive).
 __device__ inline bool wf_isPhotonCaster(const ::GMaterial& m) {
     if (m.type == GMAT_DIELECTRIC || m.type == GMAT_THIN_GLASS) return true;
@@ -621,6 +635,7 @@ __device__ int intersectPathSlotT(
                 c_wfPhotonSplit.chain != nullptr && c_wfPhotonSplit.chain[idx] == 3)
                 Le = GSampledSpectrum(0.f);
             if (!(Le.maxValue() > 0.f)) continue;
+            if (!wf_pkg306Keep(wf_pkg306HitClass(bounce, wasSpecular))) continue;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
             // pkg199 role 3: attenuate over the origin→lamp segment (lampT).
             if (c_worldVolume.hasVolume)
                 Le *= gpu_worldTransmittanceMW(lampT, lambdas);
@@ -943,6 +958,8 @@ __device__ int intersectPathSlotT(
             GSampledSpectrum envContrib = gpu_clampContribMW(
                 throughput * envSpec, lambdas, bounce - 1,   // #860
                 clampDirect, clampIndirect, useLuminanceOutput);
+            if (!wf_pkg306Keep(wf_pkg306HitClass(bounce, wasSpecular)))  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+                envContrib = GSampledSpectrum(0.f);
             color += envContrib;
             // pkg198 Stage 2: directly-visible background → PASS_ENVIRONMENT; a
             // background reached after a bounce → firstCat's INDIRECT pass (CPU
@@ -1052,6 +1069,8 @@ __device__ int intersectPathSlotT(
             GSampledSpectrum emitContrib = gpu_clampContribMW(
                 throughput * Le, lambdas, bounce - 1,   // #860
                 clampDirect, clampIndirect, useLuminanceOutput);
+            if (!wf_pkg306Keep(wf_pkg306HitClass(bounce, wasSpecular)))  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+                emitContrib = GSampledSpectrum(0.f);
             color += emitContrib;
             // pkg198 Stage 2: directly-visible surface emission → PASS_EMISSION;
             // emission after a non-specular bounce → firstCat's INDIRECT pass.
@@ -1095,6 +1114,7 @@ __device__ int intersectPathSlotT(
             GSampledSpectrum emitContrib = gpu_clampContribMW(
                 contrib, lambdas, bounce - 1,   // #860
                 clampDirect, clampIndirect, useLuminanceOutput);
+            if (!wf_pkg306Keep(8u)) emitContrib = GSampledSpectrum(0.f);  // PKG306_DIAG Phase 0 switch, strip in Phase 1
             color += emitContrib;
             // pkg198 Stage 2: two-sided-MIS emissive hit at a diffuse bounce is
             // indirect light → firstCat's INDIRECT pass (firstCat is always locked

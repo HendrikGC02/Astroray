@@ -1,6 +1,7 @@
 // NOTE: raytracer.h must come BEFORE light headers (Vec3/AABB/EmissionSpectrum dependency).
 #include "raytracer.h"
 #include "astroray/lights/spot_light.h"
+#include "astroray/pkg306_diag.h"  // PKG306_DIAG Phase 0 switch, strip in Phase 1
 #include "astroray/spectrum.h"
 #include "astroray/lamp_sampling.h"  // #840 Cycles point_light_sample port
 #include "raytracer.h"  // for Vec3, IESProfile
@@ -165,6 +166,8 @@ AABB SpotLight::bounds() const {
 }
 
 OrientationCone SpotLight::orientationCone() const {
+    // Cycles scene/light_tree.cpp spot: theta_o = 0, theta_e = half spot angle.  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+    if (astroray::pkg306::diag().spotConeCycles) return OrientationCone{axis_.normalized(), 0.0f, outerAngle_};  // PKG306_DIAG Phase 0 switch, strip in Phase 1
     return OrientationCone::fromAxisAngle(axis_, outerAngle_);
 }
 

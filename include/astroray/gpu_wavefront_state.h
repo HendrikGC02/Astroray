@@ -685,6 +685,11 @@ struct GWavefrontPhotonSplit {
     unsigned int   lampMask; // pkg287: bit i = dedicated light i emits photons (i < 32)
 };
 void setWavefrontPhotonSplit(const GWavefrontPhotonSplit& split);
+// PKG306_DIAG (Phase 0 ablation, strip in Phase 1): contribution-class keep mask
+// (astroray::pkg306::Cls bits; 0xffffffff = production) and the medium segment
+// direct-light distance strategy (0 both, 1 equiangular only, 2 exponential only).
+void setWavefrontPkg306Keep(unsigned int keep);  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+void setWavefrontPkg306Vol(int mode);  // PKG306_DIAG Phase 0 switch, strip in Phase 1
 
 // pkg55-B' shadow stage: lean occlusion + lazy resolve over the NEE
 // samples parked by the deferring bucketed shade. nee_f/nee_i lane counts

@@ -67,6 +67,7 @@ __constant__ int c_wfEmissionFlatPrims = 0x7fffffff;
 __constant__ uint32_t c_sobolMatrices[kSobolNumDims][kSobolMatrixSize];
 __constant__ GWavefrontAdaptiveBinding c_wfAdaptive = { nullptr, nullptr, nullptr, 0, 0, 0 };
 __constant__ GWavefrontPhotonSplit c_wfPhotonSplit = { nullptr, 0u };
+__constant__ unsigned int c_wfPkg306Keep = 0xffffffffu;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
 __constant__ GWavefrontTextureBinding c_wfTexBinding;
 __constant__ GWavefrontProgramBinding c_wfProgBinding;
 __constant__ GWavefrontLightPathBinding c_wfLightPath = { nullptr, 0 };  // #991
@@ -355,6 +356,7 @@ __global__ void stageShadowKernel(
     int bounce = nee_i[3 * nee_capacity + idx];
     contrib = gpu_clampContribMW(contrib, lambdas, bounce,
                                  clampDirect, clampIndirect, useLuminanceOutput);
+    if (!wf_pkg306Keep(volSegment ? 64u : 16u)) contrib = GSampledSpectrum(0.f);  // PKG306_DIAG Phase 0 switch, strip in Phase 1
     state.color_0[idx] += contrib.v[0];
     state.color_1[idx] += contrib.v[1];
     state.color_2[idx] += contrib.v[2];
@@ -476,6 +478,7 @@ __global__ void stageEnvShadowKernel(
     int bounce = ei[idx];
     contrib = gpu_clampContribMW(contrib, lambdas, bounce,
                                  clampDirect, clampIndirect, useLuminanceOutput);
+    if (!wf_pkg306Keep(32u)) contrib = GSampledSpectrum(0.f);  // PKG306_DIAG Phase 0 switch, strip in Phase 1
     state.color_0[idx] += contrib.v[0];
     state.color_1[idx] += contrib.v[1];
     state.color_2[idx] += contrib.v[2];
@@ -1011,6 +1014,11 @@ void setWavefrontEmissionTexture(int flags, int flatPrims)
 void setWavefrontPhotonSplit(const GWavefrontPhotonSplit& split)
 {
     cudaMemcpyToSymbol(c_wfPhotonSplit, &split, sizeof(GWavefrontPhotonSplit));
+}
+
+void setWavefrontPkg306Keep(unsigned int keep)  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+{
+    cudaMemcpyToSymbol(c_wfPkg306Keep, &keep, sizeof(keep));
 }
 
 // pkg131 — publish the adaptive-round binding into __constant__ c_wfAdaptive.

@@ -11,10 +11,11 @@
 //   sms_off       no SMS casters
 //   no_term2      dispersive refraction keeps all 4 wavelength lanes (biased, diagnostic only)
 //   equi_only / dist_only   medium segment direct light: equiangular / exponential distance only
-//   <cls>_off / <cls>_only  drop one contribution class / keep only it, cls in
+//   spot_cone_cycles  light-tree spot cone theta_o = 0, theta_e = half angle (Cycles) instead of both = half angle
+//   drop_<cls> / only_<cls>  drop one contribution class / keep only it (same paths, same RNG
+//                 stream: the only_<cls> renders of all classes sum to the baseline), cls in
 //                 camera glint caustic bsdfhit nee envnee voldirect volemit photon sms
 #include <cstdlib>
-#include <cstring>
 #include <string>
 
 namespace astroray {
@@ -37,7 +38,7 @@ struct Diag {
     bool active = false;
     unsigned keep = ~0u;
     bool neeOnly = false, bsdfOnly = false, photonOff = false, smsOff = false, noTerm2 = false;
-    bool equiOnly = false, distOnly = false;
+    bool equiOnly = false, distOnly = false, spotConeCycles = false;
 };
 
 inline Diag parseDiag(const char* env) {
@@ -62,12 +63,11 @@ inline Diag parseDiag(const char* env) {
         else if (t == "no_term2") d.noTerm2 = true;
         else if (t == "equi_only") d.equiOnly = true;
         else if (t == "dist_only") d.distOnly = true;
+        else if (t == "spot_cone_cycles") d.spotConeCycles = true;
         else {
             for (const auto& n : kNames) {
-                const size_t len = std::strlen(n.name);
-                if (t.compare(0, len, n.name) != 0) continue;
-                if (t.compare(len, std::string::npos, "_off") == 0) d.keep &= ~n.bit;
-                else if (t.compare(len, std::string::npos, "_only") == 0) d.keep &= n.bit;
+                if (t == std::string("drop_") + n.name) d.keep &= ~n.bit;
+                else if (t == std::string("only_") + n.name) d.keep &= n.bit;
             }
         }
     }

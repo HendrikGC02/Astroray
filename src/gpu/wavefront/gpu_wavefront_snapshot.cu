@@ -1844,7 +1844,8 @@ std::vector<float> cuda_wavefront_render(
     // surface/medium light sampling, emitter hits at w_B = 1), the CPU pkg265 twin.
     // The naive multiwavelength route (enableNEE already false) is unchanged.
     {
-        const bool lightNeeOff = enableNEE && !renderer.getLightNee();
+        const bool lightNeeOff = enableNEE && (!renderer.getLightNee() ||
+                                               astroray::pkg306::diag().bsdfOnly);  // PKG306_DIAG Phase 0 switch, strip in Phase 1
         setWavefrontLightNeeOff(lightNeeOff);
         if (lightNeeOff) enableNEE = false;
     }
@@ -2385,7 +2386,7 @@ std::vector<float> cuda_wavefront_render(
     caustic.ready = false;
     astroray::photon::gpu::PhotonCausticAim aim{};
     aim.valid = false;
-    if (renderer.getUsePhotonCaustics()) {
+    if (renderer.getUsePhotonCaustics() && !astroray::pkg306::diag().photonOff) {  // PKG306_DIAG Phase 0 switch, strip in Phase 1
         // pkg220: fold the full 64-bit render seed into a 32-bit photon-jitter
         // seed so each progressive iteration decorrelates the photon map. The
         // render `seed` already advances per progressive iteration (pkg191); the
@@ -2399,6 +2400,8 @@ std::vector<float> cuda_wavefront_render(
                 printf("[CUDA wavefront] pkg113 photon caustic: %d photons, scale %g\n",
                        caustic.numPhotons, caustic.scale);
             }
+            // drop_photon / only_<other>: keep the map and the split, add nothing.
+            if (!astroray::pkg306::keep(astroray::pkg306::kPhoton)) caustic.scale = 0.f;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
         }
     }
     // #909: photon-map / path-tracing split (Jensen 1996 two-pass). The gather adds
@@ -2418,6 +2421,8 @@ std::vector<float> cuda_wavefront_render(
                 split.chain = wfEnsure<unsigned char>(C.photonChain, total_paths);
         }
         setWavefrontPhotonSplit(split);
+        setWavefrontPkg306Keep(astroray::pkg306::diag().keep);  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+        setWavefrontPkg306Vol(astroray::pkg306::diag().equiOnly ? 1 : (astroray::pkg306::diag().distOnly ? 2 : 0));  // PKG306_DIAG Phase 0 switch, strip in Phase 1
     }
 
     // Per-path state: allocated (grow-only) at the top of this function (pkg298).
@@ -2452,7 +2457,8 @@ std::vector<float> cuda_wavefront_render(
     // pkg258 - env NEE arrays + queue, allocated only when env NEE is on AND an
     // importance-sampled HDRI is loaded (else null -> binding.enabled=0, the shade
     // kernel skips the env draw, byte-identical). Separate from the lamp neeF/neeI.
-    const bool envNeeOn = renderer.getEnvNee() && res.envLoaded && envMap.loaded;
+    const bool envNeeOn = renderer.getEnvNee() && res.envLoaded && envMap.loaded &&
+                          !astroray::pkg306::diag().bsdfOnly;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
     float* d_envNeeF = nullptr;
     int*   d_envNeeI = nullptr;
     int*   d_envShadowQueue = nullptr;
@@ -2702,6 +2708,7 @@ std::vector<float> cuda_wavefront_render(
             if (next.ready) {   // else keep the previous map for this round
                 astroray::photon::gpu::cuda_photon_caustic_free(caustic);
                 caustic = next;
+                if (!astroray::pkg306::keep(astroray::pkg306::kPhoton)) caustic.scale = 0.f;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
             }
             causticMapSample = baseSample;
         }

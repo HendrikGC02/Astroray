@@ -15,10 +15,10 @@ In-session architect round (Fable 5.1 lead; owner 2026-10-24 "do an architect ro
 | (d) native panels | GREEN (committed) | — | none |
 | (e) triage | **GREEN** (10-25, committed) | 69 open, 0 high, all ratings independent | keep the live list clean |
 | (f) clean install | waits on the second PC | — | owner |
-| (g) node score | RED | CPU 2/8, GPU 2/8 on `bd65155+20261024T130432Z`; 1 silent pair = Pointiness until #1148 | #1148, #1004/#1005, #995, #993, #1038 |
+| (g) node score | RED | CPU 2/8, GPU 2/8, **0 silent pairs** on `88d2026+20261024T142646Z` (#1148 merged 10-25) | #1004/#1005 (PR pending), #995, #993, #1038 |
 
 Landed since 10-18: #1139 pkg321, #1143 (#1120), #1144 (#1124), #1146 (#1137), #1147 tooling, #1149 Voronoi 3D
-(58/58 Cycles-exact). Open: #1148 (scanner Pointiness + matrix regen; CI re-running after the silent-pair fixture fix).
+(58/58 Cycles-exact). #1148 merged 2026-10-25 (main 88d2026d). Open: #1151 (#1125, CI), #1150 and #1152 filed from the #1125 GPU legs.
 Lanes: `lane-i1004` (#1004 then #1005, Opus) running; `lane-i1125` done, `BUILD REQUEST ce06265d` (GPU tests pending).
 Tooling: `opencode/deepseek-v4.1-flash-free` is the grunt/implement/vision primary (free, no rate-limit cost, takes
 images); vision verdicts on position/size must be confirmed numerically (memory `vision-model-hallucinates-pixel-shifts`).

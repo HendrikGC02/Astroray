@@ -916,7 +916,8 @@ public:
         auto normalTex = getTexture("normal_map_texture"), bumpTex = getTexture("bump_map_texture");
         if (normalTex || bumpTex)
             mat = astroray::makeNormalMapped(mat, normalTex, bumpTex,
-                getFloat("normal_strength", 1.0f), getFloat("bump_strength", 1.0f), getFloat("bump_distance", 0.01f));
+                getFloat("normal_strength", 1.0f), getFloat("bump_strength", 1.0f), getFloat("bump_distance", 0.01f),
+                getFloat("coat_follows_bump", 0.0f) > 0.5f);  // #1005
         int id = nextMaterialId++;
         materials[id] = mat;
         return id;

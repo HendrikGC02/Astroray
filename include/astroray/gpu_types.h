@@ -965,7 +965,7 @@ HD inline GVec3 gpu_sampleImageTexture(const GImageTexture& tex,
 }
 
 // #1004 - bilinear footprint (Cycles INTERPOLATION_LINEAR, interp_linear in
-// src/kernel/device/cpu/image.h@a456b761, Apache-2.0: tx = frac(u*w - 0.5)): the
+// kernel/device/cpu/image.h:170-178, Cycles @ Blender v5.2.0 fbe62287, Apache-2.0: tx = frac(u*w - 0.5)): the
 // texel-centre coordinates of the 2x2 texels around (u, v) and the lerp weights. Each
 // centre is then fetched with the NEAREST sampler, so extension wrapping is shared.
 // One helper for CPU ImageTexture::valueLinear and the GPU bump taps (identical math).

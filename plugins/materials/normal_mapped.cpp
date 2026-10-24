@@ -2,7 +2,7 @@
 #include "advanced_features.h"
 
 // #1004 - bump height finite-difference step for a Linear-sampled image, in texels. Cycles
-// steps Filter Width (default 0.1, Cycles scene/shader_nodes.cpp BumpNode) of the pixel
+// steps Filter Width (default 0.1, scene/shader_nodes.cpp:7225, Cycles @ Blender v5.2.0 fbe62287) of the pixel
 // footprint; Astroray has no ray differentials, so the footprint unit is one texel.
 constexpr float kBumpLinearStepTexels = 0.1f;
 
@@ -13,6 +13,7 @@ class NormalMappedPlugin : public Material {
     float normalStrength_;
     float bumpStrength_;
     float bumpDistance_;
+    bool coatFollows_;  // #1005: coat shades on the perturbed normal (see HitRecord::coatOnSvmNormal)
 
     static float heightValue(const Vec3& c) {
         return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;
@@ -26,10 +27,12 @@ class NormalMappedPlugin : public Material {
             out.svmNormal = rec.normal;
             out.hasSvmNormal = true;
         }
+        out.coatOnSvmNormal = !coatFollows_;
 
         if (normalTexture_) {
-            // #1004 - a UV normal-map image is read Linear (Cycles interp_linear; the Image
-            // Texture default), not nearest: a nearest read of a relief map steps the normal
+            // #1004 - a UV normal-map image is read Linear (Cycles interp_linear,
+            // kernel/device/cpu/image.h:170-178; the Image Texture default, the addon reports
+            // Closest / Cubic / Smart), not nearest: a nearest read of a relief map steps the normal
             // per texel and moved prod_pbr_group 3-6 % off Cycles (Cycles' own Closest render
             // shifts by the same amount). General image filtering stays pkg234.
             const auto* nmImg = dynamic_cast<const ImageTexture*>(normalTexture_.get());
@@ -109,8 +112,9 @@ class NormalMappedPlugin : public Material {
                        bumpTexture_->uvInputAxisLength(0) > 1e-8f &&
                        bumpTexture_->uvInputAxisLength(1) > 1e-8f) {
                 // #1004 - UV image Height, Cycles' structure: offset the INPUT UV before the
-                // Mapping (svm_node_tex_coord_derivative, src/kernel/svm/tex_coord.h) and
-                // difference the Linear-interpolated image (interp_linear) over a small step,
+                // Mapping (kernel/svm/attribute.h:173-186 svm_node_attr_derivative, Cycles @ Blender v5.2.0 fbe62287) and
+                // difference the Linear-interpolated image (interp_linear) over a small step
+                // (kernel/svm/displace.h:20-80 svm_node_set_bump),
                 // i.e. the derivative of the bilinear height. Two defects of the old path:
                 // (1) its tap stepped eps in TEXTURE space while dPdx stepped eps in MESH UV,
                 // so a Mapping Scale s made the slope s x too weak (prod_pbr_group, s = 3);
@@ -155,13 +159,14 @@ public:
     NormalMappedPlugin(std::shared_ptr<Material> base,
                        std::shared_ptr<Texture> normalTex,
                        std::shared_ptr<Texture> bumpTex,
-                       float normalStr, float bumpStr, float bumpDist)
+                       float normalStr, float bumpStr, float bumpDist, bool coatFollows = false)
         : baseMaterial_(std::move(base)),
           normalTexture_(std::move(normalTex)),
           bumpTexture_(std::move(bumpTex)),
           normalStrength_(normalStr),
           bumpStrength_(bumpStr),
-          bumpDistance_(bumpDist) {}
+          bumpDistance_(bumpDist),
+          coatFollows_(coatFollows) {}
 
     explicit NormalMappedPlugin(const astroray::ParamDict& p)
         : baseMaterial_(astroray::MaterialRegistry::instance().create(
@@ -170,7 +175,8 @@ public:
           bumpTexture_(nullptr),
           normalStrength_(p.getFloat("normal_strength", 1.0f)),
           bumpStrength_(p.getFloat("bump_strength", 1.0f)),
-          bumpDistance_(p.getFloat("bump_distance", 0.01f)) {}
+          bumpDistance_(p.getFloat("bump_distance", 0.01f)),
+          coatFollows_(p.getFloat("coat_follows_bump", 0.0f) > 0.5f) {}
 
     astroray::SampledSpectrum evalSpectral(
             const HitRecord& rec, const Vec3& wo, const Vec3& wi,
@@ -206,9 +212,9 @@ std::shared_ptr<Material> makeNormalMapped(
         std::shared_ptr<Material> base,
         std::shared_ptr<Texture> normalTex,
         std::shared_ptr<Texture> bumpTex,
-        float normalStr, float bumpStr, float bumpDist) {
+        float normalStr, float bumpStr, float bumpDist, bool coatFollows) {
     return std::make_shared<NormalMappedPlugin>(
         std::move(base), std::move(normalTex), std::move(bumpTex),
-        normalStr, bumpStr, bumpDist);
+        normalStr, bumpStr, bumpDist, coatFollows);
 }
 } // namespace astroray

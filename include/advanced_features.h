@@ -284,8 +284,9 @@ public:
     }
     // #1004 - 2-D image coordinate with the INPUT coordinate offset by (du, dv) BEFORE the
     // Mapping (3-D matrix or legacy UV transform), as Cycles offsets the texture coordinate
-    // ahead of the bump Height subgraph (svm_node_tex_coord_derivative: data.val += data.dx *
-    // bump_filter_width; Cycles src/kernel/svm/tex_coord.h@a456b761, Apache-2.0). valueOffset()
+    // ahead of the bump Height subgraph: data.val += data.dx * bump_filter_width (Cycles @ Blender v5.2.0 fbe62287,
+    // Apache-2.0: kernel/svm/attribute.h:173-186 svm_node_attr_derivative for the default UV
+    // input; kernel/svm/tex_coord.h:192-205 for an explicit Texture Coordinate). valueOffset()
     // steps after the Mapping, so its tap is not the surface step dP the bump pairs it with.
     Vec2 mappedInputUV(const HitRecord& rec, const Vec3& wo, float du, float dv) const {
         auto [uv, p] = textureCoordinates(rec, wo);
@@ -499,7 +500,7 @@ public:
         return data[j * width + i];
     }
     // #1004 - bilinear sample (Cycles INTERPOLATION_LINEAR, interp_linear in
-    // src/kernel/device/cpu/image.h@a456b761, Apache-2.0): the 2x2 texel footprint around
+    // kernel/device/cpu/image.h:170-178, Cycles @ Blender v5.2.0 fbe62287, Apache-2.0): the 2x2 texel footprint around
     // (u*w - 0.5, v*h - 0.5), each texel read through value() so the extension (REPEAT /
     // EXTEND / MIRROR / CLIP) wraps exactly like nearest sampling. Used by the bump height
     // taps only (general Linear sampling is pkg234); GPU twin gpu_sampleImageTextureLinear.
@@ -1264,7 +1265,7 @@ std::shared_ptr<Material> makeNormalMapped(
     std::shared_ptr<Material> base,
     std::shared_ptr<Texture> normalTex,
     std::shared_ptr<Texture> bumpTex,
-    float normalStr, float bumpStr, float bumpDist);
+    float normalStr, float bumpStr, float bumpDist, bool coatFollows = false);
 } // namespace astroray
 
 

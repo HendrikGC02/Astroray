@@ -997,14 +997,19 @@ class PrincipledPlugin : public Material {
                                     const astroray::SampledWavelengths* lam = nullptr) const {
         std::vector<Lobe> lobes;
         float nv = std::clamp(rec.normal.dot(wo), 1e-4f, 1.0f);
-        // #1005: Cycles svm_node_closure_bsdf (src/kernel/svm/closure.h@a456b761) shades
-        // the coat on Coat Normal, whose unlinked default is the geometry normal sd->N
-        // (LINK_NORMAL), and the sheen on normalize(mix(N, coat_normal, coat_weight)).
+        // #1005: Cycles svm_node_closure_bsdf (Cycles @ Blender v5.2.0 fbe62287: kernel/svm/closure.h:152-161 coat,
+        // :127-129 sheen) shades the coat on Coat Normal, whose unlinked default is the
+        // geometry normal sd->N (LINK_NORMAL, scene/shader_nodes.cpp:2680), and the sheen on
+        // normalize(mix(N, coat_normal, coat_weight)). An Output Displacement bump instead
+        // sets sd->N (scene/shader_graph.cpp:1005-1098 bump_from_displacement, svm/closure.h:
+        // 1519-1524 svm_node_set_normal), so the coat follows it.
         // Under a Bump / Normal Map (NormalMappedPlugin) rec.normal is the bumped N and
         // rec.svmNormal is sd->N, so the coat keeps the smooth normal (prod_car_paint:
-        // the flake bump must not break up the clear-coat reflection). The addon reports
-        // a linked Coat Normal; without a decorator coatN == N and nothing changes.
-        const bool coatOwnN = coatWeight_ > 1e-4f && rec.hasSvmNormal &&
+        // the flake bump must not break up the clear-coat reflection). An Output
+        // Displacement bump (Cycles sets sd->N) or a Coat Normal wired to the same node
+        // clears rec.coatOnSvmNormal: the coat then follows the bump. Without a
+        // decorator coatN == N and nothing changes.
+        const bool coatOwnN = coatWeight_ > 1e-4f && rec.coatOnSvmNormal && rec.hasSvmNormal &&
                               (rec.svmNormal - rec.normal).length2() > 0.0f;
         const Vec3 coatN = coatOwnN ? rec.svmNormal : rec.normal;
         const float nvCoat = coatOwnN ? std::clamp(coatN.dot(wo), 1e-4f, 1.0f) : nv;

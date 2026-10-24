@@ -3443,6 +3443,32 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 "bump path samples images (#1153)" % src)
         return tex_name
 
+    def _report_non_linear_interp(self, kind, socket):
+        """#1004: Normal Map / Bump height images are read Linear (Cycles' default); a
+        Closest / Cubic / Smart Image Texture there is approximated, so say so."""
+        img_node = self._image_node_from_socket(socket)
+        interp = str(getattr(img_node, 'interpolation', 'Linear')) if img_node is not None else 'Linear'
+        if interp != 'Linear':
+            self._warn_shader_fallback(
+                kind, "image Interpolation '%s' is read Linear for the normal perturbation" % interp)
+
+    @staticmethod
+    def _coat_normal_follows_normal(node):
+        """#1005: Principled Coat Normal wired to the same node output as Normal (the usual
+        Blender 4.x clear-coat setup). The coat then shades on that perturbed normal, as in
+        Cycles (kernel/svm/closure.h:152-161 @ v5.2.0). Any other Coat Normal chain stays reported."""
+        n, c = node.inputs.get('Normal'), node.inputs.get('Coat Normal')
+        if not (n is not None and c is not None and getattr(n, 'is_linked', False)
+                and getattr(c, 'is_linked', False)):
+            return False
+        try:
+            ln, lc = n.links[0], c.links[0]
+        except (IndexError, AttributeError):
+            return False
+        return (ln.from_node == lc.from_node and
+                getattr(ln.from_socket, 'identifier', ln.from_socket) ==
+                getattr(lc.from_socket, 'identifier', lc.from_socket))
+
     def _bump_render_on_gpu(self, renderer):
         """#1005: whether this render goes to the GPU (where a procedural Bump Height
         is not applied). An unknown device counts as GPU: report, never drop silently."""
@@ -3485,6 +3511,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 result['normal_image'] = self.get_image_from_socket(src.inputs.get('Color'))
                 result['normal_vector'] = self.get_image_vector_from_socket(src.inputs.get('Color'))
                 result['normal_extension'] = self.get_image_extension_from_socket(src.inputs.get('Color'))
+                self._report_non_linear_interp('NORMAL_MAP', src.inputs.get('Color'))
                 walk_normal_chain(src.inputs.get('Normal'))
                 return
 
@@ -3494,6 +3521,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 result['bump_image'] = self.get_image_from_socket(src.inputs.get('Height'))
                 result['bump_vector'] = self.get_image_vector_from_socket(src.inputs.get('Height'))
                 result['bump_extension'] = self.get_image_extension_from_socket(src.inputs.get('Height'))
+                self._report_non_linear_interp('BUMP', src.inputs.get('Height'))
                 result['bump_node'] = src
                 walk_normal_chain(src.inputs.get('Normal'))
                 return
@@ -3531,6 +3559,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         result['bump_image'] = self.get_image_from_socket(disp_node.inputs.get('Height'))
         result['bump_vector'] = self.get_image_vector_from_socket(disp_node.inputs.get('Height'))
         result['bump_extension'] = self.get_image_extension_from_socket(disp_node.inputs.get('Height'))
+        self._report_non_linear_interp('DISPLACEMENT', disp_node.inputs.get('Height'))
         result['bump_node'] = disp_node
         # Issue #746: Cycles' ShaderGraph::bump_from_displacement (Apache-2.0)
         # feeds its BumpNode height = dot(displacement, N) = Scale * (h - Midlevel)
@@ -4998,6 +5027,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     spec['bump_map_texture'] = tex
                     spec['bump_strength'] = normal_inputs['bump_strength']
                     spec['bump_distance'] = normal_inputs['bump_distance']
+            if self._coat_normal_follows_normal(node):
+                spec['coat_follows_bump'] = 1.0  # #1005: the coat shades on the same perturbed normal
             # #846: per-texel op-VM chains on the scalar sockets. Carried for both
             # routes (Disney + native Principled); the engine attaches them to
             # either material on CPU and GPU.
@@ -5228,6 +5259,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             inp = node.inputs.get(nm)
             if inp is None:
                 continue
+            if nm == 'Coat Normal' and self._coat_normal_follows_normal(node):
+                continue  # #1005: honoured (coat_follows_bump)
             if getattr(inp, 'is_linked', False):
                 gaps.append(f"Principled socket '{nm}' is linked but not honoured "
                             f"by the native material (dropped)")
@@ -5327,7 +5360,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         # Normal/bump textures plumb through to the native material.
         for key in ('normal_map_texture', 'normal_strength',
-                    'bump_map_texture', 'bump_strength', 'bump_distance'):
+                    'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
             if key in spec:
                 native[key] = spec[key]
 
@@ -5353,7 +5386,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if base_tex is not None:
             lambert_params = {'texture': base_tex}
             for key in ('normal_map_texture', 'normal_strength',
-                        'bump_map_texture', 'bump_strength', 'bump_distance'):
+                        'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
                 if key in native:
                     lambert_params[key] = native[key]
             return renderer.create_material('lambertian', color, lambert_params)
@@ -5849,7 +5882,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             for key in ('a', 'b'):
                 child = dict(spec[key])
                 # A Displacement bump merged onto the Add spec applies to both.
-                for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance'):
+                for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
                     if bump_key in spec and bump_key not in child:
                         child[bump_key] = spec[bump_key]
                 children.append(self._create_material_from_shader_spec(child, renderer))
@@ -5903,7 +5936,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
             # Plumb normal/bump textures through to whichever material we pick.
             for key in ('normal_map_texture', 'normal_strength',
-                        'bump_map_texture', 'bump_strength', 'bump_distance'):
+                        'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
                 if key in spec:
                     params[key] = spec[key]
 
@@ -5921,7 +5954,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         '(legacy Disney route): GPU uses the constant colour')
                 lambert_params = {'texture': base_tex}
                 for key in ('normal_map_texture', 'normal_strength',
-                            'bump_map_texture', 'bump_strength', 'bump_distance'):
+                            'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
                     if key in params:
                         lambert_params[key] = params[key]
                 return renderer.create_material('lambertian', color, lambert_params)
@@ -6075,6 +6108,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 spec['bump_map_texture'] = tex_name
                 spec['bump_strength'] = float(displacement_bump.get('bump_strength', 1.0))
                 spec['bump_distance'] = float(displacement_bump.get('bump_distance', 0.01))
+                # #1005: Cycles bump_from_displacement sets sd->N (svm_node_set_normal), so the
+                # coat and sheen follow this bump too.
+                spec['coat_follows_bump'] = 1.0
         return self._create_material_from_shader_spec(spec, renderer)
 
     def _float_with_fallback(self, node, new_name, old_name, default):
@@ -6164,7 +6200,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # texture slot so we can keep metallic/roughness too.
             lambert_params = {'texture': base_color_tex_name}
             for key in ('normal_map_texture', 'normal_strength',
-                        'bump_map_texture', 'bump_strength', 'bump_distance'):
+                        'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
                 if key in params:
                     lambert_params[key] = params[key]
             return renderer.create_material('lambertian', base_color,
@@ -6178,7 +6214,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             native['emission_color'] = list(emission_color)
             native['emission_strength'] = float(emission_strength)
             for key in ('normal_map_texture', 'normal_strength',
-                        'bump_map_texture', 'bump_strength', 'bump_distance'):
+                        'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
                 if key in params:
                     native[key] = params[key]
             for msg in self._native_principled_gaps(node, native):

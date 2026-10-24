@@ -347,7 +347,7 @@ def test_normal_map_image_is_read_linear(use_gpu):
 # #1005: a Bump on the Principled Normal leaves the coat on sd->N
 # ---------------------------------------------------------------------------
 
-def _coat_quad(bump, use_gpu):
+def _coat_quad(bump, use_gpu, coat_follows=False):
     """Black-base Principled with a clear coat (only the coat reflects), a sun at the
     mirror direction of the flat quad, and optionally a steep image-ramp bump."""
     r = create_renderer()
@@ -366,6 +366,8 @@ def _coat_quad(bump, use_gpu):
         img = np.repeat(np.repeat(ramp[None, :, None], n_tex, axis=0), 3, axis=2)
         r.load_texture("h_coat", img, n_tex, n_tex, "UV")
         params.update({"bump_map_texture": "h_coat", "bump_distance": 1.0, "bump_strength": 1.0})
+        if coat_follows:
+            params["coat_follows_bump"] = 1.0
     mat = r.create_material("principled", [0.0, 0.0, 0.0], params)
     A, B, C, D, n = [-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [0, 0, 1]
     r.add_triangle_layers(A, B, C, mat, {"UVMap": [[0, 0], [1, 0], [1, 1]]}, n, n, n)
@@ -388,3 +390,41 @@ def test_bump_on_principled_normal_leaves_the_coat_smooth(use_gpu):
     assert flat[c].mean() > 0.02, flat[c].mean()
     # a 27 deg bump tilt moves a roughness-0.25 coat highlight far off the sun direction
     assert abs(bumped[c].mean() / flat[c].mean() - 1.0) < 0.05, (bumped[c].mean(), flat[c].mean())
+
+
+def test_coat_follows_a_bump_that_cycles_routes_through_sd_n():
+    """#1005 review: an Output Displacement bump sets sd->N in Cycles (svm_node_set_normal)
+    and a Coat Normal wired to the same node bumps the coat too. coat_follows_bump=1 keeps
+    the coat on the perturbed normal, so its highlight moves off the sun like the base."""
+    flat = _coat_quad(False, False)
+    bumped = _coat_quad(True, False, coat_follows=True)
+    c = (slice(10, 22), slice(10, 22))
+    assert bumped[c].mean() < 0.5 * flat[c].mean(), (bumped[c].mean(), flat[c].mean())
+
+
+def test_output_displacement_bump_marks_the_coat_to_follow(monkeypatch):
+    addon = P._load_blender_addon(monkeypatch)
+    engine = addon.CustomRaytracerRenderEngine()
+    seen = {}
+    engine._shader_spec_from_node = lambda node, renderer, tree: {'type': 'principled'}
+    engine.load_bump_height_texture = lambda spec, renderer: "h_disp"
+    engine._create_material_from_shader_spec = lambda spec, renderer: seen.update(spec) or 7
+    disp = {'bump_image': None, 'bump_node': object(), 'bump_strength': 1.0, 'bump_distance': 0.1}
+    assert engine.convert_shader_node(P._Node("BSDF_PRINCIPLED"), P._RecordingRenderer(), None, disp) == 7
+    assert seen.get('bump_map_texture') == "h_disp" and seen.get('coat_follows_bump') == 1.0
+
+
+@pytest.mark.parametrize("same", [True, False], ids=["same_node", "other_node"])
+def test_linked_coat_normal_follows_the_normal_chain(monkeypatch, same):
+    """#1005 review: Coat Normal wired to the same Bump / Normal Map as Normal is honoured
+    (coat follows the bump, no report); a different Coat Normal chain stays reported."""
+    addon = P._load_blender_addon(monkeypatch)
+    engine = addon.CustomRaytracerRenderEngine()
+    bump = P._Node("BUMP", inputs={})
+    other = P._Node("NORMAL_MAP", inputs={})
+    node = P._Node("BSDF_PRINCIPLED", inputs={
+        "Normal": P._Socket(linked_to=bump, output_name="Normal"),
+        "Coat Normal": P._Socket(linked_to=bump if same else other, output_name="Normal")})
+    assert engine._coat_normal_follows_normal(node) is same
+    gaps = engine._native_principled_gaps(node, {})
+    assert any("Coat Normal" in g for g in gaps) is (not same), gaps

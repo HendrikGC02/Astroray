@@ -32,6 +32,8 @@ checks, runner preset committed on `lane/pkg324`; in progress).
 #1152 (pass plan can trip the 32-bit work-counter guard at very high transparent limits since #1125), #1153 (GPU
 procedural Bump Height + GPU coat normal), #1154 (Cycles bump reflection correction + bump shadowing term).
 
+**Cutoff update (03:30, usage limit):** #1151 and #1157 merged (main bdbe4f1c, build_cuda rebuilt); #1161 pkg324 and #1163 pkg326 open (merge on green); lane #995 done (BUILD REQUEST ffcbb3cb pending, CPU shader_stack in band, glass 1/eta^2 owner question); lane pkg325b running; #1160 closed as a scene defect. Handoff: `next-session-prompt-2026-10-25.md`.
+
 **Next:** merge #1151 → pkg325 lane; #1004/#1005 rebuild + production GPU legs + PR; pkg324 BUILD REQUEST + vision
 pass; W3 #995 + pkg326 lanes; W4 gate (b) re-freeze, pkg306 Phase 0; closeout sweep + run-report + handoff.
 

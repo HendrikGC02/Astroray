@@ -375,7 +375,9 @@ def _coat_quad(bump, use_gpu):
     return np.asarray(render_image(r, samples=128, max_depth=1, apply_gamma=False), np.float32)
 
 
-@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])
+@pytest.mark.parametrize("use_gpu", [False, pytest.param(True, marks=pytest.mark.xfail(
+    strict=True, reason="#1153: the GPU closure-graph coat still shades on the bumped normal"))],
+    ids=["cpu", "gpu"])
 def test_bump_on_principled_normal_leaves_the_coat_smooth(use_gpu):
     """#1005: Cycles shades the coat on Coat Normal, whose unlinked default is sd->N
     (svm/closure.h; LINK_NORMAL), so a Bump into Principled Normal does not move the

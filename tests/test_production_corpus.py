@@ -129,9 +129,16 @@ def test_audit_credits_the_handled_attribute_and_light_path_materials():
 
 
 def test_audit_still_flags_an_unhandled_output_socket():
-    """No false credit: Geometry's Pointiness is refused by the compiler (VMCompileError) and stays a silent pair."""
+    """No false credit: an output socket the matrix marks DROPPED-SILENT is flagged whenever a production scene
+    uses it. Pointiness was the live example until #1117 credited it; the matrix is flipped in memory here so
+    the audit path stays exercised."""
+    from benchmarks.reference_corpus import coverage_report as CR
     scenes = json.loads((PROD / "node_uses.json").read_text(encoding="utf-8"))["scenes"]
-    matrix = AUDIT.load_matrix()
+    rows = json.loads(AUDIT.MATRIX.read_text(encoding="utf-8"))
+    for r in rows:
+        if r["bl_idname"] == "ShaderNodeNewGeometry" and r["socket_or_prop"] == "output:Pointiness":
+            r["classification"] = "DROPPED-SILENT"
+    matrix = CR.matrix_by_identity(rows)
     flagged = {(p["bl_idname"], p["id"]) for scene in scenes.values()
                for p in AUDIT.audit_scene(scene["pairs"], matrix, "Render completed in 1s\n")["silent"]}
     assert ("ShaderNodeNewGeometry", "Pointiness") in flagged

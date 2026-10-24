@@ -320,3 +320,48 @@ def test_normal_map_image_is_read_linear(use_gpu):
     assert abs(centre / lam(np.array([0.0, 0.0, 1.0])) - 1.0) < 0.05, (centre, lam(np.array([0.0, 0.0, 1.0])))
     # nearest would give the mean of the two tilts, about cos(40 deg) = 0.77 of flat
     assert abs(centre / (0.5 * (lam(left) + lam(right))) - 1.0) > 0.15
+
+
+# ---------------------------------------------------------------------------
+# #1005: a Bump on the Principled Normal leaves the coat on sd->N
+# ---------------------------------------------------------------------------
+
+def _coat_quad(bump, use_gpu):
+    """Black-base Principled with a clear coat (only the coat reflects), a sun at the
+    mirror direction of the flat quad, and optionally a steep image-ramp bump."""
+    r = create_renderer()
+    if use_gpu:
+        if not (bool(astroray.__features__.get("cuda", False)) and
+                bool(getattr(r, "gpu_available", False))):
+            pytest.skip("No CUDA GPU")
+        r.set_use_gpu(True)
+    r.set_seed(5)
+    r.set_background_color([0.0, 0.0, 0.0])
+    params = {"metallic": 0.0, "roughness": 0.5, "specular_ior_level": 0.0,
+              "coat_weight": 1.0, "coat_roughness": 0.25, "coat_ior": 1.5}
+    if bump:
+        n_tex = 64
+        ramp = (np.arange(n_tex, dtype=np.float32) + 0.5) / n_tex
+        img = np.repeat(np.repeat(ramp[None, :, None], n_tex, axis=0), 3, axis=2)
+        r.load_texture("h_coat", img, n_tex, n_tex, "UV")
+        params.update({"bump_map_texture": "h_coat", "bump_distance": 1.0, "bump_strength": 1.0})
+    mat = r.create_material("principled", [0.0, 0.0, 0.0], params)
+    A, B, C, D, n = [-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [0, 0, 1]
+    r.add_triangle_layers(A, B, C, mat, {"UVMap": [[0, 0], [1, 0], [1, 1]]}, n, n, n)
+    r.add_triangle_layers(A, C, D, mat, {"UVMap": [[0, 0], [1, 1], [0, 1]]}, n, n, n)
+    r.add_sun_light_dedicated([0.0, 0.0, -1.0], 0.05, {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 3.0)
+    setup_camera(r, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=30, width=32, height=32)
+    return np.asarray(render_image(r, samples=128, max_depth=1, apply_gamma=False), np.float32)
+
+
+@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])
+def test_bump_on_principled_normal_leaves_the_coat_smooth(use_gpu):
+    """#1005: Cycles shades the coat on Coat Normal, whose unlinked default is sd->N
+    (svm/closure.h; LINK_NORMAL), so a Bump into Principled Normal does not move the
+    clear-coat highlight. Bumping the coat too broke up prod_car_paint's coat reflection
+    (lit_front B 1.25x / upper_flake B 0.66x of Cycles with the flake bump applied)."""
+    flat, bumped = _coat_quad(False, use_gpu), _coat_quad(True, use_gpu)
+    c = (slice(10, 22), slice(10, 22))
+    assert flat[c].mean() > 0.02, flat[c].mean()
+    # a 27 deg bump tilt moves a roughness-0.25 coat highlight far off the sun direction
+    assert abs(bumped[c].mean() / flat[c].mean() - 1.0) < 0.05, (bumped[c].mean(), flat[c].mean())

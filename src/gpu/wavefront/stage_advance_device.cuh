@@ -267,7 +267,7 @@ __device__ unsigned gpu_lpVolume(unsigned lpState);
 // #1033 (shading_inputs_eval.cu): transparent pass-through test / count.
 __device__ bool gpu_isTransparentPass(const ::GMaterial* mat, GVec3 wo, GVec3 wi, bool isDelta);
 __device__ void gpu_countTransparentPass(uint32_t* passCount, int idx);
-// pkg325: would the total (maxDepth) or transmission cap end the path after this transmission sample?
+// pkg325: does this transmission sample set terminate-after (total maxDepth or transmission cap)?
 __device__ bool gpu_isDielectricCapPass(bool transmitted, const uint32_t* perTypeBounce, int idx,
                                         int bounce, int maxDepth);
 
@@ -571,15 +571,14 @@ __device__ int intersectPathSlotT(
     // of the fleet <..., HasGridVolume=false> kernels entirely; runs after the
     // lamp pass (#929, CPU #925 order) and BEFORE the world-volume block and the
     // emission/env legs so a scatter or an absorption intercepts the segment.
-    // pkg271 — volume_bounces exhausted (Cycles PATH_RAY_TERMINATE_AFTER_TRANSPARENT,
-    // flag set by a volume-scatter kernel in per_type_bounce byte 3): media only
-    // attenuate + emit, and a non-emissive surface hit ends the path below. Only
-    // the <HasGridVolume | HasWorldScatter> kernels read it; in the fleet <false>
-    // kernels volTerm is a compile-time false.
+    // pkg271/#1165 — terminate-after (Cycles PATH_RAY_TERMINATE_AFTER_TRANSPARENT,
+    // per_type_bounce bit 31, set by the total / per-type / volume caps): media only
+    // attenuate + emit, and the surface hit ends the path below after its emission.
+    // Read here only by the <HasGridVolume | HasWorldScatter> kernels; the fleet
+    // kernels read the flag at the surface (short live range).
     bool volTerm = false;
     if constexpr (HasGridVolume || HasWorldScatter)
-        volTerm = gpu_volumeTerminateAfter(state.per_type_bounce, idx,
-                                           c_wfGridVolume.volumeBounceCap);
+        volTerm = gpu_pathTerminateAfter(state.per_type_bounce, idx);
     // pkg181: dedicated-light visibility to BSDF rays (Cycles lights_intersect
     // parity) — device twin of production pathTraceSpectral. Lamps are invisible
     // to camera rays (bounce == 0). Placed in the INTERSECT stage (this kernel),
@@ -1124,9 +1123,12 @@ __device__ int intersectPathSlotT(
         }
     }
 
-    // pkg271 — a terminate-after path (volume_bounces exhausted) has taken this
-    // surface's emission above; it ends here instead of being shaded.
-    if constexpr (HasGridVolume || HasWorldScatter) if (volTerm) {
+    // pkg271/#1165 — a terminate-after path has taken this surface's emission above;
+    // it ends here instead of being shaded (CPU twin: pathTraceSpectral terminateAfter).
+    bool termAfter;
+    if constexpr (HasGridVolume || HasWorldScatter) termAfter = volTerm;
+    else termAfter = gpu_pathTerminateAfter(state.per_type_bounce, idx);
+    if (termAfter) {
         state.path_alive[idx] = 0;
         return -1;
     }
@@ -2835,13 +2837,13 @@ __device__ __forceinline__ bool shadePathSlotImpl(
         state.lambda_pdf_3[idx] = lambdas.pdf[3];
     }
 
-    // pkg201 Stage 3 (Finding A) — per-type bounce limit (Cycles
-    // max_diffuse/glossy/transmission_bounce). Device twin of the CPU
-    // pathTraceSpectral check: classify this bounce's lobe with the SAME
-    // geometric-sign + glossy test as the AOV firstCat lock, and if a limit is
-    // set for that type and already reached, terminate the path (no continuation
-    // ray) exactly like the max_depth cap below — color/rng_dimension are already
-    // persisted to SoA above, so this only clears path_alive. The `any-limit`
+    // pkg201 Stage 3 (Finding A) / #1165 — per-type bounce limit (Cycles
+    // max_<type>_bounce = limit + 1). Device twin of the CPU pathTraceSpectral
+    // check: classify this bounce's lobe with the SAME geometric-sign + glossy test
+    // as the AOV firstCat lock; if a limit is set for that type and already reached,
+    // this scatter sets the sticky terminate-after bit (per_type_bounce bit 31) in
+    // the same store as the count: the continuation is traced and the next surface
+    // is emission-only (intersectPathSlotT). The `any-limit`
     // early-out (constant-memory compares only) keeps the all-unlimited fleet
     // default off the SoA counter path: this is the OPTION 2 runtime compare
     // (memory pkg201-s3-runtime-comparison-not-axis), probe-gated — if it moves
@@ -2855,16 +2857,13 @@ __device__ __forceinline__ bool shadePathSlotImpl(
         if (lim >= 0) {
             uint32_t packed = state.per_type_bounce[idx];
             int cnt = (int)((packed >> (lobeCat * 8)) & 0xFFu);
-            if (cnt >= lim) {
-                state.path_alive[idx] = 0;
-                return false;
-            }
+            if (cnt >= lim) packed |= 0x80000000u;   // #1165 terminate-after
             // ABI-2: saturate at 255 — an increment past it would carry into the
             // next byte (transmission carries into byte 3, pkg271's volume
             // counter/terminate-after flag). A limit above 255 is unreachable
             // before max_depth ends the path.
-            if (cnt < 255)
-                state.per_type_bounce[idx] = packed + (1u << (lobeCat * 8));
+            if (cnt < 255) packed += (1u << (lobeCat * 8));
+            state.per_type_bounce[idx] = packed;
         }
     }
 
@@ -2891,10 +2890,9 @@ __device__ __forceinline__ bool shadePathSlotImpl(
 
     int next_bounce = bounce + (tp ? 0 : 1);   // #1033: a pass-through is no bounce
     state.bounce[idx] = next_bounce;
-    if (next_bounce >= max_depth) {
-        state.path_alive[idx] = 0;
-        return false;
-    }
+    // #1165: the scatter that reaches the total cap sets terminate-after; its
+    // continuation is traced and the next surface is emission-only.
+    if (!tp && bounce >= max_depth) gpu_setTerminateAfter(state.per_type_bounce, idx);
     return true;
 }
 

@@ -124,7 +124,8 @@ __device__ inline float gpu_freeflightUniform(uint32_t pixel, uint32_t sample,
 // pkg271 — Cycles volume_bounce bookkeeping (kernel/integrator/path_state.h
 // path_state_next, LABEL_VOLUME_SCATTER; Apache-2.0). GPUWavefrontState.
 // per_type_bounce byte 3: bits 0-6 = volume scatters so far (saturating at 127),
-// bit 7 = sticky terminate-after (PATH_RAY_TERMINATE_AFTER_TRANSPARENT). `cap` =
+// bit 7 = sticky terminate-after (PATH_RAY_TERMINATE_AFTER_TRANSPARENT; #1165: also
+// set by the total and the diffuse/glossy/transmission caps). `cap` =
 // volume_bounces + 1 (Cycles max_volume_bounce); cap <= 0 = unlimited: no read,
 // no write. Called by both volume-scatter kernels after the medium NEE.
 __device__ inline void gpu_countVolumeBounce(uint32_t* perTypeBounce, int idx, int cap)
@@ -137,11 +138,18 @@ __device__ inline void gpu_countVolumeBounce(uint32_t* perTypeBounce, int idx, i
     if (vb > 0x7Fu) vb = 0x7Fu;
     perTypeBounce[idx] = (ptb & 0x00FFFFFFu) | ((flag | vb) << 24);
 }
-// pkg271 — the path's terminate-after flag (see gpu_countVolumeBounce).
-__device__ inline bool gpu_volumeTerminateAfter(const uint32_t* perTypeBounce, int idx,
-                                                int cap)
+// pkg271/#1165 — the path's sticky terminate-after flag (see gpu_countVolumeBounce):
+// media only attenuate + emit and the next surface adds its emission only.
+__device__ inline bool gpu_pathTerminateAfter(const uint32_t* perTypeBounce, int idx)
 {
-    return cap > 0 && (perTypeBounce[idx] >> 31) != 0u;
+    return (perTypeBounce[idx] >> 31) != 0u;
+}
+// #1165 — the scatter that reaches the total cap (Cycles bounce >= max_bounce =
+// max_bounces + 1, kernel/integrator/path_state.h:143-146, scene/integrator.cpp:222)
+// sets terminate-after; its continuation is still traced.
+__device__ inline void gpu_setTerminateAfter(uint32_t* perTypeBounce, int idx)
+{
+    perTypeBounce[idx] |= 0x80000000u;
 }
 
 // pkg269 — ray (o, unit d) vs a bounded medium's world AABB, clipped to

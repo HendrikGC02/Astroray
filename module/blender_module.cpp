@@ -949,6 +949,23 @@ public:
         return id;
     }
 
+    // #995 -- Mix Shader(Fac, A, B): closure weights (1 - fac, fac) per hit
+    // (include/astroray/closure_mix.h). `fac_texture` (op-VM / graph program name, ""
+    // = none) gives the per-texel Fac; else the constant `fac` is used.
+    int createMixMaterial(int materialA, int materialB, float fac, const std::string& facTexture) {
+        auto ia = materials.find(materialA), ib = materials.find(materialB);
+        if (ia == materials.end() || ib == materials.end())
+            throw std::runtime_error("create_mix_material: unknown material id");
+        std::shared_ptr<Texture> tex;
+        if (!facTexture.empty()) {
+            tex = textureManager.getTexture(facTexture);
+            if (!tex) throw std::runtime_error("create_mix_material: unknown fac texture '" + facTexture + "'");
+        }
+        int id = nextMaterialId++;
+        materials[id] = std::make_shared<astroray::MixMaterial>(ia->second, ib->second, fac, tex);
+        return id;
+    }
+
     static float halton(int index, int base) {
         float f = 1.0f;
         float r = 0.0f;
@@ -4259,6 +4276,10 @@ PYBIND11_MODULE(astroray, m) {
              "material_a"_a, "material_b"_a,
              "#955: Add Shader(A, B): BSDF = A + B (closure weights add, not normalised). "
              "CPU sums both; the GPU backend renders child A only.")
+        .def("create_mix_material", &PyRenderer::createMixMaterial,
+             "material_a"_a, "material_b"_a, "fac"_a = 0.5f, "fac_texture"_a = std::string(),
+             "#995: Mix Shader(Fac, A, B): BSDF / emission = (1-fac) A + fac B with fac per hit "
+             "from `fac_texture` (program texture name) or the constant `fac`.")
         .def("eval_material", &PyRenderer::evalMaterial,
              "material_id"_a, "wo"_a, "wi"_a,
              "normal"_a = std::vector<float>{0.0f, 1.0f, 0.0f})

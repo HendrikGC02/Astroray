@@ -296,7 +296,7 @@ private:
                     float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                     color += throughput * Le * wB;
                 }
-                break;
+                if (!rec.material->hasBSDF()) break;   // #995 (pathTraceSpectral twin)
             }
 
             Vec3 wo = -ray.direction.normalized();

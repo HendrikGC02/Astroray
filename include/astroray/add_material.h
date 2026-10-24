@@ -28,90 +28,28 @@
 #include <algorithm>
 #include <random>
 #include "raytracer.h"
+#include "closure_mix.h"
 #include "light_path_mix.h"
 #include "shader_vm.h"
 
 namespace astroray {
 
-class AddMaterial : public Material {
-    std::shared_ptr<Material> a_, b_;
-
+class AddMaterial : public ClosureNodeMaterial {
 public:
     AddMaterial(std::shared_ptr<Material> a, std::shared_ptr<Material> b)
-        : a_(std::move(a)), b_(std::move(b)) {}
+        : ClosureNodeMaterial(std::move(a), std::move(b)) {}
 
-    const std::shared_ptr<Material>& childA() const { return a_; }
-    const std::shared_ptr<Material>& childB() const { return b_; }
-
-    // ---- exact CPU sum ------------------------------------------------------
-    Vec3 eval(const HitRecord& r, const Vec3& wo, const Vec3& wi) const override {
-        return a_->eval(r, wo, wi) + b_->eval(r, wo, wi);
+    // #995: eval / pdf / sample / emission / shadowAlpha are the shared closure node
+    // (closure_mix.h) with wA = wB = 1: f = f_A + f_B, child pick 1/2 when both have a
+    // BSDF (identical to the #955 scheme above), the BSDF child when the other is a
+    // pure emitter.
+    void weights(const HitRecord&, const Vec3&, float& wA, float& wB) const override {
+        wA = 1.0f;
+        wB = 1.0f;
     }
-    float pdf(const HitRecord& r, const Vec3& wo, const Vec3& wi) const override {
-        return 0.5f * (a_->pdf(r, wo, wi) + b_->pdf(r, wo, wi));
-    }
-    BSDFSample sample(const HitRecord& r, const Vec3& wo, std::mt19937& g) const override {
-        const bool pickB = std::uniform_real_distribution<float>(0.0f, 1.0f)(g) < 0.5f;
-        const Material& c = pickB ? *b_ : *a_;
-        const Material& o = pickB ? *a_ : *b_;
-        BSDFSample s = c.sample(r, wo, g);
-        if (s.pdf <= 0.0f) return s;
-        if (s.isDelta) { s.pdf *= 0.5f; return s; }
-        s.f = s.f + o.eval(r, wo, s.wi);
-        s.pdf = 0.5f * (s.pdf + o.pdf(r, wo, s.wi));
-        return s;
-    }
-    SampledSpectrum evalSpectral(const HitRecord& r, const Vec3& wo, const Vec3& wi,
-                                 const SampledWavelengths& l) const override {
-        return a_->evalSpectral(r, wo, wi, l) + b_->evalSpectral(r, wo, wi, l);
-    }
-    BSDFSampleSpectral sampleSpectral(const HitRecord& r, const Vec3& wo, std::mt19937& g,
-                                      SampledWavelengths& l) const override {
-        const bool pickB = std::uniform_real_distribution<float>(0.0f, 1.0f)(g) < 0.5f;
-        const Material& c = pickB ? *b_ : *a_;
-        const Material& o = pickB ? *a_ : *b_;
-        BSDFSampleSpectral s = c.sampleSpectral(r, wo, g, l);
-        if (s.pdf <= 0.0f) return s;
-        if (s.isDelta) { s.pdf *= 0.5f; return s; }
-        s.f_spectral = s.f_spectral + o.evalSpectral(r, wo, s.wi, l);
-        s.pdf = 0.5f * (s.pdf + o.pdf(r, wo, s.wi));
-        return s;
-    }
-
-    // ---- emission adds too --------------------------------------------------
-    Vec3 emitted(const HitRecord& r) const override { return a_->emitted(r) + b_->emitted(r); }
     Vec3 getEmission() const override { return a_->getEmission() + b_->getEmission(); }
     bool isEmissive() const override { return a_->isEmissive() || b_->isEmissive(); }
-    SampledSpectrum emittedSpectral(const HitRecord& r, const SampledWavelengths& l) const override {
-        return a_->emittedSpectral(r, l) + b_->emittedSpectral(r, l);
-    }
 
-    bool isTransmissive() const override { return a_->isTransmissive() || b_->isTransmissive(); }
-    bool isGlossy() const override { return a_->isGlossy() || b_->isGlossy(); }
-    // Cycles sums the closure weights: each child's transparent weight is (1 - alpha_i),
-    // so the summed transparency is (1-aA)+(1-aB) and the opacity max(0, aA + aB - 1).
-    float shadowAlpha(const HitRecord& r) const override {
-        return std::max(0.0f, a_->shadowAlpha(r) + b_->shadowAlpha(r) - 1.0f);
-    }
-    // #1045: a smooth conductor + smooth conductor stays delta-only; anything else has a lobe.
-    bool isDeltaOnly() const override { return a_->isDeltaOnly() && b_->isDeltaOnly(); }
-    // Forwarded to A (a Light Path switch nested under Add keeps child A's branch; the
-    // addon reports it).
-    std::shared_ptr<Material> lightPathSelect(const lightpath::PathContext& c) const override {
-        return a_->lightPathSelect(c);
-    }
-    // ---- GPU upload / parameter queries: child A at this id; child B is the partner ----
-    Vec3 getAlbedo() const override { return a_->getAlbedo(); }  // scene_upload reads it for the GMaterial
-    std::string getGPUTypeName() const override { return a_->getGPUTypeName(); }
-    std::shared_ptr<Material> normalMapInner() const override { return a_->normalMapInner(); }
-    std::shared_ptr<Texture> normalMapTexture() const override { return a_->normalMapTexture(); }
-    float normalMapStrength() const override { return a_->normalMapStrength(); }
-    std::shared_ptr<Texture> bumpMapTexture() const override { return a_->bumpMapTexture(); }
-    float bumpMapStrength() const override { return a_->bumpMapStrength(); }
-    float bumpMapDistance() const override { return a_->bumpMapDistance(); }
-    HairGPUParams hairGPUParams() const override { return a_->hairGPUParams(); }
-    std::shared_ptr<Texture> scalarProgram(int slot) const override { return a_->scalarProgram(slot); }
-    MaterialClosureGraph closureGraph() const override { return a_->closureGraph(); }
     // #1072: can the wavefront GPU sum A and B? Both must be plain, opaque, non-emissive
     // materials whose GPU shade needs no per-hit data beyond their own GMaterial: the
     // partner gets no texture / scalar-program / normal-map override, and a transparent
@@ -142,26 +80,6 @@ public:
         }
         return caps;
     }
-    float getRoughness() const override { return a_->getRoughness(); }
-    float getMetallic() const override { return a_->getMetallic(); }
-    // Refraction parameters come from the transmissive child (isTransmissive ORs both).
-    const Material& refractive() const { return (!a_->isTransmissive() && b_->isTransmissive()) ? *b_ : *a_; }
-    float getIOR() const override { return refractive().getIOR(); }
-    float iorAt(float l) const override { return refractive().iorAt(l); }
-    bool isDispersive() const override { return refractive().isDispersive(); }
-    Vec3 getSellmeierB() const override { return refractive().getSellmeierB(); }
-    Vec3 getSellmeierC() const override { return refractive().getSellmeierC(); }
-    Vec3 getCauchyAB() const override { return refractive().getCauchyAB(); }
-    float getTransmission() const override { return refractive().getTransmission(); }
-    float getClearcoat() const override { return a_->getClearcoat(); }
-    float getClearcoatGloss() const override { return a_->getClearcoatGloss(); }
-    float getSpecular() const override { return a_->getSpecular(); }
-    float getSpecularTint() const override { return a_->getSpecularTint(); }
-    float getSheen() const override { return a_->getSheen(); }
-    float getSheenTint() const override { return a_->getSheenTint(); }
-    float getSubsurface() const override { return a_->getSubsurface(); }
-    float getAnisotropic() const override { return a_->getAnisotropic(); }
-    float getAnisotropicRotation() const override { return a_->getAnisotropicRotation(); }
 };
 
 }  // namespace astroray

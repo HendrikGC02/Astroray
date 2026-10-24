@@ -1,6 +1,6 @@
 {
   "schema": "pkg278.acceptance_manifest.v1",
-  "generated": "2026-10-04T13:56:57+00:00",
+  "generated": "2026-10-24T13:04:00+00:00",
   "rows": {
     "a": {
       "row": "a",
@@ -17,7 +17,7 @@
       "evidence_sha256": null,
       "dimensions": {},
       "subchecks": {},
-      "date": "2026-10-04"
+      "date": "2026-10-24"
     },
     "b": {
       "row": "b",
@@ -34,7 +34,7 @@
       "evidence_sha256": null,
       "dimensions": {},
       "subchecks": {},
-      "date": "2026-10-04"
+      "date": "2026-10-24"
     },
     "c": {
       "row": "c",
@@ -51,7 +51,7 @@
       "evidence_sha256": null,
       "dimensions": {},
       "subchecks": {},
-      "date": "2026-10-04"
+      "date": "2026-10-24"
     },
     "d": {
       "row": "d",
@@ -89,7 +89,7 @@
         "denoise_lowers_residual_noise": true,
         "reference_comparison": true
       },
-      "date": "2026-10-04",
+      "date": "2026-10-24",
       "schema": "pkg278.instrument.v2",
       "records": [
         {
@@ -110,7 +110,7 @@
     "e": {
       "row": "e",
       "instrument": "issue_triage",
-      "status": "red",
+      "status": "green",
       "scene_sha256": [],
       "build_id": "live-github",
       "backend": [],
@@ -121,13 +121,13 @@
         "name": "independently_rated_high_count"
       },
       "value": {
-        "high_count": 10
+        "high_count": 0
       },
       "threshold": {
         "high_count": 0
       },
       "evidence_path": "docs/blender_parity/evidence/e/instrument.json",
-      "evidence_sha256": "5f994883ce5032ee1a077eae7a8485a57af765be2e4f88dd4e1ff9a38c49f243",
+      "evidence_sha256": "1b425342c255d1a750fb17a982bb809d6e2b67112a2ff96221295843f5c8c490",
       "dimensions": {
         "issue_snapshot": "raw-artifacts",
         "ratings": "independent-review"
@@ -138,7 +138,7 @@
         "all_rated_independently": true,
         "delta_empty": true
       },
-      "date": "2026-10-04",
+      "date": "2026-10-24",
       "schema": "pkg278.instrument.v2",
       "records": [
         {
@@ -146,7 +146,7 @@
           "phase": "baseline",
           "artifact": {
             "path": "issues-baseline.json",
-            "sha256": "6a122ac2802ebf7b86029dcd1364a4010d4951e1df48c36859ac0e5ebacd248c"
+            "sha256": "ca254384b212057d28824d606c0f54dbf4564c2cbff6a6673214f53495d501b8"
           }
         },
         {
@@ -154,14 +154,14 @@
           "phase": "recheck",
           "artifact": {
             "path": "issues-recheck.json",
-            "sha256": "b4065a93bfcefd66d98d76c3491ab9c532ad34d7a8d3d56c93ae04dfe6a41669"
+            "sha256": "f57130bf70fa3598e54976460b54993ab1edf6a9ce90e762dd4bf29611f56199"
           }
         },
         {
           "kind": "ratings",
           "artifact": {
             "path": "issue-ratings.json",
-            "sha256": "94d4e7527f63335e8c8c1655f4c5a931254abf97b65c8081c7e489530de81f40"
+            "sha256": "723d86375e287b82c5404508ed49795a64d47f3cc95f7c9df97408385cb74042"
           }
         }
       ]
@@ -181,7 +181,7 @@
       "evidence_sha256": null,
       "dimensions": {},
       "subchecks": {},
-      "date": "2026-10-04"
+      "date": "2026-10-24"
     },
     "g": {
       "row": "g",
@@ -198,7 +198,7 @@
       "evidence_sha256": null,
       "dimensions": {},
       "subchecks": {},
-      "date": "2026-10-06"
+      "date": "2026-10-24"
     }
   }
 }

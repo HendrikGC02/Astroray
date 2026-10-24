@@ -479,7 +479,9 @@ def main():
     # not a rejection) while the wrapper watches the worktree and reports
     # files_changed:[] — a false "completed". Pass --dir to root opencode AT
     # the worktree. Verified 2026-08-25: writes then land in the worktree.
-    oc_args = ["run", "-m", model, "--dir", workdir, "--format", "json"]
+    # 2026-10-24: `opencode run` dropped its --dir flag (passing it prints the CLI help and exits 1);
+    # the worker is now rooted by the subprocess cwd (= workdir) below, which this opencode honours.
+    oc_args = ["run", "-m", model, "--format", "json"]
     if args.agent:
         oc_args += ["--agent", args.agent]
     for image in args.image:  # vision tier: opencode attaches the file to the message

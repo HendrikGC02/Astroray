@@ -12,7 +12,7 @@
     "name": "independently_rated_high_count"
   },
   "value": {
-    "high_count": 10
+    "high_count": 0
   },
   "threshold": {
     "high_count": 0
@@ -23,7 +23,7 @@
       "phase": "baseline",
       "artifact": {
         "path": "issues-baseline.json",
-        "sha256": "6a122ac2802ebf7b86029dcd1364a4010d4951e1df48c36859ac0e5ebacd248c"
+        "sha256": "ca254384b212057d28824d606c0f54dbf4564c2cbff6a6673214f53495d501b8"
       }
     },
     {
@@ -31,14 +31,14 @@
       "phase": "recheck",
       "artifact": {
         "path": "issues-recheck.json",
-        "sha256": "b4065a93bfcefd66d98d76c3491ab9c532ad34d7a8d3d56c93ae04dfe6a41669"
+        "sha256": "f57130bf70fa3598e54976460b54993ab1edf6a9ce90e762dd4bf29611f56199"
       }
     },
     {
       "kind": "ratings",
       "artifact": {
         "path": "issue-ratings.json",
-        "sha256": "94d4e7527f63335e8c8c1655f4c5a931254abf97b65c8081c7e489530de81f40"
+        "sha256": "723d86375e287b82c5404508ed49795a64d47f3cc95f7c9df97408385cb74042"
       }
     }
   ]

@@ -39,7 +39,7 @@ gates (e)/(g)/(b) records, architect plan + specs pkg324/325/326, STATUS, handov
   `provisional_v2.toml` rows (motion_vane gpu_cpu listed only r; RoughGlassFilm r) with identical ratios on the pre-#1125
   baseline pyd (bd651551) and main, so pre-existing; 1 = OneDrive PermissionError on the matrix scratch dir (environmental).
   No engine regression attributable to this session's merges.
-- Final sweep on main ecd36567 (#995 + pkg325 landed): **SWEEP2: pending**.
+- Final sweep on main c76baf57 (engine ecd36567: #995 + pkg325 landed; dist restaged 07:46): **5709 passed, 9 failed, 79 skipped, 66 xfailed, 3 xpassed, 60 min**. Triage: 8 = `v2_textures_opvm sphere_MixShaderProg` (4 CPU rows strict XPASS: #1170 fixed the CPU program-Fac mix, un-xfailed; 4 GPU/CPU twin rows 0.86x: the GPU closure tree still lags, filed #1174, rows added); 1 = `test_blender_parity_matrix_generation`: the committed matrix differs from a fresh Blender 5.2 regeneration in exactly one row (`ShaderNodeTexImage|interpolation` DROPPED-SILENT -> SUPPORTED, the #1157 report-only read over-credited by the scanner, #1168); regenerating would break the pkg260/corpus pins, so the fix is #1168, not a regen. After the `provisional_v2.toml` fixes the touched rows verify 44 passed / 29 xfailed / 0 failed under the lock. No engine regression attributable to this session's merges; one GPU gap (#1174) exposed by a CPU fix.
 
 ## Issues filed (16) and closed (1)
 

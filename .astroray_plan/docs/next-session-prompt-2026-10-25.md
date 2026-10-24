@@ -8,11 +8,9 @@ questions), `stage0-gate-scoring-2026-10-18.md` (rows (b), (e), (g) re-measures)
 ## State at handoff
 - **main** `c76baf57` (engine ecd36567): merged tonight #1148, #1149, #1151 (#1125), #1157 (#1004/#1005), #1161 (pkg324),
   #1163 (pkg326), #1166 (pkg325), #1169 (gate (b)), #1170 (#995/#955). `build_cuda` stamp c76baf57 (sm_120), `dist/astroray`
-  restaged 07:46 from the same HEAD. Worktrees: only `pkg306` (branch `lane/pkg306`, PR #1173) remains; delete it once that PR is merged.
-- **Open PR:** **#1173** pkg306 Phase 0 (`--tail-report`, attribution doc, tail gates; engine byte-identical to main; diag
-  switches kept on `lane/pkg306-diag` 372da5c9 for Phase 1). Merge on green. Its first pull_request CI run failed only on
-  `test_pkg278_gate_instruments.py::test_committed_manifest_evidence_paths_are_posix_and_valid`, which was main's bug
-  (absolute evidence paths from the (e) assembly; fixed in 958a967f, memory `gate-manifest-instrument-paths-must-be-repo-relative`).
+  restaged 07:46 from the same HEAD. No worktrees remain.
+- **#1173 pkg306 Phase 0 merged** (main 0a4d4aaa; engine byte-identical). Diag switches live on `lane/pkg306-diag`
+  372da5c9 for Phase 1. No open PRs, no worktrees at handoff.
 - **Final sweep** on main c76baf57: see `run-report-2026-10-25.md` (SWEEP2 line). The pre-closeout sweep (624e32df) was
   5672 passed / 10 failed, all ten attributed (4 hair_tuft strict XPASS = improvement, 5 incomplete provisional rows
   identical on the pre-#1125 baseline, 1 OneDrive PermissionError). The `benchmarks/reference_corpus/provisional_v2.toml`
@@ -22,7 +20,7 @@ questions), `stage0-gate-scoring-2026-10-18.md` (rows (b), (e), (g) re-measures)
   0 silent pairs (pbr_group 11/16 both, car_paint CPU 13/16, wood 12/16, shader_stack 4/16 after #1170).
 
 ## Order of work
-1. Merge #1173 on green; `git worktree remove .claude/worktrees/pkg306`; delete `lane/pkg306` (keep `lane/pkg306-diag`).
+1. (done) #1173 merged, worktree removed; `lane/pkg306-diag` kept.
 2. **Row (e) back to green** = fix the highs, smallest first: #1171 (`DistantLight::power()` solid-angle scaling, one
    function + a flat-vs-tree sampler test), #1165 (transmission cap accounting off by two vs Cycles), #1150 (GPU ReSTIR-DI
    black behind alpha-0; CPU ReSTIR counts the pass as a bounce), #1162 (smooth-glass thin film in the Principled delta path,

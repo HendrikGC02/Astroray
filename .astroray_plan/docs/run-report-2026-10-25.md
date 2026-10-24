@@ -3,7 +3,7 @@
 Session: owner resumed 2026-10-24 ~23:40 ("all agents back", free DeepSeek flash with vision, GPU/PC returned);
 usage-limit cutoff 03:30-04:40; closeout 2026-10-25 morning. Previous report: `run-report-2026-10-06.md`.
 
-## Merged (9 PRs, all squash, all lead-reviewed + independent review where engine code changed)
+## Merged (10 PRs, all squash, all lead-reviewed + independent review where engine code changed)
 
 | PR | What | Reviews |
 |---|---|---|
@@ -16,6 +16,7 @@ usage-limit cutoff 03:30-04:40; closeout 2026-10-25 morning. Previous report: `r
 | #1166 | pkg325 dielectric bounce-cap passthrough (OFF by default) + thick-glass acceptance scene | cpp-abi-guard PASS-notes |
 | #1169 | gate (b) first formal score, re-frozen inputs, independent scanner receipt | blind Opus scanner review ACCEPT |
 | #1170 | #995/#955 closure composition: Mix per-texel Fac + Add closure sum, CPU+GPU; emissive BSDFs continue | cycles-parity (MAJOR fixed), cpp-abi-guard |
+| #1173 | pkg306 Phase 0: `--tail-report`, tail attribution (media closed, dispersion = correct transport + #1172), gates; engine untouched | lead |
 
 Docs direct to main: models/tiers (free flash + vision tier), delegate fixes (`--dir`, `--file`, text-only finish),
 gates (e)/(g)/(b) records, architect plan + specs pkg324/325/326, STATUS, handover.

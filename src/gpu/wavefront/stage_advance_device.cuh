@@ -1889,7 +1889,8 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                             float mv = m[4]*uu + m[5]*vv + m[7];
                             uu = mu; vv = mv;
                         }
-                        GVec3 rgb = gpu_sampleImageTexture(
+                        // #1004 - Linear read (CPU twin: normal_mapped.cpp valueLinear).
+                        GVec3 rgb = gpu_sampleImageTextureLinear(
                             ndesc, c_wfTexBinding.texelBuf, uu, vv);
                         GVec3 nTS = rgb * 2.0f - GVec3(1.0f);
                         GVec3 B = rec.normal.cross(nT) * nSign;

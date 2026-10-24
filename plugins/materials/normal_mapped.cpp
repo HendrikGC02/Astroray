@@ -28,7 +28,14 @@ class NormalMappedPlugin : public Material {
         }
 
         if (normalTexture_) {
-            Vec3 rgb = normalTexture_->value(rec, Vec3(0));
+            // #1004 - a UV normal-map image is read Linear (Cycles interp_linear; the Image
+            // Texture default), not nearest: a nearest read of a relief map steps the normal
+            // per texel and moved prod_pbr_group 3-6 % off Cycles (Cycles' own Closest render
+            // shifts by the same amount). General image filtering stays pkg234.
+            const auto* nmImg = dynamic_cast<const ImageTexture*>(normalTexture_.get());
+            Vec3 rgb = (nmImg && normalTexture_->getCoordMode() == Texture::CoordMode::UV)
+                ? nmImg->valueLinear(normalTexture_->mappedInputUV(rec, Vec3(0), 0.0f, 0.0f))
+                : normalTexture_->value(rec, Vec3(0));
             Vec3 nTS = (rgb * 2.0f) - Vec3(1.0f);
             // pkg223 — tangent-space normal mapping REQUIRES the UV-aligned
             // (Mikk-TSpace / Lengyel) frame, NOT the arbitrary

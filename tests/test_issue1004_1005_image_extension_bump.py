@@ -288,3 +288,35 @@ def test_image_bump_relief_is_centred_on_the_height_step(use_gpu):
     centre = 0.5 * (lit[0] + lit[-1] + 1)
     centroid = float((prof * cols).sum() / prof.sum())
     assert abs(centroid - centre) < 1.0, (centroid, centre, prof.round(3))
+
+
+@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])
+def test_normal_map_image_is_read_linear(use_gpu):
+    """#1004: the Normal Map image is read Linear (Cycles' Image Texture default), so between
+    a +x-tilted and a -x-tilted texel the normal blends through the flat normal. A nearest
+    read jumps from one tilt to the other at u = 0.5 (prod_pbr_group centre/right 3-6 % off)."""
+    r = create_renderer()
+    if use_gpu:
+        if not (bool(astroray.__features__.get("cuda", False)) and
+                bool(getattr(r, "gpu_available", False))):
+            pytest.skip("No CUDA GPU")
+        r.set_use_gpu(True)
+    r.set_seed(5)
+    r.set_background_color([0.0, 0.0, 0.0])
+    a = np.radians(40.0)
+    left, right = np.array([np.sin(a), 0, np.cos(a)]), np.array([-np.sin(a), 0, np.cos(a)])
+    img = np.array([[left, right], [left, right]], np.float32) * 0.5 + 0.5   # 2x2 tangent-space map
+    r.load_texture("n_img", img, 2, 2, "UV")
+    mat = r.create_material("lambertian", [0.8, 0.8, 0.8],
+                            {"normal_map_texture": "n_img", "normal_strength": 1.0})
+    A, B, C, D, n = [-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0], [0, 0, 1]
+    r.add_triangle_layers(A, B, C, mat, {"UVMap": [[0, 0], [1, 0], [1, 1]]}, n, n, n)
+    r.add_triangle_layers(A, C, D, mat, {"UVMap": [[0, 0], [1, 1], [0, 1]]}, n, n, n)
+    r.add_sun_light_dedicated(_SUN.tolist(), 0.02, {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 3.0)
+    setup_camera(r, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=45, width=48, height=48)
+    im = np.asarray(render_image(r, samples=64, max_depth=1, apply_gamma=False), np.float32)
+    lam = lambda nn: 0.8 / np.pi * 3.0 * max(0.0, float(-_SUN @ nn))   # noqa: E731
+    centre = float(im[16:32, 23:25].mean())   # u = 0.5: the two texel centres blend to flat
+    assert abs(centre / lam(np.array([0.0, 0.0, 1.0])) - 1.0) < 0.05, (centre, lam(np.array([0.0, 0.0, 1.0])))
+    # nearest would give the mean of the two tilts, about cos(40 deg) = 0.77 of flat
+    assert abs(centre / (0.5 * (lam(left) + lam(right))) - 1.0) > 0.15

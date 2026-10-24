@@ -10,7 +10,7 @@ In-session architect round (Fable 5.1 lead; owner 2026-10-24 "do an architect ro
 | Row | Status | Measured | Next mover |
 |---|---|---|---|
 | (a) latency | GREEN | p95 62.9 / p99 100.6 ms (10-18) | none |
-| (b) coverage | unmeasured on the owner population | ceiling 0.694 after pkg321 | item 8 (re-freeze) |
+| (b) coverage | RED (first formal score 10-25, PR #1169) | nine_scene 0.00213; owner population 0/474 (no witness) | freeze pkg323 witnesses on candidate_v2; #1167; owner b1 sign-off |
 | (c) trio | GREEN | Welch-1b 0 rejected tiles (10-18) | none |
 | (d) native panels | GREEN (committed) | — | none |
 | (e) triage | **GREEN** (10-25, committed) | 69 open, 0 high, all ratings independent | keep the live list clean |

@@ -149,3 +149,56 @@ def test_closure_stack_cpu_matches_analytic(monkeypatch):
 def test_closure_stack_gpu_matches_analytic(monkeypatch):
     img, _ = _render(monkeypatch, use_gpu=True)
     _assert_stack(_cells(img), "GPU")
+
+
+# ---- engine: emission + BSDF on one surface continues the path -------------------
+def _wall(make, spp=96):
+    r = create_renderer()
+    r.set_seed(5)
+    r.set_adaptive_sampling(False)
+    r.set_background_color([1.0, 1.0, 1.0])
+    r.setup_camera([0, 0, 3], [0, 0, 0], [0, 1, 0], 20.0, 1.0, 0.0, 3.0, 24, 24)
+    r.add_triangle([-20, -20, 0], [20, -20, 0], [0, 20, 0], make(r))
+    img = np.asarray(r.render(spp, 4, None, False), dtype=np.float32)
+    return img[9:15, 9:15].reshape(-1, 3).mean(0)
+
+
+def test_principled_emission_keeps_its_bsdf():
+    """Cycles writes the emission and continues through the BSDF (shade_surface.h);
+    the integrator used to end the path at any emissive hit (L = E only)."""
+    got = _wall(lambda r: r.create_material(
+        "principled", [0.5, 0.5, 0.5],
+        {"roughness": 1.0, "specular_ior_level": 0.0,
+         "emission_color": [1.0, 1.0, 1.0], "emission_strength": 0.2}))
+    np.testing.assert_allclose(got, [0.7, 0.7, 0.7], rtol=0.04)
+
+
+def test_mix_material_constant_fac_weights_closures():
+    def make(r):
+        a = r.create_material("principled", [0.6, 0.1, 0.1], {"roughness": 1.0, "specular_ior_level": 0.0})
+        b = r.create_material("light", [0.0, 0.5, 1.0], {"intensity": 1.0, "two_sided": 1.0})
+        return r.create_mix_material(a, b, 0.25)
+    # 0.75 * red albedo + 0.25 * emission
+    np.testing.assert_allclose(_wall(make), [0.45, 0.2, 0.325], rtol=0.04)
+
+
+def test_emissive_glass_sphere_nee_on_off_agree():
+    """An emissive analytic sphere with a BSDF now runs NEE from its own surface; the
+    sphere's cone sampler is undefined there (NaN samples dropped -> dark). NEE on and
+    off must give the same mean."""
+    def centre(nee):
+        r = create_renderer()
+        r.set_seed(7)
+        r.set_adaptive_sampling(False)
+        r.set_background_color([0.0, 0.0, 0.0])
+        r.set_light_nee(nee)
+        g = r.create_material("principled", [1, 1, 1],
+                              {"transmission_weight": 1.0, "roughness": 0.05, "ior": 1.45})
+        e = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 0.6, "two_sided": 1.0})
+        r.add_sphere([0, 0, 0], 1.0, r.create_add_material(g, e))
+        r.setup_camera([0, 0, 4], [0, 0, 0], [0, 1, 0], 30.0, 1.0, 0.0, 4.0, 32, 32)
+        img = np.asarray(r.render(128, 4, None, False), dtype=np.float32)
+        return img[13:19, 13:19, 0].mean()
+    on, off = centre(True), centre(False)
+    assert off > 0.8, off            # emission 0.6 + the inner wall seen through the glass
+    assert abs(on / off - 1.0) < 0.03, (on, off)

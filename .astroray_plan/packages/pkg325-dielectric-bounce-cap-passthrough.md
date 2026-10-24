@@ -2,7 +2,7 @@
 
 **Pillar:** 1
 **Track:** A
-**Status:** in progress (CPU + addon + tests on branch lane/pkg325; GPU legs pending the lead's CUDA build)
+**Status:** in-progress — CPU + addon + tests on lane/pkg325; GPU legs pending the lead's CUDA build
 **Estimated effort:** 1 session (~4 h) + GPU legs via the lead
 **Depends on:** none
 

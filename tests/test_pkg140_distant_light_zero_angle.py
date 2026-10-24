@@ -187,6 +187,11 @@ def test_power_cdf_delta_sun_plus_area_light_both_contribute(astroray_module):
     intensity (a scene author would never dial an area light down to 3e-6;
     this purely balances the two power() calls for a clean, unbiased,
     reproducible measurement).
+
+    UPDATE #1171: power() no longer carries the solid-angle factor (it is the
+    sun's irradiance S, Cycles light_tree.cpp), so the sun now dominates the
+    CDF next to this dim lamp and the floor-based balancing above is moot;
+    the assertion (the delta sun is selectable) still holds and is kept.
     """
     def render(include_sun, seed):
         r = astroray_module.Renderer()

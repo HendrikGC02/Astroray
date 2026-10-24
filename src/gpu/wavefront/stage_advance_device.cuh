@@ -1963,7 +1963,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                         // #753 — dPdx/dPdy must be WORLD-space position
                         // differentials (Cycles svm_node_set_bump dP.dx/dP.dy),
                         // not UV-space ones; bT/Bt are unit vectors, so scale
-                        // the UV-space step `eps` by the world-per-UV-unit
+                        // the input-UV steps du/dv by the world-per-UV-unit
                         // factor (mirrors normal_mapped.cpp's CPU fix exactly).
                         GVec3 dPdx = bT * (du * bScaleU), dPdy = Bt * (dv * bScaleV);
                         GVec3 Rx = dPdy.cross(N), Ry = N.cross(dPdx);

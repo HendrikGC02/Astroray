@@ -68,7 +68,8 @@ class NormalMappedPlugin : public Material {
             // NEAREST-neighbour (ImageTexture::value / gpu_sampleImageTexture), so a
             // sub-texel eps gives a staircase (mostly 0) gradient that neither scales
             // with Distance nor matches CPU↔GPU. ~1.5 texels reliably crosses a
-            // boundary. GPU mirrors this via 1.5/bdesc.width.
+            // boundary. (#1004: UV images now take the Linear branch below, CPU + GPU;
+            // this nearest step remains for non-UV coordinate images on the CPU.)
             float eps = 1.0e-2f;
             const auto* bumpImg = dynamic_cast<const ImageTexture*>(bumpTexture_.get());
             if (bumpImg) {

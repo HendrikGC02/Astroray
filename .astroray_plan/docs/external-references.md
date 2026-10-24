@@ -237,3 +237,5 @@ When in doubt, ask before adding a dependency.
 - Kerr BL polar-axis singularity: Cartesian Kerr-Schild chart near the axis (GRay2, Chan et al. 2018, arXiv:1706.07062; KS form Visser 2007, arXiv:0706.0622): [#897 research](kerr-axis-chart-research.md).
 - Kulla & Fajardo 2012 equiangular + distance one-sample MIS, per-segment volume direct light, absorption as weight (Cycles shade_volume.h, Apache-2.0): [#925 research](issue925-volume-segment-direct-light-research.md).
 - Cycles procedural evaluators (util/hash.h, svm/noise.h BSD-3, fractal_noise.h, noisetex.h, wave.h, voronoi.h; Apache-2.0 / IQ MIT) shared host + device for GPU per-hit evaluation: [#1007 research](issue1007-perhit-procedural-research.md).
+
+- Cycles bump coordinate offset (svm/tex_coord.h), interp_linear (device/cpu/image.h), Principled coat normal (svm/closure.h), Apache-2.0: [#1004/#1005 research](issue1004-1005-bump-research.md).

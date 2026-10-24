@@ -1,52 +1,55 @@
-# Next session (written 2026-10-25 ~03:30, Fable lead hit the usage limit mid-run)
+# Next session (written 2026-10-25 ~08:00, end of the Fable-lead overnight session)
 
-Read first: `STATUS.md` (2026-10-24/25 entry), `architect-plan-2026-10-25.md`, `stage0-gate-scoring-2026-10-18.md`
-(rows (e) and (g) re-measures), memories `ci-changes-filter-hides-tooling-test-breakage`,
-`coincident-faces-optix-tie-break-parity-gap`, `vision-model-hallucinates-pixel-shifts`.
+Read first: `STATUS.md` (2026-10-24/25 entry), `run-report-2026-10-25.md`, `architect-plan-2026-10-25.md` (§5 owner
+questions), `stage0-gate-scoring-2026-10-18.md` (rows (b), (e), (g) re-measures), memories
+`ci-changes-filter-hides-tooling-test-breakage`, `coincident-faces-optix-tie-break-parity-gap`,
+`vision-model-hallucinates-pixel-shifts`.
 
-## State at cutoff
-- **main** `bdbe4f1c` = #1151 (#1125) + #1157 (#1004/#1005) merged; `build_cuda` rebuilt at bdbe4f1c (sm_120 verified,
-  03:20). `dist/astroray` restage was running at cutoff (`build_blender_addon.py -j 8`): check `dist/astroray/*.pyd`
-  mtime > 03:20 before any Blender leg; if not, rerun it.
-- **Open PRs (merge on green):** **#1161** pkg324 showcase corpus (lead sign-off in
-  `%LOCALAPPDATA%\astroray-evidence\2026-10-24\pkg324\run1\LEAD_SIGNOFF.md`; ~11 MB binaries, noted on the PR) and
-  **#1163** pkg326 Glass thin film ("Part of #1136"; smooth-glass delta path = #1162). Both pull_request-event CI runs
-  started before 54e736ff and may fail ONLY on `tests/test_delegate_process_tree.py` (two tests, fixed on main): that
-  failure is main's, not the branch's; merge when the branch-only run is green and the PR-run failure is exactly those two.
-- **Lane #995 (worktree `.claude/worktrees/i995`, branch `lane/issue995`, Opus) finished: `BUILD REQUEST ffcbb3cb`.**
-  Closure mix + Add sum on CPU and GPU (`include/astroray/closure_mix.h`, `GClosureTree` side table, GRAPH_MAT_SLOTS 5→9,
-  new `Material::hasBSDF()` so emissive Principled/Add/Mix keep their BSDF; self-NEE NaN fixed). CPU shader_stack
-  lit_front L 0.42→0.989, right 0.38→0.965; production row still xfail (4/16) because of the glass 1/η² radiance
-  convention (pbrt keeps it, Cycles omits it) — **owner question**. Re-pinned `test_issue955`, `test_pkg293`,
-  `test_issue1072`. Lead to do: `cmake -B build_cuda` configure in the worktree, `build_cuda_worktree.bat <wt> ffcbb3cb…`,
-  then under the GPU lock (ASTRORAY_BUILD_DIR=<wt>\build_cuda): (1) `pytest tests/test_issue995_closure_mix.py
-  tests/test_issue1072_gpu_add_shader.py tests/test_pkg293_gpu_lobe_programs.py tests/test_issue955_add_shader.py
-  tests/test_issue835_principled_emission_gpu.py -q`; (2) ASTRORAY_PYD_DIR=<wt>\build_cuda
-  `pytest tests/test_production_corpus.py -k shader_stack -q -rxX`; (3) cuobjdump A/B (`scratchpad res_compare.py`
-  pattern: fleet p0/p1, HasAdd, intersect, stageGraphEval; lane expects intersect +0–2 REG, graph-eval +2–6 REG, HasAdd
-  ~+100 B stack). Then cpp-abi-guard (GMaterial field rename addPartner→closureTree, hasBSDF engine-wide) +
-  cycles-parity-reviewer, PR. This is the (g) headline (shader_stack both backends).
-- **Lane pkg325b (worktree `pkg325`, branch `lane/pkg325`, Sonnet) was RUNNING at cutoff** (steps 2–4: nested-glass
-  scene with mesh-hygiene test, `dielectric_bounce_cap` option CPU+GPU, tests). It will end with a BUILD REQUEST; if the
-  session died, its commits are on the branch (`git -C <wt> log`), resume with a fresh lane from its last report.
-  #1160 closed (scene defect); note `issue1160-tumbler-coincident-faces-research.md` on that branch.
-- **Row (g):** 10-25 re-measure on 88d2026d = CPU 2/8, GPU 2/8, 0 silent pairs (recorded). Re-run on bdbe4f1c after the
-  restage: `ASTRORAY_PYD_DIR=dist\astroray PKG310_WORK=<new> gpu_locked_run.py lead -- pytest
-  tests/test_production_corpus.py -k "parity or silent" -q -rxXs`, then `gate_manifest.py --adapt-g`; expect
-  pbr_group/car_paint rows to move (#1157 landed: CPU 11/16 and 13/16 at seed 278 on the branch).
-- **Issues filed today:** #1150 (GPU ReSTIR-DI alpha-0 black), #1152 (pass-plan counter guard), #1153/#1154/#1156
-  (lane i1004), #1155/#1158/#1159 (pkg324), #1162 (smooth-glass film), #1164 (bg colour before env map, unreduced).
-- **Tooling:** vision tier works (`delegate.py --tier vision --image`, critiques land in the transcript; status fix
-  e2fa88c8); `watch_ci.sh <PR>` scratch watcher; evidence root `%LOCALAPPDATA%\astroray-evidence\2026-10-24\`.
+## State at handoff
+- **main** `c76baf57` (engine ecd36567): merged tonight #1148, #1149, #1151 (#1125), #1157 (#1004/#1005), #1161 (pkg324),
+  #1163 (pkg326), #1166 (pkg325), #1169 (gate (b)), #1170 (#995/#955). `build_cuda` stamp c76baf57 (sm_120), `dist/astroray`
+  restaged 07:46 from the same HEAD. Worktrees: only `pkg306` (branch `lane/pkg306`, PR #1173) remains; delete it once that PR is merged.
+- **Open PR:** **#1173** pkg306 Phase 0 (`--tail-report`, attribution doc, tail gates; engine byte-identical to main; diag
+  switches kept on `lane/pkg306-diag` 372da5c9 for Phase 1). Merge on green. Its pull_request CI run may still fail only on
+  the two `tests/test_delegate_process_tree.py` tests if it started before 54e736ff; main is fixed.
+- **Final sweep** on main c76baf57: see `run-report-2026-10-25.md` (SWEEP2 line). The pre-closeout sweep (624e32df) was
+  5672 passed / 10 failed, all ten attributed (4 hair_tuft strict XPASS = improvement, 5 incomplete provisional rows
+  identical on the pre-#1125 baseline, 1 OneDrive PermissionError). The `benchmarks/reference_corpus/provisional_v2.toml`
+  fixes (motion_vane gpu_cpu channels, RoughGlassFilm r/L, hair_tuft ortho un-xfailed) are committed with the final sweep.
+- **Gates:** (a) GREEN; (b) **RED first formal score** 0.00213 nine_scene / 0 owner population (no witness registered);
+  (c) GREEN; (d) GREEN; (e) **RED** 8 high on 81 open (this session's own findings); (f) owner's second PC; (g) RED 2/8, 2/8,
+  0 silent pairs (pbr_group 11/16 both, car_paint CPU 13/16, wood 12/16, shader_stack 4/16 after #1170).
 
 ## Order of work
-1. Check restage, merge #1161/#1163 on green (rule above), remove worktrees `pkg324`, `pkg326` + branches.
-2. #995 build + GPU legs + reviews + PR (above). 3. pkg325b BUILD REQUEST. 4. Row (g) re-run on the merged build.
-5. W4: gate (b) re-freeze (Sonnet lane), pkg306 Phase 0. 6. Closeout: full CPU+GPU sweep (no `-x`), run-report,
-STATUS final, memory review.
+1. Merge #1173 on green; `git worktree remove .claude/worktrees/pkg306`; delete `lane/pkg306` (keep `lane/pkg306-diag`).
+2. **Row (e) back to green** = fix the highs, smallest first: #1171 (`DistantLight::power()` solid-angle scaling, one
+   function + a flat-vs-tree sampler test), #1165 (transmission cap accounting off by two vs Cycles), #1150 (GPU ReSTIR-DI
+   black behind alpha-0; CPU ReSTIR counts the pass as a bounce), #1162 (smooth-glass thin film in the Principled delta path,
+   CPU RGB/spectral + GPU RGB/spectral, REG 254), #1155 (diamond Sellmeier preset), #1158 (library-linked images),
+   #1154 (Cycles bump correction + `bump_shadowing_term`), #1152 (pass-plan counter guard). Re-rate after each batch
+   (`known_issues_report.py --capture-gate-e` / `--finalize-gate-e`, two blind raters + flash, stricter rule; pipeline in
+   `%LOCALAPPDATA%\astroray-evidence\2026-10-24\gate-e2\`).
+3. **Row (g) path to 6/8:** #1153 (GPU procedural Bump Height + coat normal, unblocks car_paint GPU and wood), #993
+   (wood Roughness chain over VM_MAX_SLOTS), #1004 residual (pbr_group right ROI, GPU bump tangent frame),
+   #1038 (light_path glass), and the owner's #995 1/eta^2 decision (shader_stack lower/upper_left).
+4. **Row (b):** freeze pkg323 witnesses on the owner population (`candidate_v2`), fix #1167 (scorer silent zero), then
+   #1168 (scanner over-credit paths, with negative fixtures); owner b1 sign-off.
+5. **pkg306 Phase 1:** #1172 spot light-tree cone (trimmed 80x -> 25x CPU, 67x -> 11x GPU, means unchanged) and #1032
+   segment direct light; the dispersion glints and the photon prism caustic go to the pkg307 Mitsuba arbitration rows.
+6. **Showcase follow-ups:** pkg324 sp02 prism throw, sp07 replacement scene (pkg325's `benchmarks/showcase/spectral/pkg325/`),
+   #1159 node tiles, #1155; the README/licence question stays with the owner.
+7. Retro `cycles-parity-reviewer` pass on #1149 (Voronoi 3D) and on #1163 is still owed.
 
-## Owner questions (add to architect plan §5)
-- #995: keep the pbrt 1/η² radiance factor in the glass BTDF (physically consistent with the spectral camera model) or
-  match Cycles (omits it) so emission seen through glass agrees with Cycles? Physics-over-look says keep it and document.
-- Still open: pkg325 default (OFF), pkg324 README publishing + licences, preset library scope, evidence storage
-  (git/LFS/local: #1161 adds 11 MB), gate (f) second PC, (b) b1 sign-off.
+## Owner questions (also in `architect-plan-2026-10-25.md` §5)
+- #995: keep the pbrt 1/eta^2 radiance convention in the glass BTDF (emission inside glass exits at S/n^2) or match Cycles
+  (omits it; a thermal emitter exits at B)? The parity reviewer confirmed it is a convention choice, not a bug.
+- pkg325 default stays OFF (Cycles parity) — confirm; pkg324 README publishing + licences; evidence storage (git/LFS/local:
+  #1161 added 11 MB); material preset library scope; gate (f) second PC; (b) b1 sign-off.
+
+## Tooling state
+- `opencode/deepseek-v4.1-flash-free`: grunt/implement/vision primary; `delegate.py --tier vision --image <png>` critiques
+  land in the transcript (status fix e2fa88c8); reliable on presence/absence, not position/size.
+- Scratch helpers (session scratchpad, re-create if needed): `watch_ci.sh <PR>` (5-min CI poll), `res_compare.py <main_pyd>
+  <new_pyd>` (cuobjdump REG/STACK A/B), `vision_extract.py <dir>`.
+- Evidence root `%LOCALAPPDATA%\astroray-evidence\2026-10-24\` (gate-e, gate-e2, gate-b, g2, g3, i1004, i1125, i995,
+  pkg324, pkg325, pkg326, pkg306, sweep1, sweep2).

@@ -66,7 +66,7 @@ scene = "prod_shader_stack"
 backend = "gpu"
 kind = "parity"
 issue = "#995"
-reason = "GPU closure tree (#995) lowers the whole stack (4 closures, graph-program Facs, baked emission); same 1/eta^2 residual expected as CPU, pending the RTX measurement"
+reason = "#995 fixed on GPU (closure tree: 4 closures, graph-program Facs, baked emission): 0/16 -> 4/16, L lit_front 0.990 right 0.966 lower 0.895 upper_left 0.926 (seed 278, build 765ecb83), within 1 % of CPU. Same residual as CPU: the 1/eta^2 radiance factor for emission inside the glass (owner question, see the CPU row)"
 
 [[row]]
 scene = "prod_light_path"

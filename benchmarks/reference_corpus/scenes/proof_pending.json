@@ -719,6 +719,20 @@
       "classification": "SUPPORTED",
       "feature": "LIGHT_PATH",
       "socket_or_prop": "output:Transmission Depth"
+    },
+    {
+      "bl_idname": "ShaderNodeTexBrick",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "TEX_BRICK",
+      "socket_or_prop": "input:Mortar"
+    },
+    {
+      "bl_idname": "ShaderNodeNewGeometry",
+      "category": "input_node",
+      "classification": "SUPPORTED",
+      "feature": "NEW_GEOMETRY",
+      "socket_or_prop": "output:Pointiness"
     }
   ],
   "world_sky": [

@@ -482,7 +482,13 @@ PKG321_PROOF_PENDING = frozenset({
     "ShaderNodeVolumePrincipled|input:Density Attribute",
     "ShaderNodeVolumePrincipled|input:Temperature Attribute",
 })
-PROOF_PENDING_BASELINE = PROOF_PENDING_BASELINE | PKG320_PROOF_PENDING | PKG321_PROOF_PENDING
+# #1117 / #1137: Geometry Pointiness and Brick Mortar are credited by the scanner now, but the frozen textures_mapping
+# scene still gap-cards them (rebuilding it would break the gate (c) freeze). Shrink-only as above.
+I1117_PROOF_PENDING = frozenset({
+    "ShaderNodeNewGeometry|output:Pointiness",
+    "ShaderNodeTexBrick|input:Mortar",
+})
+PROOF_PENDING_BASELINE = PROOF_PENDING_BASELINE | PKG320_PROOF_PENDING | PKG321_PROOF_PENDING | I1117_PROOF_PENDING
 
 
 def _proof_pending() -> dict:

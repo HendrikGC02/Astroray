@@ -74,6 +74,26 @@ def _work_dir(tmp_path: Path, *, skew=None, report_all=True, **log_over) -> Path
     return work
 
 
+@pytest.fixture
+def silent_matrix(monkeypatch):
+    """Since #1117 (and pkg321) no production node use is DROPPED-SILENT any more, so a silent pair has to be
+    manufactured: a scratch copy of the matrix with Geometry Pointiness flipped back to DROPPED-SILENT, installed
+    as ``AUDIT.MATRIX`` for both the adapter and the validator (they read the module attribute). The validator
+    insists that pinned inputs live inside the checkout, so the copy sits next to the real matrix and is removed."""
+    rows = json.loads(AUDIT.MATRIX.read_text(encoding="utf-8"))
+    hit = [r for r in rows if r["bl_idname"] == "ShaderNodeNewGeometry" and r["socket_or_prop"] == "output:Pointiness"]
+    assert hit, "Pointiness row missing from the matrix"
+    for r in hit:
+        r["classification"] = "DROPPED-SILENT"
+    path = AUDIT.MATRIX.with_name("coverage_matrix_silent_fixture.json")
+    path.write_text(json.dumps(rows), encoding="utf-8")
+    monkeypatch.setattr(AUDIT, "MATRIX", path)
+    try:
+        yield path
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def _evidence(tmp_path: Path, **kw) -> Path:
     out = tmp_path / "evidence_g" / "instrument.json"
     payload = GM.adapt_g_instrument(_work_dir(tmp_path, **kw), out)
@@ -159,7 +179,7 @@ def test_5_of_8_on_either_backend_is_red(tmp_path):
         assert row["value"][key] == 5 and row["status"] == "red" and any(key in r for r in why)
 
 
-def test_silent_drop_reds_the_row_even_with_8_of_8_in_band(tmp_path):
+def test_silent_drop_reds_the_row_even_with_8_of_8_in_band(tmp_path, silent_matrix):
     row, why = GM.compute_row("g", _row(_evidence(tmp_path, report_all=False)), GM.ROW_SPEC["g"], GM.REPO_ROOT)
     assert row["value"]["cpu_silent_pairs"] > 0 and row["value"]["cpu_silent_pairs"] == row["value"]["gpu_silent_pairs"]
     assert row["value"]["cpu_in_band"] == 8 and row["subchecks"]["zero_silent_degradations"] is False
@@ -182,7 +202,7 @@ def _status(path: Path, *, edit_row=None) -> tuple[str, list[str], dict]:
     return row["status"], why, row
 
 
-def test_caller_supplied_status_and_value_are_never_trusted(tmp_path):
+def test_caller_supplied_status_and_value_are_never_trusted(tmp_path, silent_matrix):
     path = _evidence(tmp_path, report_all=False)
 
     def forge(raw):

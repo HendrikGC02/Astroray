@@ -10,9 +10,9 @@
 
 ## Summary
 
-- **SUPPORTED**: 321 features
+- **SUPPORTED**: 323 features
 - **APPROXIMATED**: 101 features
-- **DROPPED-SILENT**: 315 features ⚠️
+- **DROPPED-SILENT**: 313 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 737 features
 
@@ -24,7 +24,6 @@ The addon's `node.inputs.get('...')` returns None at runtime, default silently w
 
 - **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5661)
 - **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5661)
-- **TEX_BRICK**: socket `Color3` (addon __init__.py line 4174, line 4315)
 - **TEX_BRICK**: socket `Offset` (addon __init__.py line 4174, line 4315)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
@@ -68,7 +67,6 @@ These features are silently ignored by the addon with no warning:
 - **NEW_GEOMETRY**: `output:True Normal` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
 - **NEW_GEOMETRY**: `output:Incoming` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
 - **NEW_GEOMETRY**: `output:Parametric` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
-- **NEW_GEOMETRY**: `output:Pointiness` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
 - **NEW_GEOMETRY**: `output:Random Per Island` — output refused by the op-VM compiler (VMCompileError, reported by the addon)
 - **HAIR_INFO**: `output:Is Strand` — no handler in addon translation layer
 - **HAIR_INFO**: `output:Intercept` — no handler in addon translation layer
@@ -258,7 +256,6 @@ These features are silently ignored by the addon with no warning:
 - **SUBSURFACE_SCATTERING**: `prop:falloff` — property ENUM
 - **TANGENT**: `prop:axis` — property ENUM
 - **TANGENT**: `prop:direction_type` — property ENUM
-- **TEX_BRICK**: `input:Mortar`
 - **TEX_BRICK**: `prop:offset` — property FLOAT
 - **TEX_COORD**: `prop:from_instancer` — property BOOLEAN
 - **TEX_ENVIRONMENT**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6)
@@ -432,7 +429,7 @@ These features are silently ignored by the addon with no warning:
 | NEW_GEOMETRY | output:Incoming | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
 | NEW_GEOMETRY | output:Parametric | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
 | NEW_GEOMETRY | output:Backfacing | SUPPORTED | output consumed by the node handler (pkg320) |
-| NEW_GEOMETRY | output:Pointiness | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
+| NEW_GEOMETRY | output:Pointiness | SUPPORTED | output consumed by the node handler (pkg320) |
 | NEW_GEOMETRY | output:Random Per Island | DROPPED-SILENT | output refused by the op-VM compiler (VMCompileError, reported by the addon) |
 | OBJECT_INFO | output:Location | SUPPORTED | output consumed by the node handler (pkg320) |
 | OBJECT_INFO | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
@@ -851,7 +848,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_BRICK | input:Vector | SUPPORTED |  |
 | TEX_BRICK | input:Color1 | SUPPORTED |  |
 | TEX_BRICK | input:Color2 | SUPPORTED |  |
-| TEX_BRICK | input:Mortar | DROPPED-SILENT |  |
+| TEX_BRICK | input:Mortar | SUPPORTED |  |
 | TEX_BRICK | input:Scale | SUPPORTED |  |
 | TEX_BRICK | input:Mortar Size | SUPPORTED |  |
 | TEX_BRICK | input:Mortar Smooth | SUPPORTED |  |

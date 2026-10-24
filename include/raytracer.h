@@ -425,6 +425,11 @@ struct HitRecord {
     // and graph programs' shading context reads this. Verified against Cycles 5.2.
     bool hasSvmNormal = false;
     Vec3 svmNormal;
+    // #1005: a Bump / Normal Map on the Principled Normal input leaves the coat (and the
+    // sheen's coat share) on sd->N = svmNormal (Cycles: unlinked Coat Normal is sd->N).
+    // False when the bump came from the Output Displacement (Cycles sets sd->N) or the
+    // Coat Normal is wired to the same node: then the coat follows the bumped normal.
+    bool coatOnSvmNormal = false;
     const Vec3& shadingContextNormal() const { return hasSvmNormal ? svmNormal : normal; }
 
     HitRecord() : t(std::numeric_limits<float>::max()), frontFace(true), isDelta(false), hitObject(nullptr) {}

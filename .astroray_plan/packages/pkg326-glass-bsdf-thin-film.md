@@ -61,8 +61,8 @@ Small, well-bounded, one node.
 | File | What changes |
 |---|---|
 | `blender_addon/__init__.py` | export the two sockets for `ShaderNodeBsdfGlass` into the glass material; drop the DegradationReport entry |
-| `src/materials/dielectric.cpp` | CPU glass material: apply the thin-film Fresnel used by Principled when thickness > 0 (actual file per `project_index.py owns glass`) |
-| `src/gpu/closure_graph_lowering.cu` | GPU closure lowering of the glass material: same thin-film parameters as the Principled closure (actual file per the index) |
+| `include/astroray/material_closure.h` | CPU glass closure: apply `thin_film_fresnel.h` (the Principled path) when thickness > 0 |
+| `src/gpu/scene_upload.cu` | GPU: upload the glass material's thin-film thickness/IOR into the same closure parameters the Principled closure uses (`gpu_thin_film_table.cu` stays shared) |
 | `docs/blender_parity/coverage_matrix.json` | regenerate on Blender 5.2 (with `report.md`) |
 | `benchmarks/reference_corpus/scenes/proof_pending.json` | if the frozen corpus still gap-cards the rows, register them proof-pending (pkg320 pattern, with the test baseline) |
 

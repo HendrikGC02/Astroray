@@ -24,7 +24,7 @@ scene = "prod_car_paint"
 backend = "gpu"
 kind = "parity"
 issue = "#1005"
-reason = "#1005: procedural Bump Height applied on CPU only; the GPU bump path samples images (reported): lit_front B 0.78x, upper_flake B 1.21x (2/16)"
+reason = "#1005: procedural Bump Height applied on CPU only; the GPU bump path samples images (reported, #1153): lit_front B 0.78x, limb_grazing B 0.80x, upper_flake B 1.21x (2/16)"
 
 [[row]]
 scene = "prod_wood"
@@ -38,7 +38,7 @@ scene = "prod_wood"
 backend = "gpu"
 kind = "parity"
 issue = "#993"
-reason = "#1006 + #881 fixed, GPU tracks CPU (3/16 -> 6/16); same residuals #993 (Roughness chain over VM_MAX_SLOTS) + #1005 (procedural Bump applied on CPU only, reported on GPU): grain_center B 0.82x, grain_right B 0.80x (6/16)"
+reason = "#1006 + #881 fixed, GPU tracks CPU; procedural Bump applied on CPU only, reported on GPU (#1153). Only B is out: grain_center B 0.96x, grain_right B 0.91x, lower B 0.93x (12/16 at e1d9c77f)"
 
 [[row]]
 scene = "prod_pbr_group"
@@ -52,7 +52,7 @@ scene = "prod_pbr_group"
 backend = "gpu"
 kind = "parity"
 issue = "#1004"
-reason = "same residual as CPU; right ROI B 1.42x (7/16)"
+reason = "#1004 Linear bump / normal map: 7/16 -> 11/16, centre 1.005x, right B 1.42x gone; right now reads dim (L 0.91x, B 0.84x; CPU same seed L 0.94x, converged 0.975x) and lower B 0.92x (11/16 at e1d9c77f)"
 
 [[row]]
 scene = "prod_shader_stack"

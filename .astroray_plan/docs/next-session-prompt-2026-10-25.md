@@ -37,7 +37,7 @@ questions), `stage0-gate-scoring-2026-10-18.md` (rows (b), (e), (g) re-measures)
    segment direct light; the dispersion glints and the photon prism caustic go to the pkg307 Mitsuba arbitration rows.
 6. **Showcase follow-ups:** pkg324 sp02 prism throw, sp07 replacement scene (pkg325's `benchmarks/showcase/spectral/pkg325/`),
    #1159 node tiles, #1155; the README/licence question stays with the owner.
-7. Retro `cycles-parity-reviewer` pass on #1149 (Voronoi 3D) and on #1163 is still owed.
+7. Retro `cycles-parity-reviewer` pass on #1149 done 10-25 (PARITY-OK; follow-ups filed as the newest "Voronoi 3D port follow-ups" issue); the pass on #1163 is still owed.
 
 ## Owner questions (also in `architect-plan-2026-10-25.md` §5)
 - #995: keep the pbrt 1/eta^2 radiance convention in the glass BTDF (emission inside glass exits at S/n^2) or match Cycles

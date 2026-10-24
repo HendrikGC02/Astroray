@@ -224,13 +224,15 @@ class TestSummaryLogic:
         _run_main(monkeypatch, tmp_path,
                   ["--tier", "grunt", "--dir", str(tmp_path),
                    "--prompt", "line one\nline two"], None)
-        # The multiline prompt must be routed through a task file, so the final
-        # argv prompt is the single-line "Read the file ..." instruction.
-        assert "Read the file" in seen["cmd"][-1]
+        # The multiline prompt must be routed through a task file: attached to the
+        # worker message (`opencode run --file`) and named by absolute path in the
+        # single-line argv prompt (2026-10-25: `--dir` is gone from `opencode run`).
+        assert "--file" in seen["cmd"]
+        assert "attached file" in seen["cmd"][-1]
         # Task file must have been cleaned up.
         assert not list(tmp_path.glob(".delegate-task-*.md"))
 
-    def test_dir_flag_forwarded(self, monkeypatch, tmp_path):
+    def test_dir_flag_sets_workdir_not_forwarded(self, monkeypatch, tmp_path):
         seen = {}
 
         def fake(cmd, workdir, log_path, timeout):
@@ -244,7 +246,8 @@ class TestSummaryLogic:
         _run_main(monkeypatch, tmp_path,
                   ["--tier", "grunt", "--dir", str(tmp_path),
                    "--prompt", "hello"], None)
-        assert "--dir" in seen["cmd"]
+        # `opencode run` no longer accepts --dir; the worker is rooted by cwd.
+        assert "--dir" not in seen["cmd"]
         assert seen["workdir"] == str(tmp_path.resolve())
 
 

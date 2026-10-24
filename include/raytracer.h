@@ -585,7 +585,7 @@ public:
     // #995: false for a pure emitter (Cycles Emission shader: no BSDF closure). The
     // integrators end a path at an emissive hit only when this is false; a surface with
     // emission AND a BSDF (Principled emission, Add/Mix Shader) continues, as Cycles
-    // does (kernel/integrator/shade_surface.h:818-869: emission is written, then the
+    // does (Cycles v5.2.0 kernel/integrator/shade_surface.h:817-868: emission is written, then the
     // path continues through the BSDF closures). Default: emitters have no BSDF.
     virtual bool hasBSDF() const { return !isEmissive(); }
     // #1099: true when emission leaves BOTH faces (Cycles Emission shader; EmissivePlugin).
@@ -4508,7 +4508,7 @@ public:
                     color += c; addPass(emitPass, c);
                 }
                 // #995: a pure emitter ends the path; emission + BSDF continues (Cycles
-                // shade_surface.h:818-869).
+                // shade_surface.h:817-868).
                 if (!rec.material->hasBSDF()) break;
             }
             // pkg271: a terminate-after path ends at a non-emissive surface.

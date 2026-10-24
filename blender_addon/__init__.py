@@ -5810,6 +5810,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         return None
 
+    @staticmethod
+    def _gpu_renders_first_closure_only(renderer, mat_id):
+        """#995: True when the engine could not lower an Add / Mix node tree to a GPU
+        closure tree (closure_mix.h lowerClosureTree). A lowered tree may still carry
+        a leaf's own approximation flag (Disney), reported nowhere else either."""
+        try:
+            caps = renderer.get_material_backend_capabilities(mat_id)
+        except Exception:
+            return False
+        return bool(caps.get('gpu_approximate')) and 'closure tree (#995)' not in caps.get('notes', '')
+
     def _closure_mix_spec(self, node, a, b, fac, renderer):
         """#995: Mix Shader as a closure mix (Cycles kernel/svm/closure.h
         svm_node_mix_closure: the two closure subtrees get weights (1 - fac, fac), fac
@@ -5946,11 +5957,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         child[bump_key] = spec[bump_key]
                 children.append(self._create_material_from_shader_spec(child, renderer))
             add_id = renderer.create_add_material(children[0], children[1])
-            try:
-                gpu_approx = renderer.get_material_backend_capabilities(add_id).get('gpu_approximate')
-            except Exception:
-                gpu_approx = False
-            if gpu_approx:
+            if self._gpu_renders_first_closure_only(renderer, add_id):
                 self._warn_shader_fallback(
                     'ADD_SHADER', 'Add Shader of %s + %s is summed on the CPU; the GPU '
                     'backend renders only the first shader (the pair has a textured, '
@@ -5967,18 +5974,14 @@ class CustomRaytracerRenderEngine(RenderEngine):
             for key in ('a', 'b'):
                 child = dict(spec[key])
                 # A Displacement bump merged onto the Mix spec applies to both.
-                for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance'):
+                for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
                     if bump_key in spec and bump_key not in child:
                         child[bump_key] = spec[bump_key]
                 children.append(self._create_material_from_shader_spec(child, renderer))
             mix_id = renderer.create_mix_material(children[0], children[1],
                                                   float(spec.get('fac', 0.5)),
                                                   spec.get('fac_texture') or '')
-            try:
-                gpu_approx = renderer.get_material_backend_capabilities(mix_id).get('gpu_approximate')
-            except Exception:
-                gpu_approx = False
-            if gpu_approx:
+            if self._gpu_renders_first_closure_only(renderer, mix_id):
                 self._warn_shader_fallback(
                     'MIX_SHADER', 'Mix Shader of %s + %s is mixed per hit on the CPU; the GPU '
                     'backend renders only the first shader' % (spec['a'].get('kind'),

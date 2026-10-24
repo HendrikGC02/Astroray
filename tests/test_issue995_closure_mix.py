@@ -237,3 +237,84 @@ def test_emissive_glass_sphere_nee_on_off_agree(use_gpu):
     on, off = centre(True), centre(False)
     assert off > 0.8, off            # emission 0.6 + the inner wall seen through the glass
     assert abs(on / off - 1.0) < 0.03, (on, off)
+
+
+# ---- review round (lead, ffcbb3cb) ------------------------------------------------------
+def test_disney_route_textured_fac_lowers_to_a_gpu_tree(monkeypatch):
+    """The legacy Disney route (native Principled off) must lower too: Disney's static
+    gpuApproximate flag used to block the tree, so the GPU rendered leaf 0 only
+    (pkg293 mix_textured_fac-disney GPU/CPU 6.1x / 0.06x on the Fac=1 squares)."""
+    import test_pkg293_gpu_lobe_programs as P
+    eng = P._addon_engine(monkeypatch, False)
+    r = create_renderer()
+    rec = P._Recorder(r)
+    spec = eng._shader_spec_from_node(P._graph("mix_textured_fac"), rec, None)
+    mat = eng._create_material_from_shader_spec(spec, rec)
+    assert [k for k, _ in rec.materials] == ['disney', 'disney'], rec.materials
+    assert 'closure tree (#995)' in r.get_material_backend_capabilities(mat)['notes']
+    assert not any('first shader' in m for m in eng._degradation_report().messages())
+
+
+@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])
+@pytest.mark.parametrize("fac", [0.0, 1.0])
+def test_zero_weight_emissive_leaf_emits_nothing(use_gpu, fac):
+    """Mix(fac, Add(emissive Principled, Diffuse), Diffuse): at fac 1 the emissive leaf
+    has weight 0 (Cycles prunes the branch), so nothing may emit; the GPU used to keep
+    leaf 0's own emission when the tree's summed emission was 0."""
+    d = {"roughness": 1.0, "specular_ior_level": 0.0}
+    def make(r):
+        glow = r.create_material("principled", [0.3, 0.3, 0.3],
+                                 dict(d, emission_color=[1.0, 1.0, 1.0], emission_strength=0.4))
+        a = r.create_add_material(glow, r.create_material("principled", [0.2, 0.2, 0.2], d))
+        return r.create_mix_material(a, r.create_material("principled", [0.6, 0.6, 0.6], d), fac)
+    want = [0.6] * 3 if fac == 1.0 else [0.3 + 0.2 + 0.4] * 3
+    np.testing.assert_allclose(_wall(make, spp=128, use_gpu=use_gpu), want, rtol=0.04)
+
+
+def _uv_sphere_mesh(r, mat, nu=24, nv=12):
+    def p(i, j):
+        th, ph = np.pi * j / nv, 2 * np.pi * i / nu
+        return [float(np.sin(th) * np.cos(ph)), float(np.cos(th)), float(np.sin(th) * np.sin(ph))]
+    for j in range(nv):
+        for i in range(nu):
+            a, b, c, e = p(i, j), p(i + 1, j), p(i + 1, j + 1), p(i, j + 1)
+            for t in ((a, b, c), (a, c, e)):
+                if np.linalg.norm(np.cross(np.subtract(t[1], t[0]), np.subtract(t[2], t[0]))) > 1e-9:
+                    r.add_triangle(t[0], t[1], t[2], mat)
+
+
+@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])
+def test_emissive_mesh_with_bsdf_self_nee_is_finite_and_consistent(use_gpu):
+    """An emissive triangle mesh with a BSDF does NEE on its own triangles (zero-cosine /
+    coplanar samples have pdf 0, never Inf/NaN): NEE on and off agree."""
+    def centre(nee):
+        r = create_renderer()
+        _gpu_or_skip(r, use_gpu)
+        r.set_seed(7)
+        r.set_adaptive_sampling(False)
+        r.set_background_color([0.0, 0.0, 0.0])
+        r.set_light_nee(nee)
+        g = r.create_material("principled", [1, 1, 1],
+                              {"transmission_weight": 1.0, "roughness": 0.3, "ior": 1.45})
+        e = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 0.6, "two_sided": 1.0})
+        _uv_sphere_mesh(r, r.create_add_material(g, e))
+        r.setup_camera([0, 0, 4], [0, 0, 0], [0, 1, 0], 30.0, 1.0, 0.0, 4.0, 32, 32)
+        img = np.asarray(r.render(128, 4, None, False), dtype=np.float32)
+        assert np.isfinite(img).all()
+        return img[13:19, 13:19, 0].mean()
+    on, off = centre(True), centre(False)
+    assert off > 0.75, off
+    assert abs(on / off - 1.0) < 0.03, (on, off)
+
+
+@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])
+def test_bumped_emissive_principled_keeps_emission_and_bsdf(use_gpu):
+    """The Bump / Normal Map decorator forwards emission and hasBSDF (it dropped the
+    emission on the CPU; the GPU unwraps to the inner material and kept it)."""
+    def make(r):
+        r.create_procedural_texture("h995", "checker", [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 2.0])
+        return r.create_material("principled", [0.5, 0.5, 0.5],
+                                 {"roughness": 1.0, "specular_ior_level": 0.0,
+                                  "emission_color": [1.0, 1.0, 1.0], "emission_strength": 0.2,
+                                  "bump_map_texture": "h995", "bump_strength": 1.0})
+    np.testing.assert_allclose(_wall(make, use_gpu=use_gpu), [0.7, 0.7, 0.7], rtol=0.04)

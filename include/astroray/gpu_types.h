@@ -672,6 +672,9 @@ struct GClosureTree {
     GClosureTreeNode nodes[G_TREE_MAX_NODES];
     uint8_t          numLeaves, numNodes, bsdfMask, pad;
 };
+static_assert(sizeof(GClosureTreeNode) == 8, "GClosureTreeNode layout is shared host/device");
+static_assert(sizeof(GClosureTree) == 92, "GClosureTree layout is shared host/device");
+static_assert(G_TREE_MAX_LEAVES <= 8, "GClosureTree::bsdfMask holds one bit per leaf");
 
 // ---------------------------------------------------------------------------
 // pkg186 — GPU image texture (baked buffer + nearest fetch).

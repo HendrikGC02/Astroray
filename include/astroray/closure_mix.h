@@ -1,18 +1,20 @@
 #pragma once
 // ============================================================================
 // #995 / #955 -- closure composition: Add Shader and Mix Shader as one binary
-// closure node with per-hit child weights (wA, wB). Ported semantics, Cycles 5.2
-// (Apache-2.0):
-//   * kernel/svm/closure.h:1506-1522 svm_node_mix_closure: fac = saturatef(Fac)
+// closure node with per-hit child weights (wA, wB). Ported semantics, Cycles v5.2.0
+// tag (intern/cycles, Apache-2.0):
+//   * kernel/svm/closure.h:1499-1514 svm_node_mix_closure: fac = saturatef(Fac)
 //     evaluated at the shading point; the children get in_weight * (1 - fac) and
 //     in_weight * fac. Add Shader passes the incoming weight to both children
-//     (the closures simply accumulate), so wA = wB = 1.
+//     (scene/shader_nodes.cpp:5305 AddClosureNode: handled by the SVM compiler, the
+//     closures simply accumulate), so wA = wB = 1. A zero-weight branch contributes
+//     nothing (scene/shader_nodes.cpp:5359 MixClosureNode::constant_fold prunes it).
 //   * kernel/integrator/surface_shader.h:436-470: one BSDF closure is picked in
 //     proportion to its sample weight (kernel/closure/alloc.h:55-62, |avg(weight)|);
 //     :271-315 and :973-1010: the sampled direction is then evaluated on every
 //     closure, f = sum w_i f_i, pdf = sum q_i p_i (Veach 1997 one-sample model,
 //     balance heuristic). Emission closures are never picked.
-//   * kernel/integrator/shade_surface.h:818-869: emission is accumulated and the
+//   * kernel/integrator/shade_surface.h:817-868: emission is accumulated and the
 //     path continues through the BSDF closures (Material::hasBSDF).
 // Here each node picks child c with q_c = w_c [c has a BSDF] / sum, recursively, so
 // nested nodes give a product of local probabilities. That equals Cycles' flat pick
@@ -213,8 +215,12 @@ public:
 
     float constantFac() const { return fac_; }
     const std::shared_ptr<Texture>& facTexture() const { return facTex_; }
+    // A NaN program value keeps the constant Fac: the GPU graph kernel writes NaN when
+    // an input misses at a hit and the device keeps the constant (gpu_tree_weights).
     float facAt(const HitRecord& r, const Vec3& wo) const {
-        return facTex_ ? saturate(facTex_->value(r, wo).x) : fac_;
+        if (!facTex_) return fac_;
+        const float v = facTex_->value(r, wo).x;
+        return std::isnan(v) ? fac_ : saturate(v);
     }
     void weights(const HitRecord& r, const Vec3& wo, float& wA, float& wB) const override {
         const float f = facAt(r, wo);
@@ -262,6 +268,11 @@ struct ClosureTreeLowering {
     Vec3 emission{0.0f};   // sum of constant-weight leaf emission (RGB)
     std::string reason;
 };
+// The device side table (gpu_types.h GClosureTree) and the graph fac slots
+// (shader_graph.h) are sized by these bounds.
+static_assert(ClosureTreeLowering::kMaxLeaves == G_TREE_MAX_LEAVES, "GClosureTree leaf bound");
+static_assert(ClosureTreeLowering::kMaxNodes == G_TREE_MAX_NODES, "GClosureTree node bound");
+static_assert(ClosureTreeLowering::kMaxFacPrograms == sgraph::GRAPH_FAC_SLOTS, "graph fac slots");
 
 inline ClosureTreeLowering lowerClosureTree(const ClosureNodeMaterial& root) {
     using L = ClosureTreeLowering;
@@ -323,7 +334,9 @@ inline ClosureTreeLowering lowerClosureTree(const ClosureNodeMaterial& root) {
         const Material& m = *out.leaves[i];
         const MaterialBackendCapabilities c = m.backendCapabilities();
         if (dynamic_cast<const LightPathMixMaterial*>(&m)) fail("a Light Path switch inside the tree");
-        if (!c.gpu || c.gpuApproximate) fail("a closure without an exact GPU lowering");
+        // A leaf's own GPU approximation (Disney's static flag) applies inside the tree
+        // exactly as it does standalone, so only a leaf with no GPU lowering blocks it.
+        if (!c.gpu) fail("a closure without a GPU lowering");
         if (m.isDispersive() || m.hairGPUParams().isHair) fail("a dispersive or hair closure");
         if (m.normalMapInner() || m.normalMapTexture() || m.bumpMapTexture())
             fail("a normal-mapped or bumped closure");
@@ -364,6 +377,8 @@ inline MaterialBackendCapabilities ClosureNodeMaterial::backendCapabilities() co
     const ClosureTreeLowering t = lowerClosureTree(*this);
     if (t.reason.empty()) {
         MaterialBackendCapabilities caps = t.leaves[0]->backendCapabilities();
+        for (const auto& leaf : t.leaves)   // the leaves' own approximations carry over
+            caps.gpuApproximate = caps.gpuApproximate || leaf->backendCapabilities().gpuApproximate;
         caps.notes = "Add/Mix Shader closure tree (#995): GPU weights " +
                      std::to_string(t.leaves.size()) + " closures; " + caps.notes;
         return caps;

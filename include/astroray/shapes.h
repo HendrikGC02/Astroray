@@ -60,7 +60,8 @@ public:
     // surface now runs NEE when it also has a BSDF): the cone formula is NaN there.
     // pdfValue mirrors it (0), so the BSDF-hit MIS weight is 1 and the estimator stays
     // unbiased. pbrt-v4 Sphere::Sample (shapes.h, Apache-2.0) also leaves the cone
-    // sampler for points inside the sphere.
+    // sampler for points inside the sphere but switches to area sampling there; dropping
+    // the strategy gives the same expectation with more noise for this rare case.
     bool coneSamplable(const Vec3& origin) const {
         return (center - origin).length2() > radius * radius * (1.0f + 1e-4f);
     }

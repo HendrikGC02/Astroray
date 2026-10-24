@@ -1110,7 +1110,7 @@ __device__ int intersectPathSlotT(
         state.color_3[idx] = color.v[3];
         // #995: a pure emitter ends the path; a Principled with emission or a closure
         // tree (emission baked into its leaf 0) continues through its BSDF, as Cycles
-        // does (integrator/shade_surface.h:818-869). CPU twin: Material::hasBSDF.
+        // does (Cycles v5.2.0 integrator/shade_surface.h:817-868). CPU twin: Material::hasBSDF.
         if (!gpu_material_has_bsdf(mat)) {
             state.path_alive[idx] = 0;
             return -1;
@@ -1551,8 +1551,8 @@ __device__ __forceinline__ void gpu_applyScalarOverride(
 // GMaterial::closureTree != 0 is leaf 0 of c_wfClosureTrees[closureTree-1]; leaves
 // 1.. are hidden materials at c_wfAddMaterials[leafMat[i]] (published once per frame
 // by cuda_wavefront_render; nullptr = no tree in the scene). CPU twin: closure_mix.h
-// (ClosureNodeMaterial / lowerClosureTree). Ported semantics, Cycles 5.2 (Apache-2.0):
-// svm/closure.h:1506-1522 svm_node_mix_closure (child weights in_weight * (1 - fac),
+// (ClosureNodeMaterial / lowerClosureTree). Ported semantics, Cycles v5.2.0 (Apache-2.0):
+// svm/closure.h:1499-1514 svm_node_mix_closure (child weights in_weight * (1 - fac),
 // in_weight * fac; Add passes in_weight), integrator/surface_shader.h:436-470 (pick a
 // BSDF closure in proportion to its sample weight) and :271-315 / :973-1010 (one-sample
 // MIS: f = sum w_i f_i, pdf = sum q_i p_i; Veach 1997 Eq. 9.15). A per-texel Fac is

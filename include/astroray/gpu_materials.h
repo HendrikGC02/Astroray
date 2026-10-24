@@ -3609,7 +3609,7 @@ __device__ inline GVec3 gpu_material_emitted(
 // #995: does a path continue after this material's emission? A pure emitter (Cycles
 // Emission shader) ends it; a Principled with emission or a closure tree
 // (GMaterial::closureTree; its emission is baked into the Principled leaf 0) continues
-// through its BSDF (integrator/shade_surface.h:818-869). CPU twin: Material::hasBSDF.
+// through its BSDF (Cycles v5.2.0 integrator/shade_surface.h:817-868). CPU twin: Material::hasBSDF.
 __device__ inline bool gpu_material_has_bsdf(const GMaterial& mat)
 {
     return mat.closureTree != 0 ||

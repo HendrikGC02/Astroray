@@ -1460,14 +1460,18 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         }
         r.materials.push_back(convertMaterial(m));
         if (tree) {
+            // The intersect stage and the NEE emitter evaluation read emission from this
+            // GMaterial (gpu_principled_emitted): it must be the TREE's weighted sum, also
+            // when that is 0 (leaf 0 itself emissive with weight 0 must not keep its own;
+            // Cycles prunes a zero-weight branch, scene/shader_nodes.cpp:5359). A nonzero
+            // sum implies leaf 0 is a closure-graph Principled (lowerClosureTree).
             const Vec3& e = tree->emission;
-            if (e.x > 0.0f || e.y > 0.0f || e.z > 0.0f) {
-                // The intersect stage and the NEE emitter evaluation read emission from
-                // this GMaterial (gpu_principled_emitted); lowerClosureTree checked that
-                // leaf 0 is a closure-graph Principled.
-                GMaterial& ge = r.materials.back();
-                ge.principled.emissionColor = GVec3(e.x, e.y, e.z);
-                ge.principled.emissionStrength = 1.0f;
+            GMaterial& ge = r.materials.back();
+            if (ge.type == GMAT_CLOSURE_GRAPH && ge.closureCount >= 1 &&
+                ge.closures[0].type == GCLOSURE_PRINCIPLED) {
+                const bool any = e.x > 0.0f || e.y > 0.0f || e.z > 0.0f;
+                ge.principled.emissionColor = any ? GVec3(e.x, e.y, e.z) : GVec3(0.0f, 0.0f, 0.0f);
+                ge.principled.emissionStrength = any ? 1.0f : 0.0f;
             }
         }
         // pkg178 Stage-3b D4: flag scenes carrying a closure-graph Principled

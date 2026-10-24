@@ -1,6 +1,6 @@
 {
   "schema": "pkg278.issue_snapshot.v2",
-  "captured_at": "2026-10-24T12:56:53.028282+00:00",
+  "captured_at": "2026-10-24T20:17:28.229869+00:00",
   "repo": "HendrikGC02/Astroray",
   "command": [
     "gh",
@@ -17,8 +17,204 @@
   ],
   "capture_limit": 1000,
   "graphql_total_query": "repository.issues(states:OPEN).totalCount",
-  "reported_total": 69,
+  "reported_total": 81,
   "issues": [
+    {
+      "body": "Found by the pkg306 Phase 0 ablation (lane `lane-pkg306`, branch `lane/pkg306` e09df2c3, CPU, untouched main build 624e32df).\n\n`SpotLight::orientationCone()` (`src/lights/spot_light.cpp:167`) sets both light-tree cone angles to the spot half-angle; Cycles sets them to 0 and the half-angle (`scene/light_tree.cpp`, spot bounds). The spot therefore gets tree importance out to twice its real cone: on `v2_dispersion_caustics` a probe shows sun-lit floor points picking the spot 87 % of the time. It is a noise defect, not a bias: with Cycles' cone the trimmed variance ratio drops 80.5x -> 25x, `beam_through_prism` 40.6x -> 4.5x, `sphere_limb` 36.5x -> 2.7x, and every ROI mean is unchanged (|z| <= 0.4).\n\nFix: match Cycles' cone (cite the 5.2 lines), mirror in the GPU light tree upload if it has its own copy, add a test on the light-tree spot importance vs an analytic cone, re-run the v2 bands for the two pkg306 scenes only. Largest share of the dispersion scene's trimmed tail; the remaining ~12x is the photon-map caustic floor, which needs the pkg307 Mitsuba arbitration (Cycles does not render that light).\n\nEvidence: `%LOCALAPPDATA%\\astroray-evidence\\2026-10-24\\pkg306\\`, `.astroray_plan/docs/pkg306-tail-attribution.md` on the lane branch.\n",
+      "labels": [],
+      "number": 1172,
+      "title": "Light tree: SpotLight::orientationCone() uses the half-angle for both cone angles (Cycles: 0 and half-angle); spot over-weighted 2x in angle, dispersion scene trimmed variance 80x -> 25x with the Cycles cone",
+      "updatedAt": "2026-10-24T19:47:20Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1172"
+    },
+    {
+      "body": "Found by the pkg306 Phase 0 ablation (lane `lane-pkg306`, branch `lane/pkg306` e09df2c3, CPU, untouched main build 624e32df).\n\nAn unbiased strategy switch moved a mean (memory `unbiased-strategy-switch-moving-a-mean-is-a-bug-signal`): with `use_light_tree` off, `v2_dispersion_caustics` ROI `sphere_limb` reads **0.36x Cycles (z = -37)**. Cause: `DistantLight::power()` (`src/lights/distant_light.cpp:254`) still multiplies by the sun's solid angle Omega although `intensity_` has been irradiance since pkg122, so the sun's selection power is tiny and the flat light sampler almost never picks it; the light tree masks it only partially.\n\nFix: make `power()` consistent with the pkg122 irradiance convention (cite Cycles `scene/light.cpp` distant light power / `light_tree.cpp` importance for distant lights), add a test that the flat sampler and the light tree give the same `sphere_limb` mean within the MC band, and re-check the pkg294 lamp-footprint anomaly (a tilted rectangle's floor footprint read 4.9x Cycles) which may share the convention slip.\n\nEvidence: `%LOCALAPPDATA%\\astroray-evidence\\2026-10-24\\pkg306\\`, attribution doc `.astroray_plan/docs/pkg306-tail-attribution.md` on the lane branch. Out of pkg306's scope (light selection is a non-goal there).\n",
+      "labels": [],
+      "number": 1171,
+      "title": "DistantLight::power() still scales by the sun's solid angle (intensity is irradiance since pkg122): flat light sampler almost never picks the sun; sphere_limb 0.36x Cycles with the light tree off",
+      "updatedAt": "2026-10-24T19:47:19Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1171"
+    },
+    {
+      "body": "From the blind review of `scripts/generate_blender_parity_matrix.py` for the 2026-10-25 gate (b) receipt (delta cb70daa3..fdb8774b; verdict ACCEPT, none of these blocks the receipt because the committed matrix is correct and `test_pkg260_scanner_categories` pins the affected set).\n\n1. **Report-only reads earn SUPPORTED (real, pre-existing pkg260 code).** `image_property` rows (gen ~2672-2679, 1147-1154) credit SUPPORTED when the attribute name appears anywhere in the addon file. `__init__.py:3450` (#1157) reads `interpolation` only to format a `_warn_shader_fallback` message, so a fresh regeneration flips `ShaderNodeTexImage|interpolation` DROPPED-SILENT -> SUPPORTED (CI catches it today). Root-node evidence (gen ~1652-1702, e.g. `_report_unhonoured_bsdf_props`) has the same defect class, masked by dispatch evidence taking precedence (gen ~1751). Rule: credit a `getattr(x,'P')` / `x.P` only when its value is passed to a call other than `_warn_shader_fallback` / `str` / `print`, returned, or stored.\n2. **Fail-open branch merge (latent).** gen ~1534-1541: a sibling branch with no allow-list combined with the rejected-set intersection lets a name that only appears in a rejection (counted at ~1338) earn SUPPORTED. No live instance (only MATH has two branches, neither with an allow-list); no fixture.\n3. **Compound-condition rejection (latent).** gen ~1252-1271: `if <out_name test> and ...: raise` is not treated as a rejection. No live instance; no fixture.\n4. **Root type-only SUPPORTED (fail-open rule).** gen ~1745-1770 `_apply_root_node_evidence` hardcodes node-level SUPPORTED from a type comparison alone (TEX_SKY / TEX_ENVIRONMENT output:Color), ignoring TEX_SKY's own `_warn_shader_fallback` (`__init__.py:7656`); true today because `setup_world` consumes both (7544-7547).\n5. **Comparison polarity (latent).** gen ~1484-1490 `scan_addon_output_names` treats `name != 'X'` as naming X an output. No live instance.\n6. Structural wildcard credit (gen ~1773-1777, 2700-2715) over-credits only world and light trees, which are walked without inlining; documented in the row notes.\n\nFix as one tightly scoped scanner PR with negative fixtures for each path; regenerate the matrix on Blender 5.2 and confirm it is byte-identical to the committed one except for rows the fixtures predict.\n",
+      "labels": [],
+      "number": 1168,
+      "title": "Parity scanner: report-only attribute reads earn SUPPORTED; latent fail-open merge / compound rejection / root type-only / polarity paths (blind review 2026-10-25)",
+      "updatedAt": "2026-10-24T18:36:13Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1168"
+    },
+    {
+      "body": "Found by lane gate-b (2026-10-25): `python benchmarks/reference_corpus/coverage_report.py --score ...` run as a script (not `-m`) fails the `from benchmarks...` import unless `PYTHONPATH=<repo>`; the validator catches it and reports the evidence as 'cannot be decoded', so S silently scores 0.0 for valid evidence. The lane scored with `PYTHONPATH=.`. Any earlier script-mode `--score` may have been affected. Fix: make the import path-independent (insert the repo root from `__file__`) and make an ImportError a hard error, never a 0.0 score; add a test that runs the scorer as a script from a different cwd.",
+      "labels": [],
+      "number": 1167,
+      "title": "coverage_report.py --score run as a script silently scores 0.0 (benchmarks import fails without PYTHONPATH; validator swallows it as 'cannot be decoded')",
+      "updatedAt": "2026-10-24T18:32:31Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1167"
+    },
+    {
+      "body": "At the same max-bounces setting Astroray allows 2 fewer glass bounces than Cycles. On the pkg325 thick-glass scene (white world; panes crossed by 2 / 4 / 6 glass interfaces, `benchmarks/showcase/spectral/pkg325`):\n\n| interfaces k | Cycles 5.2 passes at cap | Astroray passes at cap |\n|---|---|---|\n| 2 | 1 | 3 |\n| 4 | 3 | 5 |\n| 6 | 5 | 7 |\n\nSo Cycles needs cap >= k-1, Astroray needs cap >= k+1. Same on CPU, GPU (OptiX build, software BVH agrees) and the addon route (`render(samples, settings.max_bounces, ...)`, no offset). Measured as ROI mean over a pure-sky ROI: dead (< 0.25 of 1.0) below the threshold, 0.89-1.0 at it. Evidence: `%LOCALAPPDATA%\\astroray-evidence\\2026-10-24\\pkg325\\s7` (`cyc_b*.npy`, `cpu_b*.npy`, `gpu_b*.npy`).\n\n**Cycles (v5.2.0):** `intern/cycles/scene/integrator.cpp:222,226` hands the kernel `max_bounce + 1` and `max_transmission_bounce + 1`. `kernel/integrator/path_state.h:143-146` (total) and `:205-208` (transmission) set `PATH_RAY_TERMINATE_AFTER_TRANSPARENT` once the count reaches the limit; the NEXT surface then gets no BSDF (`surface_shader.h:1265-1268`, `shade_surface.h:497-499`). So the cap-th bounce scatters and one more surface is shaded.\n\n**Astroray:** `include/raytracer.h:4012` loops `bounce < maxDepth` with maxDepth = the Blender value, so the continuation ray of vertex `maxDepth-1` is never traced (k interfaces need maxDepth >= k+1); the per-type limit at `:4883` (`typeCount >= typeLimit` -> break) takes the limit verbatim. GPU twin: `src/gpu/wavefront/stage_advance_device.cuh:2815` (`next_bounce >= max_depth`) and the `c_wfBounceLimit` block at `:2779` (`cnt >= lim`).\n\nEffect: at equal settings Astroray renders strictly fewer bounces than Cycles (diffuse interreflection too, not only glass; not measured here). Found while building pkg325; not changed there (default `terminate` must stay as is until this is decided). Fix candidates: offset maxDepth / per-type limits by +1 like Cycles, on CPU and GPU together, then re-pin tests calibrated on the current counting.\n",
+      "labels": [
+        {
+          "id": "LA_kwDOQvjUZs8AAAACTcg7qQ",
+          "name": "bug",
+          "description": "Something isn't working",
+          "color": "d73a4a"
+        }
+      ],
+      "number": 1165,
+      "title": "Bounce cap accounting: Astroray allows 2 fewer glass bounces than Cycles at the same cap (Cycles k-1 suffices for k interfaces, Astroray needs k+1)",
+      "updatedAt": "2026-10-24T17:54:19Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1165"
+    },
+    {
+      "body": "Side observation from lane pkg325 (2026-10-25), not yet reduced: in an engine-only script on the GPU, calling `set_background_color([0, 0, 0])` BEFORE `load_environment_map(...)` rendered the frame all black; removing the `set_background_color` call fixed it. CPU not checked. Expected: the environment map replaces the constant background regardless of call order (the addon may already order the calls the safe way, which is why it has not shown in Blender). Reduce with a 16x16 white-world scene on main's build, both orders, CPU and GPU; if confirmed, the GPU env upload or the `enableEnv`-style flag is being cleared by the later/earlier background call.\n",
+      "labels": [],
+      "number": 1164,
+      "title": "GPU: set_background_color before load_environment_map renders black (call-order dependence, unreduced)",
+      "updatedAt": "2026-10-24T15:50:59Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1164"
+    },
+    {
+      "body": "Found by lane pkg326 (branch `lane/pkg326` 1c40c86c) while routing the Glass BSDF Thin Film sockets (#1136) into the native `principled` material.\n\nAt Roughness <= 0.03 the Principled sampler takes the delta-glass path with plain dielectric Fresnel on both backends (CPU `plugins/materials/principled.cpp` ~2013; GPU `kPrincipledDeltaGlassRoughness`), so a smooth glass or Principled surface ignores `Thin Film Thickness` / `Thin Film IOR` entirely. Cycles applies the thin-film Fresnel in the delta case too (`kernel/closure/bsdf_microfacet.h:795-917`, Blender v5.2.0). A soap bubble is smooth by construction, so this is the showcase case (pkg324 sp04) and the Glass node's default (Roughness 0).\n\nEvidence: `%LOCALAPPDATA%\\astroray-evidence\\2026-10-24\\pkg326\\glass_bubble_montage.png` (rough Glass + film and Principled + film show interference glints; smooth Glass + film shows white glints); `tests/test_pkg326_glass_thin_film.py::test_smooth_glass_bubble_shows_film` is `xfail(strict)` on this; the addon reports smooth Glass with film per render until fixed.\n\nFix: apply the thin-film Fresnel (`thin_film_fresnel.h`, shared table) in the four delta-glass sites (CPU RGB/spectral, GPU RGB/spectral). The GPU shade kernel is register-saturated (REG 254): expect to route it through the existing closure parameters without new per-hit live state; measure with cuobjdump. Physics over look-parity (owner 2026-09-29): Cycles is right here, there is no reason to keep the delta path film-blind.\n",
+      "labels": [],
+      "number": 1162,
+      "title": "Smooth glass (Roughness <= 0.03) ignores Thin Film on CPU and GPU: the Principled delta-glass path uses plain Fresnel; Cycles applies the film",
+      "updatedAt": "2026-10-24T15:21:32Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1162"
+    },
+    {
+      "body": "Found by pkg324 (`sp08_shader_ball_bench`: 21 Cycles-node tiles on spheres under the CC0 sky HDRI, Astroray CPU vs Cycles CPU, 128 spp, seed 324, Blender 5.2). 16 of 21 tile ROIs are within +-15 % luminance. The failing ones:\n\n| tile (node graph) | Astroray / Cycles luminance | per-channel R, G, B ratio |\n|---|---|---|\n| separate_combine_color: constant (0.9, 0.3, 0.1) -> Separate Color -> Combine Color (R<->B swap) -> Base Color | 2.66 | 6.11, 2.54, 0.92 |\n| separate_combine_xyz: Texture Coordinate Object -> Separate XYZ -> Combine XYZ (Z,X,Y shuffle) -> Base Color | 7.55 | 5.3, 8.4, 15.5 |\n| vector_math_dot_normalize: Object coords -> Normalize -> Dot Product with (0,0,1) -> Base Color | 4.73 | 4.7, 4.7, 4.8 |\n| bump_checker, bump_noise_strength_1p6 | 1.28, 1.35 | procedural bump, already tracked (#1005: \"procedural bump needs per-hit footprint differentials\") |\n\nThe render log reports `op-VM: shader chain on 'Base Color' not representable (unsupported node type in op-VM chain: TEX_COORD) - flattened to grey` and `graph program: ... Texture Coordinate 'Object' is unsupported in a graph program image coordinate (only UV); constant value used`, i.e. the shuffled/normalised coordinate chains are flattened to a constant that is far brighter than Cycles' result (the first tile has no coordinates at all: a constant Separate/Combine Color swap that Astroray appears not to apply). Not root-caused here; these are the same node families the competitor's own parity sheet fails (Separate/Combine XYZ, Vector Math dot/normalize).\n\nRepro: `python -m benchmarks.showcase.runner --preset spectral --legs cpu cycles --scenes sp08_shader_ball_bench --pyd-dir <addon dir>`; the per-tile table is in `results.json` -> `checks._parity.sp08_shader_ball_bench.cpu`. Scene: `benchmarks/showcase/spectral/scenes/sp08_shader_ball_bench.blend` (built by `build_scenes.py`, tiles in `_tile_mats`).",
+      "labels": [
+        {
+          "id": "LA_kwDOQvjUZs8AAAACTcg7qQ",
+          "name": "bug",
+          "description": "Something isn't working",
+          "color": "d73a4a"
+        },
+        {
+          "id": "LA_kwDOQvjUZs8AAAACfPzrOQ",
+          "name": "textures",
+          "description": "Texture/image nodes",
+          "color": "F9D0C4"
+        },
+        {
+          "id": "LA_kwDOQvjUZs8AAAACfPzrgA",
+          "name": "blender-export",
+          "description": "Blender scene export/conversion",
+          "color": "FEF2C0"
+        },
+        {
+          "id": "LA_kwDOQvjUZs8AAAACfP9G4A",
+          "name": "P2-medium",
+          "description": "Important but not blocking",
+          "color": "FBCA04"
+        }
+      ],
+      "number": 1159,
+      "title": "node bench: Separate/Combine Color, Separate/Combine XYZ and Vector Math (dot/normalize) tiles are 2.7x-7.5x off Cycles on the CPU",
+      "updatedAt": "2026-10-24T14:41:49Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1159"
+    },
+    {
+      "body": "Found by pkg324 (spectral showcase corpus, scene `sp09_classroom`, the Blender CC0 Classroom demo).\n\n`blender_addon/__init__.py` (~L4048, the pkg274 missing-texture guard) checks `os.path.exists(bpy.path.abspath(bpy_image.filepath))`. For an image that is *linked from a library .blend* (`bpy_image.library` set, which is how the Classroom uses its `assets/*` group instances), the relative `//` path is relative to the LIBRARY file, not the main file, so `bpy.path.abspath(filepath)` without `library=` points at a non-existent folder. The texture is then replaced by the 1x1 magenta fallback and a DEGRADED entry is logged.\n\nEvidence (Blender 5.2, `classroom.blend` with its `textures/` and `assets/` folders beside it): 32 file images are reported missing by `abspath(filepath)` and all 32 exist with `bpy.path.abspath(filepath, library=image.library)`. Astroray CPU at 480x270 / 48 spp renders every chair and desk metal/leather/wood part magenta and the blackboard white, while Cycles renders them textured; the render log lists `degraded base_leather.jpg: ...\\classroom\\..\\..\\textures\\_baseTextures\\base_leather.jpg` etc.\n\nFix sketch: resolve with `bpy.path.abspath(filepath, library=bpy_image.library)` (or `bpy_image.filepath_from_user()`) in the guard and in the loader that follows it; same for the other `bpy.path.abspath(...)` image/HDRI call sites (~L7167, L7471). Test: a two-file fixture (library .blend with an image + a main file linking it from a different folder) must render the texture, not magenta.\n\nRepro: `python -m benchmarks.showcase.runner --preset spectral --legs cpu cycles --scenes sp09_classroom --pyd-dir <addon dir>` after copying the demo into `benchmarks/showcase/spectral/assets/classroom/` (see `benchmarks/showcase/spectral/manifest.json`, `sp09_classroom`).",
+      "labels": [
+        {
+          "id": "LA_kwDOQvjUZs8AAAACTcg7qQ",
+          "name": "bug",
+          "description": "Something isn't working",
+          "color": "d73a4a"
+        },
+        {
+          "id": "LA_kwDOQvjUZs8AAAACfPzrgA",
+          "name": "blender-export",
+          "description": "Blender scene export/conversion",
+          "color": "FEF2C0"
+        },
+        {
+          "id": "LA_kwDOQvjUZs8AAAACfP9G4A",
+          "name": "P2-medium",
+          "description": "Important but not blocking",
+          "color": "FBCA04"
+        },
+        {
+          "id": "LA_kwDOQvjUZs8AAAAC0E0a4A",
+          "name": "addon-bug",
+          "description": "Blender addon defect: wrong image, crash, or native setting silently ignored",
+          "color": "d73a4a"
+        }
+      ],
+      "number": 1158,
+      "title": "addon: images linked from a library .blend resolve against the main file, so asset-library scenes render magenta (CC0 Classroom chairs/desks)",
+      "updatedAt": "2026-10-24T14:57:03Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1158"
+    },
+    {
+      "body": "cpp-abi-guard notes on lane i1004 (e1d9c77f, #1004), no blocker:\n1. The GPU hard-codes the Linear bump step `0.1f` (`src/gpu/wavefront/stage_advance_device.cuh` bump block) instead of sharing `kBumpLinearStepTexels` (`plugins/materials/normal_mapped.cpp`). Move one constant into `include/astroray/gpu_types.h` next to `gpu_imageLinearTaps`.\n2. Degenerate Mapping (zero scale on a UV axis): the CPU falls back to the nearest 1.5-texel path, the GPU clamps the divisor to 1e-8. Pick one behaviour for both.\n3. The CPU reads the normal-map image Linear only in UV coordinate mode; the GPU always reads it as UV (pre-existing: the GPU normal map ignores the coord mode) and now Linear. Align, or report a non-UV normal map on GPU.\nGate: CPU/GPU parity on a mapped image bump with a zero-scale axis, and a Generated-coord normal map, both backends.",
+      "labels": [],
+      "number": 1156,
+      "title": "Bump/normal-map CPU-GPU twin drift: shared step constant, degenerate Mapping, normal-map coord mode",
+      "updatedAt": "2026-10-24T14:39:01Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1156"
+    },
+    {
+      "body": "Found by pkg324 (spectral showcase corpus) while writing the analytic prism/dispersion checks.\n\n`include/astroray/optical_presets.h` defines the `diamond` preset as `B = (0.3306, 4.3356, 0)`, `C = (0.0175, 0.1060, 0)`. These are Peter (1923) numbers, but Peter's formula uses the resonance WAVELENGTHS `lambda_1 = 0.175 um`, `lambda_2 = 0.106 um` in the denominator `l^2 - lambda_i^2`, while `sellmeierIOR` (plugins/materials/dielectric.cpp) and the GPU upload use the Schott form `l^2 - C_i` with `C_i` in um^2. The preset therefore has `C_1 = 0.0175` (should be `0.175^2 = 0.030625`) and `C_2 = 0.1060` (should be `0.106^2 = 0.011236`).\n\nEvaluated with the engine's own formula:\n\n| lambda (nm) | preset n | Peter 1923 n |\n|---|---|---|\n| 450 | 3.234 | 2.445 |\n| 587.56 | 2.758 | 2.4175 |\n| 650 | 2.671 | 2.411 |\n\nso a `diamond` Sellmeier Glass renders with n_d = 2.76 and ~3x the real dispersion. (The preset's flat `ior` field is the correct 2.417, so only the dispersive path is wrong.)\n\nFix: `C = {0.030625f, 0.011236f, 0.0f}` for `diamond`, with a test that `iorAt(587.56) == 2.417 +- 0.002` on CPU and the GPU hero-wavelength path. `tests/test_pkg324_showcase_corpus.py::test_engine_diamond_preset_matches_peter1923` is a strict xfail pinned to this issue; remove the marker in the fix PR. The pkg324 diamond scene avoids the preset (manual Peter coefficients on the Sellmeier node), so the corpus is unaffected by the fix.",
+      "labels": [
+        {
+          "id": "LA_kwDOQvjUZs8AAAACTcg7qQ",
+          "name": "bug",
+          "description": "Something isn't working",
+          "color": "d73a4a"
+        },
+        {
+          "id": "LA_kwDOQvjUZs8AAAACfPzq4Q",
+          "name": "material",
+          "description": "Material/BSDF/shader nodes",
+          "color": "D4C5F9"
+        },
+        {
+          "id": "LA_kwDOQvjUZs8AAAACfP9G4A",
+          "name": "P2-medium",
+          "description": "Important but not blocking",
+          "color": "FBCA04"
+        }
+      ],
+      "number": 1155,
+      "title": "diamond Sellmeier preset: n_d = 2.758 instead of 2.417 (C terms are not the squared resonance wavelengths)",
+      "updatedAt": "2026-10-24T14:12:53Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1155"
+    },
+    {
+      "body": "Cycles raises a bumped / normal-mapped shading normal toward Ng when the specular reflection would go below the surface (`kernel/closure/bsdf_util.h` `ensure_valid_specular_reflection`, applied by `maybe_ensure_valid_specular_reflection` to glossy closures when the material's `use_bump_map_correction` is on; Blender's default is on). Astroray has no equivalent (no `ensure_valid` anywhere).\n\nMeasured in lane i1004 (#1004): a trial in NormalMappedPlugin moved prod_pbr_group centre +2 % (0.904 -> 0.925 without bump, Cycles 0.966) and left +1.5 %. Small on that scene, larger on strong normal maps at grazing views. Applies to every bumped glossy lobe on CPU and GPU, so it is its own change with its own gate (pbr_group + a grazing normal-map scene), not part of #1004.",
+      "labels": [],
+      "number": 1154,
+      "title": "Cycles bump-map correction (ensure_valid_specular_reflection) is not implemented",
+      "updatedAt": "2026-10-24T14:33:36Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1154"
+    },
+    {
+      "body": "Follow-up to #1005 (branch `lane/issue1004`).\n\nCPU now (a) differences a procedural / op-VM Bump Height (NormalMappedPlugin, Object/Generated/Camera coords via `Texture::valueDisplaced`) and (b) shades the Principled coat on sd->N and the sheen on normalize(mix(N, sd->N, coat_weight)) under a Bump / Normal Map (Cycles `svm/closure.h`: Coat Normal is LINK_NORMAL, unlinked = sd->N). prod_car_paint CPU 3/16 -> 13/16.\n\nGPU still:\n1. ignores a non-image bump texture (`scene_upload.cu` uploads `ImageTexture` bumps only); the addon reports it on GPU renders. Needs a bump proc id side array + three `gpu_procTexEval` taps (P, P+dPdx, P+dPdy in object coords + Mapping) in the HasNormalPerturb block; op-VM Height chains (prod_wood) need the program at displaced points.\n2. bumps the coat lobe (gpu_materials.h `GPR_COAT` uses rec.normal). With image bumps / normal maps on coated Principled, GPU now differs from CPU. Needs the pre-bump normal (pkg314 hit_normal) for GPR_COAT / GPR_SHEEN.\n\nBoth touch register-saturated shade kernels (REG 254): out-of-line, behind the HasNormalPerturb axis. Gate: prod_car_paint GPU lit_front / upper_flake in band, GPU bump report removed, prod_wood GPU re-measured; pkg323 `KNOWN_ZERO_EFFECT` for prod_wood/Hero/Bump removed.",
+      "labels": [],
+      "number": 1153,
+      "title": "GPU: procedural Bump Height and Principled coat normal (CPU landed in lane i1004, #1005)",
+      "updatedAt": "2026-10-24T14:33:44Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1153"
+    },
+    {
+      "body": "Found by the cpp-abi-guard review of #1151 (#1125). Not an ABI issue; a planning/overflow follow-up.\n\n`src/gpu/wavefront/gpu_wavefront_snapshot.cu` (`cuda_wavefront_render`): since #1125 the host pass plan uses the true transparent limit, `passDepth = max_depth + tLim + 1`, where it was capped at 31 before. Two consequences:\n\n1. The 32-bit work-counter guard (`total_work + total_paths * (16 + passDepth + 2) > 0x7FFFFFFF` -> `throw std::runtime_error`) can now fire on large frames with alpha materials and a high `transparent_max_bounces`. Rough thresholds on the RTX 5070 Ti pool (pool = numPixels for frames above ~1.7M px): 1080p at 128 spp throws above tLim ~870; 4K throws above tLim ~210 (Blender's UI allows up to 1024). Before #1125 the same settings rendered silently with the pass count saturating at 31 (the bug #1125 fixed), so the new behaviour is honest but a failed render is worse UX than a capped one.\n2. `wavefrontPoolSize` shrinks the pool from `work + pool * (16 + maxDepth + 2)` only; it does not know `passDepth`, so the pool is never shrunk for transparent passes before the guard throws.\n3. `tLim + 1` is `int` arithmetic on a value settable from Python; near `INT_MAX` it overflows (UB). Clamp it.\n\nSuggested fix: include `passDepth` in `wavefrontPoolSize`'s overflow check so the pool shrinks first; clamp the planning `tLim` to a sane bound (Blender max 1024) with `long long` arithmetic; if the counter still cannot fit, fall back to fewer in-flight paths rather than throwing. Keep the per-path `pass_count` lane as the true limit.\n",
+      "labels": [],
+      "number": 1152,
+      "title": "Wavefront pass plan: high transparent_max_bounces on large frames can trip the 32-bit work-counter guard since #1125",
+      "updatedAt": "2026-10-24T13:47:54Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1152"
+    },
+    {
+      "body": "Found while running the #1125 GPU legs (lane/issue1125, build ce06265d) and reproduced on main's pre-#1125 build (same numbers), so it is pre-existing.\n\nScene: 16x16, lambertian floor + sphere, a 6.0 area light, and a fully transparent principled sheet (`alpha: 0.0`) covering the whole frame between camera and sphere. Seed 7, 16 spp, `use_temporal=0`, `use_spatial=0` for ReSTIR.\n\n| integrator | sheet | max_depth | GPU mean | CPU mean |\n|---|---|---|---|---|\n| restir-di | yes | 1 | **0.0000** | **0.0000** |\n| restir-di | yes | 4 | **0.0000** | 0.0285 |\n| restir-di | no | 1 | 0.0265 | 0.0263 |\n| path_tracer | yes | 1 | 0.0261 | 0.0264 |\n| path_tracer | yes | 4 | 0.0288 | 0.0296 |\n\nTwo defects:\n1. GPU ReSTIR-DI renders black behind an alpha-0 surface at any depth. The path tracer passes through it on both devices (a transparent pass is free, #1033).\n2. CPU ReSTIR-DI counts the alpha-0 pass as a bounce (black at `max_depth=1`, fine at 4), so CPU and GPU ReSTIR disagree with each other and with the path tracer.\n\nConsequence for #1125: the ReSTIR leg of `tests/test_issue1125_gpu_transparent_stale_binding.py` cannot use a transparent surface, so the ReSTIR `c_wfTransparentLimit` reset is only hygiene-tested there until this is fixed.\n\nRepro script: the probe table above comes from a 40-line script that builds the scene via the Python bindings and sweeps integrator x sheet x depth x device; it can be re-created from the table's scene description.\n",
+      "labels": [],
+      "number": 1150,
+      "title": "GPU ReSTIR-DI renders black behind an alpha-0 surface; CPU ReSTIR counts the transparent pass as a bounce",
+      "updatedAt": "2026-10-24T13:43:32Z",
+      "url": "https://github.com/HendrikGC02/Astroray/issues/1150"
+    },
     {
       "body": "From the i16 rough-glass Cycles-parity review (minor finding), deferred by lane i1120.\n\nCycles `bsdf_microfacet_sample` rejects a sampled direction on the wrong side of the **geometric** normal as well as the shading normal (Blender 5.2 `kernel/closure/bsdf_microfacet.h:854-862`, BSD-3-Clause):\n\n```\nif ((cos_NgO < 0) != do_refract || (cos_NO < 0) != do_refract) return LABEL_NONE;\n```\n\nAstroray's rough-glass sampler (CPU `principled.cpp` chooseAndSampleDir, GPU `gpu_pr_chooseAndSampleDir`) does only the shading-normal half. Neither `HitRecord` (`include/raytracer.h:368`) nor `GHitRecord` (`include/astroray/gpu_types.h:1001`) carries a geometric normal, so the Ng half cannot be added without new per-hit state. On the GPU that state sits in the register-saturated shade kernels (REG 254, lane rule 13), so it needs a design (e.g. a side table, or deriving Ng from the hit triangle on demand) and a cuobjdump REG/STACK + perf measurement.\n\nImpact: smooth-shaded meshes only (shadow-terminator region, where N and Ng disagree); spheres and flat meshes have Ng == N. Cycles applies the same check to other closures, so a fix should cover them together.\n\nAcceptance: a smooth-shaded low-poly glass mesh where reflection samples that go into the geometry (or refraction samples that leave it) are rejected on CPU and GPU, with a test that fails before; no REG/STACK regression on the principled shade kernels.\n",
       "labels": [],
@@ -129,22 +325,6 @@
       "title": "Disney delta glass uses Schlick Fresnel without the side-aware dielectric form (#1112 pattern)",
       "updatedAt": "2026-10-17T13:41:21Z",
       "url": "https://github.com/HendrikGC02/Astroray/issues/1126"
-    },
-    {
-      "body": "From next-session-prompt-2026-10-07 (not filed then) and architect-plan-2026-10-18 item 9.\n\n1. The ReSTIR / snapshot drivers leave `c_wfTransparentLimit` bound from the previous render (same stale-binding class as #1115, fixed for the guide and miss-coverage bindings in #1118). Gate: a transparent scene rendered after a ReSTIR render in the same process equals a fresh-process render to 1e-6.\n2. #1047 item 4: the GPU `lp_state` transparent bitfield saturates at 31, so `transparent_max_bounces` 40 behaves like 31 on the GPU while the CPU honours it. Widen the field or clamp with a DegradationReport. Check the struct size (shade kernel REG 254, lane rule 13).\n\nFix pattern: the #1118 reset in the ReSTIR/snapshot drivers; `src/gpu/wavefront/gpu_wavefront_state.h`.",
-      "labels": [],
-      "number": 1125,
-      "title": "ReSTIR leaves c_wfTransparentLimit stale across renders (same class as #1115); GPU lp_state transparent counter saturates at 31 (#1047 item 4)",
-      "updatedAt": "2026-10-17T13:41:20Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/1125"
-    },
-    {
-      "body": "After pkg322 (#1105), `blender_addon/shader_vm_compiler.py` compiles Geometry **Pointiness** as a per-vertex layer input (`_compile_socket_value`: `if out_name == 'Pointiness': return _attribute_input(...)`). The regenerated matrix still classifies `ShaderNodeNewGeometry | output:Pointiness` as **DROPPED-SILENT**: the pkg320/#1101 output-socket credit rule does not see that `out_name` comparison. Backfacing is credited.\n\nExpected: the scanner credits Pointiness, mechanically, from that `out_name == 'Pointiness'` branch, with a negative fixture. The fix would then remove one false silent pair from prod_curves_geometry in gate (b) and row (g).",
-      "labels": [],
-      "number": 1117,
-      "title": "Scanner: Geometry Pointiness stays DROPPED-SILENT although pkg322 handles it (out_name branch not credited)",
-      "updatedAt": "2026-10-06T11:06:47Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/1117"
     },
     {
       "body": "Found by pkg318 (provisional gate (b) score, 2026-10-06).\n\nThe coverage-matrix scanner/collector pair makes working features read as silent drops or as absent from the matrix, which scores 0 and also fails b4:\n\n* **Output/Background/Environment/IES rows read DROPPED-SILENT (\"no handler in addon translation layer\")**: `ShaderNodeOutputMaterial|input:Surface/Volume/Displacement/Thickness`, `ShaderNodeOutputWorld|input:Surface/Volume`, `ShaderNodeOutputLight|input:Surface`, `ShaderNodeBackground|input:Color/Strength`, `*|prop:is_active_output`, `ShaderNodeTexEnvironment|input:Vector`, `ShaderNodeTexIES|*`. The addon handles these through the root-output traversal, not a per-node handler the scanner can see. Weight: 39 of 469 (nine-scene), 40 of 474 (candidate).\n* **Collector socket identifier vs matrix key mismatch**: the collector reports `ShaderNodeMath|input:Value_001`, `ShaderNodeMix|input:A_Color/B_Color/A_Float/B_Float/A_Vector/B_Vector/Factor_Float`, `ShaderNodeMixShader|input:Shader_001`, `*|input:Fac` (HueSaturation, Invert, MixRGB, RGBCurve, VectorCurve, ValToRGB), `ShaderNodeBrightContrast|input:Bright`, `NodeGroupOutput|input:Socket_0/__extend__`, `ShaderNodeGroup|input:Socket_1`; the matrix has no row under that canonical identity, so each is \"absent from the matrix\". Weight: 15 (nine-scene), 28 (candidate).\n\nNot covered by #1039 (output-socket rows) or #872 (generator drift; note a full regeneration on main 2026-10-06 reproduces the committed 586-row matrix exactly).\n\nFix: credit the Output/Background/Environment/IES handling in the scanner (mechanical evidence, same discipline as #1028) and reconcile the canonical identity (socket identifier vs name) between `coverage_report._snapshot` and the matrix generator.\n\nObservable: `silent_drop_audit.py coverage` matrix-silent count drops by those rows; the identities above resolve to a class in `matrix_by_identity`.\n",
@@ -305,33 +485,6 @@
       "title": "test_spatial_reduces_mse is a coin flip: spatial/no-reuse MSE ratio 0.98-1.02 across seeds on main",
       "updatedAt": "2026-09-29T22:56:26Z",
       "url": "https://github.com/HendrikGC02/Astroray/issues/997"
-    },
-    {
-      "body": "Found by the pkg310 production corpus (burn-down: `.astroray_plan/docs/pkg310-production-corpus-burndown.md`).\n\n**Root cause.** A Mix Shader whose Fac is a per-texel texture applies the texture only to Roughness/Metallic/IOR/Transmission; \"base colour use the constant mix\" (`approximated MIX_SHADER: textured Fac is per-texel only for Roughness/Metallic/IOR/Transmission`). A nested stack `Add(Mix(Mix(Principled metal, Principled paint, Noise), Glass, Noise -> Ramp), Emission)` therefore collapses to one constant-mixed opaque Principled. Add Shader keeps the first BSDF (#955) and the Glass branch of a Mix with a non-constant Fac is lost. Fixing it needs closure composition that keeps each lobe with a per-hit weight (the texel-dependent Fac) instead of blending parameters.\n\n**Evidence** (Astroray / Cycles, seed 278): `prod_shader_stack` all four ROIs 0.28-0.45 of Cycles (CPU and GPU identical); the glass and the emission are absent.\n\n**Category:** closure composition. **Backends:** CPU and GPU.\n**Materials unblocked:** prod_shader_stack (with #955 and the op-VM slot-bound issue).\n**Observable:** `prod_shader_stack` `lit_front` and `right` L within 1 +- 0.05 (now 0.43, 0.39).\nRelated: #955 (Add Shader), #954 (GPU single-texture programs).\nPhase (plan section 1): P2 (closure composition; feeds the P4 fork note).\n",
-      "labels": [
-        {
-          "id": "LA_kwDOQvjUZs8AAAACfPzqOQ",
-          "name": "cycles-parity",
-          "description": "Cycles feature parity",
-          "color": "0E8A16"
-        },
-        {
-          "id": "LA_kwDOQvjUZs8AAAACfPzq4Q",
-          "name": "material",
-          "description": "Material/BSDF/shader nodes",
-          "color": "D4C5F9"
-        },
-        {
-          "id": "LA_kwDOQvjUZs8AAAAC0E0bGQ",
-          "name": "addon-gap",
-          "description": "Blender addon feature gap: native Blender control not yet honoured",
-          "color": "fbca04"
-        }
-      ],
-      "number": 995,
-      "title": "Nested Mix Shader with textured Fac and a Glass branch collapses to a constant mix (prod_shader_stack 0.28-0.45x Cycles)",
-      "updatedAt": "2026-10-17T14:20:35Z",
-      "url": "https://github.com/HendrikGC02/Astroray/issues/995"
     },
     {
       "body": "Found by the pkg310 production corpus (burn-down: `.astroray_plan/docs/pkg310-production-corpus-burndown.md`).\n\n**Root cause.** The op-VM has no per-hit shading inputs. Layer Weight (Facing/Fresnel), Fresnel, and Geometry (Backfacing, Pointiness) reach the compiler as \"unsupported node type in op-VM chain: LAYER_WEIGHT / FRESNEL / NEW_GEOMETRY\" and the whole chain is flattened to grey (reported: `approximated op-VM: shader chain on 'Base Color' not representable ... flattened to grey`). They need per-hit data (incident direction vs normal, front/back flag, curvature) that the hit record does not carry to the program.\n\n**Evidence** (Astroray / Cycles ROI-mean ratio, seed 278):\n- `prod_car_paint` (Layer Weight Facing -> Mix base/flake tint, Fresnel -> Metallic): `lit_front` G = 4.64 CPU / 4.60 GPU, `limb_grazing` L = 1.50.\n- `prod_curves_geometry` (Backfacing + Pointiness -> Mix): `inner_backface` R = 4.65 CPU / 4.58 GPU, `outer_front` R = 0.36.\n\n**Category:** per-hit input. **Backends:** CPU and GPU (identical export gap).\n**Materials unblocked:** prod_car_paint, prod_curves_geometry (the latter also needs the Curves issue).\n**Observable:** `prod_car_paint` `lit_front` G within 1 +- 0.05 on CPU and GPU (now 4.64); `prod_curves_geometry` `inner_backface` R within 1 +- 0.06 (now 4.65).\nPhase (plan section 1): P3 (per-hit graph inputs; input to the bounded op-VM vs per-hit SVM decision).\n",

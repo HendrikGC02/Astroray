@@ -1,9 +1,9 @@
 {
  "schema": "pkg278.issue_ratings.v2",
  "review": {
-  "identity": "Blind passes independent of the lead: 2026-10-04 Codex gpt-5.6-terra + Claude Sonnet 5.5 (Opus 5.5 reconciled); 2026-10-06 blind pass; 2026-10-18 two blind Claude Sonnet 5.5 raters (batches 1+2); 2026-10-24 two blind Claude Sonnet 5.5 raters for #1128-#1136 (stricter severity on disagreement). Assembled by the Fable 5.1 lead without re-rating.",
-  "review_timestamp": "2026-10-24T12:59:45.071855+00:00",
-  "snapshot_sha256": "ca254384b212057d28824d606c0f54dbf4564c2cbff6a6673214f53495d501b8"
+  "identity": "independent raters (2026-10-04 Terra+Sonnet/Opus-reconciled; 2026-10-06 blind; 2026-10-18 two Sonnet; 2026-10-24 two blind Sonnet 5.5; 2026-10-25 two blind Sonnet 5.5 + DeepSeek flash free), assembled by the lead without altering severities",
+  "review_timestamp": "2026-10-24T20:19:16.288556+00:00",
+  "snapshot_sha256": "42512744f283f456ea9b1109dc3641c19c41933049bc65290a0955d2d9d271b0"
  },
  "ratings": [
   {
@@ -205,12 +205,6 @@
    "source": "2026-10-04 Terra + Sonnet blind, Opus reconciled"
   },
   {
-   "id": 995,
-   "severity": "medium",
-   "rationale": "[medium] Claude: Nested Mix Shader with textured Fac applies the texture only to scalar params; reported as 'approximated MIX_SHADER' so flagged, closure composition still missing. | Terra: Nested textured Mix/Add/Glass trees still collapse to a constant opaque Principled result at 0.28\u20130.45x Cycles. | Reconciliation: kept medium as 2026-10-03: collapse is reported (approximated MIX_SHADER warning), so flagged.",
-   "source": "2026-10-04 Terra + Sonnet blind, Opus reconciled"
-  },
-  {
    "id": 997,
    "severity": "low",
    "rationale": "[low] Claude: Flaky test_spatial_reduces_mse (effect below frame noise); test design only. | Terra: This is a statistically flaky ReSTIR validation test rather than a demonstrated rendering defect. | Reconciliation: agree",
@@ -331,18 +325,6 @@
    "source": "2026-10-06 blind pass (impact x likelihood)"
   },
   {
-   "id": 1117,
-   "severity": "low",
-   "rationale": "Scanner bookkeeping; render unaffected. Lane item 4.",
-   "source": "2026-10-18 two blind Sonnet 5.5 raters (A/B)"
-  },
-  {
-   "id": 1125,
-   "severity": "medium",
-   "rationale": "Native setting silently ignored but only after a ReSTIR render or above 31; same class as #1073/#1115. Lane item 9.",
-   "source": "2026-10-18 two blind Sonnet 5.5 raters (A/B)"
-  },
-  {
    "id": 1126,
    "severity": "low",
    "rationale": "Custom Disney material; never reached by the Blender export.",
@@ -419,6 +401,96 @@
    "severity": "medium",
    "rationale": "Unflagged, shadow-terminator region of smooth-shaded low-poly glass only.",
    "source": "2026-10-18 two blind Sonnet 5.5 raters (A/B)"
+  },
+  {
+   "id": 1150,
+   "severity": "high",
+   "rationale": "[high] A: GPU ReSTIR-DI renders black behind an alpha-0 surface, and CPU miscounts the transparent pass; wrong image with no warning. | B: GPU ReSTIR-DI renders fully black behind an alpha-0 surface at any depth, and CPU disagrees; a wrong image with no warning. | C: GPU ReSTIR-DI renders completely black behind an alpha-0 surface at any depth, and CPU ReSTIR disagrees with GPU and path tracer, all without any warning. | Resolution: agree",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
+  },
+  {
+   "id": 1152,
+   "severity": "high",
+   "rationale": "[high] A: Large frames with very high transparent bounce limits throw an honest error instead of rendering; narrow reach, flagged by a thrown exception, plus a minor int overflow. | B: Render throws an explicit error only for extreme transparent bounce settings on large frames; flagged and narrow reach, though a failed render. | C: Large frames with alpha materials and high transparent_max_bounces now throw a runtime_error (failed render) instead of rendering, plus int overflow UB; no warning, just abort. | Resolution: disagree (A=medium, B=medium, C=high; stricter wins)",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
+  },
+  {
+   "id": 1153,
+   "severity": "medium",
+   "rationale": "[medium] A: GPU ignores procedural bump and bumps the coat lobe, deviating from CPU; the addon reports the procedural bump case, coat deviation is narrow. | B: GPU ignores procedural bump (addon reports it) and bumps the coat lobe on coated Principled; flagged or narrow-reach deviation from CPU. | C: GPU silently ignores non-image bump textures and bumps the coat lobe, but the addon reports it on GPU renders, so the degradation is flagged. | Resolution: agree",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
+  },
+  {
+   "id": 1154,
+   "severity": "high",
+   "rationale": "[high] A: Missing Cycles bump-map correction gives small unflagged deviations (~1.5-2%) on bumped glossy lobes, larger at grazing angles; narrow reach. | B: Blender's default-on use_bump_map_correction setting is silently not implemented, so bumped glossy lobes deviate from Cycles with no report. | C: Missing Cycles bump-map correction gives an unflagged deviation; small on the measured scene and only larger on strong normal maps at grazing angles. | Resolution: disagree (A=medium, B=high, C=medium; stricter wins)",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
+  },
+  {
+   "id": 1155,
+   "severity": "high",
+   "rationale": "[high] A: Diamond Sellmeier preset gives wrong index (2.76 vs 2.417) and triple dispersion silently, but only for one preset on the dispersive path. | B: Diamond Sellmeier preset renders n_d 2.76 and about 3x dispersion, a wrong image with no warning. | C: The diamond Sellmeier preset renders n_d 2.758 instead of 2.417 with ~3x dispersion, unflagged but confined to one named preset; flat ior field is correct. | Resolution: disagree (A=medium, B=high, C=medium; stricter wins)",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
+  },
+  {
+   "id": 1156,
+   "severity": "medium",
+   "rationale": "[medium] A: CPU/GPU twin drift in bump step, degenerate Mapping and normal-map coord mode; unflagged but narrow edge cases, no blocker. | B: CPU/GPU twin drift in rare cases: degenerate zero-scale Mapping and non-UV normal-map coord mode; narrow unflagged deviation. | C: Unflagged CPU/GPU twin drift in bump step constant, degenerate Mapping handling and normal-map coord mode, limited to zero-scale axes and Generated-coord normal maps. | Resolution: agree",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
+  },
+  {
+   "id": 1158,
+   "severity": "high",
+   "rationale": "[high] A: Images linked from a library .blend render magenta or white; wrong image, though a DEGRADED entry is logged, the result is plainly wrong for asset-library scenes. | B: Library-linked images render magenta, but the addon logs a DEGRADED entry; flagged degradation limited to library-linked asset scenes. | C: Library-linked images render magenta because paths resolve against the main file, but the addon logs a DEGRADED entry, so the degradation is reported. | Resolution: disagree (A=high, B=medium, C=medium; stricter wins)",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
+  },
+  {
+   "id": 1159,
+   "severity": "medium",
+   "rationale": "[medium] A: Several node families (Separate/Combine Color/XYZ, Vector Math dot/normalize) are 2.7-7.5x off Cycles, with a render-log flattening message; limited to specific nodes. | B: Several node families flatten to constants, off 2.7x-7.5x, but the render log reports the unsupported-node fallback; flagged degradation of narrow node reach. | C: Several node-graph tiles are 2.7x-7.5x off Cycles because chains are flattened to grey, but the render log reports the flattening and it is narrow to those node families. | Resolution: agree",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
+  },
+  {
+   "id": 1162,
+   "severity": "high",
+   "rationale": "[high] A: Smooth glass silently ignores Thin Film on CPU and GPU, a native Blender setting; the addon reports it per render, but soap bubbles, the default Glass case, render wrong. | B: Smooth glass ignores Thin Film, but the addon reports it per render; flagged degradation. | C: Smooth glass ignores Thin Film entirely, yet the addon reports smooth Glass with film per render, so the wrong glints are flagged rather than silent. | Resolution: disagree (A=high, B=medium, C=medium; stricter wins)",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
+  },
+  {
+   "id": 1164,
+   "severity": "medium",
+   "rationale": "[medium] A: Unreduced observation: a call-order dependence renders GPU black, but the addon may already order calls safely; narrow and unconfirmed. | B: Engine-API call-order dependence gives a black GPU frame, unreduced and likely avoided by the addon's call order; narrow reach. | C: Calling set_background_color before load_environment_map yields a black frame, unflagged, but unreduced and confined to a specific engine-only call order. | Resolution: agree",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
+  },
+  {
+   "id": 1165,
+   "severity": "high",
+   "rationale": "[high] A: The bounce cap silently allows two fewer bounces than Cycles at the same setting, so renders differ with no warning; broad reach affecting glass and diffuse interreflection. | B: Max bounces setting silently yields two fewer bounces than Cycles on CPU and GPU, changing renders broadly with no warning. | C: Astroray needs cap >= k+1 while Cycles needs k-1, silently rendering fewer bounces (glass and diffuse) at identical native settings, a systematic wrong-image deviation. | Resolution: agree",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
+  },
+  {
+   "id": 1167,
+   "severity": "low",
+   "rationale": "[low] A: Tooling bug in the coverage scorer script: import fails and scores 0.0 silently; no effect on renders, though it can mislead gate scoring. | B: Benchmark scoring tooling import bug; no effect on renders. | C: Tooling defect in coverage_report.py scoring: a valid-evidence run silently scores 0.0; no effect on renders. | Resolution: agree",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
+  },
+  {
+   "id": 1168,
+   "severity": "low",
+   "rationale": "[low] A: Parity scanner tooling defects, mostly latent; the committed matrix is correct and no render is affected. | B: Parity scanner tooling defects, mostly latent; no render effect. | C: Parity-scanner classification defects, mostly latent and tooling-only; the committed matrix is correct today. | Resolution: agree",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
+  },
+  {
+   "id": 1171,
+   "severity": "high",
+   "rationale": "[high] A: DistantLight::power() scales by solid angle so the flat sampler rarely picks the sun, rendering sphere_limb at 0.36x Cycles silently; a wrong image. | B: With light tree off, sun is rarely sampled giving 0.36x Cycles on one scene; unflagged but narrow, only non-default sampler config. | C: DistantLight::power() scales by solid angle, so the flat sampler almost never picks the sun and sphere_limb reads 0.36x Cycles, unflagged wrong image. | Resolution: disagree (A=high, B=medium, C=high; stricter wins)",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
+  },
+  {
+   "id": 1172,
+   "severity": "medium",
+   "rationale": "[medium] A: Spot light-tree cone is overweighted, which only adds noise; every ROI mean is unchanged, so no bias and no wrong image. | B: Light tree spot cone is a noise-only defect; means are unchanged, so no bias in renders. | C: Spot light-tree cone uses the half-angle twice, inflating importance 2x; this is a noise/variance defect, not bias, with ROI means unchanged. | Resolution: disagree (A=low, B=low, C=medium; stricter wins)",
+   "source": "2026-10-25 blind Sonnet 5.5 A + B and DeepSeek V4.1 flash free C, stricter severity on disagreement"
   }
  ]
 }

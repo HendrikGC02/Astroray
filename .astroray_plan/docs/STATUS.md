@@ -1,5 +1,40 @@
 # Astroray Status
 
+## 2026-10-24/25 CURRENT — resumed overnight session (Fable 5.1 lead; Opus/Sonnet lanes; DeepSeek flash free)
+
+**Setup (owner 10-24):** all agents back, GPU/PC returned to the lead; `opencode/deepseek-v4.1-flash-free` (free, no
+rate-limit cost, takes images) is the grunt/implement primary and a new `vision` tier (`tiers.json`, `delegate.py
+--tier vision --image`, CLAUDE.md §5, AGENTS.md). `delegate.py` fixed for the removed `opencode run --dir` (task file
+attached via `--file`). Vision reliability: brightness/noise/artefact calls correct, position/size claims hallucinated
+(memory `vision-model-hallucinates-pixel-shifts`). The owner deleted the `astra_run` evidence tree; evidence now lives
+under `%LOCALAPPDATA%\astroray-evidence\2026-10-24\`. Architect round 10-25 (in-session, Fable):
+`architect-plan-2026-10-25.md` — Spectra competitive read (two different engines share the name; research notes
+`research/spectra-*-2026-10-25.md`), new specs pkg324 (spectral showcase corpus), pkg325 (dielectric bounce-cap
+passthrough, off by default), pkg326 (Glass BSDF thin film, #1136); owner questions in §5.
+
+**Merged:** #1149 (#1108 Voronoi 3D = Cycles 5.2 port, 58/58 exact), #1148 (#1117 scanner Pointiness + matrix regen).
+Docs direct to main: models/tiers, delegate fix, gates (e) and (g), architect plan + specs.
+
+**Gates:**
+- (e) **GREEN** (10-24 re-reduce): 69 open, 0 high, every rating independent of the lead; committed manifest VALID.
+- (g) re-measured 10-25 on `88d2026+20261024T142646Z`: CPU 2/8, GPU 2/8, **0 silent pairs** (threshold 6/8, still RED).
+  Path: #1004/#1005 (lane PR pending), #995, #993, #1038.
+- (a), (c), (d) GREEN unchanged; (b) re-freeze pending; (f) owner's second PC.
+
+**Open PRs / lanes:** **#1151** (#1125 ReSTIR/snapshot stale transparent limit + uint32 pass count; GPU legs green,
+cuobjdump shade REG unchanged / STACK +8 B, cpp-abi-guard PASS-with-notes; CI pending, merge on green).
+`lane-i1004` (#1004 image bump under Mapping + #1005 coat/sheen normals; CPU shipped: pbr_group 9→11/16, car_paint
+3→13/16; Cycles parity review found two coat regressions — Output Displacement bump and linked Coat Normal — lane
+fixing; build at 7c209c4d GPU step 1 green 49 + xfail). `lane-pkg324` (showcase corpus: scene builder, manifest,
+checks, runner preset committed on `lane/pkg324`; in progress).
+
+**Issues filed:** #1150 (GPU ReSTIR-DI black behind alpha-0; CPU ReSTIR counts the pass as a bounce — pre-existing),
+#1152 (pass plan can trip the 32-bit work-counter guard at very high transparent limits since #1125), #1153 (GPU
+procedural Bump Height + GPU coat normal), #1154 (Cycles bump reflection correction + bump shadowing term).
+
+**Next:** merge #1151 → pkg325 lane; #1004/#1005 rebuild + production GPU legs + PR; pkg324 BUILD REQUEST + vision
+pass; W3 #995 + pkg326 lanes; W4 gate (b) re-freeze, pkg306 Phase 0; closeout sweep + run-report + handoff.
+
 ## 2026-10-18 CURRENT — overnight session (Fable 5.1 lead; Opus/Sonnet/Haiku lanes)
 
 **Setup:** `architect-plan-2026-10-18.md` (Opus architect, state+refine). Anthropic agentic-practice research

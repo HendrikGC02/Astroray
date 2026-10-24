@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from benchmarks.showcase.spectral.pkg325 import scene_geometry as G  # noqa: E402
+from benchmarks.showcase.spectral.pkg325 import scene_geometry as G
 
 W, H = 320, 240
 DEAD_BELOW = 0.25
@@ -164,9 +164,10 @@ def test_terminate_matches_the_pre_change_build(backend, tmp_path):
     code = _BASELINE_SNIPPET.format(root=str(ROOT), tests=str(ROOT / "tests"), w=W, h=H)
     env = dict(os.environ, ASTRORAY_BUILD_DIR=base)
     p = subprocess.run([sys.executable, "-c", code, backend, str(cap), "8", str(out)],
-                       env=env, capture_output=True, text=True, timeout=600)
+                       env=env, capture_output=True, text=True, timeout=600, check=False)
     assert p.returncode == 0, p.stderr[-2000:]
-    assert os.path.normcase(os.path.abspath(base)) in os.path.normcase(p.stdout), p.stdout  # baseline pyd loaded
+    loaded = os.path.normcase(os.path.realpath(p.stdout.strip().splitlines()[-1]))
+    assert loaded.startswith(os.path.normcase(os.path.realpath(base))), loaded  # the baseline pyd was loaded
     assert np.abs(new - np.load(out)).max() <= 1e-6
 
 

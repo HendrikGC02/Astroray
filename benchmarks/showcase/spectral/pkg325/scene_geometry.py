@@ -23,7 +23,7 @@ import numpy as np
 
 MIN_GAP = 1e-3  # metres; the hygiene floor for any two bodies
 
-CAMERA = dict(loc=(0.0, -6.2, 1.1), target=(0.0, 0.5, 1.1), lens=50.0, sensor=36.0)
+CAMERA = {"loc": (0.0, -6.2, 1.1), "target": (0.0, 0.5, 1.1), "lens": 50.0, "sensor": 36.0}
 RES = (320, 240)
 FLOOR_Z = 0.0
 
@@ -187,11 +187,11 @@ def _tri_overlap_area_2d(a: np.ndarray, b: np.ndarray) -> float:
     for i in range(3):
         p, q = b[i], b[(i + 1) % 3]
         edge = q - p
-        side = lambda x: edge[0] * (x[1] - p[1]) - edge[1] * (x[0] - p[0])
         new = []
         for j in range(len(poly)):
             cur, nxt = poly[j], poly[(j + 1) % len(poly)]
-            sc, sn = side(cur), side(nxt)
+            sc = edge[0] * (cur[1] - p[1]) - edge[1] * (cur[0] - p[0])
+            sn = edge[0] * (nxt[1] - p[1]) - edge[1] * (nxt[0] - p[0])
             if sc >= 0:
                 new.append(cur)
             if (sc >= 0) != (sn >= 0):
@@ -320,7 +320,7 @@ def rois(w: int = RES[0], h: int = RES[1]) -> dict:
     ymid = -0.6 + (PANE_T + PANE_GAP) + PANE_T / 2          # middle pane's mid-plane
     def rect(x0, x1, z0=1.35, z1=1.8):
         a, b = project((x0, ymid, z1), w, h), project((x1, ymid, z0), w, h)
-        return (int(math.ceil(a[0])), int(math.ceil(a[1])), int(math.floor(b[0])), int(math.floor(b[1])))
+        return (math.ceil(a[0]), math.ceil(a[1]), math.floor(b[0]), math.floor(b[1]))
     return {"stack1": rect(-1.30, -1.00), "stack2": rect(-0.80, -0.50), "stack3": rect(-0.30, 0.30)}
 
 

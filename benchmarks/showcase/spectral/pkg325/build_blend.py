@@ -17,8 +17,8 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[3]
 sys.path.insert(0, str(REPO / "benchmarks" / "blender_parity"))
 sys.path.insert(0, str(HERE))
-import scene_library as sl  # noqa: E402
-import scene_geometry as G  # noqa: E402
+import scene_library as sl
+import scene_geometry as G
 
 SEED = 325
 SMOOTH_ANGLE_DEG = 40.0

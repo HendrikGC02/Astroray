@@ -2,7 +2,7 @@
 
 **Pillar:** 1
 **Track:** A
-**Status:** open
+**Status:** in progress (CPU + addon + tests on branch lane/pkg325; GPU legs pending the lead's CUDA build)
 **Estimated effort:** 1 session (~4 h) + GPU legs via the lead
 **Depends on:** none
 
@@ -64,6 +64,7 @@ render-time convenience the owner asked about in `architect-plan-2026-10-25.md` 
 
 ### Key design decisions
 
+- Passthrough keeps the sampled transmission WEIGHT (not 1): the weight carries the 1/eta^2 radiance scaling of entering glass, dropping it leaves a capped slab at 1/2.25 brightness (see the research note).
 - Passthrough is a null interface, not a refraction: the ray keeps its direction, so the result is a plausible
   "see-through" rather than a physically continued path. Document that in the panel tooltip.
 - Register pressure: the branch lives next to the transparent-pass code; verify shade REG/STACK unchanged with cuobjdump.
@@ -89,10 +90,10 @@ render-time convenience the owner asked about in `architect-plan-2026-10-25.md` 
 
 ## Progress
 
-- [ ] Setting + CPU branch
+- [x] Setting + CPU branch (scene: benchmarks/showcase/spectral/pkg325; real files: `pathTraceSpectral` in include/raytracer.h, no render_settings.h / spectral_path_tracer.cpp)
 - [ ] GPU branch + BUILD REQUEST
 - [ ] Tests green, cuobjdump checked
-- [ ] Panel + docs
+- [x] Panel + docs (Sampling panel; research note `.astroray_plan/docs/pkg325-bounce-cap-passthrough-research.md`)
 
 ---
 

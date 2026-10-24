@@ -3,16 +3,16 @@
 - Status: **PROVISIONAL**
 - Reason: one or more subchecks failed or population not ratified
 - Exercised uses: 308
-- Silent drops: 57
+- Silent drops: 30
 
 ## Population
 
 - nine-scene: `provisional` (ratified=False)
 - original ~50 scenes: `undefined` (never frozen)
 
-## CPU - S_CPU = 0.0
+## CPU - S_CPU = 0.0021321961620469083
 
-## GPU - S_GPU = 0.0
+## GPU - S_GPU = 0.0021321961620469083
 
 ## Subchecks
 

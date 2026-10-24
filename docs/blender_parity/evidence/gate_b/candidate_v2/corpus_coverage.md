@@ -3,7 +3,7 @@
 - Status: **PROVISIONAL**
 - Reason: one or more subchecks failed or population not ratified
 - Exercised uses: 233
-- Silent drops: 53
+- Silent drops: 19
 
 ## Population
 

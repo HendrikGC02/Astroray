@@ -11837,14 +11837,14 @@
       }
     }
   },
-  "created": "2026-10-05T17:41:09+00:00",
+  "created": "2026-10-24T18:36:39+00:00",
   "evidence": {
     "mode": "production",
     "runner_case_map": {
       "candidate_build": {
-        "addon_sha256": "002c7c43a1a547d7c157dffc9b9d6d7ef8e9470d53c38b8d60075fe14fdc736e",
-        "build_id": "132c974+20261004T124622Z",
-        "module_sha256": "93cc14f028f20d64ab315873e8a04f6d6cc80cb13f76d5a4e943f1c850915aac"
+        "addon_sha256": "3f4372b4962ed6b72c3c88faf9313a11fa170ca52261c3d3ea8e7fa80813b044",
+        "build_id": "61ccc72+20261024T181311Z",
+        "module_sha256": "9c45497c3654a1cff7ce56ef3844cde1cc08c2c6b7fd34617eae3ab91c3cad68"
       },
       "cases": [],
       "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
@@ -11855,7 +11855,7 @@
   "input_path": "docs/blender_parity/coverage_input_v4_candidate_v2.json",
   "matrix": {
     "path": "docs\\blender_parity\\coverage_matrix.json",
-    "sha256": "2fde7f365c24c6e2bc80a60863ce29a3883a268f453bdd9c7ec924747f174128"
+    "sha256": "09e8143fc70f03d9af0279741a1b00218199b65e0ad6816a599b48adce783ef2"
   },
   "population": {
     "expected_scene_ids": [
@@ -11882,16 +11882,16 @@
     "ratified": false
   },
   "scanner_issue_823": {
-    "commit": "cb70daa3f48b5766376f0f24e5eceef8ee4fb5df",
+    "commit": "fdb8774b05537efd62f915ecf3cff80e2b0eb3b8",
     "integrated": true,
     "required": 823,
     "review_receipt": {
-      "path": "docs/blender_parity/evidence/gate_b/scanner_823_review_receipt_provisional.json",
-      "sha256": "821f755d0457a75a9dfdcfcfd8c50de9bd1757e695afc4406c7302f252d7039e"
+      "path": "docs/blender_parity/evidence/gate_b/scanner_823_review_receipt.json",
+      "sha256": "68bc8c5ea410217171d721dfedf19fe806274a32e47af4e664ab212dbad386dd"
     },
     "schema": "pkg278.scanner_integration_proof.v1",
     "source_path": "scripts/generate_blender_parity_matrix.py",
-    "source_sha256": "1488e17ebfe5501201f0f78fff64f4466a3adab792ff445f2495e2fc0f5040cb"
+    "source_sha256": "076893de9109810d9bf1dbfe5da6228ceddde8fc191411dd729dfe3c04cfe8aa"
   },
   "schema": "pkg278.coverage_input_manifest.v4",
   "version": 4

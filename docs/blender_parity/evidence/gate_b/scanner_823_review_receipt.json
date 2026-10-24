@@ -1,0 +1,15 @@
+{
+  "basis": "Independent blind review of the scanner delta cb70daa3..fdb8774b (#1101 #1139 #1148 #1163) by a Claude Opus 5.5 reviewer, 2026-10-25: ACCEPT. A regeneration under Blender 5.2 reproduces the committed coverage_matrix.json except one pre-existing pkg260 row (TexImage interpolation, credited by a report-only read; outside the reviewed delta, the committed matrix keeps it DROPPED-SILENT). An opencode flash critic returned CHANGES; its claims were checked and none is blocking. Latent scanner weaknesses and the interpolation over-credit are tracked in #1168.",
+  "commit": "fdb8774b05537efd62f915ecf3cff80e2b0eb3b8",
+  "follow_up_issue": 1168,
+  "issue": 823,
+  "reviewer": {
+    "id": "blind Claude Opus 5.5 reviewer, 2026-10-25, ACCEPT; opencode flash critic CHANGES (claims checked, none blocking)",
+    "signature": "7bcd6039ea0e3cd0ba384f6fd8effa3261937c7d330ffe8c42f841a71e9f2ac5",
+    "signed_at": "2026-10-25T00:00:00+00:00"
+  },
+  "schema": "pkg278.scanner_review_receipt.v1",
+  "source_path": "scripts/generate_blender_parity_matrix.py",
+  "source_sha256": "076893de9109810d9bf1dbfe5da6228ceddde8fc191411dd729dfe3c04cfe8aa",
+  "verdict": "ACCEPT"
+}

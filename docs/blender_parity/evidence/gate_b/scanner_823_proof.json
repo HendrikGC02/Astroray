@@ -1,0 +1,12 @@
+{
+  "commit": "fdb8774b05537efd62f915ecf3cff80e2b0eb3b8",
+  "integrated": true,
+  "required": 823,
+  "review_receipt": {
+    "path": "docs/blender_parity/evidence/gate_b/scanner_823_review_receipt.json",
+    "sha256": "68bc8c5ea410217171d721dfedf19fe806274a32e47af4e664ab212dbad386dd"
+  },
+  "schema": "pkg278.scanner_integration_proof.v1",
+  "source_path": "scripts/generate_blender_parity_matrix.py",
+  "source_sha256": "076893de9109810d9bf1dbfe5da6228ceddde8fc191411dd729dfe3c04cfe8aa"
+}

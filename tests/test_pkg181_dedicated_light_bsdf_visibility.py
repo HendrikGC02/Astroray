@@ -161,11 +161,14 @@ def test_gate2_area_floor_ratio_in_band():
 
 
 def test_gate2b_bsdf_share_recovered_vs_depth1():
-    """The BSDF-share is only collectable on continuation (non-camera) rays, so the
-    fix must make depth-8 brighter than depth-1 (where no continuation ray exists)."""
-    d1 = _render_area_floor(use_gpu=False, depth=1)
-    d8 = _render_area_floor(use_gpu=False, depth=8)
-    assert d8 > d1 * 1.02, f"depth-8 ({d8:.4f}) not brighter than depth-1 ({d1:.4f}); BSDF share not collected"
+    """The BSDF-share is only collectable on continuation (non-camera) rays. #1165 re-pin:
+    the camera hit's continuation is traced even at depth 0 (Cycles max_bounces = 0 is direct
+    light: NEE plus the MIS-weighted BSDF leg), so depth 0 must already read the Cycles floor
+    value (a dropped BSDF share read 0.921x before pkg181; the old depth-1 control had no
+    continuation ray at all)."""
+    d0 = _render_area_floor(use_gpu=False, depth=0)
+    ratio = d0 / CYCLES_AREA_FLOOR
+    assert 0.97 <= ratio <= 1.03, f"depth-0 AREA floor A/B={ratio:.4f} (floor={d0:.4f}); BSDF share not collected"
 
 
 # --------------------------------------------------------------------------- #

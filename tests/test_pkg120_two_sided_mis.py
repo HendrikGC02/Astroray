@@ -13,15 +13,16 @@ apparent size (the softbox / large-near-light regime where bsdfPdf ~ lightPdf).
 pkg120 restores the BSDF leg (Veach 1997 §9.2 power heuristic; Cycles
 light_sample_from_intersection, Apache-2.0).
 
-TEST MECHANIC (no integrator toggles needed)
---------------------------------------------
-For a diffuse floor lit by a hittable emissive sphere:
-  * render(max_depth=1)  -> only the camera hit + its NEE leg fires; the BSDF
-    continuation ray is never traced, so this is EXACTLY the one-sided direct
-    estimate (light-sampling with w_L), UNCHANGED by this package.
-  * render(max_depth=2)  -> adds the bounce-1 BSDF ray; when it lands on the
-    emitter, the pkg120 two-sided term fires. This is the fix.
-The recovered energy (md=2 vs md=1) is the dropped w_B leg.
+TEST MECHANIC (#1165 re-pin)
+----------------------------
+For a diffuse floor lit by a hittable emissive sphere, render(max_depth=0) is Cycles'
+direct light: the camera hit's NEE leg (w_L) plus its BSDF continuation, which lands
+on the emitter and fires the pkg120 two-sided term (w_B). The pre-#1165 engine traced
+no continuation from the last vertex, so max_depth=1 used to BE the one-sided estimate;
+no depth cap drops w_B any more. The gates are now:
+  * two-sided (NEE on, MIS) == BSDF-only (set_light_nee(False), w_B = 1, unbiased) on
+    the large light: a dropped w_B reads ~0.78 of it (measured on the old engine).
+  * two-sided == the analytic form factor (one-sided read 0.69 of it, old engine).
 
 ANALYTIC ORACLE (convention-robust)
 -----------------------------------
@@ -118,18 +119,19 @@ def _floor_radiance(r, max_depth, half=4):
 def test_two_sided_recovers_large_near_light(astroray_module):
     R, d, albedo = 1.6, 2.0, 0.5   # R/d = 0.8, sin^2(alpha) = 0.64: a big cone
 
-    one_sided = _floor_radiance(
-        _floor_under_sphere(astroray_module, R, d, albedo, 1201), max_depth=1)
     two_sided = _floor_radiance(
-        _floor_under_sphere(astroray_module, R, d, albedo, 1201), max_depth=2)
+        _floor_under_sphere(astroray_module, R, d, albedo, 1201), max_depth=0)
+    r = _floor_under_sphere(astroray_module, R, d, albedo, 1201)
+    r.set_light_nee(False)   # BSDF sampling only (w_B = 1): the unbiased reference
+    bsdf_only = _floor_radiance(r, max_depth=0)
 
-    assert one_sided > 1e-4, f"scene unlit (one_sided={one_sided:.5f})"
-    ratio = two_sided / one_sided
-    # A large light drops a large w_B; two-sided must recover it (measurably
-    # brighter). Before pkg120, md=2 == md=1 here (BSDF-emitter hit dropped).
-    assert ratio > 1.20, (
-        f"two-sided did NOT recover the dropped BSDF leg: "
-        f"two_sided/one_sided={ratio:.3f} (expect >1.20; ==1.0 pre-pkg120)")
+    assert bsdf_only > 1e-4, f"scene unlit (bsdf_only={bsdf_only:.5f})"
+    ratio = two_sided / bsdf_only
+    # A large light drops a large w_B: one-sided read ~0.78 of the BSDF-only reference
+    # (pre-pkg120 / pre-#1165 depth-1 estimate); two-sided matches it (measured 1.002).
+    assert 0.95 < ratio < 1.05, (
+        f"two-sided MIS off the BSDF-only reference: two_sided/bsdf_only={ratio:.3f} "
+        f"(expect ~1.0; ~0.78 = the dropped w_B leg)")
 
 
 # ---------------------------------------------------------------------------
@@ -157,19 +159,17 @@ def test_two_sided_matches_analytic_formfactor(astroray_module):
     # artifact in BOTH legs and mis-attributed it to a biased BSDF leg. So use a
     # 2x2 center patch (half=1) here; the relative gates below stay on 8x8 (the
     # patch cancels in a ratio).
-    one_sided = _floor_radiance(
-        _floor_under_sphere(astroray_module, R, d, albedo, 1203), max_depth=1, half=1)
+    # #1165: max_depth=0 is Cycles direct light (both MIS legs, no indirect bounce). The
+    # one-sided estimate (the old max_depth=1) read 0.69 of the oracle; it is no longer
+    # reachable by a depth cap, so the dark-direction check is the BSDF-only gate above.
     two_sided = _floor_radiance(
-        _floor_under_sphere(astroray_module, R, d, albedo, 1203), max_depth=2, half=1)
+        _floor_under_sphere(astroray_module, R, d, albedo, 1203), max_depth=0, half=1)
 
-    # Direction: the one-sided integrator reads measurably DARK vs the oracle.
-    assert one_sided / analytic < 0.85, (
-        f"one-sided not dark vs oracle: {one_sided / analytic:.3f} "
-        f"(expect <0.85 — this is the bias pkg120 fixes)")
-    # Fix: two-sided matches the oracle. Band tolerates the ~10% RGB-emission
-    # convention residual (pkg122 Defect 4), one indirect bounce, and MC noise.
+    # Fix: two-sided matches the oracle (measured 0.985). Band tolerates the ~10%
+    # RGB-emission convention residual (pkg122 Defect 4) and MC noise; a dropped w_B
+    # reads 0.69.
     ratio = two_sided / analytic
-    assert 0.75 < ratio < 1.35, (
+    assert 0.85 < ratio < 1.15, (
         f"two-sided off the analytic oracle: two_sided/analytic={ratio:.3f} "
         f"(expect ~1.0; measured two_sided={two_sided:.4f} analytic={analytic:.4f})")
 
@@ -182,18 +182,17 @@ def test_two_sided_matches_analytic_formfactor(astroray_module):
 def test_no_regression_distant_compact_light(astroray_module):
     R, d, albedo = 0.5, 8.0, 0.5   # R/d = 0.0625: bsdfPdf << lightPdf, w_B ~ 0
 
-    one_sided = _floor_radiance(
-        _floor_under_sphere(astroray_module, R, d, albedo, 1204), max_depth=1)
+    L_e = _emitter_radiance(astroray_module, 1202)
+    analytic = albedo * L_e * (R / d) ** 2
     two_sided = _floor_radiance(
-        _floor_under_sphere(astroray_module, R, d, albedo, 1204), max_depth=2)
+        _floor_under_sphere(astroray_module, R, d, albedo, 1204), max_depth=0)
 
-    assert one_sided > 1e-5, f"distant scene unlit (one_sided={one_sided:.6f})"
-    ratio = two_sided / one_sided
-    # Nothing to recover here: the BSDF leg contributes ~0 (w_B ~ 0), so md=2
-    # must stay within noise of md=1 (a tiny positive nudge from one indirect
-    # bounce is allowed).
-    assert 0.94 < ratio < 1.12, (
-        f"compact-light regression: two_sided/one_sided={ratio:.3f} "
+    assert two_sided > 1e-5, f"distant scene unlit (two_sided={two_sided:.6f})"
+    ratio = two_sided / analytic
+    # Nothing to recover here (w_B ~ 0): the two-sided direct estimate must sit on the
+    # form-factor oracle (#1165 re-pin of the old md=2 / md=1 ratio; measured 0.972).
+    assert 0.90 < ratio < 1.10, (
+        f"compact-light regression: two_sided/analytic={ratio:.3f} "
         f"(expect ~1.0; the fix must not perturb the compact-light regime)")
 
 

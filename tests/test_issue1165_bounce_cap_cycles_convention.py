@@ -117,7 +117,7 @@ def _pane_rois(backend, total, transmission):
 
 
 def _assert_k_minus_1(backend, render):
-    stats = {cap: render(cap) for cap in range(0, 6)}
+    stats = {cap: render(cap) for cap in range(6)}
     for name, k in PANES:
         dead, mean = stats[k - 1][name]
         assert dead < 0.005 and mean > 0.85, (backend, name, k, "cap k-1", dead, mean)

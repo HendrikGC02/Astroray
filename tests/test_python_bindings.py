@@ -688,21 +688,29 @@ def test_glass_render():
 
 
 def test_glossy_bounces_zero_reduces_specular_reflections():
-    def render(glossy_bounces: int) -> np.ndarray:
+    # #1165 re-pin (Cycles convention, path_state.h:177-192: glossy_bounces = 0 still takes the
+    # first glossy scatter; the surface it reaches adds emission only). The old `< 0.55x` bound was
+    # calibrated on the pre-#1165 engine, which dropped that continuation and rendered the mirror
+    # near black. On the mirror pixels (40x40 inside the sphere's ~40 px radius) glossy_bounces=0
+    # must equal max_bounces=0, which ends the path at the same vertex (measured 0.267 vs 0.263,
+    # glossy 8: 0.438).
+    def render(total: int, glossy_bounces: int) -> np.ndarray:
         r = create_renderer()
         create_cornell_box(r)
         mat = r.create_material('metal', [0.95, 0.95, 0.95], {'roughness': 0.02})
         r.add_sphere([0, -0.5, 0], 1.0, mat)
         setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
-        return r.render(SAMPLES_MED, 8, None, True, -1, glossy_bounces, -1, -1, -1)
+        return r.render(SAMPLES_MED, total, None, True, -1, glossy_bounces, -1, -1, -1)
 
-    glossy = render(8)
-    no_glossy = render(0)
+    glossy = render(8, 8)
+    no_glossy = render(8, 0)
+    total0 = render(0, 8)
     assert_valid_image(glossy, H, W, label='glossy_enabled')
     assert_valid_image(no_glossy, H, W, label='glossy_disabled')
     ch, cw = H // 2, W // 2
-    center = np.s_[ch - 35:ch + 35, cw - 35:cw + 35, :]
-    assert float(np.mean(no_glossy[center])) < float(np.mean(glossy[center])) * 0.55
+    mirror = np.s_[ch - 20:ch + 20, cw - 20:cw + 20, :]
+    assert float(np.mean(no_glossy[mirror])) < float(np.mean(glossy[mirror])) * 0.75
+    assert abs(float(np.mean(no_glossy[mirror])) - float(np.mean(total0[mirror]))) < 0.02
 
 
 def test_transmission_bounces_zero_makes_glass_darker():
@@ -730,10 +738,15 @@ def test_total_max_depth_still_caps_all_paths():
     r.add_sphere([0, -0.5, 0], 1.0, mat)
     setup_camera(r, look_from=[0, 0, 5.5], look_at=[0, 0, 0], vfov=38, width=W, height=H)
 
+    # #1165 re-pin (Cycles convention): max_bounces = 0 is direct lighting only, not black (the
+    # pre-#1165 engine traced no ray at max_depth 0). A larger per-type cap must not extend it:
+    # glossy 8 renders like glossy 0 at total 0 (measured 0.2566 / 0.2566; total 8: 0.382).
     depth0 = r.render(SAMPLES_MED, 0, None, True, -1, 8, -1, -1, -1)
+    depth0_g0 = r.render(SAMPLES_MED, 0, None, True, -1, 0, -1, -1, -1)
     depth8 = r.render(SAMPLES_MED, 8, None, True, -1, 8, -1, -1, -1)
     assert_valid_image(depth8, H, W, label='depth8')
-    assert float(np.mean(depth0)) < 0.01
+    assert float(np.mean(depth0)) > 0.1
+    assert abs(float(np.mean(depth0)) - float(np.mean(depth0_g0))) < 0.01
     assert float(np.mean(depth8)) > float(np.mean(depth0)) + 0.1
 
 

@@ -122,10 +122,11 @@ def test_set_integrator_param_after_set_integrator_takes_effect(simple_scene):
     r = simple_scene
     r.set_integrator("path_tracer")
 
-    # Render at max_depth=2 via post-construction param change.
+    # Render at max_depth=0 via post-construction param change. #1165: depth 0 (Cycles
+    # direct light only); depth 2 now allows 3 scatters, within 0.4% of depth 50 here.
     # Don't pass max_depth to render() so the integrator's stored value is used.
-    r.set_integrator_param("max_depth", 2)
-    img_depth2 = r.render(samples_per_pixel=16, max_depth=2)
+    r.set_integrator_param("max_depth", 0)
+    img_depth2 = r.render(samples_per_pixel=16, max_depth=0)
 
     # Render at max_depth=50 (re-set to ensure fresh integrator)
     r2 = simple_scene
@@ -179,7 +180,7 @@ def test_setMaxDepth_called_per_render(simple_scene):
     r.set_integrator_param("max_depth", 50)
     r.set_integrator("path_tracer")
 
-    img_depth2 = r.render(samples_per_pixel=16, max_depth=2)
+    img_depth2 = r.render(samples_per_pixel=16, max_depth=0)   # #1165: direct only (see above)
     img_depth50 = r.render(samples_per_pixel=16, max_depth=50)
 
     mean2 = np.mean(img_depth2)

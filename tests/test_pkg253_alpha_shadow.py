@@ -142,8 +142,10 @@ def _mean_lum(img):
 # ---------------------------------------------------------------------------
 
 def test_occluder_is_outside_camera_frustum():
-    no_occ = _render_shadow_scene(None, seed=5)
-    offside = _render_shadow_scene(1.0, occ_x=6.0, seed=5)
+    # #1165: depth 0 (Cycles direct light). Depth 1 now takes one indirect bounce, which can
+    # reach the off-axis occluder from the receiver (and draws NEE RNG there).
+    no_occ = _render_shadow_scene(None, seed=5, depth=0)
+    offside = _render_shadow_scene(1.0, occ_x=6.0, seed=5, depth=0)
     assert np.array_equal(no_occ, offside), (
         "an occluder shifted off the light's shadow axis must render "
         "bit-identical to no occluder -- test scene assumption violated "

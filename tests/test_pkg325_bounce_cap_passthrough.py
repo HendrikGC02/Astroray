@@ -2,7 +2,7 @@
 
 Scene: benchmarks/showcase/spectral/pkg325 (three glass panes + a solid tumbler + diffuse props, white world). A camera
 ray through all three panes crosses 6 glass interfaces; under ``terminate`` (Cycles semantics, the
-default) a path-depth cap below 7 leaves that region dark. Dead = ROI luminance < 0.25 of the uncapped
+default) a cap below 5 leaves that region dark (#1165: k interfaces need cap k-1, as in Cycles). Dead = ROI luminance < 0.25 of the uncapped
 white-world reference (1.0), per pixel. ROIs are rectangles whose every pixel crosses exactly 2 / 4 / 6
 interfaces (``test_roi_interface_counts``).
 
@@ -93,15 +93,16 @@ def test_roi_interface_counts():
 
 
 # --------------------------------------------------------------------------- #
-# terminate: the dead region exists at low caps and is gone at 8 / 12 / 64
+# terminate: the dead region exists at low caps and is gone from cap 5 (k-1, #1165)
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.parametrize("backend", ["cpu", "gpu"])
 def test_terminate_has_a_dead_region_at_low_caps(backend):
-    for cap in (1, 2, 4):
+    for cap in (1, 2, 3):
         dead, _ = _roi_stats(_render(backend, cap), "stack3")
         assert dead > 0.95, (backend, cap, dead)
-    for cap in (8, 12, 64):
+    assert _roi_stats(_render(backend, 4), "stack3")[1] < DEAD_BELOW   # one below k-1: Fresnel glints only
+    for cap in (5, 8, 12, 64):
         dead, mean = _roi_stats(_render(backend, cap), "stack3")
         assert dead < 0.005 and mean > 0.85, (backend, cap, dead, mean)
 
@@ -152,23 +153,32 @@ _BASELINE_SNIPPET = textwrap.dedent("""
 
 @pytest.mark.parametrize("backend", ["cpu", "gpu"])
 def test_terminate_matches_the_pre_change_build(backend, tmp_path):
-    """Attribute 'terminate is byte-identical to before' against an untouched build of main: set
-    ASTRORAY_PKG325_BASELINE_DIR to a directory holding that build's astroray .pyd (the pre-change
-    pyd has no set_dielectric_bounce_cap, so the snippet never calls it)."""
+    """Attribute ``terminate`` against an untouched pre-#1165 build of main: set
+    ASTRORAY_PKG325_BASELINE_DIR to a directory holding that build's astroray .pyd (the snippet never
+    calls set_dielectric_bounce_cap, so a pre-pkg325 pyd works too).
+
+    #1165 re-pin: was byte-identical at the same cap. #1165 adds Cycles' +1 (one more scatter, its
+    continuation traced to an emission-only surface), so in this lamp-free white-world scene (no NEE
+    anywhere) cap c now renders what the old engine rendered at cap c+2 (total and per-type caps):
+    the same vertices with the same continuations, only the RNG streams differ. Equal in distribution
+    (measured CPU, 8 spp, caps 2/4/6 vs 4/6/8: full-image mean within 4e-4, ROI means within 0.01)."""
     base = os.environ.get("ASTRORAY_PKG325_BASELINE_DIR")
     if not base:
         pytest.skip("ASTRORAY_PKG325_BASELINE_DIR not set (pre-change build to compare against)")
-    cap = 6
-    new = _render(backend, cap, spp=8)
+    cap = 4
+    new = _render(backend, cap, spp=16)
     out = tmp_path / "base.npy"
     code = _BASELINE_SNIPPET.format(root=str(ROOT), tests=str(ROOT / "tests"), w=W, h=H)
     env = dict(os.environ, ASTRORAY_BUILD_DIR=base)
-    p = subprocess.run([sys.executable, "-c", code, backend, str(cap), "8", str(out)],
+    p = subprocess.run([sys.executable, "-c", code, backend, str(cap + 2), "16", str(out)],
                        env=env, capture_output=True, text=True, timeout=600, check=False)
     assert p.returncode == 0, p.stderr[-2000:]
     loaded = os.path.normcase(os.path.realpath(p.stdout.strip().splitlines()[-1]))
     assert loaded.startswith(os.path.normcase(os.path.realpath(base))), loaded  # the baseline pyd was loaded
-    assert np.abs(new - np.load(out)).max() <= 1e-6
+    old = np.load(out)
+    assert abs(float(new.mean()) - float(old.mean())) < 0.002, (float(new.mean()), float(old.mean()))
+    for roi in ("stack1", "stack2", "stack3"):
+        assert abs(_roi_stats(new, roi)[1] - _roi_stats(old, roi)[1]) < 0.02, roi
 
 
 # --------------------------------------------------------------------------- #
@@ -188,8 +198,8 @@ def test_passthrough_has_no_dead_region(backend):
 
 
 def test_passthrough_is_bounded_by_the_transparent_limit():
-    """Passes count as transparent bounces (#1125 machinery): at cap 4 the 6-interface ROI needs 3
-    passes, so a transparent limit of 1 leaves it dead."""
+    """Passes count as transparent bounces (#1125 machinery): at cap 4 the 6-interface ROI needs 2
+    passes (#1165: interfaces 1-4 refract, 5 and 6 pass), so a transparent limit of 1 leaves it dead."""
     img = _render("cpu", 4, spp=16, mode="passthrough", transparent=1)
     assert _roi_stats(img, "stack3")[0] > 0.95
 

@@ -13,7 +13,7 @@ energy GAIN, memory gamma-furnace-cannot-detect-energy-gain):
   * ALPHA=0 STAGE-1 PARITY — scatter=0.0 must reproduce Stage-1 Beer-Lambert
     absorption exactly (the estimator is not engaged; same RNG stream). Deterministic
     bit-reproducibility + analytic exp(-sigma_t*d) transmittance on an emissive wall.
-  * ANALYTIC SINGLE-SCATTER — with max_depth=1 (exactly one scatter event, NEE to a
+  * ANALYTIC SINGLE-SCATTER — with max_depth=0 (exactly one scatter event, NEE to a
     delta point light, no multi-scatter), a narrow-FOV pixel matches the single-scatter
     integral S(density) = INT sigma_s*exp(-sigma_t*t)*exp(-sigma_t*r(t))/r(t)^2 dt to a
     single global radiometric scale k across a density sweep (a wrong phase/
@@ -123,7 +123,8 @@ def test_alpha_zero_deterministic():
 
 
 # ---------------------------------------------------------------------------
-# ANALYTIC SINGLE-SCATTER — max_depth=1 isolates one scatter + NEE.
+# ANALYTIC SINGLE-SCATTER — max_depth=0 isolates one scatter + NEE (#1165: Cycles
+# max_bounces=0 = direct light; the scatter's continuation is absorption-only).
 # ---------------------------------------------------------------------------
 
 # Camera ray geometry (narrow FOV -> all pixels ~= the centre ray).
@@ -142,7 +143,7 @@ def _single_scatter_scene(density, alpha, g=0.0, w=24, h=24):
     r.setup_camera(_CAM.tolist(), _LOOK.tolist(), [0.0, 1.0, 0.0],
                    2.0, w / h, 0.0, 6.0, w, h)          # 2 deg FOV
     r.set_integrator("path_tracer")
-    r.set_integrator_param("max_depth", 1)              # EXACTLY single scatter
+    r.set_integrator_param("max_depth", 0)              # EXACTLY single scatter (#1165)
     return r
 
 
@@ -168,7 +169,7 @@ def test_single_scatter_matches_analytic_density_shape():
     densities = [0.05, 0.10, 0.20, 0.35]
     measured, analytic = [], []
     for dens in densities:
-        img = _render_cpu(_single_scatter_scene(dens, alpha, g=0.0), 512, 1, 24, 24)
+        img = _render_cpu(_single_scatter_scene(dens, alpha, g=0.0), 512, 0, 24, 24)
         measured.append(float(img.mean()))
         analytic.append(_single_scatter_integral(dens, alpha))
     measured = np.array(measured)
@@ -191,7 +192,7 @@ def test_single_scatter_linear_in_alpha():
     dens = 0.12
     ratios = []
     for alpha in (0.1, 0.2, 0.4):
-        img = _render_cpu(_single_scatter_scene(dens, alpha, g=0.0), 512, 1, 24, 24)
+        img = _render_cpu(_single_scatter_scene(dens, alpha, g=0.0), 512, 0, 24, 24)
         ratios.append(float(img.mean()) / alpha)
     ratios = np.array(ratios)
     spread = ratios.std() / max(ratios.mean(), 1e-9)
@@ -223,8 +224,8 @@ def _halo_scene(g, max_depth=2, w=64, h=64):
 
 def test_forward_back_scatter_asymmetry():
     # Numeric gate at single-scatter depth (phase directionality, undiluted).
-    fwd1 = _render_cpu(_halo_scene(0.7, max_depth=1), 256, 1, 64, 64)
-    bwd1 = _render_cpu(_halo_scene(-0.7, max_depth=1), 256, 1, 64, 64)
+    fwd1 = _render_cpu(_halo_scene(0.7, max_depth=0), 256, 0, 64, 64)   # #1165: 0 = single
+    bwd1 = _render_cpu(_halo_scene(-0.7, max_depth=0), 256, 0, 64, 64)
     fm1, bm1 = float(fwd1.mean()), float(bwd1.mean())
     print(f"[pkg199-s2 fwd/back scatter, single] mean(g=+0.7)={fm1:.5f} "
           f"mean(g=-0.7)={bm1:.5f} ratio={fm1 / max(bm1, 1e-9):.3f}")

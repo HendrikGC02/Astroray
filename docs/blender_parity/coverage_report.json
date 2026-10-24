@@ -3,15 +3,15 @@
   "cpu": {
     "backend": "CPU",
     "denominator": 469.0,
-    "numerator": 0.0,
-    "score": 0.0,
+    "numerator": 1.0,
+    "score": 0.0021321961620469083,
     "use_count": 308,
     "uses": [
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBackground|input:Color",
         "scenes": [
           "camera_lens",
@@ -28,9 +28,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBackground|input:Strength",
         "scenes": [
           "camera_lens",
@@ -47,9 +47,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBackground|output:Background",
         "scenes": [
           "camera_lens",
@@ -77,9 +77,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBlackbody|output:Color",
         "scenes": [
           "materials_hall"
@@ -88,9 +88,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBrightContrast|input:Bright",
         "scenes": [
           "textures_mapping"
@@ -121,9 +121,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBrightContrast|output:Color",
         "scenes": [
           "textures_mapping"
@@ -204,9 +204,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfAnisotropic|output:BSDF",
         "scenes": [
           "materials_hall",
@@ -267,9 +267,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfDiffuse|output:BSDF",
         "scenes": [
           "geometry_zoo",
@@ -324,9 +324,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfGlass|input:Thin Film IOR",
         "scenes": [
           "materials_hall"
@@ -335,9 +335,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfGlass|input:Thin Film Thickness",
         "scenes": [
           "materials_hall"
@@ -346,9 +346,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfGlass|output:BSDF",
         "scenes": [
           "materials_hall"
@@ -368,9 +368,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|input:Coat",
         "scenes": [
           "geometry_zoo",
@@ -381,9 +381,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|input:Color",
         "scenes": [
           "geometry_zoo",
@@ -394,9 +394,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|input:IOR",
         "scenes": [
           "geometry_zoo",
@@ -407,9 +407,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|input:Offset",
         "scenes": [
           "geometry_zoo",
@@ -420,9 +420,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|input:Radial Roughness",
         "scenes": [
           "geometry_zoo",
@@ -459,9 +459,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|input:Roughness",
         "scenes": [
           "geometry_zoo",
@@ -472,9 +472,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|output:BSDF",
         "scenes": [
           "geometry_zoo",
@@ -485,9 +485,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|prop:model",
         "scenes": [
           "geometry_zoo",
@@ -597,9 +597,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfMetallic|output:BSDF",
         "scenes": [
           "materials_hall"
@@ -1200,9 +1200,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfPrincipled|output:BSDF",
         "scenes": [
           "camera_lens",
@@ -1301,9 +1301,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfRefraction|output:BSDF",
         "scenes": [
           "materials_hall"
@@ -1345,9 +1345,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfSheen|output:BSDF",
         "scenes": [
           "materials_hall"
@@ -1389,9 +1389,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfTranslucent|output:BSDF",
         "scenes": [
           "materials_hall"
@@ -1411,9 +1411,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfTransparent|output:BSDF",
         "scenes": [
           "materials_hall"
@@ -1482,9 +1482,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBump|output:Normal",
         "scenes": [
           "materials_hall",
@@ -1527,9 +1527,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeClamp|output:Result",
         "scenes": [
           "textures_mapping"
@@ -1571,9 +1571,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeCombineColor|output:Color",
         "scenes": [
           "textures_mapping"
@@ -1626,9 +1626,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeDisplacement|output:Displacement",
         "scenes": [
           "textures_mapping"
@@ -1671,9 +1671,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeEmission|output:Emission",
         "scenes": [
           "camera_lens",
@@ -1710,9 +1710,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeFloatCurve|output:Value",
         "scenes": [
           "textures_mapping"
@@ -1743,9 +1743,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeGamma|output:Color",
         "scenes": [
           "textures_mapping"
@@ -1765,9 +1765,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeHueSaturation|input:Fac",
         "scenes": [
           "textures_mapping"
@@ -1809,9 +1809,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeHueSaturation|output:Color",
         "scenes": [
           "textures_mapping"
@@ -1831,9 +1831,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeInvert|input:Fac",
         "scenes": [
           "textures_mapping"
@@ -1842,9 +1842,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeInvert|output:Color",
         "scenes": [
           "textures_mapping"
@@ -1908,9 +1908,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMapRange|output:Result",
         "scenes": [
           "textures_mapping"
@@ -1989,9 +1989,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMapping|output:Vector",
         "scenes": [
           "textures_mapping",
@@ -2013,9 +2013,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMath|input:Value_001",
         "scenes": [
           "lighting_studio",
@@ -2025,9 +2025,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMath|output:Value",
         "scenes": [
           "lighting_studio",
@@ -2071,9 +2071,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMixRGB|input:Fac",
         "scenes": [
           "textures_mapping"
@@ -2082,9 +2082,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMixRGB|output:Color",
         "scenes": [
           "textures_mapping"
@@ -2104,9 +2104,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|input:A_Color",
         "scenes": [
           "textures_mapping"
@@ -2115,9 +2115,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|input:A_Float",
         "scenes": [
           "textures_mapping"
@@ -2126,9 +2126,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|input:A_Vector",
         "scenes": [
           "textures_mapping"
@@ -2137,9 +2137,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|input:B_Color",
         "scenes": [
           "textures_mapping"
@@ -2148,9 +2148,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|input:B_Float",
         "scenes": [
           "textures_mapping"
@@ -2159,9 +2159,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|input:B_Vector",
         "scenes": [
           "textures_mapping"
@@ -2170,9 +2170,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|input:Factor_Float",
         "scenes": [
           "textures_mapping"
@@ -2181,9 +2181,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|output:Result_Color",
         "scenes": [
           "textures_mapping"
@@ -2192,9 +2192,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|output:Result_Float",
         "scenes": [
           "textures_mapping"
@@ -2203,9 +2203,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|output:Result_Vector",
         "scenes": [
           "textures_mapping"
@@ -2281,9 +2281,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeNormalMap|output:Normal",
         "scenes": [
           "textures_mapping"
@@ -2292,9 +2292,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputLight|input:Surface",
         "scenes": [
           "camera_lens",
@@ -2309,9 +2309,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputLight|prop:is_active_output",
         "scenes": [
           "camera_lens",
@@ -2326,9 +2326,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputMaterial|input:Displacement",
         "scenes": [
           "camera_lens",
@@ -2345,9 +2345,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputMaterial|input:Surface",
         "scenes": [
           "camera_lens",
@@ -2383,9 +2383,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputMaterial|input:Volume",
         "scenes": [
           "camera_lens",
@@ -2402,9 +2402,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputMaterial|prop:is_active_output",
         "scenes": [
           "camera_lens",
@@ -2440,9 +2440,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputWorld|input:Volume",
         "scenes": [
           "camera_lens",
@@ -2489,9 +2489,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeRGBCurve|input:Fac",
         "scenes": [
           "textures_mapping"
@@ -2500,9 +2500,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeRGBCurve|output:Color",
         "scenes": [
           "textures_mapping"
@@ -2522,9 +2522,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeRGBToBW|output:Val",
         "scenes": [
           "textures_mapping"
@@ -2544,9 +2544,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeSeparateColor|output:Red",
         "scenes": [
           "textures_mapping"
@@ -2599,9 +2599,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexBrick|input:Mortar",
         "scenes": [
           "textures_mapping"
@@ -2665,9 +2665,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexBrick|output:Color",
         "scenes": [
           "textures_mapping"
@@ -2708,10 +2708,10 @@
         "weight": 1
       },
       {
-        "cpu": 0.0,
-        "cpu_reason": "no hash-verified evidence artifact for this backend",
-        "gpu": 0.0,
-        "gpu_reason": "no hash-verified evidence artifact for this backend",
+        "cpu": 1.0,
+        "cpu_reason": "supported with per-variant evidence",
+        "gpu": 1.0,
+        "gpu_reason": "supported with per-variant evidence",
         "identity": "ShaderNodeTexChecker|input:Color1",
         "scenes": [
           "textures_mapping"
@@ -2753,9 +2753,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexChecker|output:Color",
         "scenes": [
           "textures_mapping"
@@ -2764,9 +2764,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexCoord|output:Generated",
         "scenes": [
           "textures_mapping",
@@ -2787,9 +2787,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexEnvironment|output:Color",
         "scenes": [
           "world_sky_hdri"
@@ -2809,9 +2809,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexGradient|output:Color",
         "scenes": [
           "textures_mapping"
@@ -2831,9 +2831,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexIES|input:Strength",
         "scenes": [
           "lighting_studio"
@@ -2853,9 +2853,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexIES|output:Fac",
         "scenes": [
           "lighting_studio"
@@ -2875,9 +2875,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexImage|output:Color",
         "scenes": [
           "textures_mapping"
@@ -2919,9 +2919,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexMagic|output:Fac",
         "scenes": [
           "textures_mapping"
@@ -3035,9 +3035,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexNoise|output:Color",
         "scenes": [
           "textures_mapping"
@@ -3046,9 +3046,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexNoise|output:Fac",
         "scenes": [
           "materials_hall",
@@ -3094,9 +3094,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexSky|output:Color",
         "scenes": [
           "world_sky_sky"
@@ -3127,9 +3127,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexSky|prop:sun_direction",
         "scenes": [
           "world_sky_sky"
@@ -3149,9 +3149,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexSky|prop:sun_intensity",
         "scenes": [
           "world_sky_sky"
@@ -3171,9 +3171,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexSky|prop:sun_size",
         "scenes": [
           "world_sky_sky"
@@ -3270,9 +3270,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexVoronoi|output:Distance",
         "scenes": [
           "textures_mapping"
@@ -3402,9 +3402,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexWave|output:Color",
         "scenes": [
           "textures_mapping"
@@ -3413,9 +3413,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexWave|output:Fac",
         "scenes": [
           "textures_mapping"
@@ -3468,9 +3468,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVectorCurve|input:Fac",
         "scenes": [
           "textures_mapping"
@@ -3490,9 +3490,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVectorCurve|output:Vector",
         "scenes": [
           "textures_mapping"
@@ -3523,9 +3523,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVectorMath|output:Vector",
         "scenes": [
           "textures_mapping"
@@ -3589,9 +3589,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVectorRotate|output:Vector",
         "scenes": [
           "textures_mapping"
@@ -3622,9 +3622,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVolumeAbsorption|output:Volume",
         "scenes": [
           "geometry_zoo"
@@ -3633,9 +3633,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVolumePrincipled|input:Absorption Color",
         "scenes": [
           "geometry_zoo"
@@ -3666,9 +3666,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVolumePrincipled|input:Blackbody Tint",
         "scenes": [
           "geometry_zoo"
@@ -3710,9 +3710,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVolumePrincipled|input:Density Attribute",
         "scenes": [
           "geometry_zoo"
@@ -3754,9 +3754,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVolumePrincipled|input:Temperature Attribute",
         "scenes": [
           "geometry_zoo"
@@ -3765,9 +3765,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVolumePrincipled|output:Volume",
         "scenes": [
           "geometry_zoo"
@@ -3809,9 +3809,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVolumeScatter|output:Volume",
         "scenes": [
           "geometry_zoo"
@@ -3831,9 +3831,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeWavelength|output:Color",
         "scenes": [
           "materials_hall"
@@ -3846,15 +3846,15 @@
   "gpu": {
     "backend": "GPU",
     "denominator": 469.0,
-    "numerator": 0.0,
-    "score": 0.0,
+    "numerator": 1.0,
+    "score": 0.0021321961620469083,
     "use_count": 308,
     "uses": [
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBackground|input:Color",
         "scenes": [
           "camera_lens",
@@ -3871,9 +3871,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBackground|input:Strength",
         "scenes": [
           "camera_lens",
@@ -3890,9 +3890,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBackground|output:Background",
         "scenes": [
           "camera_lens",
@@ -3920,9 +3920,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBlackbody|output:Color",
         "scenes": [
           "materials_hall"
@@ -3931,9 +3931,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBrightContrast|input:Bright",
         "scenes": [
           "textures_mapping"
@@ -3964,9 +3964,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBrightContrast|output:Color",
         "scenes": [
           "textures_mapping"
@@ -4047,9 +4047,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfAnisotropic|output:BSDF",
         "scenes": [
           "materials_hall",
@@ -4110,9 +4110,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfDiffuse|output:BSDF",
         "scenes": [
           "geometry_zoo",
@@ -4167,9 +4167,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfGlass|input:Thin Film IOR",
         "scenes": [
           "materials_hall"
@@ -4178,9 +4178,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfGlass|input:Thin Film Thickness",
         "scenes": [
           "materials_hall"
@@ -4189,9 +4189,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfGlass|output:BSDF",
         "scenes": [
           "materials_hall"
@@ -4211,9 +4211,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|input:Coat",
         "scenes": [
           "geometry_zoo",
@@ -4224,9 +4224,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|input:Color",
         "scenes": [
           "geometry_zoo",
@@ -4237,9 +4237,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|input:IOR",
         "scenes": [
           "geometry_zoo",
@@ -4250,9 +4250,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|input:Offset",
         "scenes": [
           "geometry_zoo",
@@ -4263,9 +4263,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|input:Radial Roughness",
         "scenes": [
           "geometry_zoo",
@@ -4302,9 +4302,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|input:Roughness",
         "scenes": [
           "geometry_zoo",
@@ -4315,9 +4315,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|output:BSDF",
         "scenes": [
           "geometry_zoo",
@@ -4328,9 +4328,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfHairPrincipled|prop:model",
         "scenes": [
           "geometry_zoo",
@@ -4440,9 +4440,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfMetallic|output:BSDF",
         "scenes": [
           "materials_hall"
@@ -5043,9 +5043,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfPrincipled|output:BSDF",
         "scenes": [
           "camera_lens",
@@ -5144,9 +5144,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfRefraction|output:BSDF",
         "scenes": [
           "materials_hall"
@@ -5188,9 +5188,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfSheen|output:BSDF",
         "scenes": [
           "materials_hall"
@@ -5232,9 +5232,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfTranslucent|output:BSDF",
         "scenes": [
           "materials_hall"
@@ -5254,9 +5254,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBsdfTransparent|output:BSDF",
         "scenes": [
           "materials_hall"
@@ -5325,9 +5325,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeBump|output:Normal",
         "scenes": [
           "materials_hall",
@@ -5370,9 +5370,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeClamp|output:Result",
         "scenes": [
           "textures_mapping"
@@ -5414,9 +5414,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeCombineColor|output:Color",
         "scenes": [
           "textures_mapping"
@@ -5469,9 +5469,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeDisplacement|output:Displacement",
         "scenes": [
           "textures_mapping"
@@ -5514,9 +5514,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeEmission|output:Emission",
         "scenes": [
           "camera_lens",
@@ -5553,9 +5553,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeFloatCurve|output:Value",
         "scenes": [
           "textures_mapping"
@@ -5586,9 +5586,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeGamma|output:Color",
         "scenes": [
           "textures_mapping"
@@ -5608,9 +5608,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeHueSaturation|input:Fac",
         "scenes": [
           "textures_mapping"
@@ -5652,9 +5652,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeHueSaturation|output:Color",
         "scenes": [
           "textures_mapping"
@@ -5674,9 +5674,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeInvert|input:Fac",
         "scenes": [
           "textures_mapping"
@@ -5685,9 +5685,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeInvert|output:Color",
         "scenes": [
           "textures_mapping"
@@ -5751,9 +5751,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMapRange|output:Result",
         "scenes": [
           "textures_mapping"
@@ -5832,9 +5832,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMapping|output:Vector",
         "scenes": [
           "textures_mapping",
@@ -5856,9 +5856,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMath|input:Value_001",
         "scenes": [
           "lighting_studio",
@@ -5868,9 +5868,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMath|output:Value",
         "scenes": [
           "lighting_studio",
@@ -5914,9 +5914,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMixRGB|input:Fac",
         "scenes": [
           "textures_mapping"
@@ -5925,9 +5925,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMixRGB|output:Color",
         "scenes": [
           "textures_mapping"
@@ -5947,9 +5947,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|input:A_Color",
         "scenes": [
           "textures_mapping"
@@ -5958,9 +5958,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|input:A_Float",
         "scenes": [
           "textures_mapping"
@@ -5969,9 +5969,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|input:A_Vector",
         "scenes": [
           "textures_mapping"
@@ -5980,9 +5980,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|input:B_Color",
         "scenes": [
           "textures_mapping"
@@ -5991,9 +5991,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|input:B_Float",
         "scenes": [
           "textures_mapping"
@@ -6002,9 +6002,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|input:B_Vector",
         "scenes": [
           "textures_mapping"
@@ -6013,9 +6013,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|input:Factor_Float",
         "scenes": [
           "textures_mapping"
@@ -6024,9 +6024,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|output:Result_Color",
         "scenes": [
           "textures_mapping"
@@ -6035,9 +6035,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|output:Result_Float",
         "scenes": [
           "textures_mapping"
@@ -6046,9 +6046,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMix|output:Result_Vector",
         "scenes": [
           "textures_mapping"
@@ -6124,9 +6124,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeNormalMap|output:Normal",
         "scenes": [
           "textures_mapping"
@@ -6135,9 +6135,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputLight|input:Surface",
         "scenes": [
           "camera_lens",
@@ -6152,9 +6152,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputLight|prop:is_active_output",
         "scenes": [
           "camera_lens",
@@ -6169,9 +6169,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputMaterial|input:Displacement",
         "scenes": [
           "camera_lens",
@@ -6188,9 +6188,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputMaterial|input:Surface",
         "scenes": [
           "camera_lens",
@@ -6226,9 +6226,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputMaterial|input:Volume",
         "scenes": [
           "camera_lens",
@@ -6245,9 +6245,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputMaterial|prop:is_active_output",
         "scenes": [
           "camera_lens",
@@ -6283,9 +6283,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputWorld|input:Volume",
         "scenes": [
           "camera_lens",
@@ -6332,9 +6332,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeRGBCurve|input:Fac",
         "scenes": [
           "textures_mapping"
@@ -6343,9 +6343,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeRGBCurve|output:Color",
         "scenes": [
           "textures_mapping"
@@ -6365,9 +6365,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeRGBToBW|output:Val",
         "scenes": [
           "textures_mapping"
@@ -6387,9 +6387,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeSeparateColor|output:Red",
         "scenes": [
           "textures_mapping"
@@ -6442,9 +6442,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexBrick|input:Mortar",
         "scenes": [
           "textures_mapping"
@@ -6508,9 +6508,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexBrick|output:Color",
         "scenes": [
           "textures_mapping"
@@ -6551,10 +6551,10 @@
         "weight": 1
       },
       {
-        "cpu": 0.0,
-        "cpu_reason": "no hash-verified evidence artifact for this backend",
-        "gpu": 0.0,
-        "gpu_reason": "no hash-verified evidence artifact for this backend",
+        "cpu": 1.0,
+        "cpu_reason": "supported with per-variant evidence",
+        "gpu": 1.0,
+        "gpu_reason": "supported with per-variant evidence",
         "identity": "ShaderNodeTexChecker|input:Color1",
         "scenes": [
           "textures_mapping"
@@ -6596,9 +6596,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexChecker|output:Color",
         "scenes": [
           "textures_mapping"
@@ -6607,9 +6607,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexCoord|output:Generated",
         "scenes": [
           "textures_mapping",
@@ -6630,9 +6630,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexEnvironment|output:Color",
         "scenes": [
           "world_sky_hdri"
@@ -6652,9 +6652,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexGradient|output:Color",
         "scenes": [
           "textures_mapping"
@@ -6674,9 +6674,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexIES|input:Strength",
         "scenes": [
           "lighting_studio"
@@ -6696,9 +6696,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexIES|output:Fac",
         "scenes": [
           "lighting_studio"
@@ -6718,9 +6718,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexImage|output:Color",
         "scenes": [
           "textures_mapping"
@@ -6762,9 +6762,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexMagic|output:Fac",
         "scenes": [
           "textures_mapping"
@@ -6878,9 +6878,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexNoise|output:Color",
         "scenes": [
           "textures_mapping"
@@ -6889,9 +6889,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexNoise|output:Fac",
         "scenes": [
           "materials_hall",
@@ -6937,9 +6937,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexSky|output:Color",
         "scenes": [
           "world_sky_sky"
@@ -6970,9 +6970,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexSky|prop:sun_direction",
         "scenes": [
           "world_sky_sky"
@@ -6992,9 +6992,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexSky|prop:sun_intensity",
         "scenes": [
           "world_sky_sky"
@@ -7014,9 +7014,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexSky|prop:sun_size",
         "scenes": [
           "world_sky_sky"
@@ -7113,9 +7113,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexVoronoi|output:Distance",
         "scenes": [
           "textures_mapping"
@@ -7245,9 +7245,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexWave|output:Color",
         "scenes": [
           "textures_mapping"
@@ -7256,9 +7256,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexWave|output:Fac",
         "scenes": [
           "textures_mapping"
@@ -7311,9 +7311,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVectorCurve|input:Fac",
         "scenes": [
           "textures_mapping"
@@ -7333,9 +7333,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVectorCurve|output:Vector",
         "scenes": [
           "textures_mapping"
@@ -7366,9 +7366,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVectorMath|output:Vector",
         "scenes": [
           "textures_mapping"
@@ -7432,9 +7432,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVectorRotate|output:Vector",
         "scenes": [
           "textures_mapping"
@@ -7465,9 +7465,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVolumeAbsorption|output:Volume",
         "scenes": [
           "geometry_zoo"
@@ -7476,9 +7476,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVolumePrincipled|input:Absorption Color",
         "scenes": [
           "geometry_zoo"
@@ -7509,9 +7509,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVolumePrincipled|input:Blackbody Tint",
         "scenes": [
           "geometry_zoo"
@@ -7553,9 +7553,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVolumePrincipled|input:Density Attribute",
         "scenes": [
           "geometry_zoo"
@@ -7597,9 +7597,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVolumePrincipled|input:Temperature Attribute",
         "scenes": [
           "geometry_zoo"
@@ -7608,9 +7608,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVolumePrincipled|output:Volume",
         "scenes": [
           "geometry_zoo"
@@ -7652,9 +7652,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeVolumeScatter|output:Volume",
         "scenes": [
           "geometry_zoo"
@@ -7674,9 +7674,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeWavelength|output:Color",
         "scenes": [
           "materials_hall"
@@ -7715,10 +7715,8 @@
     "required": 823
   },
   "schema": "pkg278.coverage_report.v1",
-  "silent_drop_count": 57,
+  "silent_drop_count": 30,
   "silent_drops": [
-    "ShaderNodeBackground|input:Color",
-    "ShaderNodeBackground|input:Strength",
     "ShaderNodeBsdfAnisotropic|input:Anisotropy",
     "ShaderNodeBsdfAnisotropic|input:Normal",
     "ShaderNodeBsdfAnisotropic|input:Rotation",
@@ -7726,18 +7724,9 @@
     "ShaderNodeBsdfAnisotropic|prop:distribution",
     "ShaderNodeBsdfDiffuse|input:Normal",
     "ShaderNodeBsdfGlass|input:Normal",
-    "ShaderNodeBsdfGlass|input:Thin Film IOR",
-    "ShaderNodeBsdfGlass|input:Thin Film Thickness",
     "ShaderNodeBsdfGlass|prop:distribution",
-    "ShaderNodeBsdfHairPrincipled|input:Coat",
-    "ShaderNodeBsdfHairPrincipled|input:Color",
-    "ShaderNodeBsdfHairPrincipled|input:IOR",
-    "ShaderNodeBsdfHairPrincipled|input:Offset",
-    "ShaderNodeBsdfHairPrincipled|input:Radial Roughness",
     "ShaderNodeBsdfHairPrincipled|input:Random",
     "ShaderNodeBsdfHairPrincipled|input:Random Roughness",
-    "ShaderNodeBsdfHairPrincipled|input:Roughness",
-    "ShaderNodeBsdfHairPrincipled|prop:model",
     "ShaderNodeBsdfMetallic|input:Normal",
     "ShaderNodeBsdfMetallic|input:Tangent",
     "ShaderNodeBsdfPrincipled|input:Coat Normal",
@@ -7751,29 +7740,13 @@
     "ShaderNodeDisplacement|input:Normal",
     "ShaderNodeMapRange|prop:clamp",
     "ShaderNodeNewGeometry|output:Normal",
-    "ShaderNodeOutputLight|input:Surface",
-    "ShaderNodeOutputLight|prop:is_active_output",
-    "ShaderNodeOutputMaterial|input:Displacement",
-    "ShaderNodeOutputMaterial|input:Surface",
     "ShaderNodeOutputMaterial|input:Thickness",
-    "ShaderNodeOutputMaterial|input:Volume",
-    "ShaderNodeOutputMaterial|prop:is_active_output",
     "ShaderNodeOutputWorld|input:Surface",
-    "ShaderNodeOutputWorld|input:Volume",
     "ShaderNodeOutputWorld|prop:is_active_output",
-    "ShaderNodeTexBrick|input:Mortar",
     "ShaderNodeTexEnvironment|input:Vector",
-    "ShaderNodeTexIES|input:Strength",
     "ShaderNodeTexIES|input:Vector",
     "ShaderNodeTexSky|prop:ground_albedo",
-    "ShaderNodeTexSky|prop:sun_direction",
-    "ShaderNodeTexSky|prop:sun_intensity",
-    "ShaderNodeTexSky|prop:sun_size",
-    "ShaderNodeVolumePrincipled|input:Absorption Color",
-    "ShaderNodeVolumePrincipled|input:Blackbody Tint",
-    "ShaderNodeVolumePrincipled|input:Color Attribute",
-    "ShaderNodeVolumePrincipled|input:Density Attribute",
-    "ShaderNodeVolumePrincipled|input:Temperature Attribute"
+    "ShaderNodeVolumePrincipled|input:Color Attribute"
   ],
   "status": "provisional",
   "subchecks": {
@@ -7785,17 +7758,15 @@
     "b2_cpu_score": {
       "min": 0.95,
       "pass": false,
-      "score": 0.0
+      "score": 0.0021321961620469083
     },
     "b3_gpu_score": {
       "min": 0.95,
       "pass": false,
-      "score": 0.0
+      "score": 0.0021321961620469083
     },
     "b4_zero_silent_drops": {
       "drops": [
-        "ShaderNodeBackground|input:Color",
-        "ShaderNodeBackground|input:Strength",
         "ShaderNodeBsdfAnisotropic|input:Anisotropy",
         "ShaderNodeBsdfAnisotropic|input:Normal",
         "ShaderNodeBsdfAnisotropic|input:Rotation",
@@ -7803,18 +7774,9 @@
         "ShaderNodeBsdfAnisotropic|prop:distribution",
         "ShaderNodeBsdfDiffuse|input:Normal",
         "ShaderNodeBsdfGlass|input:Normal",
-        "ShaderNodeBsdfGlass|input:Thin Film IOR",
-        "ShaderNodeBsdfGlass|input:Thin Film Thickness",
         "ShaderNodeBsdfGlass|prop:distribution",
-        "ShaderNodeBsdfHairPrincipled|input:Coat",
-        "ShaderNodeBsdfHairPrincipled|input:Color",
-        "ShaderNodeBsdfHairPrincipled|input:IOR",
-        "ShaderNodeBsdfHairPrincipled|input:Offset",
-        "ShaderNodeBsdfHairPrincipled|input:Radial Roughness",
         "ShaderNodeBsdfHairPrincipled|input:Random",
         "ShaderNodeBsdfHairPrincipled|input:Random Roughness",
-        "ShaderNodeBsdfHairPrincipled|input:Roughness",
-        "ShaderNodeBsdfHairPrincipled|prop:model",
         "ShaderNodeBsdfMetallic|input:Normal",
         "ShaderNodeBsdfMetallic|input:Tangent",
         "ShaderNodeBsdfPrincipled|input:Coat Normal",
@@ -7828,29 +7790,13 @@
         "ShaderNodeDisplacement|input:Normal",
         "ShaderNodeMapRange|prop:clamp",
         "ShaderNodeNewGeometry|output:Normal",
-        "ShaderNodeOutputLight|input:Surface",
-        "ShaderNodeOutputLight|prop:is_active_output",
-        "ShaderNodeOutputMaterial|input:Displacement",
-        "ShaderNodeOutputMaterial|input:Surface",
         "ShaderNodeOutputMaterial|input:Thickness",
-        "ShaderNodeOutputMaterial|input:Volume",
-        "ShaderNodeOutputMaterial|prop:is_active_output",
         "ShaderNodeOutputWorld|input:Surface",
-        "ShaderNodeOutputWorld|input:Volume",
         "ShaderNodeOutputWorld|prop:is_active_output",
-        "ShaderNodeTexBrick|input:Mortar",
         "ShaderNodeTexEnvironment|input:Vector",
-        "ShaderNodeTexIES|input:Strength",
         "ShaderNodeTexIES|input:Vector",
         "ShaderNodeTexSky|prop:ground_albedo",
-        "ShaderNodeTexSky|prop:sun_direction",
-        "ShaderNodeTexSky|prop:sun_intensity",
-        "ShaderNodeTexSky|prop:sun_size",
-        "ShaderNodeVolumePrincipled|input:Absorption Color",
-        "ShaderNodeVolumePrincipled|input:Blackbody Tint",
-        "ShaderNodeVolumePrincipled|input:Color Attribute",
-        "ShaderNodeVolumePrincipled|input:Density Attribute",
-        "ShaderNodeVolumePrincipled|input:Temperature Attribute"
+        "ShaderNodeVolumePrincipled|input:Color Attribute"
       ],
       "pass": false
     },

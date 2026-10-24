@@ -1,5 +1,5 @@
 {
-  "collected": "2026-10-05T17:38:21+00:00",
+  "collected": "2026-10-24T18:19:43+00:00",
   "scenes": {
     "camera_lens": {
       "blend_path": "benchmarks/reference_corpus/scenes/camera_lens.blend",
@@ -25184,7 +25184,7 @@
           ]
         }
       ],
-      "scene_sha256": "0150900d1d41bd59ea8c9fc9ca6fb55c70c971bcf66611235f1de0ab2a880104"
+      "scene_sha256": "8d9fe78d6ae65c4bc0625e655cb8e51c40866cbeef7717622205b0d496e38f0d"
     },
     "volumes_smoke": {
       "blend_path": "benchmarks/reference_corpus/scenes/volumes_smoke.blend",

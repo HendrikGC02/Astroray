@@ -1,0 +1,32 @@
+{
+  "artifact": {
+    "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6/astroray.npy",
+    "sha256": "5f58d663caec3b2c8507538ba9a15dc710fbcc45815556ea40c321018ed95cb6"
+  },
+  "backend": "GPU",
+  "build_id": "61ccc72+20261024T181311Z",
+  "case_id": "9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6",
+  "identity": "ShaderNodeTexChecker|input:Color1",
+  "result_kind": "render",
+  "scene_id": "textures_mapping",
+  "schema": "pkg278.gate_b.evidence.v2",
+  "variant": "textures_mapping",
+  "variant_digest": "35ff18873b07e2120a2556a973fe831021dd6c1e1714c8fce90208e5d37f83c2",
+  "verdict": {
+    "backend": "GPU",
+    "build_id": "61ccc72+20261024T181311Z",
+    "identity": "ShaderNodeTexChecker|input:Color1",
+    "pass": true,
+    "result": {
+      "artifact_sha256": "3fcf8d016ae09ab4644ae3379f227d0b95f786c858fc9af42355cbb6c5063c3f",
+      "kind": "render"
+    },
+    "scene_id": "textures_mapping",
+    "schema": "pkg278.gate_b.verdict.v1",
+    "variant_digest": "35ff18873b07e2120a2556a973fe831021dd6c1e1714c8fce90208e5d37f83c2"
+  },
+  "verifier_result": {
+    "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6/runner_result.json",
+    "sha256": "3fcf8d016ae09ab4644ae3379f227d0b95f786c858fc9af42355cbb6c5063c3f"
+  }
+}

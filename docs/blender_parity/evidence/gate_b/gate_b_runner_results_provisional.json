@@ -3,105 +3,105 @@
     {
       "artifacts": {
         "astroray_control_feature_mask": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/astroray_control_mask.npy",
-          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6/astroray_control_mask.npy",
+          "sha256": "13559db712ebee60e48d08aa095b08773249132a715d7e78a4bf09ca8df34c4d"
         },
         "astroray_control_linear_npy": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/astroray_control.npy",
-          "sha256": "4d0527a3de3285b31c014cc123a483f27400ab4ebe68056a134466aa33ba559c"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6/astroray_control.npy",
+          "sha256": "6e116df7d687657905b0dea8edecedcd5b158c24c25b6521a2cdb0e69a1c1dc9"
         },
         "astroray_control_report": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/astroray_control_raw.json",
-          "sha256": "b4d99d3f5b7401f935f254b254f6296f0c5b6d8c860230b9eb5cab0b36fde571"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6/astroray_control_raw.json",
+          "sha256": "dff970d9b8a04b19fe189fba0d5bf659dc154700daa502afb739d9b57d10a12f"
         },
         "astroray_feature_mask": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/astroray_mask.npy",
-          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6/astroray_mask.npy",
+          "sha256": "13559db712ebee60e48d08aa095b08773249132a715d7e78a4bf09ca8df34c4d"
         },
         "astroray_linear_npy": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/astroray.npy",
-          "sha256": "2988bf0e659bb52de8a8e00b6bcbe6e76a6454937e2e1f796024297cb69404cd"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6/astroray.npy",
+          "sha256": "5f58d663caec3b2c8507538ba9a15dc710fbcc45815556ea40c321018ed95cb6"
         },
         "cycles_control_feature_mask": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/cycles_control_mask.npy",
-          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6/cycles_control_mask.npy",
+          "sha256": "13559db712ebee60e48d08aa095b08773249132a715d7e78a4bf09ca8df34c4d"
         },
         "cycles_control_linear_npy": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/cycles_control.npy",
-          "sha256": "65c7409c24db018995a4f5e3b4ad08f69a4f7e1707bc1388bed2efcae76fbcfc"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6/cycles_control.npy",
+          "sha256": "e82215485b2893a435a4b0eb63ada2826e67479b3ba1e33e105a6edee867088c"
         },
         "cycles_control_report": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/cycles_control_raw.json",
-          "sha256": "682b5d66925450ddd7dd0a5becd64c73b81d123ae84b1123d608cfeeddfcfa57"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6/cycles_control_raw.json",
+          "sha256": "169e97f91443ecb2db427b02d2a7994a242fc507b6a22bfd83df4cf07c21f15a"
         },
         "cycles_feature_mask": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/cycles_mask.npy",
-          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6/cycles_mask.npy",
+          "sha256": "13559db712ebee60e48d08aa095b08773249132a715d7e78a4bf09ca8df34c4d"
         },
         "cycles_linear_npy": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/cycles.npy",
-          "sha256": "28302acc1e906123a953927912a17e490008a6a7d4a75d0dd7c9c863ab7cb6e0"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6/cycles.npy",
+          "sha256": "56c77d7694d82c0390daa97e39c0ae06c23ea8115e643af11614609e902c89b4"
         },
         "cycles_report": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/cycles_raw.json",
-          "sha256": "9f37cc1ea3ddd04b580f824c2c3cb79b196c19d331cb093cc98990dbec2797c2"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6/cycles_raw.json",
+          "sha256": "744abf4eba7b830e663dc327e1a82d8e9df0ba26f816013a50b9d176308d1754"
         },
         "report": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3/astroray_raw.json",
-          "sha256": "5e7867717a24f67cedde2e95bca73498b59457c52e48d40498bd69aa27b768d3"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6/astroray_raw.json",
+          "sha256": "be1f8abbe6083ac1a20f2331c5dcdcbb3edeb122ea7bd95a69f6ac739860c4c1"
         }
       },
       "backend": "GPU",
-      "build_id": "132c974+20261004T124622Z",
-      "case_id": "0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3",
+      "build_id": "61ccc72+20261024T181311Z",
+      "case_id": "9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6",
       "effect": {
-        "delta_e": 6.59410383913575,
+        "delta_e": 1.4355990445165068,
         "effects": {
           "astroray": {
-            "coverage": 0.8880697050938338,
+            "coverage": 0.9142367066895368,
             "coverage_threshold": 0.02,
             "kind": "checker",
-            "negative_coverage": 0.4383378016085791,
+            "negative_coverage": 0.45368782161234994,
             "ok": true,
-            "positive_coverage": 0.44839142091152817,
-            "signal": 0.7054775953292847,
+            "positive_coverage": 0.45969125214408235,
+            "signal": 0.7246070504188538,
             "threshold": 0.05,
-            "value": 0.4504743218421936
+            "value": 0.45220115780830383
           },
           "cycles": {
-            "coverage": 0.8880697050938338,
+            "coverage": 0.9159519725557461,
             "coverage_threshold": 0.02,
             "kind": "checker",
-            "negative_coverage": 0.4436997319034853,
+            "negative_coverage": 0.4554030874785592,
             "ok": true,
-            "positive_coverage": 0.44436997319034854,
-            "signal": 0.7047613263130188,
+            "positive_coverage": 0.46054888507718694,
+            "signal": 0.7244439125061035,
             "threshold": 0.05,
-            "value": 0.45093291997909546
+            "value": 0.4531041085720062
           }
         },
         "pass": true,
         "roi": [
-          0.2912,
-          0.3603,
-          0.4079,
-          0.4804
+          0.2949,
+          0.3638,
+          0.4045,
+          0.4765
         ],
-        "ssim": 0.8393824100494385
+        "ssim": 0.9900897145271301
       },
       "identity": "ShaderNodeTexChecker|input:Color1",
       "metrics": {
-        "delta_e": 6.59410383913575,
-        "ssim": 0.8393824100494385
+        "delta_e": 1.4355990445165068,
+        "ssim": 0.9900897145271301
       },
       "observed": {
-        "addon_sha256": "002c7c43a1a547d7c157dffc9b9d6d7ef8e9470d53c38b8d60075fe14fdc736e",
+        "addon_sha256": "3f4372b4962ed6b72c3c88faf9313a11fa170ca52261c3d3ea8e7fa80813b044",
         "backend": "GPU",
-        "build_id": "132c974+20261004T124622Z",
+        "build_id": "61ccc72+20261024T181311Z",
         "device": "gpu",
         "engine_id": "CUSTOM_RAYTRACER",
         "identity": "ShaderNodeTexChecker|input:Color1",
-        "module_sha256": "93cc14f028f20d64ab315873e8a04f6d6cc80cb13f76d5a4e943f1c850915aac",
+        "module_sha256": "9c45497c3654a1cff7ce56ef3844cde1cc08c2c6b7fd34617eae3ab91c3cad68",
         "scene_id": "textures_mapping",
         "variant_digest": "35ff18873b07e2120a2556a973fe831021dd6c1e1714c8fce90208e5d37f83c2"
       },
@@ -118,7 +118,7 @@
         "seed": 7,
         "view_transform": "Standard"
       },
-      "status": "fail",
+      "status": "pass",
       "variant_digest": "35ff18873b07e2120a2556a973fe831021dd6c1e1714c8fce90208e5d37f83c2",
       "witness": {
         "control": {
@@ -137,115 +137,115 @@
           "min_signal": 0.001
         },
         "roi": [
-          0.2912,
-          0.3603,
-          0.4079,
-          0.4804
+          0.2949,
+          0.3638,
+          0.4045,
+          0.4765
         ]
       }
     },
     {
       "artifacts": {
         "astroray_control_feature_mask": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/astroray_control_mask.npy",
-          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/c4ba428ed6624fda9173e2953f77e14cc95187befb0b769aa658bfce127c6fce/astroray_control_mask.npy",
+          "sha256": "13559db712ebee60e48d08aa095b08773249132a715d7e78a4bf09ca8df34c4d"
         },
         "astroray_control_linear_npy": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/astroray_control.npy",
-          "sha256": "db7aa0e5bb8d155606d96a75f96e9ab562b4f72f18dcd5c22d80a2fd3dcf7f1b"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/c4ba428ed6624fda9173e2953f77e14cc95187befb0b769aa658bfce127c6fce/astroray_control.npy",
+          "sha256": "58e7099ce8d548c907e77357b0d97ccd2efe2294d9e2bd26e9228b0d4be87fcc"
         },
         "astroray_control_report": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/astroray_control_raw.json",
-          "sha256": "718b0b9ddaa34142c135c9767cbef537d05ea0351860a6cf4883f41ee9812d9f"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/c4ba428ed6624fda9173e2953f77e14cc95187befb0b769aa658bfce127c6fce/astroray_control_raw.json",
+          "sha256": "cd7aeb62d312184ed5a23f4eebce48ef5a4904bccd97638a2169489ab9dc3346"
         },
         "astroray_feature_mask": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/astroray_mask.npy",
-          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/c4ba428ed6624fda9173e2953f77e14cc95187befb0b769aa658bfce127c6fce/astroray_mask.npy",
+          "sha256": "13559db712ebee60e48d08aa095b08773249132a715d7e78a4bf09ca8df34c4d"
         },
         "astroray_linear_npy": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/astroray.npy",
-          "sha256": "74676f5785edceeb9aa0a0f0b2decac25bdec6b2897a9fb8cea94489f53a00aa"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/c4ba428ed6624fda9173e2953f77e14cc95187befb0b769aa658bfce127c6fce/astroray.npy",
+          "sha256": "0865e27f6a26680dd74439bb58ec9eed6d92f2d66bbaf88ae149681e5d7d6b31"
         },
         "cycles_control_feature_mask": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/cycles_control_mask.npy",
-          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/c4ba428ed6624fda9173e2953f77e14cc95187befb0b769aa658bfce127c6fce/cycles_control_mask.npy",
+          "sha256": "13559db712ebee60e48d08aa095b08773249132a715d7e78a4bf09ca8df34c4d"
         },
         "cycles_control_linear_npy": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/cycles_control.npy",
-          "sha256": "65c7409c24db018995a4f5e3b4ad08f69a4f7e1707bc1388bed2efcae76fbcfc"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/c4ba428ed6624fda9173e2953f77e14cc95187befb0b769aa658bfce127c6fce/cycles_control.npy",
+          "sha256": "e82215485b2893a435a4b0eb63ada2826e67479b3ba1e33e105a6edee867088c"
         },
         "cycles_control_report": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/cycles_control_raw.json",
-          "sha256": "00d412513b6cbfc98961893c90080588c7bd305a09534983aefa6fcbb1a47a4e"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/c4ba428ed6624fda9173e2953f77e14cc95187befb0b769aa658bfce127c6fce/cycles_control_raw.json",
+          "sha256": "588985b112c052ef2c3170f7ea57f52fcb6b9702ab62d2a942b127121bb7b627"
         },
         "cycles_feature_mask": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/cycles_mask.npy",
-          "sha256": "fdef4971ce7586360bd4c1f42aaa5cbbe163a5450879a0dde9266ee414627fa1"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/c4ba428ed6624fda9173e2953f77e14cc95187befb0b769aa658bfce127c6fce/cycles_mask.npy",
+          "sha256": "13559db712ebee60e48d08aa095b08773249132a715d7e78a4bf09ca8df34c4d"
         },
         "cycles_linear_npy": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/cycles.npy",
-          "sha256": "28302acc1e906123a953927912a17e490008a6a7d4a75d0dd7c9c863ab7cb6e0"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/c4ba428ed6624fda9173e2953f77e14cc95187befb0b769aa658bfce127c6fce/cycles.npy",
+          "sha256": "56c77d7694d82c0390daa97e39c0ae06c23ea8115e643af11614609e902c89b4"
         },
         "cycles_report": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/cycles_raw.json",
-          "sha256": "c90218c288f108aaa5eeeb3931b4071c662cff10c731eb4dd101513755f4bc36"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/c4ba428ed6624fda9173e2953f77e14cc95187befb0b769aa658bfce127c6fce/cycles_raw.json",
+          "sha256": "77bbb92e8baac3489ab5d44bfe5e639a72edda92a5ec1a161b80551d6d14e643"
         },
         "report": {
-          "path": "C:/Users/hgcom/OneDrive/Astroray/astra_run/batch-f/f6/gate_b/cases/56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67/astroray_raw.json",
-          "sha256": "8365ed7494f8fe377fc0cb4a7e7769c7c4862bedce253de8a697b8e3b46ecc83"
+          "path": "C:/Users/hgcom/AppData/Local/astroray-evidence/2026-10-24/gate-b/runner/cases/c4ba428ed6624fda9173e2953f77e14cc95187befb0b769aa658bfce127c6fce/astroray_raw.json",
+          "sha256": "ea97e06fe2d74751d1aad2826049062af660ae6e5e0040ac9d903bf9758aa826"
         }
       },
       "backend": "CPU",
-      "build_id": "132c974+20261004T124622Z",
-      "case_id": "56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67",
+      "build_id": "61ccc72+20261024T181311Z",
+      "case_id": "c4ba428ed6624fda9173e2953f77e14cc95187befb0b769aa658bfce127c6fce",
       "effect": {
-        "delta_e": 6.332463757181816,
+        "delta_e": 1.4219903491872947,
         "effects": {
           "astroray": {
-            "coverage": 0.8880697050938338,
+            "coverage": 0.9142367066895368,
             "coverage_threshold": 0.02,
             "kind": "checker",
-            "negative_coverage": 0.4383378016085791,
+            "negative_coverage": 0.45368782161234994,
             "ok": true,
-            "positive_coverage": 0.44839142091152817,
-            "signal": 0.7054976224899292,
+            "positive_coverage": 0.45969125214408235,
+            "signal": 0.7246230840682983,
             "threshold": 0.05,
-            "value": 0.4504360854625702
+            "value": 0.45221245288848877
           },
           "cycles": {
-            "coverage": 0.8880697050938338,
+            "coverage": 0.9159519725557461,
             "coverage_threshold": 0.02,
             "kind": "checker",
-            "negative_coverage": 0.4436997319034853,
+            "negative_coverage": 0.4554030874785592,
             "ok": true,
-            "positive_coverage": 0.44436997319034854,
-            "signal": 0.7047613263130188,
+            "positive_coverage": 0.46054888507718694,
+            "signal": 0.7244439125061035,
             "threshold": 0.05,
-            "value": 0.45093291997909546
+            "value": 0.4531041085720062
           }
         },
         "pass": true,
         "roi": [
-          0.2912,
-          0.3603,
-          0.4079,
-          0.4804
+          0.2949,
+          0.3638,
+          0.4045,
+          0.4765
         ],
-        "ssim": 0.8463902473449707
+        "ssim": 0.990410566329956
       },
       "identity": "ShaderNodeTexChecker|input:Color1",
       "metrics": {
-        "delta_e": 6.332463757181816,
-        "ssim": 0.8463902473449707
+        "delta_e": 1.4219903491872947,
+        "ssim": 0.990410566329956
       },
       "observed": {
-        "addon_sha256": "002c7c43a1a547d7c157dffc9b9d6d7ef8e9470d53c38b8d60075fe14fdc736e",
+        "addon_sha256": "3f4372b4962ed6b72c3c88faf9313a11fa170ca52261c3d3ea8e7fa80813b044",
         "backend": "CPU",
-        "build_id": "132c974+20261004T124622Z",
+        "build_id": "61ccc72+20261024T181311Z",
         "device": "cpu",
         "engine_id": "CUSTOM_RAYTRACER",
         "identity": "ShaderNodeTexChecker|input:Color1",
-        "module_sha256": "93cc14f028f20d64ab315873e8a04f6d6cc80cb13f76d5a4e943f1c850915aac",
+        "module_sha256": "9c45497c3654a1cff7ce56ef3844cde1cc08c2c6b7fd34617eae3ab91c3cad68",
         "scene_id": "textures_mapping",
         "variant_digest": "35ff18873b07e2120a2556a973fe831021dd6c1e1714c8fce90208e5d37f83c2"
       },
@@ -262,7 +262,7 @@
         "seed": 7,
         "view_transform": "Standard"
       },
-      "status": "fail",
+      "status": "pass",
       "variant_digest": "35ff18873b07e2120a2556a973fe831021dd6c1e1714c8fce90208e5d37f83c2",
       "witness": {
         "control": {
@@ -281,10 +281,10 @@
           "min_signal": 0.001
         },
         "roi": [
-          0.2912,
-          0.3603,
-          0.4079,
-          0.4804
+          0.2949,
+          0.3638,
+          0.4045,
+          0.4765
         ]
       }
     }

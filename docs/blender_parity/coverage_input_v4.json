@@ -1,6 +1,6 @@
 {
   "collector": {
-    "snapshot_sha256": "f5a24fe2abbc1a2d1ee4e284b329ab45e629c8d46acd6ec9bf0f0dd0cc9d6dc3",
+    "snapshot_sha256": "bbfa76ddd5d984f2786229c5be20ece5a0169f60ead34a5c8a6b33de11a48de9",
     "use_ledger": [
       {
         "exclusions": [],
@@ -11647,7 +11647,7 @@
           "res_y": 540,
           "samples": 192
         },
-        "sha256": "0150900d1d41bd59ea8c9fc9ca6fb55c70c971bcf66611235f1de0ab2a880104"
+        "sha256": "8d9fe78d6ae65c4bc0625e655cb8e51c40866cbeef7717622205b0d496e38f0d"
       },
       "volumes_smoke": {
         "assets": [
@@ -11695,23 +11695,23 @@
       }
     }
   },
-  "created": "2026-10-05T17:41:02+00:00",
+  "created": "2026-10-24T18:36:39+00:00",
   "evidence": {
     "mode": "production",
     "runner_case_map": {
       "candidate_build": {
-        "addon_sha256": "002c7c43a1a547d7c157dffc9b9d6d7ef8e9470d53c38b8d60075fe14fdc736e",
-        "build_id": "132c974+20261004T124622Z",
-        "module_sha256": "93cc14f028f20d64ab315873e8a04f6d6cc80cb13f76d5a4e943f1c850915aac"
+        "addon_sha256": "3f4372b4962ed6b72c3c88faf9313a11fa170ca52261c3d3ea8e7fa80813b044",
+        "build_id": "61ccc72+20261024T181311Z",
+        "module_sha256": "9c45497c3654a1cff7ce56ef3844cde1cc08c2c6b7fd34617eae3ab91c3cad68"
       },
       "cases": [
         {
-          "addon_sha256": "002c7c43a1a547d7c157dffc9b9d6d7ef8e9470d53c38b8d60075fe14fdc736e",
+          "addon_sha256": "3f4372b4962ed6b72c3c88faf9313a11fa170ca52261c3d3ea8e7fa80813b044",
           "backend": "GPU",
-          "build_id": "132c974+20261004T124622Z",
-          "case_id": "0d3d5a7736d6faa36cf03a48032772fea94f4d6efbf5f0297c8a569ca8afefa3",
+          "build_id": "61ccc72+20261024T181311Z",
+          "case_id": "9716d62ff158279719b4cb480f5cef9d83536159bf58afa9c850483f17f502e6",
           "identity": "ShaderNodeTexChecker|input:Color1",
-          "module_sha256": "93cc14f028f20d64ab315873e8a04f6d6cc80cb13f76d5a4e943f1c850915aac",
+          "module_sha256": "9c45497c3654a1cff7ce56ef3844cde1cc08c2c6b7fd34617eae3ab91c3cad68",
           "scene_id": "textures_mapping",
           "settings": {
             "adaptive": false,
@@ -11742,20 +11742,20 @@
               "min_signal": 0.001
             },
             "roi": [
-              0.2912,
-              0.3603,
-              0.4079,
-              0.4804
+              0.2949,
+              0.3638,
+              0.4045,
+              0.4765
             ]
           }
         },
         {
-          "addon_sha256": "002c7c43a1a547d7c157dffc9b9d6d7ef8e9470d53c38b8d60075fe14fdc736e",
+          "addon_sha256": "3f4372b4962ed6b72c3c88faf9313a11fa170ca52261c3d3ea8e7fa80813b044",
           "backend": "CPU",
-          "build_id": "132c974+20261004T124622Z",
-          "case_id": "56b92be2139eea22716c710c05702f6bbbdc7514c5aa3d3b83ca05b3ab61be67",
+          "build_id": "61ccc72+20261024T181311Z",
+          "case_id": "c4ba428ed6624fda9173e2953f77e14cc95187befb0b769aa658bfce127c6fce",
           "identity": "ShaderNodeTexChecker|input:Color1",
-          "module_sha256": "93cc14f028f20d64ab315873e8a04f6d6cc80cb13f76d5a4e943f1c850915aac",
+          "module_sha256": "9c45497c3654a1cff7ce56ef3844cde1cc08c2c6b7fd34617eae3ab91c3cad68",
           "scene_id": "textures_mapping",
           "settings": {
             "adaptive": false,
@@ -11786,15 +11786,15 @@
               "min_signal": 0.001
             },
             "roi": [
-              0.2912,
-              0.3603,
-              0.4079,
-              0.4804
+              0.2949,
+              0.3638,
+              0.4045,
+              0.4765
             ]
           }
         }
       ],
-      "sha256": "80d1690b777d3450bec00b29afe8b5585b66ff2912c805b3d73a7f3ce8fd5b30",
+      "sha256": "836dbc37208a68cc2f08a466012509a59575467e49d7a38704feff70c4aff36e",
       "status": "ready"
     },
     "sidecar_dir": "docs/blender_parity/evidence/gate_b/sidecars"
@@ -11802,7 +11802,7 @@
   "input_path": "docs/blender_parity/coverage_input_v4.json",
   "matrix": {
     "path": "docs\\blender_parity\\coverage_matrix.json",
-    "sha256": "2fde7f365c24c6e2bc80a60863ce29a3883a268f453bdd9c7ec924747f174128"
+    "sha256": "09e8143fc70f03d9af0279741a1b00218199b65e0ad6816a599b48adce783ef2"
   },
   "population": {
     "expected_scene_ids": [
@@ -11822,16 +11822,16 @@
     "ratified": false
   },
   "scanner_issue_823": {
-    "commit": "cb70daa3f48b5766376f0f24e5eceef8ee4fb5df",
+    "commit": "fdb8774b05537efd62f915ecf3cff80e2b0eb3b8",
     "integrated": true,
     "required": 823,
     "review_receipt": {
-      "path": "docs/blender_parity/evidence/gate_b/scanner_823_review_receipt_provisional.json",
-      "sha256": "821f755d0457a75a9dfdcfcfd8c50de9bd1757e695afc4406c7302f252d7039e"
+      "path": "docs/blender_parity/evidence/gate_b/scanner_823_review_receipt.json",
+      "sha256": "68bc8c5ea410217171d721dfedf19fe806274a32e47af4e664ab212dbad386dd"
     },
     "schema": "pkg278.scanner_integration_proof.v1",
     "source_path": "scripts/generate_blender_parity_matrix.py",
-    "source_sha256": "1488e17ebfe5501201f0f78fff64f4466a3adab792ff445f2495e2fc0f5040cb"
+    "source_sha256": "076893de9109810d9bf1dbfe5da6228ceddde8fc191411dd729dfe3c04cfe8aa"
   },
   "schema": "pkg278.coverage_input_manifest.v4",
   "version": 4

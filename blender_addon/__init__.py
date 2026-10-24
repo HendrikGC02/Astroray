@@ -3420,24 +3420,37 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         `spec` is a get_normal_inputs / get_displacement_bump_inputs result. An
         Image Texture Height keeps the image path (with its Mapping, #1004). A
-        procedural / op-VM Height is NOT applied but reported (#1005, formerly a
-        silent drop): the CPU can difference any Texture (NormalMapped +
-        Texture::valueDisplaced), but the exact derivative is ~2x stronger than
-        Cycles' pixel-footprint finite difference (svm_node_set_bump,
-        Apache-2.0) on prod_car_paint, and the GPU bump path samples uploaded
-        images only; binding it needs per-hit ray differentials (see #1005)."""
+        procedural / op-VM Height (#1005) is loaded like a Base Color chain and
+        differenced by the CPU NormalMappedPlugin (Texture::valueDisplaced in Object /
+        Generated / Camera coordinates); the GPU bump path samples uploaded images
+        only, so a GPU render reports it (#1005 follow-up)."""
         if spec.get('bump_image') is not None:
             return self.load_blender_image(spec['bump_image'], renderer,
                                            vector_input=spec.get('bump_vector'),
                                            extension=spec.get('bump_extension', 'REPEAT'))
         bump_node = spec.get('bump_node')
         height = bump_node.inputs.get('Height') if bump_node is not None else None
-        if height and height.is_linked:
+        if not (height and height.is_linked):
+            return None
+        src = getattr(height.links[0].from_node, 'type', '?')
+        _, tex_name = self.get_base_color_texture(bump_node, 'Height', renderer)
+        if tex_name is None:
             self._warn_shader_fallback(
-                'BUMP', "Height from '%s' is not an Image Texture: bump not applied "
-                "(procedural bump needs per-hit footprint differentials, #1005)"
-                % getattr(height.links[0].from_node, 'type', '?'))
-        return None
+                'BUMP', "Height from '%s' cannot be loaded as a texture: bump not applied" % src)
+        elif self._bump_render_on_gpu(renderer):
+            self._warn_shader_fallback(
+                'BUMP', "Height from '%s' is procedural: bump applied on CPU only, the GPU "
+                "bump path samples images (#1005)" % src)
+        return tex_name
+
+    def _bump_render_on_gpu(self, renderer):
+        """#1005: whether this render goes to the GPU (where a procedural Bump Height
+        is not applied). An unknown device counts as GPU: report, never drop silently."""
+        try:
+            settings = bpy.context.scene.custom_raytracer
+        except AttributeError:
+            return True
+        return self._render_will_use_gpu(settings, renderer)
 
     def get_normal_inputs(self, node):
         """Extract normal-map / bump-map inputs wired into Principled Normal."""

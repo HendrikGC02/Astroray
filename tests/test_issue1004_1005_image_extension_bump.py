@@ -94,8 +94,10 @@ def test_normal_inputs_carry_vector_and_extension(monkeypatch):
     assert res["normal_extension"] == "MIRROR"
 
 
-def test_bump_with_procedural_height_is_reported_not_silent(monkeypatch):
-    """#1005: a Voronoi Height must leave a DegradationReport entry (was a silent drop)."""
+@pytest.mark.parametrize("on_gpu", [False, True], ids=["cpu", "gpu"])
+def test_bump_with_procedural_height_is_bound_and_reported_on_gpu(monkeypatch, on_gpu):
+    """#1005: a Voronoi Height is loaded as a texture (the CPU differences it). A CPU
+    render needs no report; a GPU render reports it (the GPU bump samples images only)."""
     addon = P._load_blender_addon(monkeypatch)
     engine = addon.CustomRaytracerRenderEngine()
     vnode = P._Node("TEX_VORONOI", inputs={"Vector": P._Socket()})
@@ -105,6 +107,25 @@ def test_bump_with_procedural_height_is_reported_not_silent(monkeypatch):
     assert res["bump_image"] is None and res["bump_node"] is bump
     seen = []
     engine._warn_shader_fallback = lambda *a, **k: seen.append(a)
+    engine._bump_render_on_gpu = lambda renderer: on_gpu
+    tex = engine.load_bump_height_texture(res, P._RecordingRenderer())
+    assert tex is not None and "voronoi" in tex
+    bump_msgs = [a[1] for a in seen if a[0] == "BUMP"]
+    if on_gpu:
+        assert bump_msgs and "CPU only" in bump_msgs[0], seen
+    else:
+        assert not bump_msgs, seen
+
+
+def test_bump_with_unloadable_height_is_reported(monkeypatch):
+    addon = P._load_blender_addon(monkeypatch)
+    engine = addon.CustomRaytracerRenderEngine()
+    vnode = P._Node("TEX_VORONOI", inputs={"Vector": P._Socket()})
+    shader, _, _ = _bump_chain(P, P._FakeImage("n3.png"), P._Socket(linked_to=vnode, output_name="Distance"))
+    res = engine.get_normal_inputs(shader)
+    seen = []
+    engine._warn_shader_fallback = lambda *a, **k: seen.append(a)
+    engine.get_base_color_texture = lambda node, name, renderer: ([0.8, 0.8, 0.8], None)
     assert engine.load_bump_height_texture(res, P._RecordingRenderer()) is None
     assert any(a[0] == "BUMP" and "not applied" in a[1] for a in seen), seen
 

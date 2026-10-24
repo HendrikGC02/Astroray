@@ -45,7 +45,7 @@ LEGS = {
     "cycles_gpu": {"engine": "CYCLES", "device": "gpu", "label": "Cycles OptiX"},
 }
 SHEET_LEGS = ("cpu", "gpu", "cycles")  # three-way sheet columns (cycles_gpu replaces cycles when only it exists)
-PANEL_W = 400
+PANEL_W = 420
 
 
 def load_manifest(path: Path = MANIFEST) -> dict:
@@ -133,14 +133,12 @@ def build_sheet(scene_id: str, entry: dict, out: Path, results: dict) -> Path | 
                 continue
             res = results.get(scene_id, {}).get(v["id"], {}).get(leg, {})
             t = res.get("render_s")
-            lab = f"{LEGS[leg]['label']}"
-            if v["id"] != "default":
-                lab += f" [{v['id']}]"
-            lab += f" | {spp} spp seed {seed} {img.shape[1]}x{img.shape[0]}"
+            lab = LEGS[leg]["label"] + (f" [{v['id']}]" if v["id"] != "default" else "")
+            lab += f" | {spp}spp s{seed} {img.shape[1]}x{img.shape[0]}"
             if t:
                 lab += f" | {t:.1f}s"
             if leg.startswith("cycles") and entry.get("cycles") == "no_dispersion":
-                lab += " | no dispersion in Blender 5.2"
+                lab += " | NO DISPERSION"
             row.append(_panel(img, lab, PANEL_W))
         rows.append(row)
     gap = rt.GAP
@@ -177,6 +175,8 @@ def run_checks(manifest: dict, out: Path, legs: list[str]) -> dict:
         if not entry.get("check") or entry["check"].get("kind") in (None, "none", "see_check_scene"):
             continue
         for leg in legs:
+            if leg not in entry["check"].get("legs", list(LEGS)):
+                continue  # e.g. the prism fan is an Astroray-only effect: Cycles 5.2 has no dispersion, nothing to gate
             imgs = {v["id"]: _load(out, sid, v["id"], leg) for v in scene_variants(entry)}
             if any(i is None for i in imgs.values()):
                 continue
@@ -186,6 +186,20 @@ def run_checks(manifest: dict, out: Path, legs: list[str]) -> dict:
                 r = {"error": f"{type(exc).__name__}: {exc}"}
             if r is not None:
                 res.setdefault(sid, {})[leg] = r
+    return res
+
+
+def run_parity(manifest: dict, out: Path, legs: list[str]) -> dict:
+    """Report-only Astroray-vs-Cycles ROI ratio tables for scenes whose check kind is roi_parity_vs_cycles."""
+    res = {}
+    for sid, entry in manifest["scenes"].items():
+        if entry.get("check", {}).get("kind") != "roi_parity_vs_cycles":
+            continue
+        ref = _load(out, sid, "default", "cycles")
+        for leg in ("cpu", "gpu"):
+            img = _load(out, sid, "default", leg)
+            if ref is not None and img is not None and leg in legs:
+                res.setdefault(sid, {})[leg] = checks.roi_ratio_table(img, ref, entry)
     return res
 
 
@@ -244,7 +258,9 @@ def main(argv: list[str] | None = None) -> int:
             sp = build_sheet(sid, entry, out, results)
             if sp:
                 sheets[sid] = str(sp)
-    check_results = run_checks({"scenes": {s: manifest["scenes"][s] for s in ids}}, out, present)
+    sub = {"scenes": {s: manifest["scenes"][s] for s in ids}}
+    check_results = run_checks(sub, out, present)
+    check_results["_parity"] = run_parity(sub, out, present)
     rj.write_text(json.dumps({"seed": manifest.get("seed"), "renders": results, "checks": check_results,
                               "sheets": sheets}, indent=1), encoding="utf-8")
     write_summary(out, manifest, results, check_results)

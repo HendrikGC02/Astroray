@@ -300,26 +300,39 @@ def luminance(img: np.ndarray) -> np.ndarray:
 
 
 def bounce_cap_check(imgs: dict, entry: dict) -> dict:
-    """Report-only metrics per bounce-cap variant vs the high-bounce reference variant: ROI mean ratio and the
-    fraction of ROI pixels darker than ``dark_threshold_frac_of_ref_mean`` x the reference ROI mean luminance
-    ("dead spots")."""
+    """Report-only metrics per bounce-cap variant vs the high-bounce reference variant: ROI mean and median luminance
+    ratios and the fraction of ROI pixels darker than ``dark_threshold_frac_of_ref_median`` x the reference ROI median
+    luminance ("dead spots": paths cut by the cap come back black)."""
     ref_id = entry["reference_variant"]
-    thr_frac = entry["check"]["dark_threshold_frac_of_ref_mean"]
+    thr_frac = entry["check"]["dark_threshold_frac_of_ref_median"]
     rect = next(iter(entry["rois"].values()))
 
     def crop(img):
         h, w = img.shape[:2]
         x0, y0, x1, y1 = rect
-        return img[int(round(y0 * h)):int(round(y1 * h)), int(round(x0 * w)):int(round(x1 * w))]
+        return luminance(img[int(round(y0 * h)):int(round(y1 * h)), int(round(x0 * w)):int(round(x1 * w))])
     ref = crop(imgs[ref_id])
-    ref_mean = float(luminance(ref).mean())
-    out = {"reference": ref_id, "ref_roi_luminance": round(ref_mean, 5)}
+    ref_mean, ref_med = float(ref.mean()), float(np.median(ref))
+    out = {"reference": ref_id, "ref_roi_mean": round(ref_mean, 5), "ref_roi_median": round(ref_med, 5)}
     for vid, img in imgs.items():
-        c = crop(img)
-        lum = luminance(c)
+        lum = crop(img)
         out[vid] = {"roi_mean_ratio_vs_ref": round(float(lum.mean()) / ref_mean, 4),
-                    "dark_pixel_fraction": round(float((lum < thr_frac * ref_mean).mean()), 4)}
+                    "roi_median_ratio_vs_ref": round(float(np.median(lum)) / ref_med, 4),
+                    "dark_pixel_fraction": round(float((lum < thr_frac * ref_med).mean()), 4)}
     return out
+
+
+def roi_ratio_table(img: np.ndarray, ref: np.ndarray, entry: dict) -> dict:
+    """Report-only per-ROI parity of ``img`` (an Astroray leg) against ``ref`` (the Cycles leg): luminance ratio and
+    max/min channel ratio per ROI, plus how many ROIs sit within +-15 % luminance."""
+    rows = {}
+    for name, rect in entry["rois"].items():
+        a, b = roi_mean(img, rect), roi_mean(ref, rect)
+        la, lb = float(luminance(a)), float(luminance(b))
+        ratio = a / np.maximum(b, 1e-9)
+        rows[name] = {"lum_ratio": round(la / max(lb, 1e-9), 3), "rgb_ratio": ratio.round(3).tolist()}
+    n = sum(1 for r in rows.values() if abs(r["lum_ratio"] - 1.0) <= 0.15)
+    return {"rois": rows, "within_15pct": n, "total": len(rows)}
 
 
 def run_check(entry: dict, imgs: dict):

@@ -75,9 +75,9 @@
       "rois": {
         "screen": [
           0.0,
-          0.151,
-          0.2908,
-          0.6843
+          0.1469,
+          0.3828,
+          0.6802
         ]
       },
       "notes": "BK7 (Abbe 64; the recipe's Abbe ~58 crown) 60 deg prism at minimum deviation, collimated sun through a window, matte screen. Cycles 5.2 has no dispersion: its column shows a black screen by design.",
@@ -86,8 +86,8 @@
         "check_scene": "sp02b_prism_check"
       },
       "blend_path": "benchmarks/showcase/spectral/scenes/sp02_prism_fan.blend",
-      "sha256": "0f9e1a7a885295a301e51c6683453db79131d1d6d80cdf45102fa290412c5b60",
-      "scene_digest": "1558aa2b22af593d25d347deb5f99a9fbf1e448b8635bbe9bafa6396fa643e2b",
+      "sha256": "1d5e1a31733260c7be4a507695a20b5a0087f5f6691a4dec2b1d99e38946b98d",
+      "scene_digest": "06b4913fb38f8008334d84ba6ac856327e210410bb3b6008429858d0addd765e",
       "triangles": 84,
       "gallery": true,
       "blender": "5.2.0 LTS",
@@ -115,6 +115,10 @@
         "kind": "prism_fan_sellmeier",
         "preset": "bk7",
         "apex_deg": 60.0,
+        "legs": [
+          "cpu",
+          "gpu"
+        ],
         "wall_distance_m": 6.0,
         "exit_dir_deg": -38.64669547249987,
         "incidence_deg": 49.32334773624993,
@@ -143,7 +147,7 @@
         "pass_rule": "R-to-B 50 % edge separation on the screen vs a 2-D Sellmeier ray-trace prediction (same clip, same CMF)"
       },
       "blend_path": "benchmarks/showcase/spectral/scenes/sp02b_prism_check.blend",
-      "sha256": "117985f143e276fabf5e0b9f95c82dbe95d2b1527e9b2df5bf31fc636f451c90",
+      "sha256": "0f7835af81ecb3ac55ce1e5c931ebc8fe2987179a630e59d82b5504156f88fbf",
       "scene_digest": "97106a423c88c8a83a8770d42bfdeb2baf2b5aa95ac6844edb7cac55a1870039",
       "triangles": 84,
       "blender": "5.2.0 LTS",
@@ -169,10 +173,10 @@
         "kind": "none",
         "metric": "firefly count, hue spread of the gem ROI (qualitative sheet)"
       },
-      "notes": "Procedural round-brilliant stand-in (convex hull of a girdle/table/pavilion point set, flat facets), Sellmeier 'diamond' preset (n 2.417), table down on a dark glossy floor, two soft rectangles plus an emissive panel.",
+      "notes": "Procedural round-brilliant stand-in (convex hull of a girdle/table/pavilion point set, flat facets), Sellmeier Peter-1923 coefficients (n_d 2.417), table down on a dark glossy floor, two soft rectangles plus an emissive panel.",
       "blend_path": "benchmarks/showcase/spectral/scenes/sp03_brilliant_diamond.blend",
-      "sha256": "628ad7445a1449891b46a0948aa711f77ae8000658b146eb4727a59dbdfb2f4f",
-      "scene_digest": "ea396abb235e133ae50bd5097df666501305fe4e2b4e7b996d53f80d6cfc3e9f",
+      "sha256": "d4144efc4d333d34632688c8e95b2d12e32594fe3d3c87fdab8c070d1b86e528",
+      "scene_digest": "08296e10aff9af1f83b0b771d457c7d6f2c8eebb41c18f90d0da3febf6308894",
       "triangles": 124,
       "gallery": true,
       "blender": "5.2.0 LTS",
@@ -278,8 +282,8 @@
       },
       "notes": "Orange-absorbing glass cube (mesh volume) + clear sphere, one small bright spot, white plane; photon caustics.",
       "blend_path": "benchmarks/showcase/spectral/scenes/sp05_absorbing_cube_caustic.blend",
-      "sha256": "ba7c59b834e4970408be055d012447896032df9527b66667650d7c7f73f7b308",
-      "scene_digest": "339428ef56d0522486de0f3636be946bb56f4db93131dedcc9e03744662e53c3",
+      "sha256": "e947757a0dcebb0346daab7efcdfdd80ab71fb4ca44944492c3e70393a27bafa",
+      "scene_digest": "a7a8b0765180b60deb4bf0d0d96d4b3901f4892da5851de9d2394458df7d1f5c",
       "triangles": 9038,
       "gallery": true,
       "blender": "5.2.0 LTS",
@@ -351,12 +355,12 @@
       "reference_variant": "b64",
       "check": {
         "kind": "bounce_cap_dead_spots",
-        "metric": "dark pixel fraction in the tumbler ROI and ROI mean vs b64",
-        "dark_threshold_frac_of_ref_mean": 0.25
+        "metric": "dark pixel fraction in the tumbler ROI, ROI mean / median vs b64",
+        "dark_threshold_frac_of_ref_median": 0.05
       },
       "notes": "Thick-walled 1.5 glass tumbler on a plinth under the repo's CC0 sky HDRI (no city HDRI in the repo). Rendered at bounce caps 4/8/12 and 64 (reference): the acceptance scene for pkg325.",
       "blend_path": "benchmarks/showcase/spectral/scenes/sp07_tumbler_bounce_cap.blend",
-      "sha256": "b071596f0f0839f27c112a18863f62ff53b861ae27152353f57b0172872814f1",
+      "sha256": "62d51345f672b5944414a2cf0201204bb3c0ce8aba886977c78be4d908c0d4c2",
       "scene_digest": "c3e929528ed81fb93ab61c493ffee3b5312b1744dbe9f3f6d305f6bd82c844b2",
       "triangles": 936,
       "gallery": true,
@@ -523,12 +527,12 @@
         "rgb_curves"
       ],
       "check": {
-        "kind": "none",
-        "metric": "per-tile luminance/chroma ratio vs Cycles (sheet, report only)"
+        "kind": "roi_parity_vs_cycles",
+        "metric": "per-tile luminance / channel ratio Astroray vs Cycles (report only)"
       },
       "notes": "21 spheres on a checker floor under the CC0 sky HDRI: Principled/Metallic/Glass/Sheen/Emission/Mix, mapping, bump, noise/wave/gradient/voronoi, colour/XYZ separate-combine, vector math, bright-contrast/gamma, RGB curves.",
       "blend_path": "benchmarks/showcase/spectral/scenes/sp08_shader_ball_bench.blend",
-      "sha256": "7959f8e746251b47bf93efefe1d2454a81715ecf3f7e7cbfc557f129073cd9ae",
+      "sha256": "d19f6df93a121355c62dfa6b968af6dd3746cee2fa3cfd6dd3b0bbf65baf80df",
       "scene_digest": "4ff8787df1ea7747f4ec782ebf576e309ecee6b1ea676f0ae626652c7b4cef5c",
       "triangles": 83330,
       "gallery": true,
@@ -575,7 +579,7 @@
         "kind": "roi_parity_vs_cycles",
         "metric": "ROI luminance ratio Astroray / Cycles (report only)"
       },
-      "notes": "Blender CC0 demo scene (Christophe Seux). Not committed: copy the unzipped classroom folder to benchmarks/showcase/spectral/assets/classroom/ (gitignored); `build_scenes.py --register-classroom` records its sha256. Heavy (1.25 M triangles, ~1 min per 48 spp CPU frame at 480x270)."
+      "notes": "Blender CC0 demo scene (Christophe Seux). Astroray renders its linked-library textures magenta (#1158). Not committed: copy the unzipped classroom folder to benchmarks/showcase/spectral/assets/classroom/ (gitignored); `build_scenes.py --register-classroom` records its sha256. Heavy (1.25 M triangles, ~1 min per 48 spp CPU frame at 480x270)."
     }
   }
 }

@@ -150,6 +150,24 @@ def _glass(sl, name, ior=1.5, rough=0.0, color=(1.0, 1.0, 1.0)):
     return mat
 
 
+# Diamond, Peter (1923) Sellmeier terms: n^2 = 1 + sum B_i l^2 / (l^2 - lam_i^2), lam = (0.175, 0.106) um, so
+# C_i = lam_i^2 (um^2). The engine's built-in 'diamond' preset carries C = (0.0175, 0.1060): a different, wrong
+# denominator (n_d = 2.758 instead of 2.417, tests/test_pkg324_showcase_corpus.py pins it), so the diamond scene
+# supplies the coefficients through the Sellmeier node's manual B/C sockets.
+DIAMOND_B = (0.3306, 4.3356, 0.0)
+DIAMOND_C = (0.175 ** 2, 0.106 ** 2, 0.0)
+
+
+def _diamond_glass(sc, name):
+    mat = sc._dispersive_glass(name, 2.417, "diamond")
+    sell = next(n for n in mat.node_tree.nodes if n.bl_idname == "AstrorayShaderNodeSellmeierGlass")
+    sell.use_preset = False
+    sell.ior_design = 2.417
+    sell.inputs["Sellmeier B"].default_value = DIAMOND_B
+    sell.inputs["Sellmeier C"].default_value = DIAMOND_C
+    return mat
+
+
 def _revolve(name, profile, segs=64):
     """Closed (r, z) profile polyline revolved around Z. Points with r == 0 are poles."""
     import bmesh
@@ -300,7 +318,7 @@ def _prism_scene(sc, sl, check):
     chk = sc._camera((wall_c[0] - 3.0 * e[0], wall_c[1] - 3.0 * e[1], 0.5), (wall_c[0], wall_c[1], 0.5), lens=67.0)
     chk.name = "CamCheck"
     if not check:
-        sc._camera((6.4, 3.4, 2.0), (2.2, -1.9, 0.5), lens=32.0)
+        sc._camera((4.6, 3.3, 1.7), (2.2, -1.9, 0.5), lens=24.0)
         sc._light("Fill", "AREA", (2.0, 1.0, 7.0), (2.0, -1.5, 0.0), 120.0, shape="RECTANGLE", size=8.0, size_y=8.0)
     scene.camera = bpy.data.objects["CamCheck" if check else "Cam"]
     from bpy_extras.object_utils import world_to_camera_view
@@ -319,7 +337,7 @@ def _prism_scene(sc, sl, check):
     if check:
         entry["gallery"] = False
         entry["check"] = {
-            "kind": "prism_fan_sellmeier", "preset": "bk7", "apex_deg": 60.0,
+            "kind": "prism_fan_sellmeier", "preset": "bk7", "apex_deg": 60.0, "legs": ["cpu", "gpu"],
             "wall_distance_m": L, "exit_dir_deg": -math.degrees(dev), "incidence_deg": math.degrees(inc),
             "prism_rot_deg": math.degrees(rot), "prism_side_m": 1.2, "window_half_m": ww / 2, "baffle_x_m": -1.4,
             "wall_centre": [wall_c[0], wall_c[1]], "t_dir": [t[0], t[1]],
@@ -348,11 +366,11 @@ def build_sp03(sc, sl):
     gem = _brilliant("Diamond", 0.5)
     gem.rotation_euler = (math.radians(180.0), 0.0, math.radians(11.0))  # table down, culet up
     gem.location = (0.0, 0.0, 0.34 * 0.5)
-    sc._assign(gem, sc._dispersive_glass("Diamond", 2.417, "diamond"))
+    sc._assign(gem, _diamond_glass(sc, "Diamond"))
     sc._caustic_flags(gem, caster=True)
     sc._caustic_flags(floor, receiver=True)
-    sc._light("KeyL", "AREA", (-3.2, -2.2, 2.6), (0.0, 0.0, 0.3), 220.0, shape="RECTANGLE", size=1.6, size_y=1.0)
-    sc._light("KeyR", "AREA", (3.0, -2.6, 2.4), (0.0, 0.0, 0.3), 160.0, shape="RECTANGLE", size=1.0, size_y=1.6)
+    sc._light("KeyL", "AREA", (-3.2, -2.2, 2.6), (0.0, 0.0, 0.3), 600.0, shape="RECTANGLE", size=1.6, size_y=1.0)
+    sc._light("KeyR", "AREA", (3.0, -2.6, 2.4), (0.0, 0.0, 0.3), 420.0, shape="RECTANGLE", size=1.0, size_y=1.6)
     panel = _plane(sc, "Panel", (0.0, 3.2, 1.6), 2.5, _emitter_mat(sl, "PanelMat", 2.0),
                    rot=(math.radians(90.0), 0.0, 0.0))
     panel.scale = (0.9, 0.4, 1.0)
@@ -362,7 +380,7 @@ def build_sp03(sc, sl):
         "rois": _rois(scene, {"gem": ((0.0, 0.0, 0.3), 0.12)}),
         "check": {"kind": "none", "metric": "firefly count, hue spread of the gem ROI (qualitative sheet)"},
         "notes": "Procedural round-brilliant stand-in (convex hull of a girdle/table/pavilion point set, flat facets), Sellmeier "
-                 "'diamond' preset (n 2.417), table down on a dark glossy floor, two soft rectangles plus an emissive panel.",
+                 "Peter-1923 coefficients (n_d 2.417), table down on a dark glossy floor, two soft rectangles plus an emissive panel.",
     }
 
 
@@ -439,7 +457,7 @@ def build_sp05(sc, sl):
     nt = cube_mat.node_tree
     absorb = nt.nodes.new("ShaderNodeVolumeAbsorption")
     sl._sock(absorb.inputs, "Color").default_value = (1.0, 0.45, 0.08, 1.0)
-    sl._sock(absorb.inputs, "Density").default_value = 1.2
+    sl._sock(absorb.inputs, "Density").default_value = 0.8
     out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
     nt.links.new(absorb.outputs[0], sl._sock(out.inputs, "Volume"))
     cube = sc._box("Cube", (0.0, 0.0, 0.5), (1.0, 1.0, 1.0), cube_mat)
@@ -510,8 +528,8 @@ def build_sp07(sc, sl):
         "rois": _rois(scene, {"tumbler": ((0.0, -0.4, 1.15), 0.14)}),
         "variants": [{"id": f"b{b:02d}", "max_bounces": b} for b in (4, 8, 12, 64)],
         "reference_variant": "b64",
-        "check": {"kind": "bounce_cap_dead_spots", "metric": "dark pixel fraction in the tumbler ROI and ROI mean vs b64",
-                  "dark_threshold_frac_of_ref_mean": 0.25},
+        "check": {"kind": "bounce_cap_dead_spots", "metric": "dark pixel fraction in the tumbler ROI, ROI mean / median vs b64",
+                  "dark_threshold_frac_of_ref_median": 0.05},
         "notes": "Thick-walled 1.5 glass tumbler on a plinth under the repo's CC0 sky HDRI (no city HDRI in the repo). Rendered at "
                  "bounce caps 4/8/12 and 64 (reference): the acceptance scene for pkg325.",
     }
@@ -749,7 +767,7 @@ def build_sp08(sc, sl):
         "res": res, "spp": spp, "max_bounces": 12, "cycles": "full",
         "rois": _rois(scene, pts),
         "tiles": [t[0] for t in tiles],
-        "check": {"kind": "none", "metric": "per-tile luminance/chroma ratio vs Cycles (sheet, report only)"},
+        "check": {"kind": "roi_parity_vs_cycles", "metric": "per-tile luminance / channel ratio Astroray vs Cycles (report only)"},
         "notes": "21 spheres on a checker floor under the CC0 sky HDRI: Principled/Metallic/Glass/Sheen/Emission/Mix, mapping, bump, "
                  "noise/wave/gradient/voronoi, colour/XYZ separate-combine, vector math, bright-contrast/gamma, RGB curves.",
     }
@@ -791,7 +809,7 @@ def _classroom_entry() -> dict:
         "rois": {"blackboard": [0.43, 0.38, 0.64, 0.56], "window": [0.85, 0.17, 0.92, 0.50],
                  "floor": [0.42, 0.60, 0.52, 0.72]},
         "check": {"kind": "roi_parity_vs_cycles", "metric": "ROI luminance ratio Astroray / Cycles (report only)"},
-        "notes": "Blender CC0 demo scene (Christophe Seux). Not committed: copy the unzipped classroom folder to "
+        "notes": "Blender CC0 demo scene (Christophe Seux). Astroray renders its linked-library textures magenta (#1158). Not committed: copy the unzipped classroom folder to "
                  "benchmarks/showcase/spectral/assets/classroom/ (gitignored); `build_scenes.py --register-classroom` "
                  "records its sha256. Heavy (1.25 M triangles, ~1 min per 48 spp CPU frame at 480x270).",
     }

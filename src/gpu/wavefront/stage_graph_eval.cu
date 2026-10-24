@@ -7,7 +7,8 @@
 // into shadePathSlot or the fleet kernels. Each hit whose material carries graph
 // programs writes its results to a per-path output buffer
 // ([k*outStride + pathIdx], k 0..3 = Roughness/Metallic/Transmission/IOR, 4..6 =
-// base colour; NaN = an input missed at this hit, the shade keeps the constant).
+// base colour, 7..10 = #995 closure-tree Mix Facs; NaN = an input missed at this hit,
+// the shade keeps the constant).
 // Only the <HasProgram=true> shade variants read it (GWavefrontProgramBinding).
 //
 // Scratch: persistent threads. The launch has exactly `batch` threads; thread t
@@ -139,6 +140,9 @@ __global__ void stageGraphEvalKernel(
                 const bool ok = graph_eval(g.programs[progs[s]], ar, regs, g.batch, svc, r);
                 if (s < GRAPH_SLOT_BASE_COLOR) {
                     g.out[s * g.outStride + idx] = ok ? r.x : CUDART_NAN_F;
+                } else if (s >= GRAPH_SLOT_FAC0) {   // #995 closure-tree Mix Fac
+                    g.out[(GRAPH_OUT_FAC0 + s - GRAPH_SLOT_FAC0) * g.outStride + idx] =
+                        ok ? r.x : CUDART_NAN_F;
                 } else {
                     g.out[4 * g.outStride + idx] = ok ? r.x : CUDART_NAN_F;
                     g.out[5 * g.outStride + idx] = ok ? r.y : CUDART_NAN_F;

@@ -59,14 +59,14 @@ scene = "prod_shader_stack"
 backend = "cpu"
 kind = "parity"
 issue = "#995"
-reason = "nested Mix Shader with textured Fac collapses to a constant mix; Glass/Emission lost (also #955, #993): 0.28-0.45x"
+reason = "#995 fixed (per-hit closure mix, Add sum, emission + BSDF continue): 0/16 -> 4/16, L lit_front 0.989 right 0.965 lower 0.894 upper_left 0.933 (seed 278). Residual = emission inside the glass seen through it: Astroray's BTDF keeps the pbrt-v4 radiance factor 1/eta^2 (ggx_glass_energy.h), Cycles omits it; with glass IOR 1 the same stack is 15/16 within 1 % of Cycles. Physics divergence for owner review"
 
 [[row]]
 scene = "prod_shader_stack"
 backend = "gpu"
 kind = "parity"
 issue = "#995"
-reason = "same export as CPU: 0.28-0.45x"
+reason = "GPU closure tree (#995) lowers the whole stack (4 closures, graph-program Facs, baked emission); same 1/eta^2 residual expected as CPU, pending the RTX measurement"
 
 [[row]]
 scene = "prod_light_path"

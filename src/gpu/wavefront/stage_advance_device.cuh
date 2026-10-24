@@ -1108,8 +1108,13 @@ __device__ int intersectPathSlotT(
         state.color_1[idx] = color.v[1];
         state.color_2[idx] = color.v[2];
         state.color_3[idx] = color.v[3];
-        state.path_alive[idx] = 0;
-        return -1;
+        // #995: a pure emitter ends the path; a Principled with emission or a closure
+        // tree (emission baked into its leaf 0) continues through its BSDF, as Cycles
+        // does (integrator/shade_surface.h:818-869). CPU twin: Material::hasBSDF.
+        if (!gpu_material_has_bsdf(mat)) {
+            state.path_alive[idx] = 0;
+            return -1;
+        }
     }
 
     // pkg271 — a terminate-after path (volume_bounces exhausted) has taken this
@@ -1542,97 +1547,171 @@ __device__ __forceinline__ void gpu_applyScalarOverride(
 // shade kernel stays byte-identical); the launcher picks <true> off the
 // host-side hasDispersive scene flag. See
 // .astroray_plan/packages/pkg189-gpu-wavefront-dispersion-enablement.md.
-// #1072 -- Add Shader: the closures of the two children ADD (Cycles
-// kernel/svm/closure.h svm_node_add_closure, Apache-2.0). A material uploaded with
-// GMaterial::addPartner != 0 is child A; child B lives at c_wfAddMaterials[addPartner-1]
-// (published once per frame by cuda_wavefront_render; nullptr = no Add in the scene).
-// CPU twin: AddMaterial (include/astroray/add_material.h). One-sample MIS over the two
-// children (Veach 1997 Eq. 9.15; Cycles surface_shader_bsdf_bssrdf_pick, Apache-2.0):
-// pick a child with probability 1/2, sample it, then return the SUMMED f and the
-// MIXTURE pdf 0.5 (pdf_A + pdf_B), so f/pdf estimates the sum without the lobe
-// normalisation of gpu_closure_graph_eval. A delta sample is returned alone with its
-// pdf scaled by the selection probability (the other child's eval at a delta is 0).
+// #995 (generalises #1072) -- Add / Mix Shader closure tree. A material whose
+// GMaterial::closureTree != 0 is leaf 0 of c_wfClosureTrees[closureTree-1]; leaves
+// 1.. are hidden materials at c_wfAddMaterials[leafMat[i]] (published once per frame
+// by cuda_wavefront_render; nullptr = no tree in the scene). CPU twin: closure_mix.h
+// (ClosureNodeMaterial / lowerClosureTree). Ported semantics, Cycles 5.2 (Apache-2.0):
+// svm/closure.h:1506-1522 svm_node_mix_closure (child weights in_weight * (1 - fac),
+// in_weight * fac; Add passes in_weight), integrator/surface_shader.h:436-470 (pick a
+// BSDF closure in proportion to its sample weight) and :271-315 / :973-1010 (one-sample
+// MIS: f = sum w_i f_i, pdf = sum q_i p_i; Veach 1997 Eq. 9.15). A per-texel Fac is
+// the graph kernel's per-path output row sgraph::GRAPH_OUT_FAC0 + facSlot (NaN = an
+// input missed at this hit -> the constant Fac, as the scalar graph slots do). A delta
+// sample is returned alone: f * w_c, pdf * q_c (every other leaf evaluates 0 there).
 // Register discipline: every call is behind `if constexpr (HasAdd)`, a compile-time
-// axis instantiated ONLY by stage_shade_add.cu and launched only for scenes with an Add
-// partner. Outlining is not enough (measured +4 KB STACK on every Principled kernel):
-// the call frames of two full material evals raise a kernel's max stack even out of
-// line, so no other shade kernel (fleet, parts) may contain the call at all.
+// axis instantiated ONLY by stage_shade_add.cu and launched only for scenes with a
+// tree. The weight walk and the leaf loops live in __noinline__ callees, so the caller
+// passes `idx` (already live) and keeps no new per-hit state. Outlining is not enough
+// on its own (#1072 measured +4 KB STACK on every Principled kernel): the call frames
+// of the leaf evaluations raise a kernel's max stack even out of line, so no other
+// shade kernel (fleet, parts) may contain the call at all.
 extern __constant__ const ::GMaterial* c_wfAddMaterials;
+extern __constant__ const GClosureTree* c_wfClosureTrees;
 
-__device__ __forceinline__ const ::GMaterial* gpu_addPartner(const ::GMaterial& mat)
+__device__ __forceinline__ const GClosureTree* gpu_closureTree(const ::GMaterial& mat)
 {
-    return (mat.addPartner != 0 && c_wfAddMaterials != nullptr)
-               ? c_wfAddMaterials + (mat.addPartner - 1) : nullptr;
+    return (mat.closureTree != 0 && c_wfClosureTrees != nullptr && c_wfAddMaterials != nullptr)
+               ? c_wfClosureTrees + (mat.closureTree - 1) : nullptr;
+}
+
+// Leaf weights w[i] (physical closure weights) and sampling probabilities q[i].
+__device__ __noinline__ inline void gpu_tree_weights(const GClosureTree& t, int idx, float* w, float* q)
+{
+    float nw[G_TREE_MAX_NODES];
+    nw[0] = 1.0f;
+    const float* go = c_wfProgBinding.graphOut;
+    const int gst = c_wfProgBinding.graphOutStride;
+    for (int n = 0; n < t.numNodes; ++n) {
+        const GClosureTreeNode& nd = t.nodes[n];
+        float wa = nw[n], wb = nw[n];
+        if (nd.mix) {
+            float f = nd.fac;
+            if (nd.facSlot >= 0 && go != nullptr) {
+                const float v = go[(astroray::sgraph::GRAPH_OUT_FAC0 + nd.facSlot) * gst + idx];
+                if (!isnan(v)) f = v;
+            }
+            f = fminf(fmaxf(f, 0.0f), 1.0f);   // saturatef
+            wa *= 1.0f - f;
+            wb *= f;
+        }
+        if (nd.a >= 0) nw[nd.a] = wa; else w[~nd.a] = wa;
+        if (nd.b >= 0) nw[nd.b] = wb; else w[~nd.b] = wb;
+    }
+    float sum = 0.0f;
+    for (int i = 0; i < t.numLeaves; ++i) {
+        q[i] = ((t.bsdfMask >> i) & 1u) ? w[i] : 0.0f;
+        sum += q[i];
+    }
+    const float inv = (sum > 0.0f) ? 1.0f / sum : 0.0f;
+    for (int i = 0; i < t.numLeaves; ++i) q[i] *= inv;
+}
+
+__device__ __forceinline__ const ::GMaterial& gpu_treeLeaf(const GClosureTree& t, int i,
+                                                          const ::GMaterial& leaf0)
+{
+    return (i == 0) ? leaf0 : c_wfAddMaterials[t.leafMat[i]];
 }
 
 template<bool HasPrincipled>
-__device__ __noinline__ inline GSampledSpectrum gpu_add_eval_spectral(
-    const ::GMaterial& a, const ::GMaterial& b, GHitRecord& rec, const GVec3& wo,
-    const GVec3& wi, const GSampledWavelengths& wl)
+__device__ __noinline__ inline GSampledSpectrum gpu_tree_eval_spectral(
+    const GClosureTree& t, const ::GMaterial& leaf0, int idx, GHitRecord& rec,
+    const GVec3& wo, const GVec3& wi, const GSampledWavelengths& wl)
 {
-    return gpu_material_eval_spectral<HasPrincipled>(a, rec, wo, wi, wl) +
-           gpu_material_eval_spectral<HasPrincipled>(b, rec, wo, wi, wl);
+    float w[G_TREE_MAX_LEAVES], q[G_TREE_MAX_LEAVES];
+    gpu_tree_weights(t, idx, w, q);
+    GSampledSpectrum f(0.0f);
+    for (int i = 0; i < t.numLeaves; ++i) {
+        if (!(q[i] > 0.0f)) continue;   // no BSDF or zero weight
+        f = f + gpu_material_eval_spectral<HasPrincipled>(gpu_treeLeaf(t, i, leaf0), rec, wo, wi, wl) * w[i];
+    }
+    return f;
 }
 
 template<bool HasPrincipled>
-__device__ __noinline__ inline float gpu_add_pdf(
-    const ::GMaterial& a, const ::GMaterial& b, const GHitRecord& rec, const GVec3& wo,
-    const GVec3& wi)
+__device__ __noinline__ inline float gpu_tree_pdf(
+    const GClosureTree& t, const ::GMaterial& leaf0, int idx, const GHitRecord& rec,
+    const GVec3& wo, const GVec3& wi)
 {
-    return 0.5f * (gpu_material_pdf<HasPrincipled>(a, rec, wo, wi) +
-                   gpu_material_pdf<HasPrincipled>(b, rec, wo, wi));
+    float w[G_TREE_MAX_LEAVES], q[G_TREE_MAX_LEAVES];
+    gpu_tree_weights(t, idx, w, q);
+    float p = 0.0f;
+    for (int i = 0; i < t.numLeaves; ++i) {
+        if (!(q[i] > 0.0f)) continue;
+        p += q[i] * gpu_material_pdf<HasPrincipled>(gpu_treeLeaf(t, i, leaf0), rec, wo, wi);
+    }
+    return p;
 }
 
 template<bool HasPrincipled, typename TRng>
-__device__ __noinline__ inline GBSDFSample gpu_add_sample_spectral(
-    const ::GMaterial& a, const ::GMaterial& b, GHitRecord& rec, const GVec3& wo,
-    GSampledWavelengths& wl, TRng* rng)
+__device__ __noinline__ inline GBSDFSample gpu_tree_sample_spectral(
+    const GClosureTree& t, const ::GMaterial& leaf0, int idx, GHitRecord& rec,
+    const GVec3& wo, GSampledWavelengths& wl, TRng* rng)
 {
-    const bool pickB = gpu_rng_uniform(rng) < 0.5f;
-    const ::GMaterial& c = pickB ? b : a;
-    const ::GMaterial& o = pickB ? a : b;
-    GBSDFSample s = gpu_material_sample_spectral<HasPrincipled>(c, rec, wo, wl, rng);
-    if (s.pdf <= 0.0f) return s;
-    if (s.isDelta) { s.pdf *= 0.5f; return s; }
-    // s.f (RGB) stays the chosen child's: the wavefront consumes fSpectral only.
-    s.fSpectral = s.fSpectral + gpu_material_eval_spectral<HasPrincipled>(o, rec, wo, s.wi, wl);
-    s.pdf = 0.5f * (s.pdf + gpu_material_pdf<HasPrincipled>(o, rec, wo, s.wi));
+    float w[G_TREE_MAX_LEAVES], q[G_TREE_MAX_LEAVES];
+    gpu_tree_weights(t, idx, w, q);
+    // One draw; leaves 1.. take [0, q1), [q1, q1+q2), ...; leaf 0 the rest (a two-leaf
+    // Add picks leaf 1 when u < 1/2, the #1072 mapping). A zero-weight leaf 0 hands
+    // the rounding remainder to the last picked leaf.
+    const float u = gpu_rng_uniform(rng);
+    int c = -1, last = 0;
+    float acc = 0.0f;
+    for (int i = 1; i < t.numLeaves; ++i) {
+        if (!(q[i] > 0.0f)) continue;
+        last = i;
+        acc += q[i];
+        if (u < acc) { c = i; break; }
+    }
+    if (c < 0) c = (q[0] > 0.0f) ? 0 : last;
+    GBSDFSample s = gpu_material_sample_spectral<HasPrincipled>(gpu_treeLeaf(t, c, leaf0), rec, wo, wl, rng);
+    if (s.pdf <= 0.0f || !(q[c] > 0.0f)) { s.pdf = 0.0f; return s; }
+    // s.f (RGB) stays the chosen leaf's: the wavefront consumes fSpectral only.
+    s.fSpectral = s.fSpectral * w[c];
+    if (s.isDelta) { s.pdf *= q[c]; return s; }
+    float pdf = q[c] * s.pdf;
+    for (int i = 0; i < t.numLeaves; ++i) {
+        if (i == c || !(q[i] > 0.0f)) continue;
+        const ::GMaterial& m = gpu_treeLeaf(t, i, leaf0);
+        s.fSpectral = s.fSpectral + gpu_material_eval_spectral<HasPrincipled>(m, rec, wo, s.wi, wl) * w[i];
+        pdf += q[i] * gpu_material_pdf<HasPrincipled>(m, rec, wo, s.wi);
+    }
+    s.pdf = pdf;
     return s;
 }
 
 // Shade-stage entry points: identical to gpu_material_{eval_spectral,pdf,sample_spectral}
-// except that an Add material (HasPrincipled kernels only) sums its two children.
+// except that a closure-tree material (HasAdd kernels only) weights its leaves.
 template<bool HasPrincipled, bool HasAdd>
 __device__ __forceinline__ GSampledSpectrum gpu_shade_eval_spectral(
-    const ::GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi,
+    const ::GMaterial& mat, int idx, GHitRecord& rec, const GVec3& wo, const GVec3& wi,
     const GSampledWavelengths& wl)
 {
     if constexpr (HasAdd) {
-        if (const ::GMaterial* b = gpu_addPartner(mat))
-            return gpu_add_eval_spectral<HasPrincipled>(mat, *b, rec, wo, wi, wl);
+        if (const GClosureTree* t = gpu_closureTree(mat))
+            return gpu_tree_eval_spectral<HasPrincipled>(*t, mat, idx, rec, wo, wi, wl);
     }
     return gpu_material_eval_spectral<HasPrincipled>(mat, rec, wo, wi, wl);
 }
 
 template<bool HasPrincipled, bool HasAdd>
 __device__ __forceinline__ float gpu_shade_pdf(
-    const ::GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
+    const ::GMaterial& mat, int idx, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
     if constexpr (HasAdd) {
-        if (const ::GMaterial* b = gpu_addPartner(mat))
-            return gpu_add_pdf<HasPrincipled>(mat, *b, rec, wo, wi);
+        if (const GClosureTree* t = gpu_closureTree(mat))
+            return gpu_tree_pdf<HasPrincipled>(*t, mat, idx, rec, wo, wi);
     }
     return gpu_material_pdf<HasPrincipled>(mat, rec, wo, wi);
 }
 
 template<bool HasPrincipled, bool HasAdd, typename TRng>
 __device__ __forceinline__ GBSDFSample gpu_shade_sample_spectral(
-    const ::GMaterial& mat, GHitRecord& rec, const GVec3& wo, GSampledWavelengths& wl,
+    const ::GMaterial& mat, int idx, GHitRecord& rec, const GVec3& wo, GSampledWavelengths& wl,
     TRng* rng)
 {
     if constexpr (HasAdd) {
-        if (const ::GMaterial* b = gpu_addPartner(mat))
-            return gpu_add_sample_spectral<HasPrincipled>(mat, *b, rec, wo, wl, rng);
+        if (const GClosureTree* t = gpu_closureTree(mat))
+            return gpu_tree_sample_spectral<HasPrincipled>(*t, mat, idx, rec, wo, wl, rng);
     }
     return gpu_material_sample_spectral<HasPrincipled>(mat, rec, wo, wl, rng);
 }
@@ -1674,9 +1753,9 @@ __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_env_nee_generate(
     // Delta guard (Terra Q1d): rec.isDelta is not set before NEE; guard per
     // direction on bsdfPdf>0 so a near-delta metal (f!=0, pdf==0) does not
     // double-count with its unweighted specular miss.
-    float bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd>(mat, rec, wo, wi);
+    float bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi);
     if (bsdfPdf <= 0.f) return true;
-    GSampledSpectrum f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(mat, rec, wo, wi, lambdas);
+    GSampledSpectrum f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi, lambdas);
     if (f_spec.maxValue() <= 0.f) return true;
     // pkg258 (Terra item 6): COMPLEMENTARY power heuristic (Veach 1997). This
     // w(env,bsdf) plus the miss leg's w(bsdf,env) sum to EXACTLY one; the old
@@ -2329,9 +2408,9 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                     // samples in exchange for a lean ~100-reg shadow kernel
                     // (measured tradeoff per the blueprint).
                     GSampledSpectrum f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(
-                        mat, rec, wo, s.wi, lambdas);
+                        mat, idx, rec, wo, s.wi, lambdas);
                     if (f_spec.maxValue() > 0.f) {
-                        float bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd>(mat, rec, wo, s.wi);
+                        float bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd>(mat, idx, rec, wo, s.wi);
                         // Power heuristic (Veach 1997) — mirrors
                         // gpu_mw_powerHeuristic in the MW TU. Delta lights
                         // (pkg140, e.g. zero-diameter sun) force wt = 1
@@ -2524,7 +2603,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // ---- BSDF sampling via the templated megakernel material dispatch
     // (all 7 GMAT types + closure graphs), drawing directly from the
     // per-path PCG32 stream (template-RNG arc; see the NEE note above).
-    GBSDFSample bss = gpu_shade_sample_spectral<HasPrincipled, HasAdd>(mat, rec, wo, lambdas, &rng);
+    GBSDFSample bss = gpu_shade_sample_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, lambdas, &rng);
     if (bss.pdf <= 0.0f) {
         state.color_0[idx] = color.v[0];
         state.color_1[idx] = color.v[1];

@@ -29,6 +29,9 @@
 #include "raytracer.h"
 #include "advanced_features.h"   // Texture (the per-hit Mix Fac)
 #include "light_path_mix.h"
+#include "shader_vm.h"       // svm::SCALAR_BASE_COLOR (per-texel inputs of a leaf)
+#include <string>
+#include <vector>
 
 namespace astroray {
 
@@ -190,6 +193,8 @@ public:
     float getSubsurface() const override { return a_->getSubsurface(); }
     float getAnisotropic() const override { return a_->getAnisotropic(); }
     float getAnisotropicRotation() const override { return a_->getAnisotropicRotation(); }
+    // GPU: exact when the node tree lowers (lowerClosureTree below), else one closure.
+    MaterialBackendCapabilities backendCapabilities() const override;
 };
 
 // Mix Shader(Fac, A, B): wA = 1 - fac, wB = fac, with fac = saturate(Fac) evaluated per
@@ -226,12 +231,148 @@ public:
         if (facTex_) return a_->isEmissive() || b_->isEmissive();
         return (fac_ < 1.0f && a_->isEmissive()) || (fac_ > 0.0f && b_->isEmissive());
     }
-    MaterialBackendCapabilities backendCapabilities() const override {
-        MaterialBackendCapabilities caps = a_->backendCapabilities();
-        caps.gpuApproximate = true;
-        caps.notes = "Mix Shader: GPU renders child A only (CPU mixes both); " + caps.notes;
+};
+
+// ---------------------------------------------------------------------------
+// GPU lowering (#995). A node tree flattens into leaves (plain materials) and
+// nodes (Add / Mix), parents before children. scene_upload uploads leaves[0] (the
+// first leaf with a BSDF) at the tree's own material id, the other leaves as hidden
+// materials, and a GClosureTree side-table entry (gpu_types.h); a Mix Fac program is
+// a graph program evaluated per hit by the graph kernel (fac slot k). The device
+// (stage_advance_device.cuh gpu_tree_*) weights the leaves like the CPU nodes above
+// but picks a leaf in one flat draw, q_i = w_i [BSDF] / sum (Cycles' flat pick; equal
+// to the CPU's product of local picks for Mix trees, an unbiased alternative for
+// nested Add). Emission is evaluated where the path hits (intersect stage) from the
+// leaf-0 material, so constant-weight emission is baked into its Principled emission
+// and an emitter under a per-texel Fac is not lowered. `reason` names why a tree is
+// not lowered (the GPU then renders leaves[0] alone, reported by the addon).
+struct ClosureTreeLowering {
+    static constexpr int kMaxLeaves = 8;
+    static constexpr int kMaxNodes = 7;
+    static constexpr int kMaxFacPrograms = 4;
+    struct Node {
+        bool mix = false;
+        float fac = 0.0f;
+        int facSlot = -1;  // index into facPrograms, -1 = constant fac
+        int a = 0, b = 0;  // >= 0 node index, < 0 leaf ~index
+    };
+    std::vector<std::shared_ptr<Material>> leaves;
+    std::vector<Node> nodes;
+    std::vector<std::shared_ptr<Texture>> facPrograms;
+    Vec3 emission{0.0f};   // sum of constant-weight leaf emission (RGB)
+    std::string reason;
+};
+
+inline ClosureTreeLowering lowerClosureTree(const ClosureNodeMaterial& root) {
+    using L = ClosureTreeLowering;
+    L out;
+    std::vector<float> constW;
+    std::vector<char> varW;
+    struct Walk {
+        L& out;
+        std::vector<float>& constW;
+        std::vector<char>& varW;
+        int child(const std::shared_ptr<Material>& m, float w, bool var) {
+            if (auto* n = dynamic_cast<const ClosureNodeMaterial*>(m.get())) return node(*n, w, var);
+            out.leaves.push_back(m);
+            constW.push_back(w);
+            varW.push_back(var ? 1 : 0);
+            return ~int(out.leaves.size() - 1);
+        }
+        int node(const ClosureNodeMaterial& n, float w, bool var) {
+            const int ni = int(out.nodes.size());
+            out.nodes.emplace_back();
+            L::Node nd;
+            float wa = w, wb = w;
+            bool va = var, vb = var;
+            if (auto* mix = dynamic_cast<const MixMaterial*>(&n)) {
+                nd.mix = true;
+                nd.fac = mix->constantFac();
+                if (const auto& t = mix->facTexture()) {
+                    if (!dynamic_cast<const GraphProgramTexture*>(t.get()) && out.reason.empty())
+                        out.reason = "a Mix Fac that is not a graph program";
+                    for (size_t k = 0; k < out.facPrograms.size(); ++k)
+                        if (out.facPrograms[k] == t) nd.facSlot = int(k);
+                    if (nd.facSlot < 0) {
+                        nd.facSlot = int(out.facPrograms.size());
+                        out.facPrograms.push_back(t);
+                    }
+                    va = vb = true;
+                } else {
+                    wa = w * (1.0f - nd.fac);
+                    wb = w * nd.fac;
+                }
+            }
+            nd.a = child(n.childA(), wa, va);
+            nd.b = child(n.childB(), wb, vb);
+            out.nodes[ni] = nd;
+            return ni;
+        }
+    } walk{out, constW, varW};
+    walk.node(root, 1.0f, false);
+
+    auto fail = [&](const char* why) { if (out.reason.empty()) out.reason = why; };
+    if (int(out.leaves.size()) > L::kMaxLeaves || int(out.nodes.size()) > L::kMaxNodes)
+        fail("more than 8 closures");
+    if (int(out.facPrograms.size()) > L::kMaxFacPrograms) fail("more than 4 per-texel Mix Facs");
+    int first = -1;
+    for (int i = 0; i < int(out.leaves.size()); ++i)
+        if (out.leaves[i]->hasBSDF()) { first = i; break; }
+    if (first < 0) fail("no BSDF closure");
+    for (int i = 0; i < int(out.leaves.size()); ++i) {
+        const Material& m = *out.leaves[i];
+        const MaterialBackendCapabilities c = m.backendCapabilities();
+        if (dynamic_cast<const LightPathMixMaterial*>(&m)) fail("a Light Path switch inside the tree");
+        if (!c.gpu || c.gpuApproximate) fail("a closure without an exact GPU lowering");
+        if (m.isDispersive() || m.hairGPUParams().isHair) fail("a dispersive or hair closure");
+        if (m.normalMapInner() || m.normalMapTexture() || m.bumpMapTexture())
+            fail("a normal-mapped or bumped closure");
+        if (dynamic_cast<const TexturedLambertian*>(&m)) fail("a textured Lambertian closure");
+        if (auto* tl = dynamic_cast<const TexturedLight*>(&m))
+            if (!std::dynamic_pointer_cast<SolidColor>(tl->getTexture())) fail("a textured emitter");
+        const MaterialClosureGraph g = m.closureGraph();
+        for (int k = 0; k < g.count(); ++k)
+            if (g.closure(k).alpha < 1.0f) fail("a transparent (alpha < 1) closure");
+        if (i != first)
+            for (int s = 0; s <= svm::SCALAR_BASE_COLOR; ++s)
+                if (m.scalarProgram(s)) fail("a per-texel input on a closure other than the first BSDF");
+        if (m.isEmissive()) {
+            if (varW[i]) fail("an emitter under a per-texel Mix Fac");
+            if (!m.hasBSDF() && !m.emitsFromBothFaces()) fail("a one-sided emitter");
+            out.emission = out.emission + m.getEmission() * constW[i];
+        }
+    }
+    if (first < 0) return out;
+    if (out.emission.x > 0.0f || out.emission.y > 0.0f || out.emission.z > 0.0f) {
+        const MaterialClosureGraph g = out.leaves[first]->closureGraph();
+        if (!(g.count() >= 1 && g.closure(0).type == MaterialClosureType::Principled))
+            fail("emission with a non-Principled first BSDF");
+    }
+    // Leaf `first` uploads at the tree's own id: make it leaf 0.
+    if (first != 0) {
+        std::swap(out.leaves[0], out.leaves[first]);
+        auto remap = [&](int& c) {
+            if (c == ~0) c = ~first;
+            else if (c == ~first) c = ~0;
+        };
+        for (auto& n : out.nodes) { remap(n.a); remap(n.b); }
+    }
+    return out;
+}
+
+inline MaterialBackendCapabilities ClosureNodeMaterial::backendCapabilities() const {
+    const ClosureTreeLowering t = lowerClosureTree(*this);
+    if (t.reason.empty()) {
+        MaterialBackendCapabilities caps = t.leaves[0]->backendCapabilities();
+        caps.notes = "Add/Mix Shader closure tree (#995): GPU weights " +
+                     std::to_string(t.leaves.size()) + " closures; " + caps.notes;
         return caps;
     }
-};
+    MaterialBackendCapabilities caps =
+        t.leaves.empty() ? MaterialBackendCapabilities{} : t.leaves[0]->backendCapabilities();
+    caps.gpuApproximate = true;
+    caps.notes = "Add/Mix Shader: GPU renders one closure only (" + t.reason + "); " + caps.notes;
+    return caps;
+}
 
 }  // namespace astroray

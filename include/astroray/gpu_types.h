@@ -628,14 +628,14 @@ struct alignas(64) GMaterial {
     // lobe to the correct model per origin.
     bool        disneyMetalConductor;
 
-    // #1072 -- Add Shader: 1 + the index (into the device material array) of the
-    // SECOND child whose closures are summed with this material's own (Cycles
-    // svm_node_add_closure: weights add, are not normalised); 0 = a plain material.
-    // Lives in the 2 bytes of existing struct padding (offset 102): GMaterial stays
-    // exactly 640 B, so the by-value copies on the register-saturated shade path do
-    // not grow. Read only by the HasPrincipled=true wavefront shade kernels
-    // (stage_advance_device.cuh gpu_shade_*), so the fleet <false> kernel is untouched.
-    uint16_t    addPartner;
+    // #995 (generalises the #1072 Add partner) -- 1 + the index of this material's
+    // GClosureTree entry (an Add / Mix Shader node tree whose leaf 0 is THIS
+    // GMaterial); 0 = a plain material. Lives in the 2 bytes of existing struct
+    // padding (offset 102): GMaterial stays exactly 640 B, so the by-value copies on
+    // the register-saturated shade path do not grow. Read only by the HasAdd=true
+    // wavefront shade kernels (stage_advance_device.cuh gpu_shade_*) and the intersect
+    // stage's emission/continuation test, so the fleet <false> kernel is untouched.
+    uint16_t    closureTree;
 
     GMaterialClosure closures[G_MAX_MATERIAL_CLOSURES];
 
@@ -649,6 +649,29 @@ struct alignas(64) GMaterial {
 };
 
 static_assert(sizeof(GMaterial) == 640, "GMaterial is pinned at 640 B (shade-kernel by-value copies; see GPrincipledClosure)");
+
+// #995 -- Add / Mix Shader closure tree (host: closure_mix.h lowerClosureTree; device:
+// stage_advance_device.cuh gpu_tree_*). Leaf 0 is the material carrying
+// GMaterial::closureTree (shaded with its per-hit overrides); leaves 1.. are hidden
+// materials at leafMat[i] of the device material array. Nodes are in pre-order (node 0
+// is the root, parents before children); a child >= 0 is a node index, < 0 a leaf
+// (~index). A Mix node weights its children (1 - fac, fac) with fac = the constant or,
+// for facSlot >= 0, the graph kernel's per-path output row GRAPH_OUT_FAC0 + facSlot
+// (shader_graph.h); an Add node passes its weight to both. bsdfMask bit i = leaf i has
+// a BSDF (pure emitters are never picked).
+constexpr int G_TREE_MAX_LEAVES = 8;
+constexpr int G_TREE_MAX_NODES = 7;
+struct GClosureTreeNode {
+    float  fac;
+    int8_t mix;      // 0 = Add, 1 = Mix
+    int8_t facSlot;  // -1 = constant fac
+    int8_t a, b;
+};
+struct GClosureTree {
+    int              leafMat[G_TREE_MAX_LEAVES];
+    GClosureTreeNode nodes[G_TREE_MAX_NODES];
+    uint8_t          numLeaves, numNodes, bsdfMask, pad;
+};
 
 // ---------------------------------------------------------------------------
 // pkg186 — GPU image texture (baked buffer + nearest fetch).

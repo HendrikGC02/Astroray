@@ -533,9 +533,10 @@ void launchStageGraphEval(GPUWavefrontState& state, GPUWavefrontHitBuffers& hitB
 // stage_advance.cu / GWavefrontGuideBinding.
 void setWavefrontGuideBinding(const GWavefrontGuideBinding& binding);
 
-// #1072 — publish the device material array base that Add Shader partners
-// (GMaterial::addPartner - 1) index into. Call ONCE per frame; nullptr = no Add.
-void setWavefrontAddMaterials(const ::GMaterial* base);
+// #1072 / #995 — publish the device material array base that closure-tree leaves
+// (GClosureTree::leafMat) index into and the tree side table (GMaterial::closureTree - 1).
+// Call ONCE per frame; nullptr = no tree.
+void setWavefrontAddMaterials(const ::GMaterial* base, const GClosureTree* trees = nullptr);
 
 // pkg198 Stage 2 — publish the frame's light-path pass buffers into the shade/
 // intersect/shadow/volume/regen kernels' __constant__ binding. Call ONCE per frame

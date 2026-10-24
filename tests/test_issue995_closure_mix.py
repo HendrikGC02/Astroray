@@ -131,14 +131,19 @@ def _assert_stack(cells, label):
 
 
 def test_spec_textured_fac_keeps_both_closures(monkeypatch):
-    """The export must keep every closure of the stack (no parameter lerp)."""
-    spec, _, lines = _lower(monkeypatch, create_renderer(), _stack())
+    """The export must keep every closure of the stack (no parameter lerp), and the
+    stack must lower to one GPU closure tree (graph-program Facs, emission baked into
+    the first Principled): no GPU degradation is reported."""
+    r = create_renderer()
+    spec, mat, lines = _lower(monkeypatch, r, _stack())
     assert spec['kind'] == 'add', spec
     outer = spec['a']
-    assert outer['kind'] == 'mix' and outer.get('fac_texture'), outer
-    assert outer['a']['kind'] == 'mix' and outer['a'].get('fac_texture'), outer['a']
+    assert outer['kind'] == 'mix' and str(outer.get('fac_texture')).startswith('_graph_'), outer
+    assert outer['a']['kind'] == 'mix' and str(outer['a'].get('fac_texture')).startswith('_graph_')
     assert spec['b']['kind'] == 'emission', spec['b']
-    assert not any('constant mix' in m for m in lines), lines
+    assert not lines, lines
+    caps = r.get_material_backend_capabilities(mat)
+    assert not caps['gpu_approximate'] and '4 closures' in caps['notes'], caps
 
 
 def test_closure_stack_cpu_matches_analytic(monkeypatch):
@@ -152,8 +157,16 @@ def test_closure_stack_gpu_matches_analytic(monkeypatch):
 
 
 # ---- engine: emission + BSDF on one surface continues the path -------------------
-def _wall(make, spp=96):
+def _gpu_or_skip(r, use_gpu):
+    if use_gpu:
+        if not (astroray.__features__.get("cuda", False) and getattr(r, "gpu_available", False)):
+            pytest.skip("No CUDA GPU — the #995 GPU leg runs on the RTX box.")
+        r.set_use_gpu(True)
+
+
+def _wall(make, spp=96, use_gpu=False):
     r = create_renderer()
+    _gpu_or_skip(r, use_gpu)
     r.set_seed(5)
     r.set_adaptive_sampling(False)
     r.set_background_color([1.0, 1.0, 1.0])
@@ -163,31 +176,53 @@ def _wall(make, spp=96):
     return img[9:15, 9:15].reshape(-1, 3).mean(0)
 
 
-def test_principled_emission_keeps_its_bsdf():
+@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])
+def test_principled_emission_keeps_its_bsdf(use_gpu):
     """Cycles writes the emission and continues through the BSDF (shade_surface.h);
-    the integrator used to end the path at any emissive hit (L = E only)."""
+    the integrators used to end the path at any emissive hit (L = E only)."""
     got = _wall(lambda r: r.create_material(
         "principled", [0.5, 0.5, 0.5],
         {"roughness": 1.0, "specular_ior_level": 0.0,
-         "emission_color": [1.0, 1.0, 1.0], "emission_strength": 0.2}))
+         "emission_color": [1.0, 1.0, 1.0], "emission_strength": 0.2}), use_gpu=use_gpu)
     np.testing.assert_allclose(got, [0.7, 0.7, 0.7], rtol=0.04)
 
 
-def test_mix_material_constant_fac_weights_closures():
+@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])
+def test_mix_material_constant_fac_weights_closures(use_gpu):
     def make(r):
         a = r.create_material("principled", [0.6, 0.1, 0.1], {"roughness": 1.0, "specular_ior_level": 0.0})
         b = r.create_material("light", [0.0, 0.5, 1.0], {"intensity": 1.0, "two_sided": 1.0})
         return r.create_mix_material(a, b, 0.25)
-    # 0.75 * red albedo + 0.25 * emission
-    np.testing.assert_allclose(_wall(make), [0.45, 0.2, 0.325], rtol=0.04)
+    # 0.75 * red albedo + 0.25 * emission (the GPU bakes the constant-weight emission
+    # into the Principled leaf, closure_mix.h lowerClosureTree)
+    np.testing.assert_allclose(_wall(make, use_gpu=use_gpu), [0.45, 0.2, 0.325], rtol=0.04)
 
 
-def test_emissive_glass_sphere_nee_on_off_agree():
+@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])
+def test_nested_add_mix_tree_sums_all_closures(use_gpu):
+    """A 3-deep constant-Fac tree: Add(Mix(red, blue, 0.25), Add(green, 0.1 white))."""
+    def make(r):
+        d = {"roughness": 1.0, "specular_ior_level": 0.0}
+        red = r.create_material("principled", [0.6, 0.1, 0.1], d)
+        blue = r.create_material("principled", [0.1, 0.1, 0.6], d)
+        green = r.create_material("principled", [0.1, 0.3, 0.1], d)
+        grey = r.create_material("principled", [0.1, 0.1, 0.1], d)
+        tree = r.create_add_material(r.create_mix_material(red, blue, 0.25),
+                                     r.create_add_material(green, grey))
+        assert not r.get_material_backend_capabilities(tree)["gpu_approximate"]
+        return tree
+    want = 0.75 * np.array([0.6, 0.1, 0.1]) + 0.25 * np.array([0.1, 0.1, 0.6]) + [0.2, 0.4, 0.2]
+    np.testing.assert_allclose(_wall(make, spp=128, use_gpu=use_gpu), want, rtol=0.05)
+
+
+@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])
+def test_emissive_glass_sphere_nee_on_off_agree(use_gpu):
     """An emissive analytic sphere with a BSDF now runs NEE from its own surface; the
     sphere's cone sampler is undefined there (NaN samples dropped -> dark). NEE on and
     off must give the same mean."""
     def centre(nee):
         r = create_renderer()
+        _gpu_or_skip(r, use_gpu)
         r.set_seed(7)
         r.set_adaptive_sampling(False)
         r.set_background_color([0.0, 0.0, 0.0])

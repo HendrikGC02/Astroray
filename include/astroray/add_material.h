@@ -13,16 +13,17 @@
 // is 0 for deltas), so it is returned alone with its pdf scaled by the 1/2
 // selection probability.
 //
-// GPU (#1072): the closure-graph evaluator normalises lobe weights (pkg170), so an
-// Add cannot be one merged graph. A summable pair (gpuSummable()) uploads child A at
-// this material's id and child B as a hidden second GMaterial (GMaterial::addPartner
-// holds its index + 1); the wavefront shade kernel (the HasAdd=true variants only, stage_shade_add.cu) then
-// evaluates f = f_A + f_B, pdf = 0.5 (pdf_A + pdf_B) and samples a child with
-// probability 1/2, exactly the CPU scheme above. Cycles picks closures proportional
-// to sample_weight (surface_shader_bsdf_bssrdf_pick, kernel/integrator/surface_shader.h,
-// Apache-2.0); this is the equal-weight special case, and the mixture pdf keeps the
-// estimator unbiased for any selection probabilities (Veach 1997 Eq. 9.15). A pair
-// that is not summable keeps the old behaviour: child A only, reported by the addon.
+// GPU (#1072, generalised by #995): the closure-graph evaluator normalises lobe
+// weights (pkg170), so an Add cannot be one merged graph. An Add / Mix node tree is
+// lowered by closure_mix.h lowerClosureTree: its first BSDF leaf uploads at this
+// material's id, the other leaves as hidden GMaterials, plus a GClosureTree entry
+// (GMaterial::closureTree holds its index + 1); the wavefront shade kernel (the
+// HasAdd=true variants only, stage_shade_add.cu) then evaluates f = sum w_i f_i with
+// the mixture pdf, exactly the CPU scheme above for an Add of two BSDFs. Cycles picks
+// closures proportional to sample_weight (surface_shader_bsdf_bssrdf_pick,
+// kernel/integrator/surface_shader.h, Apache-2.0); the mixture pdf keeps the estimator
+// unbiased for any selection probabilities (Veach 1997 Eq. 9.15). A tree that does not
+// lower keeps the old behaviour: its first BSDF leaf only, reported by the addon.
 // ============================================================================
 
 #include <algorithm>
@@ -49,37 +50,6 @@ public:
     }
     Vec3 getEmission() const override { return a_->getEmission() + b_->getEmission(); }
     bool isEmissive() const override { return a_->isEmissive() || b_->isEmissive(); }
-
-    // #1072: can the wavefront GPU sum A and B? Both must be plain, opaque, non-emissive
-    // materials whose GPU shade needs no per-hit data beyond their own GMaterial: the
-    // partner gets no texture / scalar-program / normal-map override, and a transparent
-    // or emissive child would need the (CPU) shadowAlpha / emitted sums.
-    static bool gpuSummableChild(const Material& m) {
-        if (dynamic_cast<const AddMaterial*>(&m) || dynamic_cast<const LightPathMixMaterial*>(&m))
-            return false;
-        const MaterialBackendCapabilities c = m.backendCapabilities();
-        if (!c.gpu || c.gpuApproximate || m.isEmissive() || m.isDispersive()) return false;
-        if (m.normalMapInner() || m.normalMapTexture() || m.bumpMapTexture() || m.hairGPUParams().isHair)
-            return false;
-        for (int s = 0; s <= svm::SCALAR_BASE_COLOR; ++s)
-            if (m.scalarProgram(s)) return false;
-        const MaterialClosureGraph g = m.closureGraph();
-        for (int i = 0; i < g.count(); ++i)
-            if (g.closure(i).alpha < 1.0f || g.closure(i).type == MaterialClosureType::Emission)
-                return false;
-        return true;
-    }
-    bool gpuSummable() const { return gpuSummableChild(*a_) && gpuSummableChild(*b_); }
-    MaterialBackendCapabilities backendCapabilities() const override {
-        MaterialBackendCapabilities caps = a_->backendCapabilities();
-        if (gpuSummable()) {
-            caps.notes = "Add Shader: GPU sums both closures (#1072); " + caps.notes;
-        } else {
-            caps.gpuApproximate = true;
-            caps.notes = "Add Shader: GPU renders child A only (CPU sums both); " + caps.notes;
-        }
-        return caps;
-    }
 };
 
 }  // namespace astroray

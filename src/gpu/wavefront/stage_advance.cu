@@ -71,6 +71,7 @@ __constant__ GWavefrontTextureBinding c_wfTexBinding;
 __constant__ GWavefrontProgramBinding c_wfProgBinding;
 __constant__ GWavefrontLightPathBinding c_wfLightPath = { nullptr, 0 };  // #991
 __constant__ const ::GMaterial* c_wfAddMaterials = nullptr;  // #1072 Add Shader partners
+__constant__ const GClosureTree* c_wfClosureTrees = nullptr; // #995 Add / Mix closure trees
 
 // pkg199 Stage 2 — non-template `intersectPathSlot` symbol. Forwards to the
 // <false> (Stage-1, no medium scatter) specialization. This is the symbol the
@@ -910,14 +911,17 @@ void setWavefrontGuideBinding(const GWavefrontGuideBinding& binding)
     cudaMemcpyToSymbol(c_wfGuideBinding, &binding, sizeof(GWavefrontGuideBinding));
 }
 
-// #1072 — publish the device material array base the Add Shader partners index into
-// (GMaterial::addPartner - 1). Called ONCE per frame by the wavefront drivers; nullptr
-// (no Add in the scene) leaves every gpu_addPartner() lookup returning nullptr.
+// #1072 / #995 — publish the device material array base the closure-tree leaves index
+// into (GClosureTree::leafMat) and the tree side table (GMaterial::closureTree - 1).
+// Called ONCE per frame by the wavefront drivers; nullptr (no tree in the scene) leaves
+// every gpu_closureTree() lookup returning nullptr.
 static bool g_addPartnersPublished = false;   // host mirror of c_wfAddMaterials != nullptr
-void setWavefrontAddMaterials(const ::GMaterial* base)
+void setWavefrontAddMaterials(const ::GMaterial* base, const GClosureTree* trees)
 {
-    g_addPartnersPublished = (base != nullptr);
+    g_addPartnersPublished = (base != nullptr && trees != nullptr);
+    if (!g_addPartnersPublished) { base = nullptr; trees = nullptr; }
     cudaMemcpyToSymbol(c_wfAddMaterials, &base, sizeof(base));
+    cudaMemcpyToSymbol(c_wfClosureTrees, &trees, sizeof(trees));
 }
 
 // pkg199 Stage 1 — publish the frame's homogeneous world-volume medium into the
@@ -1173,7 +1177,7 @@ void launchStageShadeBucketed(
         const int part = (sel < 8) ? (sel >> 1) : 4 + 2 * ((sel >> 1) & 3) + (hasD ? 1 : 0);
         const bool fleetAxes = !hasTexture && !hasPhotons && !hasD && !hasLightPassAOVs
                             && !hasProgram && !hasNormalPerturb;
-        // #1072: a scene with an Add partner needs the HasAdd=true instantiation, which
+        // #1072 / #995: a scene with a closure tree needs the HasAdd=true instantiation, which
         // exists only for P=true, no photons, no dispersion, no pass AOVs. Anything else
         // falls back to the (child-A-only) normal kernels with a one-time warning.
         const bool wantAdd = g_addPartnersPublished && hasPrincipled;

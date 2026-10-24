@@ -1127,6 +1127,7 @@ struct WfContext {
     WfDeviceBuf materialScalarProgId, materialScalarTexId;  // pkg219d scalar-param programs
     WfDeviceBuf procTextures;                  // #1007 per-hit procedural evaluators
     WfDeviceBuf lightPathSwitch;               // #991 Light Path Mix Shader side table
+    WfDeviceBuf closureTrees;                  // #995 Add / Mix Shader closure trees
     // pkg314 graph value programs: arenas + per-material slots (scene slices) and
     // the graph kernel's per-path outputs + batched scratch (per render).
     WfDeviceBuf graphInstrs, graphConsts, graphTables, graphTableData, graphTexRefs;
@@ -2541,9 +2542,13 @@ std::vector<float> cuda_wavefront_render(
     }
     setWavefrontGuideBinding(GWavefrontGuideBinding{
         d_guideAlbedo, d_guideNormal, d_guideDepth});
-    // #1072: Add Shader partners index into the device material array; published every
-    // frame (nullptr when the scene has none) so a prior render's pointer is never stale.
-    setWavefrontAddMaterials(res.hasAddPartner ? d_materials : nullptr);
+    // #1072 / #995: closure-tree leaves index into the device material array; published
+    // every frame (nullptr when the scene has none) so a prior render's pointer is never stale.
+    {
+        const GClosureTree* d_trees = wfSync(matReuse, C.closureTrees, res.closureTrees);
+        setWavefrontAddMaterials(res.hasAddPartner ? d_materials : nullptr,
+                                 res.hasAddPartner ? d_trees : nullptr);
+    }
 
     // pkg201 Stage 2 (Finding F) — transparent-film alpha coverage. Only allocate +
     // publish the bounce-0 background-miss accumulator when the render both requests

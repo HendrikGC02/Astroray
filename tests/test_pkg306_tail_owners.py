@@ -143,7 +143,7 @@ def test_media_roi_means_within_3_sigma_of_cycles(leg):
 @pytest.mark.parametrize("leg", [
     pytest.param("cpu", marks=[pytest.mark.serial, pytest.mark.xfail(
         strict=True, reason="pkg306 2026-10-25 CPU: trimmed relVar 80.5x Cycles. Owners: spot light-tree cone "
-                            "theta_o = theta_e (src/lights/spot_light.cpp, 80.5x -> 25x with Cycles' cone) and the "
+                            "theta_o = theta_e (#1172, src/lights/spot_light.cpp, 80.5x -> 25x with Cycles' cone) and the "
                             "photon-map caustic floor Cycles does not render (Mitsuba arbitration, pkg307)")], id="cpu"),
     _LEGS[1]])
 def test_dispersion_trimmed_relvar_within_5x_cycles(leg):

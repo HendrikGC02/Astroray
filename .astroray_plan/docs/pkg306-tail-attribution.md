@@ -129,7 +129,7 @@ Mean shifts in media:
    - Effect: the sun is practically never NEE-sampled. The estimator is formally unbiased but
      sun-starved at any practical spp.
    - The tree path is unaffected: `treeEnergy` = S (#859).
-   - Light selection is a pkg306 non-goal. **To file.**
+   - Light selection is a pkg306 non-goal. **Filed as #1171.**
 2. **Tail (top-0.1 %) owner: the glint class.**
    - `drop_glint` removes 96.3 % of the tail variance; its complement `only_glint` keeps 96.3 %.
      The remaining 3.7 % is the caustic class.
@@ -158,7 +158,7 @@ Mean shifts in media:
      - Per-sample NEE relStd 3.5. relStd halves from 64 to 256 spp, so the noise is iid.
      - `spot_cone_cycles` (unbiased; means |z| ≤ 0.4): trimmed 80.5 → 25x, beam 40.6 → 4.5x,
        limb 36.5 → 2.7x. Crops: `sheets/disp_spotcone_crop_s279.png`.
-     - A light-selection non-goal. **To file.** Related: `OrientationCone::fullSphere()` gives
+     - A light-selection non-goal. **Filed as #1172.** Related: `OrientationCone::fullSphere()` gives
        theta_e = π where Cycles' point light uses π/2. Not measured here.
    - **(b) Photon gather** (12.4x Cycles' trimmed variance) on the prism sun caustic floor.
      - The mean there is 3.28x Cycles, a documented divergence: Cycles renders no caustic
@@ -209,11 +209,11 @@ GPU questions:
 - Does `spot_cone_cycles` cut the GPU trimmed ratio the same way?
 - Does the media voldirect split match #1032?
 
-## 6. Follow-ups (to file; outside pkg306 scope)
+## 6. Follow-ups (outside pkg306 scope)
 
-1. Light tree: Cycles spot cone (theta_o 0, theta_e half angle). Check the point-light theta_e
+1. #1172 light tree: Cycles spot cone (theta_o 0, theta_e half angle). Check the point-light theta_e
    at the same time. Unbiased; dispersion trimmed variance about 3.2x lower.
-2. Power sampler: `DistantLight::power()` Ω scaling starves suns.
+2. #1171 power sampler: `DistantLight::power()` Ω scaling starves suns.
 3. Variance reduction for glints and caustics past the bounce-0 photon split. This is new
    caustic transport, so it is filed, not done here.
 4. Mitsuba arbitration rows for the prism caustic floor and the dispersed glint (pkg307).

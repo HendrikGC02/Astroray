@@ -32,6 +32,8 @@ checks, runner preset committed on `lane/pkg324`; in progress).
 #1152 (pass plan can trip the 32-bit work-counter guard at very high transparent limits since #1125), #1153 (GPU
 procedural Bump Height + GPU coat normal), #1154 (Cycles bump reflection correction + bump shadowing term).
 
+**Morning update (07:40):** #1151, #1157, #1161, #1163 merged (main 624e32df, build_cuda bdbe4f1c, dist restaged at 61ccc722). Open PRs, merge on green: **#1166** pkg325 bounce-cap passthrough (off by default; terminate byte-identical; 18/18 GPU; cuobjdump zero delta; #1160 closed as a scene defect = coincident faces; #1165 cap off-by-two vs Cycles filed), **#1169** gate (b) first formal score (RED 0.00213 nine_scene / 0 owner population; independent receipt; #1167/#1168 filed), **#1170** #995 closure composition (Mix per-texel Fac + Add sum, CPU+GPU; shader_stack 0/16 -> 4/16 both backends, lit_front/right L in band; residual = glass 1/eta^2 radiance convention, owner question; parity + ABI reviewed). Row (g) on the merged build: 2/8, 2/8, 0 silent pairs (recorded). Lane pkg306 Phase 0 (dispersion tail) running. Pre-closeout full CPU+GPU sweep running on main. pkg326 smooth-glass film -> #1162; GPU bg-colour/env order -> #1164.
+
 **Cutoff update (03:30, usage limit):** #1151 and #1157 merged (main bdbe4f1c, build_cuda rebuilt); #1161 pkg324 and #1163 pkg326 open (merge on green); lane #995 done (BUILD REQUEST ffcbb3cb pending, CPU shader_stack in band, glass 1/eta^2 owner question); lane pkg325b running; #1160 closed as a scene defect. Handoff: `next-session-prompt-2026-10-25.md`.
 
 **Next:** merge #1151 → pkg325 lane; #1004/#1005 rebuild + production GPU legs + PR; pkg324 BUILD REQUEST + vision

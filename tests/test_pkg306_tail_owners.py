@@ -16,9 +16,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from results_layout import results_dir
 
 from benchmarks.reference_corpus import mc_tolerance as MC
-from results_layout import results_dir
 
 SEEDS = (278, 279, 280, 281, 282)
 WORK = Path(os.environ.get("PKG306_WORK", str(results_dir("parity", "firefly-tail-work", create=False))))

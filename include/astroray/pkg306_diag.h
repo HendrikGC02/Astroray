@@ -14,7 +14,8 @@
 //   spot_cone_cycles  light-tree spot cone theta_o = 0, theta_e = half angle (Cycles) instead of both = half angle
 //   drop_<cls> / only_<cls>  drop one contribution class / keep only it (same paths, same RNG
 //                 stream: the only_<cls> renders of all classes sum to the baseline), cls in
-//                 camera glint caustic bsdfhit nee envnee voldirect volemit photon sms
+//                 camera glint caustic bsdfhit nee envnee voldirect volemit photon sms, and
+//                 spechit = glint + caustic (the GPU classifies only this union)
 #include <cstdlib>
 #include <string>
 
@@ -48,7 +49,7 @@ inline Diag parseDiag(const char* env) {
     static const struct { const char* name; unsigned bit; } kNames[] = {
         {"camera", kCamera}, {"glint", kGlint}, {"caustic", kCaustic}, {"bsdfhit", kBsdfHit},
         {"nee", kNee}, {"envnee", kEnvNee}, {"voldirect", kVolDirect}, {"volemit", kVolEmit},
-        {"photon", kPhoton}, {"sms", kSms}};
+        {"photon", kPhoton}, {"sms", kSms}, {"spechit", kGlint | kCaustic}};
     std::string s(env);
     size_t p = 0;
     while (p <= s.size()) {

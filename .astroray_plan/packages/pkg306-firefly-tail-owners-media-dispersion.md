@@ -2,7 +2,7 @@
 
 **Pillar:** 3
 **Track:** A
-**Status:** open
+**Status:** in-progress — Phase 0 CPU done 2026-10-25 (lane-pkg306); GPU leg pending a build
 **Estimated effort:** 3 sessions (~9 h): Phase 0 1, Phase 1 1-2, Phase 2 0.5
 **Depends on:** pkg284, pkg294
 
@@ -186,6 +186,16 @@ nothing. Opus 5.5 diagnosis lane; Sonnet 5.5 runs the ablation grid.
 ## Progress
 
 - [ ] Phase 0: tail report flag + ablation grid + attribution doc
+      2026-10-25 (lane-pkg306, CPU): `mc_tolerance.py --tail-report` + `ASTRORAY_PKG306_DIAG` grid,
+      `.astroray_plan/docs/pkg306-tail-attribution.md`.
+      - Media: tail at parity (share 0.500 vs Cycles 0.484 same px); residual full 4.27x.
+        smoke/shaft are owned by the segment direct light (#1032); emitter-edge pixels 2.9x.
+      - Dispersion top tail = sun glints through glass (96 %), correct transport. 20 seeds: full
+        2.82x, Cycles has the same events.
+      - Dispersion trimmed 80.5x = the light-tree spot cone (theta_o = theta_e; Cycles theta_o 0)
+        plus the photon caustic floor Cycles lacks. Spot cone fix: 25x, unbiased.
+      - `use_light_tree` off starves the sun (`DistantLight::power` x Omega), so means move.
+      - GPU leg pending a build.
 - [ ] Phase 1: media fix (CPU, then GPU). 2026-10-03 lane au-media (#961/#1019):
       media tail owner = the light-tree path of the #925/#929 segment direct light
       (midpoint point pick for the anchor, independent pick at P;

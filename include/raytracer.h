@@ -28,6 +28,7 @@
 #include "astroray/cryptomatte.h"
 #include "astroray/ies_eval.h"                   // pkg276 Cycles IES lookup (CPU+GPU)
 #include "astroray/light_path.h"                 // #991 Light Path context (CPU+GPU)
+#include "astroray/pkg306_diag.h"  // PKG306_DIAG Phase 0 switch, strip in Phase 1
 #include "astroray/attribute_layers.h"           // #990 per-corner attribute layers
 #include "astroray/sampling/adaptive_sampling.h"  // pkg131 zero-knob adaptive core
 #include "astroray/guiding/sdtree.h"               // pkg136 SD-tree path guiding
@@ -3265,7 +3266,8 @@ private:
         astroray::SampledSpectrum sum(0.0f);
         for (int k = 0; k < n; ++k) {
             float ph = phaseHG((-d).dot(wi), g[k]);
-            float w = ls.isDelta ? 1.0f : (ls.pdf * ls.pdf) / (ls.pdf * ls.pdf + ph * ph + 1e-8f);
+            float w = (ls.isDelta || astroray::pkg306::diag().neeOnly) ? 1.0f  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+                    : (ls.pdf * ls.pdf) / (ls.pdf * ls.pdf + ph * ph + 1e-8f);
             sum += sigS[k] * (ph * w);
         }
         if (sum.isZero()) return zero;
@@ -3898,6 +3900,10 @@ public:
             // .astroray_plan/docs/pkg198-lightpath-pass-classification-research.md.
             std::array<astroray::SampledSpectrum, PASS_COUNT>* outPasses = nullptr) {
         const int rrDepth = 3;
+        const astroray::pkg306::Diag& p306 = astroray::pkg306::diag();  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+        const bool lightNee = lightNeeEnabled && !p306.bsdfOnly;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+        const bool envNee = envNeeEnabled && !p306.bsdfOnly;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+        bool p306AnyNonDelta = false;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
         astroray::SampledSpectrum color(0.0f);
         astroray::SampledSpectrum throughput(1.0f);
         // pkg270 — rescaled unidirectional path pdf for hero-wavelength spectral
@@ -4085,7 +4091,7 @@ public:
                     int lampPass = (bounce == 0) ? PASS_ENVIRONMENT
                                                  : (firstCat < 0 ? 0 : firstCat) * 3 + 1;
                     float wB = 1.0f;  // specular / NEE off (pkg265): no competing NEE leg
-                    if (!wasSpecular && lightNeeEnabled) {
+                    if (!wasSpecular && lightNee) {
                         float lp = misSegPrev  // #961: segment pick after a medium scatter
                             ? lights.pdfValueSegment(misSegO, misSegD, misSegT, vertexOrigin,
                                                      ray.direction, nullptr, hitLamp)
@@ -4096,7 +4102,8 @@ public:
                     }
                     astroray::SampledSpectrum c =
                         clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce - 1);
-                    color += c; addPass(lampPass, c);
+                    if (astroray::pkg306::keep(astroray::pkg306::hitClass(bounce, wasSpecular, p306AnyNonDelta)))  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+                    { color += c; addPass(lampPass, c); }
                 }
             }
 
@@ -4128,11 +4135,11 @@ public:
                 // scatter decision (Kulla & Fajardo 2012; Cycles shade_volume.h):
                 // one distance on the media hull (equiangular / exponential
                 // one-sample MIS), NEE there weighted by Tr(0,t)·σ_s(t).
-                if (lightNeeEnabled && !lights.empty() && !volTerminateAfter) {
+                if (lightNee && !lights.empty() && !volTerminateAfter) {
                     astroray::SampledSpectrum c =
                         boundedSegmentDirect(ray, dUnit, mediaT0, surfaceT, segX, lambdas, gen,
                                              shadowTransparentHits((int)lpc.transparentDepth));
-                    if (!c.isZero()) {
+                    if (!c.isZero() && astroray::pkg306::keep(astroray::pkg306::kVolDirect)) {  // PKG306_DIAG Phase 0 switch, strip in Phase 1
                         c = clampContribSpectral(throughput * c, lambdas, bounce);
                         color += c;
                         addPass(firstCat < 0 ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT, c);
@@ -4145,7 +4152,7 @@ public:
                     /*noScatter=*/volTerminateAfter, entered, mi, &segX);
                 if (entered) {
                     const float medG = (mi >= 0) ? gridMedia_[mi].g : 0.0f;
-                    if (!ff.emission.isZero()) {
+                    if (!ff.emission.isZero() && astroray::pkg306::keep(astroray::pkg306::kVolEmit)) {  // PKG306_DIAG Phase 0 switch, strip in Phase 1
                         // Volume emission along the flight: Emission pass when
                         // directly visible, else folded into <firstCat>_INDIRECT
                         // (same classification as surface emission, pkg198).
@@ -4185,6 +4192,7 @@ public:
                         wasSpecular = false;
                         lpc = astroray::lightpath::next_volume(lpc);  // #991
                         bsdfPdfPrev = phasePdf;
+                        p306AnyNonDelta = true;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
                         misNormalPrev = Vec3(0.0f);
                         misSegPrev = true;  // #961
                         misSegO = P - dUnit * ff.t;
@@ -4235,7 +4243,7 @@ public:
                 astroray::SampledSpectrum sigmaT = worldSigmaT(lambdas);
                 // #925: per-segment direct light on [0, surfaceT] (see
                 // segmentDirectLight): Tr(t)·σ_s·NEE at a one-sample-MIS distance.
-                if (lightNeeEnabled && !lights.empty()) {
+                if (lightNee && !lights.empty()) {
                     Vec3 dU = ray.direction.normalized();
                     const float b = didHit ? rec.t : std::numeric_limits<float>::infinity();
                     astroray::SampledSpectrum c = segmentDirectLight(ray, dU, 0.0f, b, b, sigmaT, lambdas, gen,
@@ -4248,7 +4256,7 @@ public:
                                 Tr[i] = std::exp(-sigmaT[i] * t);
                             return 1;
                         });
-                    if (!c.isZero()) {
+                    if (!c.isZero() && astroray::pkg306::keep(astroray::pkg306::kVolDirect)) {  // PKG306_DIAG Phase 0 switch, strip in Phase 1
                         c = clampContribSpectral(throughput * c, lambdas, bounce);
                         color += c;
                         addPass(firstCat < 0 ? PASS_VOLUME_DIRECT : PASS_VOLUME_INDIRECT, c);
@@ -4307,6 +4315,7 @@ public:
                     wasSpecular = false;
                     lpc = astroray::lightpath::next_volume(lpc);  // #991
                     bsdfPdfPrev = phasePdf;
+                    p306AnyNonDelta = true;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
                     misNormalPrev = Vec3(0.0f);
                     misSegPrev = true;  // #961
                     misSegD = woMedium * -1.0f;
@@ -4377,7 +4386,8 @@ public:
                     int envPass = (firstCat < 0) ? PASS_ENVIRONMENT : (firstCat * 3 + 1);
                     astroray::SampledSpectrum c =
                         clampContribSpectral(throughput * weighted, lambdas, bounce - 1);
-                    color += c; addPass(envPass, c);
+                    if (astroray::pkg306::keep(astroray::pkg306::hitClass(bounce, wasSpecular, p306AnyNonDelta)))  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+                    { color += c; addPass(envPass, c); }
                 }
                 break;
             }
@@ -4467,12 +4477,13 @@ public:
                 // reached after a non-specular bounce → <firstCat>_INDIRECT (Cycles
                 // film_write_emission_or_background_pass).
                 int emitPass = (firstCat < 0) ? PASS_EMISSION : (firstCat * 3 + 1);
-                if (bounce == 0 || wasSpecular || !lightNeeEnabled) {  // pkg265: NEE off -> w_B = 1
+                if (bounce == 0 || wasSpecular || !lightNee) {  // pkg265: NEE off -> w_B = 1
                     // Camera / post-specular ray: no NEE leg competes for this
                     // direction, so the whole emission is taken (w_B = 1).
                     astroray::SampledSpectrum c =
                         clampContribSpectral(throughput * Le_spec, lambdas, bounce - 1);
-                    color += c; addPass(emitPass, c);
+                    if (astroray::pkg306::keep(astroray::pkg306::hitClass(bounce, wasSpecular, p306AnyNonDelta)))  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+                    { color += c; addPass(emitPass, c); }
                 } else {
                     // pkg120: two-sided MIS. A BSDF-sampled continuation ray hit
                     // an emitter at a diffuse bounce. Add the BSDF-sampled leg
@@ -4499,7 +4510,8 @@ public:
                     float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                     astroray::SampledSpectrum c =
                         clampContribSpectral(throughput * Le_spec * wB, lambdas, bounce - 1);
-                    color += c; addPass(emitPass, c);
+                    if (astroray::pkg306::keep(astroray::pkg306::kBsdfHit))  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+                    { color += c; addPass(emitPass, c); }
                 }
                 break;
             }
@@ -4519,7 +4531,7 @@ public:
             // delta-light NEE) is clamped by clampDirect (default 0/off) — this
             // is the fix for the delta-sun energy-linearity bug this package
             // exists to close (never silently cap deterministic delta-light NEE).
-            if (lightNeeEnabled && !rec.isDelta && !lights.empty()) {  // pkg265 toggle
+            if (lightNee && !rec.isDelta && !lights.empty()) {  // pkg265 toggle
                 LightSample ls;
                 lights.sample(ls, rec.point, rec.normal, lambdas, gen);
                 if (ls.pdf > 0) {
@@ -4567,6 +4579,7 @@ public:
                         // LIGHTS still fire (BSDF sampling can never hit them → wt=1).
                         float wt = ls.isDelta ? 1.0f
                                  : (b > 0.0f ? (a * a) / (a * a + b * b + 1e-8f) : 0.0f);
+                        if (p306.neeOnly) wt = 1.0f;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
                         astroray::SampledSpectrum neeContrib =
                             throughput * f_spec * L_spec * (ls.pdf > 1e-8f ? wt / ls.pdf : 0.0f)
                             * shadowTr;  // pkg253 G1
@@ -4611,7 +4624,8 @@ public:
                             : firstCat * 3 + 1;
                         astroray::SampledSpectrum c =
                             clampContribSpectral(neeContrib, lambdas, bounce);
-                        color += c; addPass(neePass, c);
+                        if (astroray::pkg306::keep(astroray::pkg306::kNee))  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+                        { color += c; addPass(neePass, c); }
                     }
                 }
             }
@@ -4634,7 +4648,7 @@ public:
             // A delta lobe returns pdf==0 → NEE skipped, and its miss stays
             // unweighted (wasSpecular). Gated on worldMaxBounces exactly like the
             // miss leg (b+1 <= worldMaxBounces).
-            if (envNeeEnabled && envMap && envMap->loaded() &&
+            if (envNee && envMap && envMap->loaded() &&
                 (bounce + 1) <= worldMaxBounces) {
                 EnvironmentMap::EnvSample es = envMap->sample(gen);
                 if (es.pdf > 0.0f) {
@@ -4664,7 +4678,7 @@ public:
                             float pg = guideSampling_->pdfDir(gp, wi.x, wi.y, wi.z);
                             bsdfPdf = guideAlpha_ * pg + (1.0f - guideAlpha_) * bsdfPdf;
                         }
-                        float wt = powerHeuristic(es.pdf, bsdfPdf);
+                        float wt = p306.neeOnly ? 1.0f : powerHeuristic(es.pdf, bsdfPdf);  // PKG306_DIAG Phase 0 switch, strip in Phase 1
                         astroray::SampledSpectrum envNee =
                             throughput * f_spec * L_spec * (wt / es.pdf) * shadowTr;
                         // pkg258: env NEE is a reflection-side connection (never fires
@@ -4675,7 +4689,8 @@ public:
                             : firstCat * 3 + 1;
                         astroray::SampledSpectrum c =
                             clampContribSpectral(envNee, lambdas, bounce);
-                        color += c; addPass(envNeePass, c);
+                        if (astroray::pkg306::keep(astroray::pkg306::kEnvNee))  // PKG306_DIAG Phase 0 switch, strip in Phase 1
+                        { color += c; addPass(envNeePass, c); }
                     }
                     }  // bsdfPdf > 0 (delta guard, pkg258)
                 }
@@ -4692,7 +4707,7 @@ public:
             if (smsHook && !rec.isDelta) {
                 astroray::SampledSpectrum smsContribution =
                     smsHook(rec, wo, throughput, lambdas, gen);
-                if (!smsContribution.isZero()) {
+                if (!smsContribution.isZero() && astroray::pkg306::keep(astroray::pkg306::kSms)) {  // PKG306_DIAG Phase 0 switch, strip in Phase 1
                     // pkg198: SMS caustic gathered at this receiver vertex — same
                     // direct/indirect tagging as NEE (light arriving at the surface).
                     int smsPass = (firstCat < 0)
@@ -4753,6 +4768,7 @@ public:
             // -> emitter still weights the BSDF leg against the NEE leg.
             if (!transparentPass) {
                 wasSpecular = bss.isDelta;
+                if (!bss.isDelta) p306AnyNonDelta = true;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
                 // pkg120: carry this bounce's BSDF pdf so the next iteration's
                 // emissive-hit two-sided MIS can weight the BSDF leg (see above).
                 bsdfPdfPrev = bss.pdf;
@@ -4763,7 +4779,7 @@ public:
                 // this is a non-delta lobe (a delta continuation is unweighted on miss).
                 // Mirrors the env-NEE block's gate; the delta test is bss.isDelta, the
                 // same flag wasSpecular carries.
-                envNeeSampledPrev = envNeeEnabled && envMap && envMap->loaded() &&
+                envNeeSampledPrev = envNee && envMap && envMap->loaded() &&
                                     ((bounce + 1) <= worldMaxBounces) && !bss.isDelta;
             }
 

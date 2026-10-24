@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "astroray/spectrum.h"
+#include "astroray/pkg306_diag.h"  // PKG306_DIAG Phase 0 switch, strip in Phase 1
 #include "astroray/volume/grid_medium.h"
 #include "astroray/volume/medium_boundary.h"
 #include "astroray/volume/phase.h"
@@ -713,13 +714,13 @@ inline SegmentDirectSample sampleSegmentDirect(const Vec3& o, const Vec3& d, flo
     const float D = std::max((anchor - (o + d * tc)).length(), 1e-4f);
     const float thA = std::atan2(a - tc, D);
     const float thB = finite ? std::atan2(b - tc, D) : 1.5707962f;
-    const bool eqOk = hasAnchor && thB - thA > 1e-7f;
+    const bool eqOk = hasAnchor && thB - thA > 1e-7f && !astroray::pkg306::diag().distOnly;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
     auto pdfEq = [&](float t) {
         if (!eqOk || t < a || t > b) return 0.0f;
         float dt = t - tc;
         return D / ((thB - thA) * (D * D + dt * dt));
     };
-    const bool distOk = nValid > 0;
+    const bool distOk = nValid > 0 && !astroray::pkg306::diag().equiOnly;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
     if (!eqOk && !distOk) return out;
     const bool both = eqOk && distOk;
     const bool pickEq = both ? (u(gen) >= 0.5f) : eqOk;

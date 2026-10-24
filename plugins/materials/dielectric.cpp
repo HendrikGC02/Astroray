@@ -210,7 +210,7 @@ public:
         // On refraction (not reflection), each wavelength refracts differently.
         // We can only trace one direction — terminate secondaries.
         bool reflected = (bss.wi.dot(rec.normal) > 0) == (wo.dot(rec.normal) > 0);
-        if (!reflected) {
+        if (!reflected && !astroray::pkg306::diag().noTerm2) {  // PKG306_DIAG Phase 0 switch, strip in Phase 1
             lambdas.terminateSecondary();
         }
 

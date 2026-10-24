@@ -4,6 +4,7 @@
 #include "astroray/manifold/sms_attempt.h"
 #include "astroray/photon/photon_map.h"        // pkg111
 #include "astroray/photon_lights.h"            // pkg286/287: per-light physical photon emission
+#include "astroray/pkg306_diag.h"  // PKG306_DIAG Phase 0 switch, strip in Phase 1
 #include "astroray/manifold/mesh_attempt.h"    // pkg111: gatherTriangleCasters
 #include "astroray/manifold/mesh_caustic.h"    // pkg111: rayTriHit
 
@@ -159,11 +160,12 @@ public:
         // caster is flagged; the GPU pre-pass keys on it) selects the same map on
         // the CPU, so both backends run one estimator. Without it a point/spot
         // lamp's caustic is unreachable here (a path-traced ray cannot hit it).
-        photonMode_ = causticMode_ == "photon_map" ||
-                      (causticMode_ != "none" && scene.getUsePhotonCaustics());
+        photonMode_ = (causticMode_ == "photon_map" ||
+                       (causticMode_ != "none" && scene.getUsePhotonCaustics())) &&
+                      !astroray::pkg306::diag().photonOff;  // PKG306_DIAG Phase 0 switch, strip in Phase 1
         if (photonMode_) {
             buildPhotonMap(scene);
-        } else if (scene.getUseRefractiveCaustics()) {
+        } else if (scene.getUseRefractiveCaustics() && !astroray::pkg306::diag().smsOff) {  // PKG306_DIAG Phase 0 switch, strip in Phase 1
             // SMS path: per-object opt-in: only flagged objects participate.
             amf::gatherSphereCasters(scene, casters_, /*requireFlag=*/true);
             // pkg227: apply the global rainbow-chain depth to every caster.
@@ -304,7 +306,7 @@ public:
         }
 
         // pkg111: Add photon-mapped caustic at the first diffuse hit (when ready).
-        if (photonMapReady_ && bvh) {
+        if (photonMapReady_ && bvh && astroray::pkg306::keep(astroray::pkg306::kPhoton)) {  // PKG306_DIAG Phase 0 switch, strip in Phase 1
             HitRecord rec;
             // #959: receivers only — a caster surface holds no photons, and the
             // split chain (pathTraceSpectral) starts only at a non-caster receiver.

@@ -2565,7 +2565,8 @@ public:
         // (wi crosses to the far hemisphere) terminate the secondary wavelengths.
         // Same sign test dielectric.cpp uses (reflected ⇔ wi,wo same side of N).
         if (dispersive_ && lobes[ds.lobe].kind == LobeKind::Transmission &&
-            (bss.wi.dot(rec.normal) > 0.0f) != (wo.dot(rec.normal) > 0.0f)) {
+            (bss.wi.dot(rec.normal) > 0.0f) != (wo.dot(rec.normal) > 0.0f) &&
+            !astroray::pkg306::diag().noTerm2) {  // PKG306_DIAG Phase 0 switch, strip in Phase 1
             lambdas.terminateSecondary();
         }
         if (ds.isWalk) {

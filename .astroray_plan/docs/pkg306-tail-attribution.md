@@ -1,9 +1,10 @@
 # pkg306 Phase 0: tail attribution for v2_media and v2_dispersion_caustics
 
-2026-10-25, lane-pkg306, branch `lane/pkg306` (base main 624e32df). CPU only so far; the GPU leg
-is pending a build (section 5). Evidence (summaries, scratch drivers, sheets):
+2026-10-25, lane-pkg306 (base main 624e32df). CPU and GPU. The temporary
+`ASTRORAY_PKG306_DIAG` switches used here live on branch `lane/pkg306-diag` (kept for Phase 1);
+the engine on main is unchanged. Evidence (summaries, scratch drivers, sheets):
 `%LOCALAPPDATA%\astroray-evidence\2026-10-24\pkg306\` (`var/*_table*.txt`, `var/summary_*.json`,
-`sheets/`).
+`sheets/`, `gpu/`).
 
 ## 1. Setup
 
@@ -22,7 +23,7 @@ is pending a build (section 5). Evidence (summaries, scratch drivers, sheets):
   - share: top-0.1 % of Astroray's pixels. "C same" is Cycles' share on those same pixels.
   - `max_frac`: largest seed / seed sum. 1.0 = a 1-in-N firefly; 0.2 = a stable pixel.
   - z: ROI mean against Cycles or against the baseline, from the 5 seed means.
-- Variants: `include/astroray/pkg306_diag.h`. `only_<cls>` / `drop_<cls>` are contribution
+- Variants: `include/astroray/pkg306_diag.h` (branch `lane/pkg306-diag`). `only_<cls>` / `drop_<cls>` are contribution
   masks on the same paths and the same RNG stream. The `only_` renders of all classes sum to
   the baseline (max |diff| 8.5e-5 relative), so the class decomposition is exact.
   - glint: camera → delta+ → lamp/emitter.
@@ -176,38 +177,69 @@ Mean shifts in media:
    gives a mean 10.7x Cycles and variance 3.4e7x. The photon map is a large variance reduction
    there, not a tail owner.
 
-## 5. GPU leg (pending a build)
+## 5. GPU leg
 
-Mirrored as `__constant__` switches. Host-side switches: `photon_off`, `drop_photon`
-(gather scale 0, map and split kept), `bsdf_only`, `spot_cone_cycles` (the device tree is
-built from host cones).
+- Build: the lead's CUDA build of the lane head (sm_120, OptiX traversal), 64 spp, seeds
+  278-282, plus 20 decorrelated seeds for the dispersion baseline.
+- Driver: `gpu_variants.py` in the evidence dir. Tables: `gpu/*_table_gpu.txt`.
+- The main-build GPU identity check was skipped: main moved after the branch point (#995,
+  pkg325). The GPU base agrees with the CPU instead. On dispersion the 20-seed median images
+  differ by 1.007x (`sheets/disp_cpu_gpu_cycles_median20.png`). Media ROI means sit within
+  |z| ≤ 2.7 of Cycles.
+- GPU mirror of the switches (on `lane/pkg306-diag`):
+  - `__constant__ c_wfPkg306Keep` in the intersect and shadow kernels.
+  - `c_wfPkg306Vol` in `stage_volume_hetero.cu`.
+  - Host side: `photon_off`, `drop_photon`, `bsdf_only`, and `spot_cone_cycles` (the device
+    tree is built from host cones).
+  - The GPU merges glint + caustic into one class, `spechit`.
+  - Nothing was changed in the REG-254 shade kernel.
 
-| switch | device site |
-|---|---|
-| `c_wfPkg306Keep` | intersect kernel: lamp pass, env miss, both emission branches; `stageShadowKernel` (nee / voldirect); `stageEnvShadowKernel` (envnee) |
-| `c_wfPkg306Vol` | `stage_volume_hetero.cu` `segSampleDistance` (`equi_only` / `dist_only`) |
+| scene (GPU, 5 seeds) | full | trimmed | bulk | share (C same px) | image mean |
+|---|---|---|---|---|---|
+| v2_media base | 4.52x | 12.8x | 2.94x | 0.533 (0.472) | 0.996 |
+| media equi_only / dist_only | 4.09 / 1880 | 12.4 / 10.3 | | | smoke var 54.8x / 1790x |
+| media only_voldirect / drop_voldirect | 1.62 / 3.00 | 8.9 / 2.5 | | | smoke 78.3x / 0.43x, shaft 17.3x / 0.07x |
+| media bsdf_only | 7.83 | 85.8 | 78.2 | | fog_floor_lit 0.39x (spot NEE-only, expected) |
+| v2_dispersion base | 126x | 67.3x | 4.25x | 1.000 (0.000) | 1.629 |
+| v2_dispersion base, 20 seeds | **1.46x** | 70.1x | 3.79x | 1.000 | **1.353** (CPU 1.398) |
+| disp spot_cone_cycles (#1172) | 126 | **11.3** | 3.87 | 1.000 | 1.629; \|z vs base\| ≤ 1.7 |
+| disp drop_spechit / only_spechit | 0.004 / 126 | 67.2 / 0.19 | | 0.045 / 1.000 | tail var kept 0.000 / 1.000 |
+| disp drop_photon / only_photon | 126 / 0.0002 | 63.8 / 2.56 | | | prism_floor 0.48x / 2.83x Cycles |
+| disp photon_off | 200 | 64.1 | 2.21 | 1.000 | prism_floor var 4e6x |
+| disp only_nee | 0.004 | 63.1 | 0.35 | | NEE holds the trimmed excess, as on CPU |
 
-The GPU classifies post-specular hits only as `spechit` (glint + caustic): telling them apart
-would need the ancestor flag in the shade kernel.
+**GPU verdicts.**
+- **Media.**
+  - The tail is at parity: share 0.533 against Cycles' 0.472 (1.13x).
+  - The 09-29 GPU figure of 12x is now 4.52x. The residual has the same owner as on the CPU:
+    the segment direct light, #1032. `drop_voldirect` leaves smoke at 0.43x and the shaft at
+    0.07x; `only_voldirect` keeps 78x / 17x.
+  - The exponential strategy alone is again catastrophic (smoke 1790x, shaft 2e5x).
+- **Dispersion tail.**
+  - `spechit` owns 100 % of the top-0.1 % variance: drop removes it all, only-spechit keeps
+    it all.
+  - The events are sun glints at 1429 at (115,47) and about 1045 at (177,98). The second is
+    the same sphere glint the CPU drew.
+  - The 09-29 "264x" and today's 5-seed 126x are again event luck: 20 seeds give 1.46x. Event
+    rates match Cycles: 6 events > 20 at 195 per render, against Cycles' 6 at 144.
+  - Correct transport.
+- **The GPU rainbow prism beam is explained, and it is not GPU-only any more.**
+  - The dispersed prism caustic is the photon gather on both backends. The CPU gained it with
+    #959; the prism floor reads 3.29x Cycles on both.
+  - The 5-seed GPU mean of 1.63x (09-29: 1.73x) is the same three glint events. Excluding
+    events > 20, the 20-seed image means are equal: CPU 0.0597, GPU 0.0598, Cycles 0.0442.
+  - Cycles renders no caustic through glass at all, so the beam's level needs the Mitsuba
+    arbitration (pkg307). Do not suppress it.
+- **Dispersion trimmed 67.3x.** `spot_cone_cycles` (#1172) brings it to 11.3x, with
+  beam_through_prism 42 → 4.7x and sphere_limb 36.5 → 1.8x. The photon floor var is 15x on the
+  GPU (75x on the CPU).
 
-Not mirrored, to keep the REG-254 shade kernel untouched:
-- `no_term2`: on the CPU it is not attributable (RNG divergence).
-- The `nee_only` weight forcing: for the 0.5° sun and the r = 0.03 spot, w_L = 1 - O(1e-8),
-  so `only_nee` is the equivalent mask.
-
-Expected register impact:
+**Register impact (expected; the lead measures):**
 - `stageShadeBucketedKernel`: no source change.
-- Intersect kernels: four predicate-only reads of one constant, no per-path state, about +0-2
-  registers. The snapshot harness kernel that fuses intersect and shade (`stage_advance.cu`)
-  may move by the same amount.
-- Shadow kernels: about +0-1 registers. Hetero: 0.
+- Intersect kernels: predicate-only constant reads, +0-2 registers.
+- Shadow kernels: +0-1. Hetero: 0.
 
-GPU questions:
-- GPU full / trimmed numbers on both scenes.
-- The rainbow prism beam (09-29: mean 1.73x, CPU 1.43x today): does it sit in `only_photon`,
-  `only_spechit` or `only_nee`?
-- Does `spot_cone_cycles` cut the GPU trimmed ratio the same way?
-- Does the media voldirect split match #1032?
+None of this ships in the Phase 0 PR: it lives on `lane/pkg306-diag`.
 
 ## 6. Follow-ups (outside pkg306 scope)
 

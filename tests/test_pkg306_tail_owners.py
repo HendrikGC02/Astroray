@@ -114,37 +114,41 @@ def _stats(sid: str, leg: str) -> dict:
 
 
 _LEGS = [pytest.param("cpu", marks=pytest.mark.serial, id="cpu"),
-         pytest.param("gpu", marks=[pytest.mark.gpu,
-                                    pytest.mark.xfail(strict=False, reason="pkg306: GPU leg not measured yet (BUILD REQUEST)")],
-                      id="gpu")]
+         pytest.param("gpu", marks=pytest.mark.gpu, id="gpu")]
+_MEDIA_FULL = ("full relVar {}x Cycles. Owner: medium segment direct light distance strategy (#1032; "
+               "drop_voldirect leaves smoke_plume / shaft at {} / {}x)")
+_DISP_TRIM = ("trimmed relVar {}x Cycles. Owners: light-tree spot cone theta_o = theta_e (#1172, "
+              "src/lights/spot_light.cpp; {}x with Cycles' cone) and the photon caustic floor Cycles does not "
+              "render (Mitsuba arbitration, pkg307)")
 
 
 @pytest.mark.parametrize("leg", [
     pytest.param("cpu", marks=[pytest.mark.serial, pytest.mark.xfail(
-        strict=True, reason="pkg306 2026-10-25 CPU: full relVar 4.27x Cycles. Owner: medium segment direct light "
-                            "distance strategy (smoke_plume 83x, shaft 14x; drop_voldirect 0.52x / 0.09x), #1032")], id="cpu"),
-    _LEGS[1]])
+        strict=True, reason="pkg306 2026-10-25 CPU: " + _MEDIA_FULL.format(4.27, 0.52, 0.09))], id="cpu"),
+    pytest.param("gpu", marks=[pytest.mark.gpu, pytest.mark.xfail(
+        strict=True, reason="pkg306 2026-10-25 GPU: " + _MEDIA_FULL.format(4.52, 0.43, 0.07))], id="gpu")])
 def test_media_full_relvar_within_3x_cycles(leg):
     assert _stats("v2_media", leg)["full"] <= 3.0
 
 
 @pytest.mark.parametrize("leg", _LEGS)
 def test_media_tail_share_within_2x_cycles_same_pixels(leg):
-    st = _stats("v2_media", leg)  # 2026-10-25 CPU: 0.500 vs Cycles 0.484 on the same pixels (#961/#1019)
+    # 2026-10-25: CPU 0.500 vs Cycles 0.484, GPU 0.533 vs 0.472 on the same pixels (#961/#1019)
+    st = _stats("v2_media", leg)
     assert st["share"] <= 2.0 * st["share_ref_same"]
 
 
 @pytest.mark.parametrize("leg", _LEGS)
 def test_media_roi_means_within_3_sigma_of_cycles(leg):
+    # 2026-10-25: max |z| CPU 2.28, GPU 2.71 (fog_floor_lit)
     bad = {n: round(r["z"], 2) for n, r in _stats("v2_media", leg)["rois"].items() if abs(r["z"]) > 3.0}
-    assert not bad, f"ROI means outside 3 sigma of Cycles: {bad}"  # 2026-10-25 CPU: max |z| 2.28 (fog_floor_lit)
+    assert not bad, f"ROI means outside 3 sigma of Cycles: {bad}"
 
 
 @pytest.mark.parametrize("leg", [
     pytest.param("cpu", marks=[pytest.mark.serial, pytest.mark.xfail(
-        strict=True, reason="pkg306 2026-10-25 CPU: trimmed relVar 80.5x Cycles. Owners: spot light-tree cone "
-                            "theta_o = theta_e (#1172, src/lights/spot_light.cpp, 80.5x -> 25x with Cycles' cone) and the "
-                            "photon-map caustic floor Cycles does not render (Mitsuba arbitration, pkg307)")], id="cpu"),
-    _LEGS[1]])
+        strict=True, reason="pkg306 2026-10-25 CPU: " + _DISP_TRIM.format(80.5, 25.1))], id="cpu"),
+    pytest.param("gpu", marks=[pytest.mark.gpu, pytest.mark.xfail(
+        strict=True, reason="pkg306 2026-10-25 GPU: " + _DISP_TRIM.format(67.3, 11.3))], id="gpu")])
 def test_dispersion_trimmed_relvar_within_5x_cycles(leg):
     assert _stats("v2_dispersion_caustics", leg)["trimmed"] <= 5.0

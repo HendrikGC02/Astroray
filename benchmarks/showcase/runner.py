@@ -62,7 +62,10 @@ from runtime_setup import configure_test_imports  # noqa: E402
 
 configure_test_imports()
 
-import astroray  # noqa: E402
+try:  # --preset spectral drives Blender subprocesses and needs no in-process engine
+    import astroray  # noqa: E402
+except ImportError:
+    astroray = None
 
 from . import config, stats  # noqa: E402
 from .contact_sheets import save_contact_sheet, save_strip  # noqa: E402
@@ -588,7 +591,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--spp-series", type=int, nargs="+", default=None)
     parser.add_argument("--max-depth", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
-    args = parser.parse_args(argv)
+    parser.add_argument("--preset", choices=("spectral",), default=None,
+                        help="pkg324: render the spectral showcase corpus (benchmarks/showcase/spectral/manifest.json) on "
+                             "cpu/gpu/cycles legs and write three-way sheets + analytic checks; remaining flags go to "
+                             "benchmarks/showcase/spectral/driver.py (--legs, --scenes, --pyd-dir, --output-dir, ...)")
+    args, rest = parser.parse_known_args(argv)
+    if args.preset == "spectral":
+        from .spectral import driver
+        fwd = list(rest)
+        if args.output_dir is not None:
+            fwd += ["--output-dir", str(args.output_dir)]
+        if args.samples is not None:
+            fwd += ["--samples", str(args.samples)]
+        return driver.main(fwd)
+    if rest:
+        parser.error("unrecognized arguments: " + " ".join(rest))
 
     quick = not args.full
     out = run(

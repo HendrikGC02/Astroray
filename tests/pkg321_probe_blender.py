@@ -147,10 +147,13 @@ PROBES = {
     "s_sun_size": dict(scene="sky", node="ShaderNodeTexSky", A={"prop:sun_size": 0.0095}, B={"prop:sun_size": 0.12}),
     "s_altitude": dict(scene="sky", node="ShaderNodeTexSky", A={"prop:altitude": 0.0}, B={"prop:altitude": 20000.0}),
     # ---- Glass thin film + misc (family 6) ------------------------------------------------------------------
-    "g_thin_film_thickness": dict(scene="sphere", node="ShaderNodeBsdfGlass", pre={"Roughness": 0.0},
+    # pkg326 (#1136): the sockets are consumed (rough glass takes the film Fresnel); smooth glass is the reported exception.
+    "g_thin_film_thickness": dict(scene="sphere", node="ShaderNodeBsdfGlass", pre={"Roughness": 0.2},
                                   A={"Thin Film Thickness": 0.0}, B={"Thin Film Thickness": 600.0}),
-    "g_thin_film_ior": dict(scene="sphere", node="ShaderNodeBsdfGlass", pre={"Roughness": 0.0, "Thin Film Thickness": 600.0},
+    "g_thin_film_ior": dict(scene="sphere", node="ShaderNodeBsdfGlass", pre={"Roughness": 0.2, "Thin Film Thickness": 600.0},
                             A={"Thin Film IOR": 1.33}, B={"Thin Film IOR": 2.0}),
+    "g_thin_film_smooth": dict(scene="sphere", node="ShaderNodeBsdfGlass", pre={"Roughness": 0.0},
+                               A={"Thin Film Thickness": 0.0}, B={"Thin Film Thickness": 600.0}),
     "m_geometry_normal": dict(scene="sphere", node="ShaderNodeBsdfDiffuse", pre={},
                               A={"Color": (0.5, 0.5, 0.5, 1)}, B={"Color": (0.5, 0.5, 0.5, 1)},
                               link="geometry_normal", link_socket="Color"),

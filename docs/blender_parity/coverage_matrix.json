@@ -403,8 +403,8 @@
     "feature": "BSDF_GLASS",
     "bl_idname": "ShaderNodeBsdfGlass",
     "socket_or_prop": "input:Thin Film Thickness",
-    "classification": "DROPPED-SILENT",
-    "notes": "pkg321 probe `g_thin_film_thickness` leaves the CPU render identical: dropped, reported at runtime (#1136)",
+    "classification": "SUPPORTED",
+    "notes": "",
     "socket_id": "Thin Film Thickness"
   },
   {
@@ -412,8 +412,8 @@
     "feature": "BSDF_GLASS",
     "bl_idname": "ShaderNodeBsdfGlass",
     "socket_or_prop": "input:Thin Film IOR",
-    "classification": "DROPPED-SILENT",
-    "notes": "pkg321 probe `g_thin_film_ior` leaves the CPU render identical: dropped, reported at runtime (#1136)",
+    "classification": "SUPPORTED",
+    "notes": "",
     "socket_id": "Thin Film IOR"
   },
   {

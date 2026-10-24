@@ -10,9 +10,9 @@
 
 ## Summary
 
-- **SUPPORTED**: 323 features
+- **SUPPORTED**: 325 features
 - **APPROXIMATED**: 101 features
-- **DROPPED-SILENT**: 313 features ⚠️
+- **DROPPED-SILENT**: 311 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 737 features
 
@@ -22,23 +22,23 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5661)
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5661)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5686)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5686)
 - **TEX_BRICK**: socket `Offset` (addon __init__.py line 4174, line 4315)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5661)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5661)
-- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5661)
-- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5661)
-- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5661)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5661)
-- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5661)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5661)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5661)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5686)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5686)
+- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5686)
+- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5686)
+- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5686)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5686)
+- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5686)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5686)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5686)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -130,8 +130,6 @@ These features are silently ignored by the addon with no warning:
 - **BSDF_DIFFUSE**: `input:Weight`
 - **BSDF_GLASS**: `input:Normal` — pkg321 probe `n_glass` leaves the CPU render identical: dropped, reported at runtime (#1129)
 - **BSDF_GLASS**: `input:Weight`
-- **BSDF_GLASS**: `input:Thin Film Thickness` — pkg321 probe `g_thin_film_thickness` leaves the CPU render identical: dropped, reported at runtime (#1136)
-- **BSDF_GLASS**: `input:Thin Film IOR` — pkg321 probe `g_thin_film_ior` leaves the CPU render identical: dropped, reported at runtime (#1136)
 - **BSDF_GLASS**: `prop:distribution` — property ENUM; pkg321 probe `e_glass_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)
 - **BSDF_HAIR**: `input:Color`
 - **BSDF_HAIR**: `input:Offset`
@@ -576,8 +574,8 @@ These features are silently ignored by the addon with no warning:
 | BSDF_GLASS | input:IOR | SUPPORTED |  |
 | BSDF_GLASS | input:Normal | DROPPED-SILENT | pkg321 probe `n_glass` leaves the CPU render identical: dropped, reported at runtime (#1129) |
 | BSDF_GLASS | input:Weight | DROPPED-SILENT |  |
-| BSDF_GLASS | input:Thin Film Thickness | DROPPED-SILENT | pkg321 probe `g_thin_film_thickness` leaves the CPU render identical: dropped, reported at runtime (#1136) |
-| BSDF_GLASS | input:Thin Film IOR | DROPPED-SILENT | pkg321 probe `g_thin_film_ior` leaves the CPU render identical: dropped, reported at runtime (#1136) |
+| BSDF_GLASS | input:Thin Film Thickness | SUPPORTED |  |
+| BSDF_GLASS | input:Thin Film IOR | SUPPORTED |  |
 | BSDF_GLASS | prop:distribution | DROPPED-SILENT | property ENUM; pkg321 probe `e_glass_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132) |
 | BSDF_HAIR | input:Color | DROPPED-SILENT |  |
 | BSDF_HAIR | input:Offset | DROPPED-SILENT |  |

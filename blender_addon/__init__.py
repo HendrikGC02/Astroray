@@ -5432,10 +5432,23 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 self._warn_shader_fallback(
                     label, "%s not honoured: the Anisotropic BSDF is lowered as an isotropic Glossy "
                     "(node.type is BSDF_GLOSSY); dropped" % ', '.join(dropped))
-        if ntype == 'BSDF_GLASS' and self._input_is_set(node.inputs.get('Thin Film Thickness')):
+        # pkg326 (#1136): the native Principled route honours the Glass thin-film sockets
+        # (_standalone_bsdf_spec); only the legacy non-native (Disney) route still drops them.
+        # Smooth glass (Roughness <= 0.03: principled.cpp kDeltaGlassRoughness, gpu_materials.h
+        # kPrincipledDeltaGlassRoughness) takes the delta-glass sampler with plain dielectric
+        # Fresnel, so the film is not rendered there on either backend (Cycles applies it,
+        # v5.2.0 bsdf_microfacet.h:795-917).
+        if (ntype == 'BSDF_GLASS' and self._use_native_principled()
+                and self.get_float_input(node, 'Thin Film Thickness', 0.0) > 0.1
+                and self.get_float_input(node, 'Roughness', 0.0) <= 0.03):
+            self._warn_shader_fallback(
+                label, "Thin Film is not rendered on a smooth Glass BSDF (Roughness <= 0.03 uses "
+                "the delta-glass path without film Fresnel, #1162); raise Roughness above 0.03 for iridescence")
+        if (ntype == 'BSDF_GLASS' and not self._use_native_principled()
+                and self._input_is_set(node.inputs.get('Thin Film Thickness'))):
             self._warn_shader_fallback(
                 label, "Thin Film Thickness / Thin Film IOR are not honoured by the Glass BSDF "
-                "(only Principled and Metallic carry thin film); dropped")
+                "on the legacy (non-native Principled) route; dropped")
 
     def _standalone_bsdf_spec(self, node, renderer=None):
         self._report_unhonoured_bsdf_props(node)
@@ -5507,6 +5520,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             color = self.get_color_input(node, 'Color', [1.0, 1.0, 1.0])
             rough = self.get_float_input(node, 'Roughness', 0.0)
             ior = self.get_float_input(node, 'IOR', 1.5)
+            film_thickness = self.get_float_input(node, 'Thin Film Thickness', 0.0)  # pkg326
+            film_ior = self.get_float_input(node, 'Thin Film IOR', 1.33)
             _warn_color_texture_unsupported('BSDF_GLASS')
             spec = {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'ior': ior, 'roughness': rough}}
             if self._use_native_principled():
@@ -5520,6 +5535,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 # issue1038-glass-tint-research.md).
                 spec['base_color'] = [max(float(c), 0.0) ** 2 for c in color]
                 spec['native_params'] = {'specular_tint': [max(float(c), 0.0) for c in color]}
+                # pkg326 (#1136): Thin Film Thickness / IOR. Cycles 5.2 svm/closure.h
+                # (blender v5.2.0, Apache-2.0) CLOSURE_BSDF_MICROFACET_*_GLASS_ID :779-840
+                # loads thin_film_thickness/ior into fresnel->thin_film of the SAME
+                # FresnelGeneralizedSchlick the Principled transmission lobe builds
+                # (:362-423, back-face ior adjust :400-403 == :827). The native Principled
+                # transmission lobe already renders that film on CPU and GPU (pkg178
+                # Stage 4, Belcour & Barla 2017), so the Glass node only forwards sockets.
+                # A Blender without the sockets reads 0 nm (below the 0.1 nm film cutoff).
+                spec['native_params']['thin_film_thickness'] = film_thickness
+                spec['native_params']['thin_film_ior'] = film_ior
             return spec
         if ntype == 'BSDF_TRANSLUCENT':
             color = self.get_color_input(node, 'Color', [0.8, 0.8, 0.8])

@@ -300,43 +300,78 @@ __global__ void stageRestirPrimaryKernel(
     GEnvMap envMap, GVec3 backgroundColor, bool hasBackgroundColor,
     int worldMaxBounces, bool useLuminanceOutput, int numPixels,
     float clampDirect, float clampIndirect,  // pkg157
-    const GCurveSegment* curves)             // #1042 (nullptr when !HasCurves)
+    const GCurveSegment* curves,             // #1042 (nullptr when !HasCurves)
+    bool alphaPass)                          // #1150: scene has a Principled alpha < 1
 {
     int p = blockIdx.x * blockDim.x + threadIdx.x;
     if (p >= numPixels) return;
 
-    // Reset the hit-validity flag: intersectPathSlot sets it to 1 ONLY for a
-    // surviving (non-emissive) shading hit; miss/emissive return early without
-    // clearing it, so a stale value from the previous sample would wrongly
-    // trigger RIS. Clear it here before the intersect.
-    hitBufs.hit_valid[p] = 0;
-
     initPathSlot(/*slot=*/p, /*pixel=*/p, sample_index, state, cam,
                  width, height, seed, lambdaMin, lambdaMax);
-    // pkg157: bounce is always 0 here (ReSTIR-DI is direct-illumination-only,
-    // a fresh single-bounce path per sample) -> intersectPathSlot's internal
-    // clamp uses clampDirect for this primary env/emissive term.
-    // pkg120: ReSTIR-DI is bounce-0-only, so intersectPathSlot's two-sided-MIS
-    // emissive-hit branch (bounce > 0 && !wasSpecular) never fires here; pass
-    // empty light data (numLights = 0 short-circuits gpu_reconstruct_light_pdf).
-    if constexpr (HasCurves) {
-        intersectPathSlotCurves(p, state, hitBufs, tlas, instances, blas, bvhNodes,
-                                prims, tris, spheres, motionVerts, materials, envMap,
-                                backgroundColor, hasBackgroundColor, worldMaxBounces,
-                                useLuminanceOutput, /*enableNEE=*/true, clampDirect, clampIndirect,
-                                /*lights=*/nullptr, /*numLights=*/0, /*totalLightPower=*/0.f,
-                                /*dedLights=*/nullptr, /*numDed=*/0, GLightTreeView{}, curves);
-    } else {
-        intersectPathSlot(p, state, hitBufs, tlas, instances, blas, bvhNodes,
-                          prims, tris, spheres, motionVerts, materials, envMap,
-                          backgroundColor, hasBackgroundColor, worldMaxBounces,
-                          useLuminanceOutput, /*enableNEE=*/true, clampDirect, clampIndirect,
-                          /*lights=*/nullptr, /*numLights=*/0,
-                          /*totalLightPower=*/0.f,
-                          // pkg181: ReSTIR-DI is bounce-0-only, so the lamp-intersect
-                          // pass (gated bounce > 0) never fires; pass empty dedicated
-                          // lights (numDed = 0 also short-circuits it defensively).
-                          /*dedLights=*/nullptr, /*numDed=*/0, GLightTreeView{});
+    // #1150: an alpha < 1 Principled hit is a stochastic pass-through (Cycles
+    // bsdf_transparent, CPU restir_di / pathTraceSpectral #1033): the shading point
+    // is the first surface whose coverage draw keeps it. A pass is not a bounce
+    // (bounce stays 0); the driver publishes c_wfTransparentLimit for alpha scenes,
+    // so intersectPathSlot consumes pass_dist / pass_count (no near clip behind a
+    // pass, far clip from the camera, transparent_max_bounces terminate).
+    constexpr int kPassCap = 1024;  // gpu_shadow_transmittance kHopCap
+    for (int pass = 0; ; ++pass) {
+        // Reset the hit-validity flag: intersectPathSlot sets it to 1 ONLY for a
+        // surviving (non-emissive) shading hit; miss/emissive return early without
+        // clearing it, so a stale value from the previous sample would wrongly
+        // trigger RIS. Clear it here before the intersect.
+        hitBufs.hit_valid[p] = 0;
+        // pkg157: bounce is always 0 here (ReSTIR-DI is direct-illumination-only,
+        // a fresh single-bounce path per sample) -> intersectPathSlot's internal
+        // clamp uses clampDirect for this primary env/emissive term.
+        // pkg120: ReSTIR-DI is bounce-0-only, so intersectPathSlot's two-sided-MIS
+        // emissive-hit branch (bounce > 0 && !wasSpecular) never fires here; pass
+        // empty light data (numLights = 0 short-circuits gpu_reconstruct_light_pdf).
+        if constexpr (HasCurves) {
+            intersectPathSlotCurves(p, state, hitBufs, tlas, instances, blas, bvhNodes,
+                                    prims, tris, spheres, motionVerts, materials, envMap,
+                                    backgroundColor, hasBackgroundColor, worldMaxBounces,
+                                    useLuminanceOutput, /*enableNEE=*/true, clampDirect, clampIndirect,
+                                    /*lights=*/nullptr, /*numLights=*/0, /*totalLightPower=*/0.f,
+                                    /*dedLights=*/nullptr, /*numDed=*/0, GLightTreeView{}, curves);
+        } else {
+            intersectPathSlot(p, state, hitBufs, tlas, instances, blas, bvhNodes,
+                              prims, tris, spheres, motionVerts, materials, envMap,
+                              backgroundColor, hasBackgroundColor, worldMaxBounces,
+                              useLuminanceOutput, /*enableNEE=*/true, clampDirect, clampIndirect,
+                              /*lights=*/nullptr, /*numLights=*/0,
+                              /*totalLightPower=*/0.f,
+                              // pkg181: ReSTIR-DI is bounce-0-only, so the lamp-intersect
+                              // pass (gated bounce > 0) never fires; pass empty dedicated
+                              // lights (numDed = 0 also short-circuits it defensively).
+                              /*dedLights=*/nullptr, /*numDed=*/0, GLightTreeView{});
+        }
+        if (!alphaPass || hitBufs.hit_valid[p] == 0) break;
+        const float alpha = gpu_shadowAlpha(materials[hitBufs.hit_material_id[p]]);
+        if (alpha >= 1.0f) break;
+        if (pass >= kPassCap) { hitBufs.hit_valid[p] = 0; break; }  // blocked, like the shadow walk
+        // Coverage draw: keep the surface with probability alpha. Its eval already
+        // carries the alpha weight (Principled weight *= alpha after the transparent
+        // lobe, gpu_materials.h), so the kept sample divides it out; a pass (probability
+        // 1 - alpha) has weight (1 - alpha) / (1 - alpha) = 1. Unbiased for both terms.
+        WavefrontRNG rng = loadRNG(state, p);
+        const float u = rng.Uniform();
+        state.rng_dimension[p] = rng.dimension();
+        if (u < alpha) {
+            const float inv = 1.0f / alpha;
+            state.throughput_0[p] *= inv;
+            state.throughput_1[p] *= inv;
+            state.throughput_2[p] *= inv;
+            state.throughput_3[p] *= inv;
+            break;
+        }
+        // Pass: continue the camera ray from the sheet (shadePathSlotImpl #1033 twin:
+        // origin = hit point, direction unchanged, cumulative distance parked).
+        state.ray_origin_x[p] = hitBufs.hit_point_x[p];
+        state.ray_origin_y[p] = hitBufs.hit_point_y[p];
+        state.ray_origin_z[p] = hitBufs.hit_point_z[p];
+        state.pass_dist[p]    = hitBufs.hit_t[p];
+        state.pass_count[p]  += 1u;
     }
 }
 
@@ -631,7 +666,8 @@ void launchStageRestirPrimary(
     GVec3 backgroundColor, bool hasBackgroundColor,
     int worldMaxBounces, bool useLuminanceOutput,
     float clampDirect, float clampIndirect,  // pkg157
-    const GCurveSegment* d_curveSegments)    // #1042 (nullptr = no curves)
+    const GCurveSegment* d_curveSegments,    // #1042 (nullptr = no curves)
+    bool alphaPass)                          // #1150
 {
     int numPixels = width * height;
     int tpb = 256;
@@ -640,7 +676,7 @@ void launchStageRestirPrimary(
         d_tlas, d_instances, d_blas, d_bvhNodes, d_prims, d_tris, d_spheres, \
         d_motionVerts, d_materials, envMap, backgroundColor, hasBackgroundColor, \
         worldMaxBounces, useLuminanceOutput, numPixels, \
-        clampDirect, clampIndirect, d_curveSegments
+        clampDirect, clampIndirect, d_curveSegments, alphaPass
     if (d_curveSegments != nullptr)
         stageRestirPrimaryKernel<true><<<gGrid(numPixels, tpb), tpb>>>(ASTRORAY_RESTIR_PRIMARY_ARGS);
     else

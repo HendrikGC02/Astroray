@@ -10,7 +10,17 @@ questions), `stage0-gate-scoring-2026-10-18.md` (rows (b), (e), (g) re-measures)
   #1163 (pkg326), #1166 (pkg325), #1169 (gate (b)), #1170 (#995/#955). `build_cuda` stamp c76baf57 (sm_120), `dist/astroray`
   restaged 07:46 from the same HEAD. No worktrees remain.
 - **#1173 pkg306 Phase 0 merged** (main 0a4d4aaa; engine byte-identical). Diag switches live on `lane/pkg306-diag`
-  372da5c9 for Phase 1. No open PRs, no worktrees at handoff.
+  372da5c9 for Phase 1.
+- **Wave 2 (10-25 late morning), may still be in flight:** PR #1176 (#1171 sun power; GPU legs green) and PR #1181 (#1165
+  bounce caps = Cycles max_bounces+1 terminate-after, CPU+GPU, reviews PASS/PARITY-OK, GPU legs green on build adcc5cfc;
+  last commit 4655c6d1 is test/comment/provisional-row only) wait on CI; merge each when its branch-only run is green and
+  any PR-run failures are main's known ones. Lanes: #1150 (Opus, worktree `i1150`, branch `lane/issue1150`, based on the
+  #1181 head because it edits the same ReSTIR loop) and #1155 (Sonnet, `i1155`, `lane/issue1155`); on their
+  `BUILD REQUEST <sha>` run `scriptsuilduild_cuda_worktree.bat <wt> <sha>`, their GPU legs under `gpu_locked_run.py
+  lead`, cuobjdump A/B, reviews, PR, merge. After the merges: rebuild main `build_cuda`, restage `dist/astroray`, re-rate
+  row (e) (highs left after #1171/#1165/#1150/#1155: #1152 #1154 #1158 #1162), re-run row (g). New issues from the #1165
+  parity review: #1177 #1178 #1179 (engine) and #1180 (GPU Add Shader drops emission when leaf 0 is not Principled).
+  Worktrees i1171 i1165 i1150 i1155 and their branches go once merged.
 - **Final sweep** on main c76baf57: see `run-report-2026-10-25.md` (SWEEP2 line). The pre-closeout sweep (624e32df) was
   5672 passed / 10 failed, all ten attributed (4 hair_tuft strict XPASS = improvement, 5 incomplete provisional rows
   identical on the pre-#1125 baseline, 1 OneDrive PermissionError). The `benchmarks/reference_corpus/provisional_v2.toml`

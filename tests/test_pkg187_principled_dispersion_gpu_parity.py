@@ -154,6 +154,22 @@ def test_cpu_dispersion_is_real_and_mirrors_dielectric():
     _check_mirrors_dielectric(use_gpu=False)
 
 
+# --- #1155: `diamond` Sellmeier preset (Peter 1923; C terms are um^2, not wavelengths) ---
+_PETER_B = [0.3306, 4.3356, 0.0]
+_PETER_C = [0.175 ** 2, 0.106 ** 2, 0.0]
+_DIAMOND_PRESET = {"sellmeier_preset": "diamond"}
+
+
+def test_diamond_preset_gpu_matches_cpu_dispersion():
+    if not astroray.Renderer().gpu_available:
+        pytest.skip("CUDA GPU not available on this machine")
+    cpu = _means(_render(False, "dielectric", _DIAMOND_PRESET))
+    gpu = _means(_render(True, "dielectric", _DIAMOND_PRESET))
+    wrong = _means(_render(True, "dielectric", {"sellmeier_b": _PETER_B, "sellmeier_c": [0.0175, 0.1060, 0.0]}))
+    print(f"\n[#1155] diamond RGB means cpu={cpu.round(4)} gpu={gpu.round(4)} gpu_wrongC={wrong.round(4)}")
+    assert np.all(np.abs(gpu - cpu) / cpu <= 0.06), (cpu, gpu)
+
+
 # ===========================================================================
 # LEAD RUN COMMANDS (after build_cuda_worktree.bat, on the RTX box, GPU lock held):
 #   pytest tests/test_pkg187_principled_dispersion_gpu_parity.py -v -s

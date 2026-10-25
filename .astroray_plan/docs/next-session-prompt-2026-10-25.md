@@ -11,6 +11,14 @@ questions), `stage0-gate-scoring-2026-10-18.md` (rows (b), (e), (g) re-measures)
   restaged 07:46 from the same HEAD. No worktrees remain.
 - **#1173 pkg306 Phase 0 merged** (main 0a4d4aaa; engine byte-identical). Diag switches live on `lane/pkg306-diag`
   372da5c9 for Phase 1.
+- **PAUSE (owner took the PC ~15:40 local 10-25; local GPU/CPU work stopped):** merged #1189 #1192 (main 27f621db);
+  main `build_cuda` = 4d5d1188, `dist/astroray` restaged 15:32. On resume: merge #1191 #1195 #1196 #1197 when green
+  (each pull_request run merges main), rebuild main + restage, then row (g) (`ASTRORAY_PYD_DIR=diststroray
+  PKG310_WORK=%LOCALAPPDATA%stroray-evidence6-10-25\g4 gpu_locked_run.py lead -- pytest
+  tests/test_production_corpus.py -k "parity or silent" -q -rxXs`, then `gate_manifest.py --adapt-g`) and row (e)
+  (`known_issues_report.py --capture-gate-e`, two blind raters + flash, `--finalize-gate-e`, manifest re-assembly with
+  repo-relative d= e= paths). Lanes #1032 (`i1032`) and #1038 (`i1038`) hold WIP commits + `HANDOFF.md` in their evidence
+  dirs; resume them with a message, never a fresh lane.
 - **Wave 2 update (22:30):** #1187 merged (main 13a841be). Six PRs on CI (GitHub runner queue is slow with this many):
   #1189 #1191 #1192 #1195 #1196 #1197; merge each when its pull_request run is green (that run merges main first).
   Lanes #1032 (`i1032`, media segment NEE with local majorants) and #1038 (`i1038`, glass sphere) running; #1153 waits for

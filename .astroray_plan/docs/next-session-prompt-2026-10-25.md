@@ -11,7 +11,7 @@ questions), `stage0-gate-scoring-2026-10-18.md` (rows (b), (e), (g) re-measures)
   restaged 07:46 from the same HEAD. No worktrees remain.
 - **#1173 pkg306 Phase 0 merged** (main 0a4d4aaa; engine byte-identical). Diag switches live on `lane/pkg306-diag`
   372da5c9 for Phase 1.
-- **During the pause:** merged #1197 #1196 #1195 (main 0d750304); open PR #1191 only. On resume, first build and
+- **During the pause:** merged #1197 #1196 #1195 #1191 (main 8130c44d); no open PRs; all eight row (e) highs merged. On resume, first build and
   GPU-test `i1038` at 42b0613c (`HANDOFF.md` in its evidence dir lists the runs), then message lane #1032 to continue
   (smoke_plume 7.25x vs 3x gate: 50/50 MIS and the light sample at the scatter point are its next levers), then #1153
   once #1191 merges. Issues filed during the pause: #1198 (caustics toggle inert on Principled floor, same root as

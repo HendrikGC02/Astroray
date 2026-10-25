@@ -4531,6 +4531,9 @@ public:
                 if (!rec.material->hasBSDF()) break;
             }
             // pkg271/#1165: a terminate-after path ends here, after this surface's emission.
+            // Deliberate deviation (#1177): Cycles still passes a transparent / alpha sheet
+            // here with weight 1-alpha (kernel/closure/bsdf_transparent.h:43-48, the flag
+            // survives the pass, path_state.h:120-140); Astroray stops at the sheet.
             if (terminateAfter) break;
             // #1033: transparent_max_bounces exhausted (Cycles transparent_bounce >=
             // transparent_max_bounce sets TERMINATE_ON_NEXT_SURFACE): this surface

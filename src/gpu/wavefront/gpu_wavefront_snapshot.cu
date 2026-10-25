@@ -2770,8 +2770,8 @@ std::vector<float> cuda_wavefront_render(
         // Pass-count planning. waves = how many full pools the work needs.
         // SINGLE-WAVE renders (1-spp viewport chunks: total_work <= pool)
         // need NO counter readbacks at all: every path is claimed by the
-        // first regen and bounce-capped within max_depth passes, so exactly
-        // max_depth passes + the final accumulating regen finish the frame
+        // first regen and bounce-capped within max_depth + 2 passes (#1165), so exactly
+        // that many passes + the final accumulating regen finish the frame
         // (each readback is a 4-byte D2H sync = a pipeline stall per pass —
         // measured as the dominant 1-spp overhead, 2026-06-12). Multi-wave
         // renders keep the every-16 counter cadence.

@@ -3,7 +3,7 @@
 Cycles v5.2.0 (Apache-2.0):
 - ``intern/cycles/scene/integrator.cpp:222-228`` hands the kernel ``max_bounce + 1`` and
   ``max_{diffuse,glossy,transmission,volume}_bounce + 1`` ("so that a bounce of 0 indicates no global
-  illumination, only direct illumination"); ``transparent_max_bounce`` is NOT incremented (:232).
+  illumination, only direct illumination"); ``transparent_max_bounce`` is NOT incremented (:233).
 - ``kernel/integrator/path_state.h:143-146`` (total) and ``:177-208`` (per type): the scatter that makes
   the count reach the kernel limit sets ``PATH_RAY_TERMINATE_AFTER_TRANSPARENT``; its continuation ray is
   still traced, and the NEXT surface stores no BSDF closures (``surface_shader.h:1265-1268``) so it adds its
@@ -17,6 +17,9 @@ So with max_bounces = N the camera path scatters at vertices 1..N+1 and takes em
   N = 0..3, 2.0 uncapped. The same holds for diffuse_bounces = N with an unlimited total (``:183-185``).
   Measured in Blender 5.2 Cycles (Diffuse BSDF 0.5 + Emission 1, 256 spp): 1.5000 / 1.7502 / 1.8752 /
   1.9377 for both the total and the diffuse cap. Before #1165 Astroray rendered 0.0 / 1.18 / 1.58 / 1.79.
+  Walls: a Principled with specular_ior_level 0 for the total cap (GPU-capable; an Add(lambertian,
+  emissive) uploads the lambertian leaf alone on GPU, #1180); the Add box for the diffuse cap, because
+  every Principled scatter counts as glossy (#1178) so the diffuse cap never fires on it (GPU xfail #1180).
 - pkg325 glass panes (white world): a camera ray crossing k interfaces reaches the sky iff N >= k-1
   (the k-th scatter's continuation is traced). Same for transmission_bounces with an unlimited total.
   Before #1165 Astroray needed N >= k+1 (total) and N >= k (transmission).
@@ -62,11 +65,17 @@ def _cycles_box(n_cap, rho=0.5, le=1.0):
 # closed emitting Lambertian box: the bounce count
 # --------------------------------------------------------------------------- #
 
-def _box_mean(backend, total, diffuse=-1, spp=64):
+def _box_mean(backend, total, diffuse=-1, spp=64, walls="principled"):
     r = _renderer(backend)
-    lam = r.create_material("lambertian", [0.5, 0.5, 0.5], {})
-    emit = r.create_material("emissive", [1.0, 1.0, 1.0], {})
-    mat = r.create_add_material(lam, emit)
+    if walls == "principled":
+        mat = r.create_material("principled", [0.5, 0.5, 0.5], {
+            "roughness": 1.0, "metallic": 0.0, "specular_ior_level": 0.0,
+            "coat_weight": 0.0, "sheen_weight": 0.0,
+            "emission_color": [1.0, 1.0, 1.0], "emission_strength": 1.0})
+    else:
+        lam = r.create_material("lambertian", [0.5, 0.5, 0.5], {})
+        emit = r.create_material("emissive", [1.0, 1.0, 1.0], {})
+        mat = r.create_add_material(lam, emit)
     c = [np.array([x, y, z], float) for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)]
     for a, b, cc, d in ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)):
         for tri in ((a, b, cc), (a, cc, d)):
@@ -91,9 +100,13 @@ def test_total_cap_bounce_count_matches_cycles(backend):
         assert abs(mean - _cycles_box(n)) < 0.01, (backend, n, got)
 
 
-@pytest.mark.parametrize("backend", ["cpu", "gpu"])
+@pytest.mark.parametrize("backend", [
+    "cpu",
+    pytest.param("gpu", marks=pytest.mark.xfail(
+        strict=True, reason="#1180: Add(lambertian, emissive) drops the emission on GPU (black)")),
+])
 def test_diffuse_cap_bounce_count_matches_cycles(backend):
-    got = {n: _box_mean(backend, 64, diffuse=n) for n in (0, 1, 2, 3)}
+    got = {n: _box_mean(backend, 64, diffuse=n, walls="add") for n in (0, 1, 2, 3)}
     for n, mean in got.items():
         assert abs(mean - _cycles_box(n)) < 0.01, (backend, n, got)
 

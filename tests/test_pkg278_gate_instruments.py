@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -169,6 +170,42 @@ def test_production_evidence_requires_frozen_case_and_canonical_metrics(tmp_path
     record["verifier_result"]["path"] = "astroray_linear_npy.npy"
     record["verifier_result"]["sha256"] = CR.sha256_file(tmp_path / "astroray_linear_npy.npy")
     assert not CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)[0]
+
+
+def test_script_mode_scores_valid_evidence_from_another_cwd(tmp_path):
+    """#1167: run as a script (sys.path[0] = the script dir, no PYTHONPATH, foreign cwd) the lazy
+    ``from benchmarks...`` imports must still resolve; valid evidence must not fall to 0.0."""
+    evidence_dir = tmp_path / "evidence"; evidence_dir.mkdir()
+    record, cases = _canonical_production_record(evidence_dir)
+    payload = tmp_path / "payload.json"
+    payload.write_text(json.dumps({"record": record, "cases": cases}), encoding="utf-8")
+    script = REPO_ROOT / "benchmarks" / "reference_corpus" / "coverage_report.py"
+    driver = tmp_path / "driver.py"
+    driver.write_text(
+        "import json, runpy, sys\n"
+        "from pathlib import Path\n"
+        f"sys.path.insert(0, {str(script.parent)!r})  # what `python coverage_report.py` does\n"
+        f"ns = runpy.run_path({str(script)!r}, run_name='coverage_report_script')\n"
+        f"data = json.loads(Path({str(payload)!r}).read_text(encoding='utf-8'))\n"
+        f"ok, reason = ns['evidence_is_valid'](data['record'], Path({str(evidence_dir)!r}), allowed_cases=data['cases'])\n"
+        "print('RESULT', ok, reason)\n",
+        encoding="utf-8")
+    foreign_cwd = tmp_path / "elsewhere"; foreign_cwd.mkdir()
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    result = subprocess.run([sys.executable, str(driver)], cwd=foreign_cwd, env=env,
+                            capture_output=True, text=True, timeout=120, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().startswith("RESULT True"), result.stdout + result.stderr
+
+
+def test_broken_witness_import_is_a_hard_error_not_a_zero_score(tmp_path, monkeypatch):
+    """#1167: an ImportError while re-deriving the witness metrics must propagate, never be reported
+    as 'cannot be decoded' (which silently scored valid evidence 0.0)."""
+    record, cases = _canonical_production_record(tmp_path)
+    assert CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)[0]
+    monkeypatch.setitem(sys.modules, "benchmarks.blender_parity.harness", None)
+    with pytest.raises(ImportError):
+        CR.evidence_is_valid(record, tmp_path, allowed_cases=cases)
 
 
 @pytest.mark.parametrize("field,value", [("backend", "GPU"), ("build_id", "wrong"),

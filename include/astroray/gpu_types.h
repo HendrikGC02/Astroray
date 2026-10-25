@@ -782,6 +782,10 @@ struct GWavefrontTextureBinding {
     // #1006 — per-vertex OBJECT-local positions, 3 per triangle (tris[] index),
     // or nullptr. A NaN .x in the first entry = none (use the world hit point).
     const GVec3*         triObjectLocal;
+    // #1154 - Cycles bump-map correction mode per material (astroray::bumpcorr::Mode |
+    // kCorrectionBit, 0 = no Bump / Normal Map). Read ONLY inside HasNormalPerturb=true;
+    // last so the fleet kernels' constant offsets of the fields above are unchanged.
+    const int*           matBumpCorrect;
 };
 
 // pkg197 — wavefront first-hit denoise-guide AOV binding. Published ONCE per

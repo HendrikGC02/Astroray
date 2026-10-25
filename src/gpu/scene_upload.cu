@@ -1450,6 +1450,7 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         std::shared_ptr<Texture>  bmTex;
         float bmStrength = 1.0f;
         float bmDistance = 0.01f;
+        const int bumpCorrect = mIn->bumpCorrectionMode();  // #1154 (0 = no decorator)
         if (auto inner = mIn->normalMapInner()) {
             m = inner;
             nmTex = mIn->normalMapTexture();
@@ -1699,6 +1700,7 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         r.materialBumpTexId.push_back(bumpTexId);
         r.materialBumpStrength.push_back(bmStrength);
         r.materialBumpDistance.push_back(bmDistance);
+        r.materialBumpCorrect.push_back(bumpCorrect);
         r.materialTextureId.push_back(texId);
         r.materialProgramId.push_back(progId);
         for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t)
@@ -2499,6 +2501,7 @@ void adoptMaterialDomain(SceneUploadResult& dst, SceneUploadResult&& src) {
     dst.materialBumpTexId = std::move(src.materialBumpTexId);
     dst.materialBumpStrength = std::move(src.materialBumpStrength);
     dst.materialBumpDistance = std::move(src.materialBumpDistance);
+    dst.materialBumpCorrect = std::move(src.materialBumpCorrect);
     dst.hasNormalPerturb = src.hasNormalPerturb;
     dst.programs = std::move(src.programs);
     dst.materialProgramId = std::move(src.materialProgramId);

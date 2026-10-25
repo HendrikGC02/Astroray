@@ -240,3 +240,4 @@ When in doubt, ask before adding a dependency.
 
 - Cycles bump coordinate offset (svm/tex_coord.h), interp_linear (device/cpu/image.h), Principled coat normal (svm/closure.h), Apache-2.0: [#1004/#1005 research](issue1004-1005-bump-research.md).
 - Cycles thin-film glass, Glass BSDF sockets + smooth (singular) lobe (bsdf_microfacet.h BSD-3, svm/closure.h Apache-2.0; Belcour & Barla 2017): [pkg326 / #1162 research](pkg326-glass-thin-film-research.md).
+- Cycles ensure_valid_specular_reflection + bump_shadowing_term (bsdf_util.h / bsdf.h, Apache-2.0; Conty Estevez et al., Ray Tracing Gems 2019 ch. 12): [#1154 research](issue1154-bump-correction-research.md).

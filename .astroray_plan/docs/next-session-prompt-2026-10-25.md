@@ -11,6 +11,12 @@ questions), `stage0-gate-scoring-2026-10-18.md` (rows (b), (e), (g) re-measures)
   restaged 07:46 from the same HEAD. No worktrees remain.
 - **#1173 pkg306 Phase 0 merged** (main 0a4d4aaa; engine byte-identical). Diag switches live on `lane/pkg306-diag`
   372da5c9 for Phase 1.
+- **Wave 2 update (16:00):** merged #1181 #1182 #1183 (main 082d05ef). Open: #1187 (#1150, rebased onto main, GPU
+  evidence on the identical 4da899a4 engine). #1162 lane: suite green on c6662104 but +4 % GPU time on a no-film
+  Principled scene (stack +136..152 B in every `stageShadeBucketed<true>` kernel); cause suspected = the two pointer
+  parameters added to `gpu_principled_sample`; lane restoring the signature. Measure with the scratchpad
+  `perf_probe_1162.py` (24 Principled spheres, interleaved min-of-4; main 0.786 s) and `res_compare.py`. Main
+  `build_cuda` is stale (c76baf57): rebuild + restage after #1187.
 - **Wave 2 update (13:30):** #1176 merged (main 03db4155). Also open: #1182 (#1155), #1183 (#1158), #1187 (#1150, based on
   #1181 so merge #1181 first). Lanes #1162 (smooth-glass thin film) and #1154 (bump correction) running; #1152 is the last
   row (e) high without a lane. Issues #1184 #1185 #1186 filed. Merge order on green: #1181, #1187, #1182, #1183.

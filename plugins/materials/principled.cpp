@@ -872,7 +872,10 @@ class PrincipledPlugin : public Material {
                     float eta) const {
         float etap = rec.frontFace ? L.ior : (1.0f / L.ior);
         float filmIor = rec.frontFace ? thinFilmIor_ : thinFilmIor_ / L.ior;
-        Vec3 R = thinFilmF0RescaleRGB(thinFilmFresnelRGB(std::abs(wo.dot(rec.normal)), etap, filmIor),
+        // #1154: the lobe's own normal (the bump-map-corrected one under a decorator), the frame
+        // sampleLobeDir chose reflect / refract in.
+        const Vec3& N = L.ownN ? L.N : rec.normal;
+        Vec3 R = thinFilmF0RescaleRGB(thinFilmFresnelRGB(std::abs(wo.dot(N)), etap, filmIor),
                                       Vec3(F0_from_ior(etap)) * specularTint_, etap);
         return refract ? L.weight * sqrtColor(baseColor_) * Vec3::max(Vec3(1.0f) - R, Vec3(0.0f)) *
                              (eta * eta)
@@ -887,7 +890,7 @@ class PrincipledPlugin : public Material {
         float filmIor = rec.frontFace ? thinFilmIor_ : thinFilmIor_ / L.ior;
         float F0real = F0_from_ior(etap);
         astroray::SampledSpectrum R =
-            thinFilmFresnelSpectral(std::abs(wo.dot(rec.normal)), etap, filmIor, lam);
+            thinFilmFresnelSpectral(std::abs(wo.dot(L.ownN ? L.N : rec.normal)), etap, filmIor, lam);  // #1154
         if (F0real > 1e-5f) {
             astroray::SampledSpectrum tintSpec = upsample(specularTint_, lam);
             for (int i = 0; i < astroray::kSpectrumSamples; ++i)

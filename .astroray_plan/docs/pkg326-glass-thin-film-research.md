@@ -30,3 +30,5 @@ Astroray (CPU `principled.cpp` `sampleLobeDir` delta block + `deltaFilmF`/`delta
 radiance factor of the film-free delta branch), pdf = q_j*pR or q_j*(1-pR). Spectral leg: per-lambda R(lambda)
 (analytic sensitivity, upsampled tint) over the RGB-chosen pR, so E[f/pdf] = R(lambda) + T(lambda) per wavelength.
 Gated on `L.isDelta && filmActive()`: the film-free delta path and the rough-film dead-sample fallback are unchanged.
+Known limit (#1188): the gate also catches ROUGH glass at |IOR-1| < 1e-4 (delta there too), which takes the mirror film
+reflection; Cycles keeps GGX film reflection and makes only the refraction singular (bsdf_microfacet.h:868-869).

@@ -252,9 +252,15 @@ def test_smooth_film_glass_continues_the_rough_limit(monkeypatch, use_gpu):
 
 @pytest.mark.skipif(not _gpu_ok(), reason="needs the CUDA build + a GPU")
 def test_smooth_film_glass_cpu_gpu_twin(monkeypatch):
+    """3-seed means per backend. The smooth sphere's per-seed hue scatter is larger than the
+    rough one's (HUE_BAND's 0.1 %): lead probe, seeds 326_10..13, sd (G/R, B/R) CPU (0.0005,
+    0.0016), GPU (0.0008, 0.0011); means CPU (1.0103, 1.0064), GPU (1.0109, 1.0072). The mean of
+    3 brings the ratio sd to ~0.1 %, so HUE_BAND 0.004 is ~3 sigma."""
     base, params = _native_args(monkeypatch, _glass_node(roughness=0.0))
-    cpu = _sphere_mean(_render(base, params, False, seed=326_10))
-    gpu = _sphere_mean(_render(base, params, True, seed=326_11))
+    cpu = np.mean([_sphere_mean(_render(base, params, False, seed=s)) for s in (326_10, 326_11, 326_12)],
+                  axis=0)
+    gpu = np.mean([_sphere_mean(_render(base, params, True, seed=s)) for s in (326_13, 326_14, 326_15)],
+                  axis=0)
     print(f"[i1162] cpu={cpu} gpu={gpu} hue {_hue(cpu)} vs {_hue(gpu)}")
     assert np.all(np.abs(gpu / cpu - 1.0) < MC_BAND), (cpu, gpu)
     assert np.all(np.abs(_hue(gpu) / _hue(cpu) - 1.0) < HUE_BAND), (cpu, gpu)

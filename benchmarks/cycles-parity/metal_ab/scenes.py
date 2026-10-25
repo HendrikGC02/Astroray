@@ -165,10 +165,14 @@ def glass_sweep() -> list[GlassConfig]:
 # the default sweep; run with ``harness.py --material glass --glass-configs glass_tint``.
 GLASS_TINT_CONFIG = GlassConfig(name="glass_tint", roughness=0.02,
                                 color=(0.9, 1.0, 0.95))
+# #1038 follow-up: the same tint on the smooth (r=0, delta) and rough (MULTI_GGX) lobes, so
+# the tint can be compared across Astroray's delta / rough-walk glass paths against Cycles.
+GLASS_TINT_EXTRA = tuple(GlassConfig(name=f"glass_tint_r{round(r * 100):03d}", roughness=r,
+                                     color=(0.9, 1.0, 0.95)) for r in (0.0, 0.05, 0.2))
 
 
 def glass_config_by_name(name: str) -> GlassConfig:
-    for cfg in (*glass_sweep(), GLASS_TINT_CONFIG):
+    for cfg in (*glass_sweep(), GLASS_TINT_CONFIG, *GLASS_TINT_EXTRA):
         if cfg.name == name:
             return cfg
     raise ValueError(f"unknown glass config {name!r}")

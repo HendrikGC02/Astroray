@@ -2381,6 +2381,25 @@ __device__ __noinline__ inline GSampledSpectrum gpu_pr_deltaFilmFSpectral(
         f[i] *= refract ? fmaxf(1.f - R[i], 0.f) * (eta * eta) : R[i];
     return f;
 }
+// #1038: smooth (delta) NON-film glass, per-lambda twin of principled.cpp sampleSpectral's
+// delta branch. fRGB = weight * tint * s (s = eta^2 (1-F) or F, tint = sqrt(base_color) or
+// specular_tint): upsample the tint (with the weight's chromaticity, max 1) and apply s and
+// the weight magnitude linearly, as the rough eval does. Upsampling fRGB itself (the generic
+// eta^2 guard) changed the spectrum with the entry/exit magnitude (Jakob-Hanika is nonlinear
+// in magnitude). Out of line, scalar/value args only (shade kernel register budget).
+__device__ __noinline__ inline GSampledSpectrum gpu_pr_deltaGlassFSpectral(
+        GVec3 tint, GVec3 fRGB, GSampledSpectrum lambdas) {
+    GSampledWavelengths wl;
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) wl.lambda[i] = lambdas[i];
+    GVec3 k;
+    for (int ch = 0; ch < 3; ++ch)
+        (&k.x)[ch] = (&tint.x)[ch] > 1e-12f ? (&fRGB.x)[ch] / (&tint.x)[ch] : 0.f;
+    float kmax = fmaxf(fmaxf(k.x, k.y), k.z);
+    if (!(kmax > 0.f)) return GSampledSpectrum(0.f);
+    GVec3 col = tint * (k * (1.f / kmax));
+    float maxc = fmaxf(fmaxf(fmaxf(col.x, col.y), col.z), 1.f);
+    return gpu_rgbToSampledSpectrum(col * (1.f / maxc), wl, GSPEC_RGB_ALBEDO) * (maxc * kmax);
+}
 
 // --- Transmission rough glass (principled.cpp transmissionEvalRGB) ----------
 // pkg188 Finding A (GPU twin of principled.cpp transmissionEvalRGB): film-OFF
@@ -3632,6 +3651,22 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
             s.fSpectral = gpu_pr_deltaFilmFSpectral(c.thinFilmThickness, c.thinFilmIor, c.specularTint,
                                                     s.f, ior, rec.frontFace, fabsf(cosO), refract,
                                                     rec.frontFace ? 1.f / ior : ior, lambdas);
+            return s;
+        }
+    }
+    if constexpr (HasPrincipled) {
+        // #1038: smooth NON-film glass event (alpha 1, not thin-wall, so the delta lobe is
+        // the transmission lobe): upsample the tint, not tint x eta^2 (1-F) (CPU twin
+        // principled.cpp sampleSpectral delta branch).
+        if (s.isDelta && mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_is_principled(mat) &&
+            !gpu_pr_filmActive(mat.principled) && mat.principled.alpha >= 1.f &&
+            !gpu_pr_thinWall(mat.principled) && s.pdf > 0.0f) {
+            const GPrincipledClosure& c = mat.principled;
+            bool refract = (s.wi.dot(rec.normal) > 0.f) != (wo.dot(rec.normal) > 0.f);
+            GSampledSpectrum lambdas;
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) lambdas[i] = wl.lambda[i];
+            s.fSpectral = gpu_pr_deltaGlassFSpectral(
+                refract ? gpu_pr_sqrtColor(c.color) : c.specularTint, s.f, lambdas);
             return s;
         }
     }

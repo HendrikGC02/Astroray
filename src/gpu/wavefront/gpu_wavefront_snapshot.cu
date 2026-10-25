@@ -1745,7 +1745,9 @@ static int wavefrontPoolSize(int numPixels, int samples, int passDepth, int held
         if (cudaMemGetInfo(&freeB, &totalB) != cudaSuccess) freeB = 0;
         cap = (long long)heldSlots + (long long)(freeB / 2) / kPoolSlotBytes;
     }
-    // Budget floor is numPixels, but a pool the counter plan shrank below numPixels stays.
+    // The VRAM budget never shrinks the pool below numPixels (intended floor: cap < numPixels
+    // leaves numPixels, so a small ASTRORAY_WF_POOL_BUDGET_MB prints no pool line). Only the
+    // work-counter plan (planPool, #1152) goes below numPixels, and that pool stays.
     pool = std::min(pool, std::max<long long>(numPixels, cap));
     static long long lastLogged = -1;
     if (pool != numPixels && pool != lastLogged) {
@@ -1806,7 +1808,7 @@ std::vector<float> cuda_wavefront_render(
     int cwfUnitsLaunched = 0;
     int cwfCancelledAtUnit = -1;
     // pkg298: per-pixel buffers use numPixels; per-path-slot buffers (state,
-    // queues, NEE lanes) use the pool size total_paths >= numPixels.
+    // queues, NEE lanes) use the pool size total_paths (>= numPixels, or fewer when #1152 shrinks it).
     const int numPixels = width * height;
     if (numPixels <= 0 || samples <= 0) {
         throw std::runtime_error("cuda_wavefront_render: invalid dimensions");
@@ -2785,9 +2787,8 @@ std::vector<float> cuda_wavefront_render(
         const long long waves =
             (total_work + total_paths - 1) / total_paths;
         const int kCheckEvery = 16;
-        const long long kMaxPasses = (waves == 1)
-            ? passDepth
-            : (long long)perPixel * passDepth + passDepth + 64;
+        const long long kMaxPasses =
+            astroray::wfplan::maxPasses(waves, perPixel, passDepth);   // #1152
         bool workExhausted = false;
         int drainLeft = passDepth;
         for (long long pass = 0; pass < kMaxPasses; ++pass) {

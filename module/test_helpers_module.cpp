@@ -356,6 +356,8 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
           "pass_depth"_a);
     m.def("wavefront_max_samples_per_round", &astroray::wfplan::maxSamplesPerRound,
           "round_pixels"_a, "pool"_a, "pass_depth"_a);
+    m.def("wavefront_max_passes", &astroray::wfplan::maxPasses,
+          "waves"_a, "per_pixel"_a, "pass_depth"_a);
 
     // pkg280 — expose the exact production thin-disk transfer helper for
     // analytic invariance tests. This is deliberately not part of astroray's

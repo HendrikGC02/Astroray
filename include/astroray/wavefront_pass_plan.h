@@ -8,19 +8,22 @@
 // slot still claims once per pass. Overshoot passes = 16 (counter read-back
 // cadence, kCheckEvery) + passDepth (drain) + 2 (final regen / off-by-one), so the
 // counter must hold  work + pool * (16 + passDepth + 2).  That margin is applied
-// once, in counterSlack(); callers pass the TRUE pass count (passDepth).
+// once, in counterSlackPerPath(); callers pass the TRUE pass count (passDepth).
+// Adaptive mode: a round clamped by maxSamplesPerRound() may be shorter than
+// min_samples, so the first convergence check can run early. Only reachable at
+// counter-overflow scale (previously a throw).
 #include <algorithm>
 #include <climits>
 
 namespace astroray {
 namespace wfplan {
 
-constexpr long long kCounterMax = 0x7FFFFFFFLL;
+inline constexpr long long kCounterMax = 0x7FFFFFFFLL;
 // Blender's UI maximum for transparent_max_bounces. The host plan never provisions
 // more passes than this; the per-path pass_count lane remains the true limit.
-constexpr int kTransparentPlanMax = 1024;
+inline constexpr int kTransparentPlanMax = 1024;
 // Planned transparent passes when the limit is unlimited (< 0), pre-#1125 value.
-constexpr int kUnlimitedTransparentPlan = 31;
+inline constexpr int kUnlimitedTransparentPlan = 31;
 
 // Passes a path can take: max_depth + 2 vertices (#1165: Cycles max_bounces + 1
 // scatters, then the emission-only surface), plus limit + 1 transparent passes when
@@ -60,6 +63,15 @@ inline int maxSamplesPerRound(long long roundPixels, long long pool, int passDep
     const long long room = kCounterMax - pool * counterSlackPerPath(passDepthV);
     const long long k = roundPixels > 0 ? room / roundPixels : (long long)INT_MAX;
     return (int)std::min<long long>(std::max<long long>(1, k), INT_MAX);
+}
+
+// Pass-loop cap. A slot hosts ceil(work / pool) paths in sequence (`waves`), which
+// exceeds perPixel when the pool is below numPixels, so waves bounds the passes;
+// max(waves, perPixel) keeps the pre-#1152 value whenever the pool >= numPixels.
+// One wave needs exactly passDepth passes (no counter read-backs).
+inline long long maxPasses(long long waves, long long perPixel, int passDepthV) {
+    if (waves == 1) return passDepthV;
+    return std::max(waves, perPixel) * passDepthV + passDepthV + 64;
 }
 
 } // namespace wfplan

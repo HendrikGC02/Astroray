@@ -9,7 +9,8 @@ import pytest
 
 helpers = pytest.importorskip("astroray_test_helpers")
 for _name in ("wavefront_pass_depth", "wavefront_plan_pool",
-              "wavefront_counter_slack_per_path", "wavefront_max_samples_per_round"):
+              "wavefront_counter_slack_per_path", "wavefront_max_samples_per_round",
+              "wavefront_max_passes"):
     assert hasattr(helpers, _name), f"astroray_test_helpers lacks {_name}; rebuild it"
 
 MAX = 0x7FFFFFFF
@@ -93,3 +94,15 @@ def test_sweep_always_fits():
                     assert 1 <= pool <= max(pix, MIN_PATHS), (pix, spp, tlim)
                     assert per_round >= 1
                     assert fits(pix, pool, per_round, pd), (pix, spp, tlim, transparent)
+
+
+def test_pass_cap_covers_waves_when_pool_below_pixels():
+    pd = helpers.wavefront_pass_depth(8, True, 1024)
+    pool, per_round = plan(P4K, 64, pd)
+    waves = -(-(P4K * per_round) // pool)
+    assert pool < P4K and waves > per_round          # a slot hosts more paths than spp
+    assert helpers.wavefront_max_passes(waves, per_round, pd) >= waves * pd
+    # pool >= numPixels keeps the pre-#1152 cap; one wave needs exactly passDepth passes
+    assert helpers.wavefront_max_passes(64, 64, 10) == 64 * 10 + 10 + 64
+    assert helpers.wavefront_max_passes(1, 1, 10) == 10
+    assert helpers.wavefront_max_passes(3, 64, 10) == 64 * 10 + 10 + 64

@@ -11,6 +11,13 @@ questions), `stage0-gate-scoring-2026-10-18.md` (rows (b), (e), (g) re-measures)
   restaged 07:46 from the same HEAD. No worktrees remain.
 - **#1173 pkg306 Phase 0 merged** (main 0a4d4aaa; engine byte-identical). Diag switches live on `lane/pkg306-diag`
   372da5c9 for Phase 1.
+- **Wave 2 update (19:30):** PRs #1189 (#1162) and #1191 (#1154) opened with GPU legs, cuobjdump and interleaved
+  timing done (scratchpad `perf_probe_1162.py` / `perf_probe_1154.py`; both within 1 % of main). Lanes #1152 (worktree
+  `i1152`, fixing `kMaxPasses = waves * passDepth + ...`) and #1172 (`i1172`) running. Merge order on green: #1187, #1189,
+  #1191, then #1152 / #1172 when they land. After that: rebuild main `build_cuda`, restage `dist/astroray`, re-rate row (e)
+  (`known_issues_report.py --capture-gate-e`; all eight highs should now be closed or in PR), re-run row (g)
+  (`test_production_corpus.py -k "parity or silent"` under the lock, `gate_manifest.py --adapt-g`). Issues filed today:
+  #1177-#1180, #1184-#1186, #1188, #1190. The `i1158` worktree directory is held open by another process; delete it when free.
 - **Wave 2 update (16:00):** merged #1181 #1182 #1183 (main 082d05ef). Open: #1187 (#1150, rebased onto main, GPU
   evidence on the identical 4da899a4 engine). #1162 lane: suite green on c6662104 but +4 % GPU time on a no-film
   Principled scene (stack +136..152 B in every `stageShadeBucketed<true>` kernel); cause suspected = the two pointer

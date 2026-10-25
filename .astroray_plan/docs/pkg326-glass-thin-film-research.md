@@ -17,3 +17,16 @@ Astroray: the Glass node lowers to native `principled` (transmission 1, `specula
 transmission eval + GPU `gpu_pr_transmissionEval*`). Smooth glass (`roughness <= 0.03`) is a delta lobe sampled
 with plain `fresnelDielectric` (CPU ~line 2013; GPU `kPrincipledDeltaGlassRoughness`), so it ignores the film
 on both backends.
+
+## #1162 - smooth (delta) glass gets the film
+
+Same Cycles v5.2.0 source. `bsdf_microfacet_sample` :795-917 with `m_singular` (H = N): `microfacet_fresnel`
+(:840) runs the thin-film branch, `pdf_reflect = avg(R)/avg(R+T)` (:847), eval = R or T (:865-879), R = F,
+T = (1-F)*sqrt(base_color), f0 = F0(ior)*specular_tint (`generalized_schlick_setup` :111-124).
+
+Astroray (CPU `principled.cpp` `sampleLobeDir` delta block + `deltaFilmF`/`deltaFilmFSpectral`; GPU twin
+`gpu_pr_chooseAndSampleDir` + `gpu_principled_sample` + `gpu_material_sample_spectral`): pR = the existing
+`glassReflectProb` (RGB film R, Cycles formula); f = L.weight*R or L.weight*sqrt(base)*(1-R)*eta^2 (the eta^2
+radiance factor of the film-free delta branch), pdf = q_j*pR or q_j*(1-pR). Spectral leg: per-lambda R(lambda)
+(analytic sensitivity, upsampled tint) over the RGB-chosen pR, so E[f/pdf] = R(lambda) + T(lambda) per wavelength.
+Gated on `L.isDelta && filmActive()`: the film-free delta path and the rough-film dead-sample fallback are unchanged.

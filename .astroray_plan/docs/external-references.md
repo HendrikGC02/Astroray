@@ -239,3 +239,4 @@ When in doubt, ask before adding a dependency.
 - Cycles procedural evaluators (util/hash.h, svm/noise.h BSD-3, fractal_noise.h, noisetex.h, wave.h, voronoi.h; Apache-2.0 / IQ MIT) shared host + device for GPU per-hit evaluation: [#1007 research](issue1007-perhit-procedural-research.md).
 
 - Cycles bump coordinate offset (svm/tex_coord.h), interp_linear (device/cpu/image.h), Principled coat normal (svm/closure.h), Apache-2.0: [#1004/#1005 research](issue1004-1005-bump-research.md).
+- Cycles thin-film glass, Glass BSDF sockets + smooth (singular) lobe (bsdf_microfacet.h BSD-3, svm/closure.h Apache-2.0; Belcour & Barla 2017): [pkg326 / #1162 research](pkg326-glass-thin-film-research.md).

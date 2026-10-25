@@ -5501,17 +5501,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     label, "%s not honoured: the Anisotropic BSDF is lowered as an isotropic Glossy "
                     "(node.type is BSDF_GLOSSY); dropped" % ', '.join(dropped))
         # pkg326 (#1136): the native Principled route honours the Glass thin-film sockets
-        # (_standalone_bsdf_spec); only the legacy non-native (Disney) route still drops them.
-        # Smooth glass (Roughness <= 0.03: principled.cpp kDeltaGlassRoughness, gpu_materials.h
-        # kPrincipledDeltaGlassRoughness) takes the delta-glass sampler with plain dielectric
-        # Fresnel, so the film is not rendered there on either backend (Cycles applies it,
-        # v5.2.0 bsdf_microfacet.h:795-917).
-        if (ntype == 'BSDF_GLASS' and self._use_native_principled()
-                and self.get_float_input(node, 'Thin Film Thickness', 0.0) > 0.1
-                and self.get_float_input(node, 'Roughness', 0.0) <= 0.03):
-            self._warn_shader_fallback(
-                label, "Thin Film is not rendered on a smooth Glass BSDF (Roughness <= 0.03 uses "
-                "the delta-glass path without film Fresnel, #1162); raise Roughness above 0.03 for iridescence")
+        # (_standalone_bsdf_spec), smooth glass included (#1162); only the legacy non-native
+        # (Disney) route still drops them.
         if (ntype == 'BSDF_GLASS' and not self._use_native_principled()
                 and self._input_is_set(node.inputs.get('Thin Film Thickness'))):
             self._warn_shader_fallback(

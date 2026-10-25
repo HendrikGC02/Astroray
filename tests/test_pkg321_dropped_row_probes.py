@@ -80,10 +80,10 @@ PROBE_VERDICT = {
     "s_sun_direction": ("inert", ""),                 # inert in Cycles for the Nishita types too (audit doc)
     "s_sun_direction_preetham": ("inert", "sun_direction (Cycles reads it for this sky_type"),
     # Glass thin film + misc
-    # pkg326 (#1136): consumed on rough glass; smooth glass (delta path, no film Fresnel) stays inert + reported
+    # pkg326 (#1136): consumed on rough glass; #1162: on smooth glass (the delta path) too
     "g_thin_film_thickness": ("moves", ""),
     "g_thin_film_ior": ("moves", ""),
-    "g_thin_film_smooth": ("inert", "Thin Film is not rendered on a smooth Glass BSDF"),
+    "g_thin_film_smooth": ("moves", ""),
     "m_geometry_normal": ("reported", "Geometry output 'Normal' unsupported in the op-VM"),
 }
 
@@ -193,10 +193,9 @@ def test_distribution_and_thin_film_are_reported(monkeypatch):
         "Thin Film Thickness": _Socket(600.0), "Normal": _Socket((0, 0, 0))}, distribution="GGX"))
     texts = _texts(engine)
     assert any("distribution 'GGX' is not honoured" in t for t in texts), texts
-    # pkg326 (#1136): the native route consumes the sockets; only smooth glass (no Roughness socket
-    # in this stub = 0) is told it gets no film, and the legacy-route drop line is gone.
-    assert not any("Thin Film Thickness / Thin Film IOR" in t for t in texts), texts
-    assert any("Thin Film is not rendered on a smooth Glass BSDF" in t for t in texts), texts
+    # pkg326 (#1136): the native route consumes the sockets, smooth glass included (#1162: no
+    # Roughness socket in this stub = 0), so neither the legacy drop nor a smooth-glass line shows.
+    assert not any("Thin Film" in t for t in texts), texts
     legacy = _engine(_load_blender_addon(monkeypatch))
     legacy._use_native_principled_flag = False
     legacy._report_unhonoured_bsdf_props(_Node("BSDF_GLASS", "ShaderNodeBsdfGlass", {

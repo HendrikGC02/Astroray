@@ -2307,6 +2307,30 @@ __device__ inline float gpu_pr_glassReflectProb(const GPrincipledClosure& c, con
     float r = R.x + R.y + R.z, s = r + T.x + T.y + T.z;
     return (s > 0.f) ? r / s : F;
 }
+// #1162: principled.cpp::deltaFilmR / deltaFilmRSpectral — thin-film R of the smooth
+// (delta) glass lobe at H = N (Cycles v5.2.0 bsdf_microfacet.h:795-917 singular branch).
+__device__ inline GVec3 gpu_pr_deltaFilmR(const GPrincipledClosure& c, const GPrincipledLobe& L,
+                                          const GHitRecord& rec, const GVec3& wo) {
+    float etap = rec.frontFace ? L.ior : (1.f / L.ior);
+    float filmIor = rec.frontFace ? c.thinFilmIor : c.thinFilmIor / L.ior;
+    return gpu_pr_thinFilmF0RescaleRGB(gpu_pr_thinFilmFresnelRGB(c, fabsf(wo.dot(rec.normal)), etap, filmIor),
+                                       GVec3(gpu_pr_F0_from_ior(etap)) * c.specularTint, etap);
+}
+__device__ inline GSampledSpectrum gpu_pr_deltaFilmRSpectral(const GPrincipledClosure& c,
+                                                             const GPrincipledLobe& L,
+                                                             const GHitRecord& rec, const GVec3& wo,
+                                                             const GSampledWavelengths& wl) {
+    float etap = rec.frontFace ? L.ior : (1.f / L.ior);
+    float filmIor = rec.frontFace ? c.thinFilmIor : c.thinFilmIor / L.ior;
+    float F0real = gpu_pr_F0_from_ior(etap);
+    GSampledSpectrum F = gpu_pr_thinFilmFresnelSpectral(c, fabsf(wo.dot(rec.normal)), etap, filmIor, wl);
+    if (F0real > 1e-5f) {
+        GSampledSpectrum tintSpec = gpu_rgbToSampledSpectrum(c.specularTint, wl, GSPEC_RGB_ALBEDO);
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+            F[i] = gpu_pr_thinFilmF0RescaleChannel(F[i], F0real * tintSpec[i], F0real);
+    }
+    return F;
+}
 
 // --- Transmission rough glass (principled.cpp transmissionEvalRGB) ----------
 // pkg188 Finding A (GPU twin of principled.cpp transmissionEvalRGB): film-OFF
@@ -2889,6 +2913,10 @@ __device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GPrincipledClos
     // #1112: exact side-aware dielectric Fresnel (Cycles fresnel_dielectric;
     // pbrt-v4 FrDielectric), CPU twin principled.cpp chooseAndSampleDir.
     float fresnel = gpu_pr_fresnelDielectric(cosTheta, etaI, etaT);
+    // #1162: smooth film glass, Cycles pdf_reflect = avg(R)/avg(R+T) over the film R
+    // (bsdf_microfacet.h:840-847). Only delta lobes reach here on the GPU.
+    if (gpu_pr_filmActive(c))
+        fresnel = gpu_pr_glassReflectProb(c, L, rec.frontFace, cosTheta, fresnel);
     ds.isDelta = true;
     if (cannotRefract || gpu_rng_uniform(rng) < fresnel) {
         ds.wi = nn * (2.f * wo.dot(nn)) - wo;
@@ -2908,7 +2936,9 @@ template <typename TRng>
 __device__ inline GBSDFSample gpu_principled_sample(const GPrincipledClosure& c, GHitRecord& rec,
                                                     const GVec3& wo, TRng* rng,
                                                     float heroIor = -1.f,
-                                                    bool* refractedOut = nullptr) {
+                                                    bool* refractedOut = nullptr,
+                                                    const GSampledWavelengths* wl = nullptr,
+                                                    bool* spectralOut = nullptr) {
     GBSDFSample s;
     s.wi = rec.normal; s.f = GVec3(0.f); s.fSpectral = GSampledSpectrum(0.f); s.pdf = 0.f; s.isDelta = false;
     GPrincipledLobe lobes[kMaxPrincipledLobes];
@@ -2941,6 +2971,25 @@ __device__ inline GBSDFSample gpu_principled_sample(const GPrincipledClosure& c,
             // pdf = qj → f/pdf = weight/qj (Cycles bsdf_transparent.h /
             // bsdf_thin_glass_transmission_sample passthrough; W cancels).
             s.f = L.weight;
+        else if (gpu_pr_filmActive(c)) {
+            // #1162: smooth film glass (GPU: only delta transmission lobes reach here).
+            // Twin of principled.cpp sample()/sampleSpectral(): eval = R or T, pdf = pR
+            // or 1-pR (bsdf_microfacet.h:865-879); eta^2 radiance factor as below. With
+            // wl (spectral wrapper) fSpectral is per-lambda R(l) / 1-R(l).
+            GVec3 R = gpu_pr_deltaFilmR(c, L, rec, wo);
+            GVec3 rgb = ds.deltaRefract ? L.weight * gpu_pr_sqrtColor(c.color) : L.weight;
+            s.f = ds.deltaRefract ? rgb * gvec3_max(GVec3(1.f) - R, GVec3(0.f)) * (ds.eta * ds.eta)
+                                  : rgb * R;
+            if (wl) {
+                GSampledSpectrum Rs = gpu_pr_deltaFilmRSpectral(c, L, rec, wo, *wl);
+                float maxc = fmaxf(fmaxf(fmaxf(rgb.x, rgb.y), rgb.z), 1.f);
+                GSampledSpectrum w = gpu_rgbToSampledSpectrum(rgb * (1.f / maxc), *wl, GSPEC_RGB_ALBEDO) * maxc;
+                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                    s.fSpectral[i] = ds.deltaRefract ? w[i] * fmaxf(1.f - Rs[i], 0.f) * (ds.eta * ds.eta)
+                                                     : w[i] * Rs[i];
+                if (spectralOut) *spectralOut = true;
+            }
+        }
         else if (ds.deltaRefract)
             s.f = L.weight * gpu_pr_sqrtColor(c.color) * (ds.eta * ds.eta * ds.pdfInternal);
         else
@@ -3455,13 +3504,19 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     // instantiation compiles it out entirely (register gate: stageShadeBucketed
     // <false> stays at STACK/REG baseline). GDispersion.b1/b2 carry the Cauchy
     // (A,B) fit uploaded by scene_upload.cu's closure-graph branch.
+    // #1162: a thin-film Principled takes this direct call too (same sampler and rng
+    // draws as gpu_material_sample's closure-graph route), passing wl so a smooth-glass
+    // delta event returns per-lambda film R/T (fSpectral) instead of the RGB upsample.
     if constexpr (HasPrincipled) {
-        if (mat.type == GMAT_CLOSURE_GRAPH && mat.isDispersive &&
-            gpu_closure_graph_is_principled(mat)) {
-            float heroIor = gpu_cauchy_ior(mat.dispersion.b1, mat.dispersion.b2, wl.lambda[0]);
-            bool refracted = false;
-            s = gpu_principled_sample(mat.principled, rec, wo, rng, heroIor, &refracted);
-            if (refracted) wl.terminateSecondary();
+        if (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_is_principled(mat) &&
+            (mat.isDispersive || gpu_pr_filmActive(mat.principled))) {
+            float heroIor = mat.isDispersive
+                ? gpu_cauchy_ior(mat.dispersion.b1, mat.dispersion.b2, wl.lambda[0]) : -1.f;
+            bool refracted = false, filmSpectral = false;
+            s = gpu_principled_sample(mat.principled, rec, wo, rng, heroIor, &refracted, &wl,
+                                      &filmSpectral);
+            if (refracted && mat.isDispersive) wl.terminateSecondary();
+            if (filmSpectral) return s;
             handled = true;
         }
     }

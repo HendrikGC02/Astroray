@@ -73,7 +73,7 @@ scene = "prod_light_path"
 backend = "cpu"
 kind = "parity"
 issue = "#1038"
-reason = "#991 fixed (hidden emitter 0.07x -> 1.00, shadow-transparent glass, Ray Length floor tint); bands re-blessed on b4e15d06 (the old ones measured the flattened export). Residual: glass_ball_centre r 1.065 / b 1.037 = the plain-Glass bias (#1038), floor_near r 0.975 (17/20); #1165 (CPU seed 278, vs main 18b4c053 which reads 20/20 on this build): 19/20, floor_near r 0.976"
+reason = "#991 fixed (hidden emitter 0.07x -> 1.00, shadow-transparent glass, Ray Length floor tint); bands re-blessed on b4e15d06. #1038 glass terms fixed (#1103 tint; delta-glass spectral tint 2026-10-25: glass_ball_centre r 0.954 -> 0.981, plain Glass 7-seed 0.971 -> 0.996). Residual 19/20 is NOT glass: floor_near r 0.977 (plain-Glass variant 7-seed mean 0.981 +- 0.001, g/b 1.006/0.996; floor away from the ball), needs its own issue"
 
 [[row]]
 scene = "prod_light_path"

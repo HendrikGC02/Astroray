@@ -140,7 +140,7 @@ def test_media_tail_share_within_2x_cycles_same_pixels(leg):
 
 @pytest.mark.parametrize("leg", [
     pytest.param("cpu", marks=[pytest.mark.serial, pytest.mark.xfail(
-        strict=True, reason="#1172 CPU: fire_core z -4.00 (0.9938x Cycles) on these 5 seeds, 0.9972x on seeds "
+        strict=True, reason="#1193 (after #1172) CPU: fire_core z -4.00 (0.9938x Cycles) on these 5 seeds, 0.9972x on seeds "
         "283-292. Not a mean shift: #1172 vs pre-fix build over 15 seeds 0.9988x (z -0.99). Both builds "
         "sit 0.3-0.5 % under Cycles in fire_core / fog_floor_lit (pre-fix, 15 seeds: z -1.9 / -3.0)")], id="cpu"),
     pytest.param("gpu", marks=pytest.mark.gpu, id="gpu")])

@@ -249,8 +249,10 @@ None of this ships in the Phase 0 PR: it lives on `lane/pkg306-diag`.
    spot). ROI means vs the pre-fix build, 15 seeds: |z| <= 0.99. Probe at (2.06, 0.34, 0): spot pick 0.869 -> 0.
    Other cones vs Cycles 5.2 `scene/light_tree.cpp:163-222`: area and sun match; point (pi, pi) and
    background (pi, pi) vs Cycles (pi, pi/2) and (pi, 0) change no importance (theta_o = pi). Not mirrored
-   (emitter-level, Astroray uses the node form): the spot blend smoothstep and the point light's
-   P-facing disk cone (`kernel/light/spot.h:311-316`, `kernel/light/tree.h:466-470`).
+   (emitter-level, Astroray uses the node form): the spot blend smoothstep on the importance energy
+   (`kernel/light/spot.h:311-316`) and the point light's P-facing axis (`kernel/light/tree.h:256-258`)
+   with theta_o = 0 (`:466-470`). theta_e is not capped at pi/2 (the Python API allows spot cones wider
+   than 180 deg), and the surface max importance takes fabsf as Cycles `tree.h:215-216`.
    Evidence: `%LOCALAPPDATA%\astroray-evidence\2026-10-25\i1172\`.
 2. #1171 power sampler: `DistantLight::power()` Ω scaling starves suns.
 3. Variance reduction for glints and caustics past the bounce-0 photon split. This is new

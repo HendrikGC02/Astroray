@@ -619,9 +619,10 @@ void LightTree::importanceFromGeometry(const Vec3& pointToCentroidNorm, float co
     }
 
     // Final importance: (energy / distance²) · cos_min_incidence_angle · cos_min_outgoing_angle.
-    // Cycles: line 215-216 in kernel/light/tree.h.
-    maxImp = energy * cosMinIncidenceAngle * cosMinOutgoingAngle /
-             (clampedDistance * clampedDistance);
+    // Cycles v5.2.0 kernel/light/tree.h:215-216 takes fabsf: a spot wider than
+    // pi/2 (theta_e > pi/2, #1172) has cos(theta') < 0 past 90 deg and still emits.
+    maxImp = std::abs(energy * cosMinIncidenceAngle * cosMinOutgoingAngle /
+                      (clampedDistance * clampedDistance));
 
     // Lower bound, Cycles tree.h:222-238: cos(theta + theta_o + theta_u) when
     // theta + theta_o + theta_u < theta_e, else 0.

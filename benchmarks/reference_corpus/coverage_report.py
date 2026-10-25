@@ -80,6 +80,12 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
+# Script mode (``python benchmarks/reference_corpus/coverage_report.py``) puts this directory, not the repo
+# root, on sys.path, so the lazy ``from benchmarks...`` imports below would fail (#1167).
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 # --------------------------------------------------------------------------- #
 # Frozen scoring constants (pkg278; owner-ratified 2026-09-07 / 2026-09-08).
 # The gate is these numbers. A caller may NOT supply a status or a threshold.
@@ -414,7 +420,7 @@ def _runner_metrics_match(produced: Mapping[str, Any], repo_root: Path | None) -
         cycles_observed = json.loads(cycles_raw.read_text(encoding="utf-8"))
         astro_control_observed = json.loads(astro_control_raw.read_text(encoding="utf-8"))
         cycles_control_observed = json.loads(cycles_control_raw.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError, ImportError):
+    except (OSError, ValueError, json.JSONDecodeError):  # ImportError must stay fatal, never a 0.0 score (#1167)
         return False, "canonical runner artifacts cannot be decoded"
     metrics = produced.get("metrics")
     if not isinstance(metrics, Mapping) or not all(isinstance(metrics.get(k), (int, float)) for k in ("ssim", "delta_e")):

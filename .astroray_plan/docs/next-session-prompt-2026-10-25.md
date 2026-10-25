@@ -11,6 +11,12 @@ questions), `stage0-gate-scoring-2026-10-18.md` (rows (b), (e), (g) re-measures)
   restaged 07:46 from the same HEAD. No worktrees remain.
 - **#1173 pkg306 Phase 0 merged** (main 0a4d4aaa; engine byte-identical). Diag switches live on `lane/pkg306-diag`
   372da5c9 for Phase 1.
+- **Wave 2 update (22:30):** #1187 merged (main 13a841be). Six PRs on CI (GitHub runner queue is slow with this many):
+  #1189 #1191 #1192 #1195 #1196 #1197; merge each when its pull_request run is green (that run merges main first).
+  Lanes #1032 (`i1032`, media segment NEE with local majorants) and #1038 (`i1038`, glass sphere) running; #1153 waits for
+  #1191 to merge (same HasNormalPerturb kernels). #993 is closed (fixed by #1030): the wood provisional row in
+  `provisional_production.toml` still cites it and wood read 11/16 on the staged engine; re-point it during the row (g)
+  re-run. The `i1150` and `i1158` worktree directories are deleted; `i1167` holds branch `lane/issue1168`.
 - **Wave 2 update (19:30):** PRs #1189 (#1162) and #1191 (#1154) opened with GPU legs, cuobjdump and interleaved
   timing done (scratchpad `perf_probe_1162.py` / `perf_probe_1154.py`; both within 1 % of main). Lanes #1152 (worktree
   `i1152`, fixing `kMaxPasses = waves * passDepth + ...`) and #1172 (`i1172`) running. Merge order on green: #1187, #1189,

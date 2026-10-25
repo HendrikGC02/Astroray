@@ -75,6 +75,11 @@ __device__ GVec3 gpu_spectrum_to_xyz(
 
 namespace astroray::wavefront {
 
+// #1033/#1150 transparent budget (stage_advance.cu, rdc-linked). The ReSTIR driver
+// publishes it only for scenes with a Principled alpha < 1, so `!= kWfTransparentOff`
+// is the alpha-pass flag in the resolve stage.
+extern __constant__ int c_wfTransparentLimit;
+
 // Shared per-slot primary init + intersect (rdc-linked from stage_init.cu /
 // stage_advance.cu). initPathSlot consumes no reservoir state; intersectPathSlot
 // accumulates env/emissive radiance into state.color, parks the shading hit, and
@@ -308,12 +313,18 @@ __global__ void stageRestirPrimaryKernel(
 
     initPathSlot(/*slot=*/p, /*pixel=*/p, sample_index, state, cam,
                  width, height, seed, lambdaMin, lambdaMax);
-    // #1150: an alpha < 1 Principled hit is a stochastic pass-through (Cycles
-    // bsdf_transparent, CPU restir_di / pathTraceSpectral #1033): the shading point
-    // is the first surface whose coverage draw keeps it. A pass is not a bounce
-    // (bounce stays 0); the driver publishes c_wfTransparentLimit for alpha scenes,
-    // so intersectPathSlot consumes pass_dist / pass_count (no near clip behind a
-    // pass, far clip from the camera, transparent_max_bounces terminate).
+    // #1150: an alpha < 1 Principled hit is a stochastic pass-through, not a bounce
+    // (bounce stays 0). Cycles v5.2.0 (Apache-2.0): Principled adds a transparent
+    // closure of weight 1 - alpha and scales the rest by alpha
+    // (kernel/svm/closure.h:109-112); a transparent pick continues the ray without a
+    // bounce (kernel/integrator/shade_surface.h:573-576) and counts in
+    // transparent_bounce (kernel/integrator/path_state.h:120-140). Deviation: this
+    // DI-only stage picks by coverage probability alpha with a 1/alpha correction on
+    // the kept surface instead of Cycles' sample_weight closure pick: same
+    // expectation, different variance. In-repo precedent: Renderer::coverageAlpha
+    // (raytracer.h). The driver publishes c_wfTransparentLimit for alpha scenes, so
+    // intersectPathSlot consumes pass_dist / pass_count (no near clip behind a pass,
+    // far clip from the camera, transparent_max_bounces terminate).
     constexpr int kPassCap = 1024;  // gpu_shadow_transmittance kHopCap
     for (int pass = 0; ; ++pass) {
         // Reset the hit-validity flag: intersectPathSlot sets it to 1 ONLY for a
@@ -349,7 +360,6 @@ __global__ void stageRestirPrimaryKernel(
         if (!alphaPass || hitBufs.hit_valid[p] == 0) break;
         const float alpha = gpu_shadowAlpha(materials[hitBufs.hit_material_id[p]]);
         if (alpha >= 1.0f) break;
-        if (pass >= kPassCap) { hitBufs.hit_valid[p] = 0; break; }  // blocked, like the shadow walk
         // Coverage draw: keep the surface with probability alpha. Its eval already
         // carries the alpha weight (Principled weight *= alpha after the transparent
         // lobe, gpu_materials.h), so the kept sample divides it out; a pass (probability
@@ -365,6 +375,7 @@ __global__ void stageRestirPrimaryKernel(
             state.throughput_3[p] *= inv;
             break;
         }
+        if (pass >= kPassCap) { hitBufs.hit_valid[p] = 0; break; }  // blocked, like the shadow walk
         // Pass: continue the camera ray from the sheet (shadePathSlotImpl #1033 twin:
         // origin = hit point, direction unchanged, cumulative distance parked).
         state.ray_origin_x[p] = hitBufs.hit_point_x[p];
@@ -616,12 +627,33 @@ __global__ void stageRestirResolveKernel(
             // #1042: curves occlude too; skipPrim = the shading vertex's own curve
             // segment (#1037, as stageShadowKernel), so a strand never shadows itself.
             const int skipPrim = HasCurves ? rec.primId : -1;
-            bool occluded = gpu_tlas_occluded<HasCurves>(
-                tlas, instances, blas, bvhNodes, prims, tris, spheres,
-                GRay(rec.point, wi, ptime), 0.001f, distLocal - 0.001f, motionVerts,
-                curves, skipPrim);
+            // #1150: an alpha scene walks the shadow ray through Principled alpha
+            // surfaces (CPU restir_di shadowTransmittance twin; path tracer
+            // stageShadowKernel<*, true>), bounded by the true distance and the path's
+            // remaining transparent budget. Other scenes keep the binary test.
+            float shadowTr;
+            if (c_wfTransparentLimit != kWfTransparentOff) {
+                GNEESample s{};
+                s.origin   = rec.point;
+                s.wi       = wi;
+                s.maxDist  = distLocal;
+                s.geomDist = distLocal;
+                s.isSphere = 0;   // walk to distLocal - 0.001, the binary test's bound
+                s.lightMatId = -1;
+                s.valid    = 1;
+                const int maxHits = (c_wfTransparentLimit >= 0)
+                    ? max(c_wfTransparentLimit - (int)state.pass_count[p], 0) : 0x7fffffff;
+                shadowTr = gpu_shadow_transmittance<HasCurves>(
+                    s, tlas, instances, blas, bvhNodes, prims, tris, spheres, materials,
+                    ptime, motionVerts, curves, nullptr, skipPrim, nullptr, maxHits);
+            } else {
+                shadowTr = gpu_tlas_occluded<HasCurves>(
+                    tlas, instances, blas, bvhNodes, prims, tris, spheres,
+                    GRay(rec.point, wi, ptime), 0.001f, distLocal - 0.001f, motionVerts,
+                    curves, skipPrim) ? 0.0f : 1.0f;
+            }
 
-            if (!occluded) {
+            if (shadowTr > 0.0f) {
                 GSampledSpectrum f_spec = gpu_material_eval_spectral(
                     materials[rec.materialId], rec, wo, wi, lambdas);
                 // L_spec = RGBIlluminant(emission).sample(lambdas)
@@ -632,7 +664,7 @@ __global__ void stageRestirResolveKernel(
                 // pkg157: clamp this NEE-like resolve term independently
                 // (same split as the megakernel's NEE clamp site) before
                 // adding it to the already-clamped primary term.
-                GSampledSpectrum resolveContrib = throughput * f_spec * L_spec * res.W;
+                GSampledSpectrum resolveContrib = throughput * f_spec * L_spec * (res.W * shadowTr);
                 total += gpu_clampContribMW(resolveContrib, lambdas, bounce,
                                             clampDirect, clampIndirect,
                                             useLuminanceOutput);

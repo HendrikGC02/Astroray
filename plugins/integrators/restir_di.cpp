@@ -260,7 +260,7 @@ public:
                     // Temporal reuse (Algorithm 2, Bitterli 2020).
                     if (useTemporal_) {
                         if (isTemporallyValid(frameState_.previous, px, py,
-                                              rec.normal, rec.t)) {
+                                              rec.normal, rec.t + passDist)) {
                             // M-cap (Bitterli 2020 §5.2): clamp the PREVIOUS
                             // reservoir's M to <= effectiveMCap (=20*numCandidates)
                             // BEFORE the merge, then let the combined M
@@ -287,7 +287,7 @@ public:
                             if (!nbuf[ni].valid) continue;
                             int nx = nbuf[ni].x, ny = nbuf[ni].y;
                             if (!isTemporallyValid(frameState_.previous, nx, ny,
-                                                   rec.normal, rec.t))
+                                                   rec.normal, rec.t + passDist))
                                 continue;
                             // M-cap (Bitterli 2020 §5.2): cap each neighbour's
                             // source M before the merge (see the temporal stage);
@@ -313,7 +313,7 @@ public:
                     // Write geometry metadata (for next frame's validity gates).
                     auto& hist = frameState_.current.meta(px, py);
                     hist.normal = rec.normal;
-                    hist.depth  = rec.t;
+                    hist.depth  = rec.t + passDist;  // #1150: cumulative since the last real vertex (GPU meta_depth twin)
                     hist.valid  = true;
                     // Store fully-finalized reservoir for next frame's temporal reuse.
                     frameState_.current.at(px, py) = res;

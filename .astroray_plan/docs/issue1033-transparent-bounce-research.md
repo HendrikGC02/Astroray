@@ -69,3 +69,16 @@ keyed on "bounce" or on the ray origin needed a fix (CPU `raytracer.h`, GPU
 - Shadow rays keep their own `maxHops = 8` (CPU `shadowTransmittance`) and the GPU's
   unlimited shadow walk saturates at 31, instead of sharing the transparent budget as in
   Cycles: fixed in #1073.
+
+## ReSTIR-DI (#1150)
+
+- CPU `restir_di`: the pass is the `pathTraceSpectral` twin (no bounce, MIS state and
+  cryptomatte untouched, `transparentDepth` against `transparent_max_bounces` and the
+  shadow budget, clip planes as above, history depth `rec.t + passDist`).
+- GPU ReSTIR-DI (direct-only primary stage): on a Principled alpha < 1 hit, keep the
+  surface with probability alpha (throughput / alpha, its eval already carries the alpha
+  weight) or pass with weight 1, then re-intersect. Cycles picks the transparent closure
+  by `sample_weight` (`svm/closure.h:109-112`, `shade_surface.h:573-576`); coverage
+  probability alpha has the same expectation and different variance (precedent:
+  `Renderer::coverageAlpha`). The resolve shadow ray uses `gpu_shadow_transmittance`
+  with the path's remaining transparent budget in alpha scenes (binary test otherwise).

@@ -7,6 +7,7 @@
 
 #include "gpu_wavefront_snapshot.h"
 #include "astroray/gpu_wavefront_state.h"
+#include "astroray/wavefront_pass_plan.h"  // #1152
 #include "astroray/gpu_types.h"
 #include "astroray/gpu_scene_upload.h"
 #include "raytracer.h"
@@ -1724,7 +1725,9 @@ static GWavefrontPrimaryClip publishPrimaryClip(const Camera& cam)
 // hook: 0 forces the pre-pkg298 width*height pool).
 static constexpr long long kPoolSlotBytes = 2048;
 
-static int wavefrontPoolSize(int numPixels, int samples, int maxDepth, int heldSlots) {
+// #1152: passDepth is the TRUE pass count (astroray::wfplan::passDepth, transparent
+// passes included); the counter margin is applied once in wfplan::counterSlackPerPath.
+static int wavefrontPoolSize(int numPixels, int samples, int passDepth, int heldSlots) {
     static const long long kMinPaths = [] {
         int dev = 0, sms = 0, thr = 0;
         cudaGetDevice(&dev);
@@ -1732,9 +1735,7 @@ static int wavefrontPoolSize(int numPixels, int samples, int maxDepth, int heldS
         cudaDeviceGetAttribute(&thr, cudaDevAttrMaxThreadsPerMultiProcessor, dev);
         return std::max<long long>((long long)sms * thr, 65536) * 16;
     }();
-    const long long work = (long long)numPixels * samples;
-    long long pool = std::max<long long>(numPixels, std::min(kMinPaths, work));
-    if (work + pool * (16 + maxDepth + 2) > 0x7FFFFFFFLL) pool = numPixels;
+    long long pool = astroray::wfplan::planPool(numPixels, samples, passDepth, kMinPaths);
     long long cap;
     const char* env = std::getenv("ASTRORAY_WF_POOL_BUDGET_MB");
     if (env && env[0]) {
@@ -1744,7 +1745,8 @@ static int wavefrontPoolSize(int numPixels, int samples, int maxDepth, int heldS
         if (cudaMemGetInfo(&freeB, &totalB) != cudaSuccess) freeB = 0;
         cap = (long long)heldSlots + (long long)(freeB / 2) / kPoolSlotBytes;
     }
-    pool = std::max<long long>(numPixels, std::min(pool, cap));
+    // Budget floor is numPixels, but a pool the counter plan shrank below numPixels stays.
+    pool = std::min(pool, std::max<long long>(numPixels, cap));
     static long long lastLogged = -1;
     if (pool != numPixels && pool != lastLogged) {
         lastLogged = pool;
@@ -1809,24 +1811,6 @@ std::vector<float> cuda_wavefront_render(
     if (numPixels <= 0 || samples <= 0) {
         throw std::runtime_error("cuda_wavefront_render: invalid dimensions");
     }
-    int total_paths = wavefrontPoolSize(numPixels, samples, max_depth + 2,  // #1165: vertices / path
-                                        wfCtx().stateCapacity);
-    // Per-path state is allocated here, before any pool-strided buffer or
-    // binding, so a failed enlarged pool can fall back to numPixels slots.
-    {
-        WfContext& Cs = wfCtx();
-        if (!ensureWavefrontState(Cs.state, Cs.hitBufs, Cs.stateCapacity, total_paths)) {
-            if (total_paths > numPixels) {
-                std::fprintf(stderr, "[astroray] wavefront path pool %d slots failed to "
-                             "allocate; falling back to %d\n", total_paths, numPixels);
-                total_paths = numPixels;
-            }
-            (void)cudaGetLastError();  // clear the OOM so later launch checks stay clean
-            if (!ensureWavefrontState(Cs.state, Cs.hitBufs, Cs.stateCapacity, total_paths))
-                throw std::runtime_error("cuda_wavefront_render: SoA allocation failed");
-        }
-    }
-
     // Build GCameraParams from Camera (same block as the snapshot entries).
     GCameraParams gcam;
     gcam.origin = GVec3(cam.getOrigin().x, cam.getOrigin().y, cam.getOrigin().z);
@@ -1938,6 +1922,33 @@ std::vector<float> cuda_wavefront_render(
         GWavefrontPrimaryClip clip = primaryClip;
         clip.indirectOnly = 1;
         setWavefrontPrimaryClip(clip);
+    }
+
+    // #1152: the pass plan (transparent passes included) is needed BEFORE the pool is
+    // sized, so the pool, per-path state and the work-counter guard all use one
+    // passDepth. It needs `res` (hasAlphaShadow), hence the allocation lives here.
+    // pkg325: dielectric_bounce_cap=passthrough rides the same machinery (a capped transmission
+    // sample is a null transparent pass, counted in pass_count), so it also switches it on.
+    const bool capPassOn = renderer.getDielectricBounceCapPassthrough();
+    const bool transparentOn = res.hasAlphaShadow || capPassOn;
+    const int passDepth = astroray::wfplan::passDepth(
+        max_depth, transparentOn, renderer.getMaxTransparentBounces());
+    int total_paths = wavefrontPoolSize(numPixels, samples, passDepth,
+                                        wfCtx().stateCapacity);
+    // Per-path state is allocated here, before any pool-strided buffer or
+    // binding, so a failed enlarged pool can fall back to numPixels slots.
+    {
+        WfContext& Cs = wfCtx();
+        if (!ensureWavefrontState(Cs.state, Cs.hitBufs, Cs.stateCapacity, total_paths)) {
+            if (total_paths > numPixels) {
+                std::fprintf(stderr, "[astroray] wavefront path pool %d slots failed to "
+                             "allocate; falling back to %d\n", total_paths, numPixels);
+                total_paths = numPixels;
+            }
+            (void)cudaGetLastError();  // clear the OOM so later launch checks stay clean
+            if (!ensureWavefrontState(Cs.state, Cs.hitBufs, Cs.stateCapacity, total_paths))
+                throw std::runtime_error("cuda_wavefront_render: SoA allocation failed");
+        }
     }
     GBVHNode*   d_bvhNodes  = wfSync(reuse, C.nodes, res.nodes);
     GPrimitive* d_prims     = wfSync(reuse, C.prims, res.prims);
@@ -2219,18 +2230,9 @@ std::vector<float> cuda_wavefront_render(
     // pass, so the host pass plan below grants up to `limit + 1` extra passes per
     // path (an unlimited limit plans for 31 passes + 1; #1125: a finite limit is
     // planned exactly, the per-path count is a full uint32 lane).
-    // pkg325: dielectric_bounce_cap=passthrough rides the same machinery (a capped transmission
-    // sample is a null transparent pass, counted in pass_count), so it also switches it on.
-    const bool capPassOn = renderer.getDielectricBounceCapPassthrough();
-    const bool transparentOn = res.hasAlphaShadow || capPassOn;
     setWavefrontTransparentLimit(transparentOn ? renderer.getMaxTransparentBounces()
                                                : kWfTransparentOff);
     setWavefrontDielectricCapPass(capPassOn);
-    const int tLim = renderer.getMaxTransparentBounces();
-    // #1165: a path has up to max_depth + 2 vertices (Cycles max_bounces + 1 scatters, then
-    // the emission-only surface).
-    const int passDepth = max_depth + 2 +
-        (transparentOn ? (tLim >= 0 ? tLim : 31) + 1 : 0);
     ::GLight*   d_lights    = wfSync(reuse, C.lights, res.lights);
     // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
     // power CDF continues past the GLight entries; see gpu_nee.cuh).
@@ -2722,16 +2724,21 @@ std::vector<float> cuda_wavefront_render(
             }
             causticMapSample = baseSample;
         }
-        const int perPixel = !adaptiveOn
+        const int roundPixels = adaptiveOn ? numActive : numPixels;
+        const int perPixelWanted = !adaptiveOn
             ? (causticRounds ? std::min(causticSppPerMap, samples - baseSample)
                              : samples)
             : std::min((roundIdx == 0 ? ap.min_samples : ap.adaptive_step),
                        samples - baseSample);
-        if (perPixel <= 0) break;
-        const int roundPixels = adaptiveOn ? numActive : numPixels;
+        if (perPixelWanted <= 0) break;
+        // #1152: a round whose work would not fit the 32-bit counter beside the pool's
+        // overshoot slack is split into sample chunks (flat pool: baseSample offsets
+        // the sample index, so the samples drawn are unchanged) instead of failing.
+        const int perPixel = std::min(perPixelWanted,
+            astroray::wfplan::maxSamplesPerRound(roundPixels, total_paths, passDepth));
         const long long total_work = (long long)roundPixels * perPixel;
         const long long counter_slack =
-            (long long)total_paths * (16 + passDepth + 2);
+            (long long)total_paths * astroray::wfplan::counterSlackPerPath(passDepth);
         if (total_work + counter_slack > 0x7FFFFFFFLL)
             throw std::runtime_error(
                 "cuda_wavefront_render: width*height*samples exceeds "
@@ -3027,8 +3034,8 @@ std::vector<float> cuda_wavefront_render(
         ++roundIdx;
         if (cwfCancelled) break;           // pkg241 Phase 1b: stop rounds
         if (!adaptiveOn) {
-            if (!causticRounds) break;     // uniform: a single round
-            continue;                      // #909: next photon-map round
+            if (!causticRounds && baseSample >= samples) break;  // uniform: a single round
+            continue;                      // #909 next photon-map round; #1152 next sample chunk
         }
         if (baseSample >= samples) break;  // hit the sample cap
 
@@ -3075,7 +3082,7 @@ std::vector<float> cuda_wavefront_render(
         }
         }  // while (round loop)
 
-        if (causticRounds && !adaptiveOn) {
+        if ((causticRounds || roundIdx > 1) && !adaptiveOn) {   // #1152: chunked rounds too
             // #909: clear the flat-pool baseSample offset for later entries.
             GWavefrontAdaptiveBinding off = { nullptr, nullptr, nullptr, 0, 0, 0 };
             setWavefrontAdaptiveBinding(off);

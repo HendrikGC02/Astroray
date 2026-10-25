@@ -11,7 +11,10 @@ questions), `stage0-gate-scoring-2026-10-18.md` (rows (b), (e), (g) re-measures)
   restaged 07:46 from the same HEAD. No worktrees remain.
 - **#1173 pkg306 Phase 0 merged** (main 0a4d4aaa; engine byte-identical). Diag switches live on `lane/pkg306-diag`
   372da5c9 for Phase 1.
-- **Wave 2 (10-25 late morning), may still be in flight:** PR #1176 (#1171 sun power; GPU legs green) and PR #1181 (#1165
+- **Wave 2 update (13:30):** #1176 merged (main 03db4155). Also open: #1182 (#1155), #1183 (#1158), #1187 (#1150, based on
+  #1181 so merge #1181 first). Lanes #1162 (smooth-glass thin film) and #1154 (bump correction) running; #1152 is the last
+  row (e) high without a lane. Issues #1184 #1185 #1186 filed. Merge order on green: #1181, #1187, #1182, #1183.
+- **Wave 2 (10-25 late morning):** PR #1176 (#1171 sun power; GPU legs green, merged) and PR #1181 (#1165
   bounce caps = Cycles max_bounces+1 terminate-after, CPU+GPU, reviews PASS/PARITY-OK, GPU legs green on build adcc5cfc;
   last commit 4655c6d1 is test/comment/provisional-row only) wait on CI; merge each when its branch-only run is green and
   any PR-run failures are main's known ones. Lanes: #1150 (Opus, worktree `i1150`, branch `lane/issue1150`, based on the

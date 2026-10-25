@@ -2664,6 +2664,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         self._material_attr_layers = {}
         for mat in bpy.data.materials:
             self._current_material_name = mat.name
+            # #1154: Cycles Material > Settings > Bump Map Correction (default on).
+            self._current_bump_map_correction = bool(getattr(
+                getattr(mat, 'cycles', None), 'use_bump_map_correction', True))
             mat_id = self.convert_node_material(mat, renderer)
             material_map[mat.name] = mat_id
             # pkg87c — Set material name for Cryptomatte hashing
@@ -5059,6 +5062,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     spec['bump_distance'] = normal_inputs['bump_distance']
             if self._coat_normal_follows_normal(node):
                 spec['coat_follows_bump'] = 1.0  # #1005: the coat shades on the same perturbed normal
+            self._mark_bump_map_correction(spec)
             # #846: per-texel op-VM chains on the scalar sockets. Carried for both
             # routes (Disney + native Principled); the engine attaches them to
             # either material on CPU and GPU.
@@ -5390,7 +5394,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         # Normal/bump textures plumb through to the native material.
         for key in ('normal_map_texture', 'normal_strength',
-                    'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
+                    'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction'):
             if key in spec:
                 native[key] = spec[key]
 
@@ -5416,7 +5420,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if base_tex is not None:
             lambert_params = {'texture': base_tex}
             for key in ('normal_map_texture', 'normal_strength',
-                        'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
+                        'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction'):
                 if key in native:
                     lambert_params[key] = native[key]
             return renderer.create_material('lambertian', color, lambert_params)
@@ -5970,7 +5974,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             for key in ('a', 'b'):
                 child = dict(spec[key])
                 # A Displacement bump merged onto the Add spec applies to both.
-                for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
+                for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction'):
                     if bump_key in spec and bump_key not in child:
                         child[bump_key] = spec[bump_key]
                 children.append(self._create_material_from_shader_spec(child, renderer))
@@ -5992,7 +5996,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             for key in ('a', 'b'):
                 child = dict(spec[key])
                 # A Displacement bump merged onto the Mix spec applies to both.
-                for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
+                for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction'):
                     if bump_key in spec and bump_key not in child:
                         child[bump_key] = spec[bump_key]
                 children.append(self._create_material_from_shader_spec(child, renderer))
@@ -6044,7 +6048,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
             # Plumb normal/bump textures through to whichever material we pick.
             for key in ('normal_map_texture', 'normal_strength',
-                        'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
+                        'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction'):
                 if key in spec:
                     params[key] = spec[key]
 
@@ -6062,7 +6066,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         '(legacy Disney route): GPU uses the constant colour')
                 lambert_params = {'texture': base_tex}
                 for key in ('normal_map_texture', 'normal_strength',
-                            'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
+                            'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction'):
                     if key in params:
                         lambert_params[key] = params[key]
                 return renderer.create_material('lambertian', color, lambert_params)
@@ -6219,7 +6223,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 # #1005: Cycles bump_from_displacement sets sd->N (svm_node_set_normal), so the
                 # coat and sheen follow this bump too.
                 spec['coat_follows_bump'] = 1.0
+                self._mark_bump_map_correction(spec)
         return self._create_material_from_shader_spec(spec, renderer)
+
+    def _mark_bump_map_correction(self, d):
+        """#1154: carry the material's Cycles Bump Map Correction into a spec / params dict that
+        holds a Normal Map or Bump. Only 'off' is written: the engine defaults it on (Cycles)."""
+        if ('normal_map_texture' in d or 'bump_map_texture' in d) and \
+                not getattr(self, '_current_bump_map_correction', True):
+            d['bump_map_correction'] = 0.0
 
     def _float_with_fallback(self, node, new_name, old_name, default):
         """Principled BSDF renamed several inputs between Blender 3.x and 4.x
@@ -6297,6 +6309,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 params['bump_map_texture'] = tex_name
                 params['bump_strength'] = normal_inputs['bump_strength']
                 params['bump_distance'] = normal_inputs['bump_distance']
+        self._mark_bump_map_correction(params)
 
         # If base color is textured, load it and route through the 'lambertian'
         # textured path (DisneyBRDF doesn't currently accept a texture, and the
@@ -6308,7 +6321,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # texture slot so we can keep metallic/roughness too.
             lambert_params = {'texture': base_color_tex_name}
             for key in ('normal_map_texture', 'normal_strength',
-                        'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
+                        'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction'):
                 if key in params:
                     lambert_params[key] = params[key]
             return renderer.create_material('lambertian', base_color,
@@ -6322,7 +6335,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             native['emission_color'] = list(emission_color)
             native['emission_strength'] = float(emission_strength)
             for key in ('normal_map_texture', 'normal_strength',
-                        'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump'):
+                        'bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction'):
                 if key in params:
                     native[key] = params[key]
             for msg in self._native_principled_gaps(node, native):

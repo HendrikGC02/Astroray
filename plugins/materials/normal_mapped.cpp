@@ -1,5 +1,6 @@
 ﻿#include "astroray/register.h"
 #include "advanced_features.h"
+#include "astroray/bump_correction.h"
 
 // #1004 - bump height finite-difference step for a Linear-sampled image, in texels. Cycles
 // steps Filter Width (default 0.1, scene/shader_nodes.cpp:7225, Cycles @ Blender v5.2.0 fbe62287) of the pixel
@@ -14,12 +15,24 @@ class NormalMappedPlugin : public Material {
     float bumpStrength_;
     float bumpDistance_;
     bool coatFollows_;  // #1005: coat shades on the perturbed normal (see HitRecord::coatOnSvmNormal)
+    // #1154: the material's Cycles Bump Map Correction (Material.cycles.use_bump_map_correction,
+    // default on) and the inner material's closure class (astroray::bumpcorr::Mode).
+    bool bumpCorrection_;
+    int bumpClass_;
+
+    static int closureClass(const Material& m) {
+        if (m.appliesBumpCorrectionPerLobe()) return astroray::bumpcorr::kPerLobe;
+        // Glossy, glass, mirror or a mix holding one: the whole material shades on the lifted
+        // normal (Cycles lifts only the glossy closures; a diffuse child of a mix follows).
+        if (m.isGlossy() || m.isTransmissive() || m.isDeltaOnly()) return astroray::bumpcorr::kGlossy;
+        return astroray::bumpcorr::kDiffuse;
+    }
 
     static float heightValue(const Vec3& c) {
         return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;
     }
 
-    HitRecord perturbNormal(const HitRecord& rec) const {
+    HitRecord perturbNormal(const HitRecord& rec, const Vec3& wo) const {
         HitRecord out = rec;
         Vec3 n = rec.normal;
         // pkg314: keep sd->N for the per-hit shading inputs (raytracer.h svmNormal).
@@ -150,23 +163,41 @@ class NormalMappedPlugin : public Material {
             n = (perturbed * s + n * (1.0f - s)).normalized();
         }
 
+        // #1154 - Cycles maybe_ensure_valid_specular_reflection (Cycles @ Blender v5.2.0
+        // kernel/closure/bsdf_util.h:397-409) on a glossy material: lift N toward sd->N until the
+        // mirror reflection of wo clears the surface. Principled does it per glossy lobe.
+        if (bumpCorrection_ && bumpClass_ == astroray::bumpcorr::kGlossy && (n - out.svmNormal).length2() > 0.0f)
+            n = astroray::bumpcorr::ensureValidSpecularReflection(out.svmNormal, wo, n);
+        out.bumpPerLobe = bumpClass_ == astroray::bumpcorr::kPerLobe;
+        out.bumpMapCorrection = bumpCorrection_;
         out.normal = n;
         buildOrthonormalBasis(out.normal, out.tangent, out.bitangent);
         return out;
+    }
+
+    // #1154 - Cycles bump_shadowing_term (kernel/closure/bsdf.h:86-146) for a whole-material
+    // class; a per-lobe material (Principled) applies it per closure itself.
+    float bumpShadowing(const HitRecord& p, const Vec3& wi) const {
+        if (bumpClass_ == astroray::bumpcorr::kPerLobe) return 1.0f;
+        return astroray::bumpcorr::bumpShadowingTerm(p.svmNormal, p.normal, wi, true,
+                                                     bumpClass_ == astroray::bumpcorr::kDiffuse, bumpCorrection_);
     }
 
 public:
     NormalMappedPlugin(std::shared_ptr<Material> base,
                        std::shared_ptr<Texture> normalTex,
                        std::shared_ptr<Texture> bumpTex,
-                       float normalStr, float bumpStr, float bumpDist, bool coatFollows = false)
+                       float normalStr, float bumpStr, float bumpDist, bool coatFollows = false,
+                       bool bumpCorrection = true)
         : baseMaterial_(std::move(base)),
           normalTexture_(std::move(normalTex)),
           bumpTexture_(std::move(bumpTex)),
           normalStrength_(normalStr),
           bumpStrength_(bumpStr),
           bumpDistance_(bumpDist),
-          coatFollows_(coatFollows) {}
+          coatFollows_(coatFollows),
+          bumpCorrection_(bumpCorrection),
+          bumpClass_(closureClass(*baseMaterial_)) {}
 
     explicit NormalMappedPlugin(const astroray::ParamDict& p)
         : baseMaterial_(astroray::MaterialRegistry::instance().create(
@@ -176,20 +207,26 @@ public:
           normalStrength_(p.getFloat("normal_strength", 1.0f)),
           bumpStrength_(p.getFloat("bump_strength", 1.0f)),
           bumpDistance_(p.getFloat("bump_distance", 0.01f)),
-          coatFollows_(p.getFloat("coat_follows_bump", 0.0f) > 0.5f) {}
+          coatFollows_(p.getFloat("coat_follows_bump", 0.0f) > 0.5f),
+          bumpCorrection_(p.getFloat("bump_map_correction", 1.0f) > 0.5f),
+          bumpClass_(closureClass(*baseMaterial_)) {}
 
     astroray::SampledSpectrum evalSpectral(
             const HitRecord& rec, const Vec3& wo, const Vec3& wi,
             const astroray::SampledWavelengths& lambdas) const override {
-        return baseMaterial_->evalSpectral(perturbNormal(rec), wo, wi, lambdas);
+        const HitRecord p = perturbNormal(rec, wo);
+        return baseMaterial_->evalSpectral(p, wo, wi, lambdas) * bumpShadowing(p, wi);
     }
 
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
-        return baseMaterial_->sample(perturbNormal(rec), wo, gen);
+        const HitRecord p = perturbNormal(rec, wo);
+        BSDFSample s = baseMaterial_->sample(p, wo, gen);
+        s.f = s.f * bumpShadowing(p, s.wi);  // pdf unchanged (Cycles bsdf_sample)
+        return s;
     }
 
     float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        return baseMaterial_->pdf(perturbNormal(rec), wo, wi);
+        return baseMaterial_->pdf(perturbNormal(rec, wo), wo, wi);
     }
 
     // #995: a Bump / Normal Map leaves emission unchanged (Cycles: bump only feeds the
@@ -216,6 +253,9 @@ public:
     std::shared_ptr<Texture>  bumpMapTexture() const override { return bumpTexture_; }
     float                     bumpMapStrength() const override { return bumpStrength_; }
     float                     bumpMapDistance() const override { return bumpDistance_; }
+    int bumpCorrectionMode() const override {
+        return bumpClass_ | (bumpCorrection_ ? astroray::bumpcorr::kCorrectionBit : 0);
+    }
 };
 
 ASTRORAY_REGISTER_MATERIAL("normal_mapped", NormalMappedPlugin)
@@ -225,9 +265,9 @@ std::shared_ptr<Material> makeNormalMapped(
         std::shared_ptr<Material> base,
         std::shared_ptr<Texture> normalTex,
         std::shared_ptr<Texture> bumpTex,
-        float normalStr, float bumpStr, float bumpDist, bool coatFollows) {
+        float normalStr, float bumpStr, float bumpDist, bool coatFollows, bool bumpMapCorrection) {
     return std::make_shared<NormalMappedPlugin>(
         std::move(base), std::move(normalTex), std::move(bumpTex),
-        normalStr, bumpStr, bumpDist, coatFollows);
+        normalStr, bumpStr, bumpDist, coatFollows, bumpMapCorrection);
 }
 } // namespace astroray

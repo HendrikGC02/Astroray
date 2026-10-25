@@ -430,6 +430,12 @@ struct HitRecord {
     // False when the bump came from the Output Displacement (Cycles sets sd->N) or the
     // Coat Normal is wired to the same node: then the coat follows the bumped normal.
     bool coatOnSvmNormal = false;
+    // #1154: set by NormalMappedPlugin when the inner material applies Cycles' bump-map
+    // correction per closure (Material::appliesBumpCorrectionPerLobe): bumpPerLobe asks for the
+    // per-closure bump_shadowing_term, bumpMapCorrection is the material's Cycles flag
+    // (ensure_valid_specular_reflection on glossy lobes + diffuse terminator softening).
+    bool bumpPerLobe = false;
+    bool bumpMapCorrection = false;
     const Vec3& shadingContextNormal() const { return hasSvmNormal ? svmNormal : normal; }
 
     HitRecord() : t(std::numeric_limits<float>::max()), frontFace(true), isDelta(false), hitObject(nullptr) {}
@@ -630,6 +636,11 @@ public:
     virtual std::shared_ptr<Texture>  bumpMapTexture() const { return nullptr; }
     virtual float                     bumpMapStrength() const { return 1.0f; }
     virtual float                     bumpMapDistance() const { return 0.01f; }
+    // #1154 - Cycles bump-map correction mode for GPU upload (astroray::bumpcorr::Mode |
+    // kCorrectionBit); 0 = no Bump / Normal Map. A material whose closures carry their own
+    // normals (Principled) applies the correction per lobe on the CPU instead.
+    virtual int                       bumpCorrectionMode() const { return 0; }
+    virtual bool                      appliesBumpCorrectionPerLobe() const { return false; }
     // pkg225 Stage 4 — hair GPU params (isHair=false for every non-hair material).
     virtual HairGPUParams             hairGPUParams() const { return {}; }
     // pkg219d — per-texel scalar BSDF-parameter programs (op-VM ProgramTexture).

@@ -1127,6 +1127,7 @@ struct WfContext {
     WfDeviceBuf triObjectLocal;               // #1006 per-vertex object-local positions
     WfDeviceBuf materialNormalTexId, materialNormalStrength;  // pkg223 normal maps
     WfDeviceBuf materialBumpTexId, materialBumpStrength, materialBumpDistance;  // pkg223b bump
+    WfDeviceBuf materialBumpCorrect;          // #1154 bump-map correction mode
     WfDeviceBuf programs, materialProgramId;   // pkg219b op-VM programs
     WfDeviceBuf materialProgInputTexId;        // #826 op-VM input texIds [mat*VM_MAX_TEX+t]
     WfDeviceBuf materialScalarProgId, materialScalarTexId;  // pkg219d scalar-param programs
@@ -1975,10 +1976,12 @@ std::vector<float> cuda_wavefront_render(
     int*   d_matBumpTexId    = wfSync(matReuse, C.materialBumpTexId, res.materialBumpTexId);
     float* d_matBumpStrength = wfSync(matReuse, C.materialBumpStrength, res.materialBumpStrength);
     float* d_matBumpDistance = wfSync(matReuse, C.materialBumpDistance, res.materialBumpDistance);
+    int*   d_matBumpCorrect  = wfSync(matReuse, C.materialBumpCorrect, res.materialBumpCorrect);  // #1154
     if (res.hasTexture || res.hasNormalPerturb)
         setWavefrontTextureBinding(GWavefrontTextureBinding{
             d_textures, d_texelBuf, d_matTexId, d_matNormalTexId, d_matNormalStrength,
-            d_matBumpTexId, d_matBumpStrength, d_matBumpDistance, d_triGen, d_triObj});
+            d_matBumpTexId, d_matBumpStrength, d_matBumpDistance, d_triGen, d_triObj,
+            d_matBumpCorrect});
     // pkg219b — op-VM program device arrays (all null when no material carries a
     // program; res.hasProgram=false then selects the <…,false> shade kernel).
     astroray::svm::ShaderVMProgram* d_programs =

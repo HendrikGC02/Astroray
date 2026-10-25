@@ -917,7 +917,8 @@ public:
         if (normalTex || bumpTex)
             mat = astroray::makeNormalMapped(mat, normalTex, bumpTex,
                 getFloat("normal_strength", 1.0f), getFloat("bump_strength", 1.0f), getFloat("bump_distance", 0.01f),
-                getFloat("coat_follows_bump", 0.0f) > 0.5f);  // #1005
+                getFloat("coat_follows_bump", 0.0f) > 0.5f,  // #1005
+                getFloat("bump_map_correction", 1.0f) > 0.5f);  // #1154: Cycles default on
         int id = nextMaterialId++;
         materials[id] = mat;
         return id;

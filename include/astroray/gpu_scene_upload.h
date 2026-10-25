@@ -122,6 +122,8 @@ struct SceneUploadResult {
     std::vector<int>           materialBumpTexId;
     std::vector<float>         materialBumpStrength;
     std::vector<float>         materialBumpDistance;
+    // #1154 - Material::bumpCorrectionMode() of the decorator (0 = none).
+    std::vector<int>           materialBumpCorrect;
     bool                       hasNormalPerturb = false;
 
     // pkg219b — per-texel op-VM programs. `programs` holds each unique compiled

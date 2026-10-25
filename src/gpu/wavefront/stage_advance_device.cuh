@@ -21,6 +21,7 @@
 #include "../gpu_spectral_tables.h"  // pkg55-C3: gpu_profile_reflectance
 #include "astroray/gpu_photon_store.h"  // pkg55-C5 / pkg113: photonGridGatherKnn
 #include "astroray/cryptomatte.h"  // pkg159: hash_to_float + atomic rank insert
+#include "astroray/bump_correction.h"  // #1154: Cycles bump-map correction (shared with CPU)
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
@@ -1688,6 +1689,37 @@ __device__ __noinline__ inline GBSDFSample gpu_tree_sample_spectral(
     return s;
 }
 
+// #1154 - Cycles bump_shadowing_term (Cycles @ Blender v5.2.0 kernel/closure/bsdf.h:86-146) for
+// the HasNormalPerturb kernel; CPU twin NormalMappedPlugin::bumpShadowing. The material class
+// rides c_wfTexBinding.matBumpCorrect; sd->N is the parked pre-bump normal, re-read here so the
+// shade kernel keeps no new live state. A Principled (kPerLobe) has one closure-graph normal on
+// the GPU (#1153), so it takes the glossy rule: the hemisphere test, no diffuse softening.
+__device__ ASTRORAY_SHADE_NOINLINE inline float gpu_bumpShadowing(
+    const GPUWavefrontHitBuffers& hitBufs, int idx, int materialId, const GVec3& N, const GVec3& wi)
+{
+    const int bm = c_wfTexBinding.matBumpCorrect ? c_wfTexBinding.matBumpCorrect[materialId] : 0;
+    if (bm == 0) return 1.0f;
+    const GVec3 Ns(hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx], hitBufs.hit_normal_z[idx]);
+    return astroray::bumpcorr::bumpShadowingTerm(
+        Ns, N, wi, true, (bm & astroray::bumpcorr::kClassMask) == astroray::bumpcorr::kDiffuse,
+        (bm & astroray::bumpcorr::kCorrectionBit) != 0);
+}
+
+// #1154 - the env-NEE record gpu_env_nee_generate just parked (f folded into ef[6..9], wi in
+// ef[3..5]) times the bump shadowing term, so that register-isolated generator stays untouched.
+// The term does not change the pdf. When nothing was parked this bounce the slot holds a record
+// that is never enqueued again, so scaling it is inert.
+__device__ ASTRORAY_SHADE_NOINLINE inline void gpu_bumpShadowEnvRecord(
+    const GPUWavefrontHitBuffers& hitBufs, int idx, int materialId, const GVec3& N)
+{
+    const int cap = c_wfEnvNeeBinding.capacity;
+    float* ef = c_wfEnvNeeBinding.envNeeF;
+    const GVec3 wi(ef[3 * cap + idx], ef[4 * cap + idx], ef[5 * cap + idx]);
+    const float t = gpu_bumpShadowing(hitBufs, idx, materialId, N, wi);
+    if (t != 1.0f)
+        for (int k = 6; k <= 9; ++k) ef[k * cap + idx] *= t;
+}
+
 // Shade-stage entry points: identical to gpu_material_{eval_spectral,pdf,sample_spectral}
 // except that a closure-tree material (HasAdd kernels only) weights its leaves.
 template<bool HasPrincipled, bool HasAdd>
@@ -2378,6 +2410,26 @@ __device__ __forceinline__ bool shadePathSlotImpl(
 
     GVec3 wo = (ray.direction * -1.0f).normalized();
 
+    // #1154 - Cycles maybe_ensure_valid_specular_reflection (Cycles @ Blender v5.2.0
+    // kernel/closure/bsdf_util.h:397-409; include/astroray/bump_correction.h): a glossy
+    // material's bumped normal is lifted toward sd->N (the parked pre-bump normal) until the
+    // mirror reflection of wo clears the surface. CPU twin: NormalMappedPlugin::perturbNormal;
+    // the CPU Principled lifts only its glossy lobes, the GPU closure graph has one normal
+    // (#1153). ALU on rec.normal + three reloads; no new state lives past this block.
+    if constexpr (HasNormalPerturb) {
+        const int bm = c_wfTexBinding.matBumpCorrect ? c_wfTexBinding.matBumpCorrect[rec.materialId] : 0;
+        if ((bm & astroray::bumpcorr::kCorrectionBit) &&
+            (bm & astroray::bumpcorr::kClassMask) != astroray::bumpcorr::kDiffuse) {
+            const GVec3 Ns(hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx],
+                           hitBufs.hit_normal_z[idx]);
+            const GVec3 nV = astroray::bumpcorr::ensureValidSpecularReflection(Ns, wo, rec.normal);
+            if ((nV - rec.normal).length2() > 0.0f) {
+                rec.normal = nV;
+                gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
+            }
+        }
+    }
+
     // ---- NEE (skipped on delta lobes). CPU draws light_seed -> mt19937;
     // GPU twin draws the same dimension -> local curandState (see header).
     // The light_seed draw is gated EXACTLY like the CPU (path_kernel.cpp:230,
@@ -2418,6 +2470,8 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                     // (measured tradeoff per the blueprint).
                     GSampledSpectrum f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(
                         mat, idx, rec, wo, s.wi, lambdas);
+                    if constexpr (HasNormalPerturb)  // #1154 bump_shadowing_term
+                        f_spec *= gpu_bumpShadowing(hitBufs, idx, rec.materialId, rec.normal, s.wi);
                     if (f_spec.maxValue() > 0.f) {
                         float bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd>(mat, idx, rec, wo, s.wi);
                         // Power heuristic (Veach 1997) — mirrors
@@ -2580,6 +2634,8 @@ __device__ __forceinline__ bool shadePathSlotImpl(
         (bounce + 1) <= c_wfEnvNeeBinding.worldMaxBounces) {
         envNeeRan = gpu_env_nee_generate<HasPrincipled, HasAdd>(
             idx, bounce, rec, wo, mat, throughput, lambdas, &rng);
+        if constexpr (HasNormalPerturb)  // #1154 bump_shadowing_term on the parked record
+            gpu_bumpShadowEnvRecord(hitBufs, idx, rec.materialId, rec.normal);
     }
 
     // ---- Russian roulette on luminance of throughput's XYZ (bounce > 3).
@@ -2613,6 +2669,8 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // (all 7 GMAT types + closure graphs), drawing directly from the
     // per-path PCG32 stream (template-RNG arc; see the NEE note above).
     GBSDFSample bss = gpu_shade_sample_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, lambdas, &rng);
+    if constexpr (HasNormalPerturb)  // #1154 bump_shadowing_term (CPU: NormalMappedPlugin::sample)
+        bss.fSpectral *= gpu_bumpShadowing(hitBufs, idx, rec.materialId, rec.normal, bss.wi);
     if (bss.pdf <= 0.0f) {
         state.color_0[idx] = color.v[0];
         state.color_1[idx] = color.v[1];

@@ -27,6 +27,7 @@
 #include "astroray/ggx_glass_energy.h"     // Cycles MULTI_GGX glass (shared with GPU)
 #include "astroray/thin_film_fresnel.h"    // pkg178 Stage 4 PR-1 (Belcour-Barla 2017)
 #include "astroray/thin_film_cie_table.h"  // Rec.709-baked CIE sensitivity LUT
+#include "astroray/bump_correction.h"     // #1154 Cycles bump-map correction
 #include "advanced_features.h"            // #846 Texture + svm::ScalarSlot
 #include "raytracer.h"
 
@@ -181,6 +182,18 @@ class PrincipledPlugin : public Material {
         bool ownN = false;
         Vec3 N{0.0f, 0.0f, 1.0f};
     };
+
+    // #1154: Cycles bump_shadowing_term (kernel/closure/bsdf.h:86-146) per closure under a
+    // NormalMapped decorator (rec.bumpPerLobe); diffuse-class closures (Cycles
+    // CLOSURE_IS_BSDF_DIFFUSE: diffuse, sheen, translucent; the subsurface lobe stands in for the
+    // diffuse exit closure) also get the terminator softening when the correction is on.
+    static float bumpShadowing(const Lobe& L, const HitRecord& rec, const Vec3& wi) {
+        if (!rec.bumpPerLobe || !rec.hasSvmNormal) return 1.0f;
+        const bool diffuse = L.kind == LobeKind::Diffuse || L.kind == LobeKind::Sheen ||
+                             L.kind == LobeKind::Translucent || L.kind == LobeKind::Subsurface;
+        return astroray::bumpcorr::bumpShadowingTerm(rec.svmNormal, L.ownN ? L.N : rec.normal, wi, true,
+                                                     diffuse, rec.bumpMapCorrection);
+    }
 
     // #1005: `rec` re-framed on a lobe's own shading normal (see Lobe::ownN).
     static HitRecord lobeFrame(const HitRecord& rec, const Vec3& N) {
@@ -1051,6 +1064,17 @@ class PrincipledPlugin : public Material {
                               (rec.svmNormal - rec.normal).length2() > 0.0f;
         const Vec3 coatN = coatOwnN ? rec.svmNormal : rec.normal;
         const float nvCoat = coatOwnN ? std::clamp(coatN.dot(wo), 1e-4f, 1.0f) : nv;
+        // #1154: under a NormalMapped decorator with Bump Map Correction, the glossy closures
+        // (coat on the bumped normal, metallic, specular, transmission / thin glass) and the
+        // subsurface entry shade on maybe_ensure_valid_specular_reflection(N) (Cycles @ Blender
+        // v5.2.0 kernel/svm/closure.h:154,295,495); diffuse, sheen and thin-wall translucent
+        // keep N. Their view-angle weights use the lifted normal's cosine, as Cycles' setup does.
+        const bool glossOwnN = rec.bumpPerLobe && rec.bumpMapCorrection && rec.hasSvmNormal &&
+                               (rec.svmNormal - rec.normal).length2() > 0.0f;
+        const Vec3 glossN = glossOwnN
+            ? astroray::bumpcorr::ensureValidSpecularReflection(rec.svmNormal, wo, rec.normal) : rec.normal;
+        const float nvG = glossOwnN ? std::clamp(glossN.dot(wo), 1e-4f, 1.0f) : nv;
+        auto glossLobe = [&](Lobe& L) { L.ownN = glossOwnN; L.N = glossN; };
         Vec3 weight(1.0f, 1.0f, 1.0f);  // running weight (W₀ = 1)
         // pkg194 Item 1 — running per-λ layering weight (mirrors `weight`). `usp`
         // upsamples one reflectance colour; layering transmissions are achromatic
@@ -1112,7 +1136,9 @@ class PrincipledPlugin : public Material {
         //    albedo layering attenuate everything below.
         if (coatWeight_ > 1e-4f) {
             float f0c = F0_from_ior(coatIor_);
-            float sView = generalizedSchlickS(nvCoat, coatIor_);
+            // #1154: a coat on the bumped normal is a glossy closure (lifted); on sd->N it is not.
+            const float nvC = coatOwnN ? nvCoat : nvG;
+            float sView = generalizedSchlickS(nvC, coatIor_);
             float Fview = f0c + (1.0f - f0c) * sView;
             Lobe L;
             L.kind = LobeKind::Coat;
@@ -1120,15 +1146,15 @@ class PrincipledPlugin : public Material {
             L.color = Vec3(f0c);
             L.roughness = coatRoughness_;
             L.ior = coatIor_;
-            L.ownN = coatOwnN;
-            L.N = coatN;
+            L.ownN = coatOwnN || glossOwnN;
+            L.N = coatOwnN ? coatN : glossN;
             L.sel = std::max(luminance(weight * coatWeight_) * Fview, 1e-4f);
             if (lam) L.weightSpec = weightSp * coatWeight_;
             lobes.push_back(L);
-            Vec3 coatAlb = ggxLayeringAlbedo(Vec3(f0c), coatRoughness_, nvCoat, coatIor_) * coatWeight_;
+            Vec3 coatAlb = ggxLayeringAlbedo(Vec3(f0c), coatRoughness_, nvC, coatIor_) * coatWeight_;
             float layT = layeringScale(weight, coatAlb);
             weight = weight * layT;
-            Vec3 beer = coatBeerFactor(nvCoat);  // chromatic coat-tint Beer absorption
+            Vec3 beer = coatBeerFactor(nvC);  // chromatic coat-tint Beer absorption
             weight = weight * beer;
             if (lam) weightSp = weightSp * layT * usp(beer);
         }
@@ -1140,6 +1166,7 @@ class PrincipledPlugin : public Material {
             L.color = baseColor_;
             L.roughness = roughness_;
             L.ior = ior_;
+            glossLobe(L);  // #1154
             L.anisotropic = anisotropic_;          // pkg178 PR-4b
             L.anisoRotation = anisotropicRotation_;
             L.sel = std::max(luminance(L.weight * baseColor_), 1e-4f);
@@ -1158,15 +1185,16 @@ class PrincipledPlugin : public Material {
         if (transmission_ > 1e-4f && luminance(weight) > 1e-4f) {
             if (thinWall_) {
                 Vec3 Rp, Tp;
-                thinGlassFresnelRGB(nv, Rp, Tp);  // per-channel R', T' at the view angle
+                thinGlassFresnelRGB(nvG, Rp, Tp);  // per-channel R', T' at the view angle
                 // pkg194 Item 2: per-λ native R'/T' (Beer/film/f0 evaluated per
                 // wavelength, not upsampled from the RGB channels).
                 astroray::SampledSpectrum RpS, TpS;
-                if (lam) thinGlassFresnelSpectral(nv, *lam, RpS, TpS);
+                if (lam) thinGlassFresnelSpectral(nvG, *lam, RpS, TpS);
                 Vec3 baseW = weight * transmission_;
                 if (luminance(Rp) > 1e-6f) {
                     Lobe L;
                     L.kind = LobeKind::ThinGlassReflect;
+                    glossLobe(L);  // #1154
                     L.weight = baseW * Rp;
                     L.color = specularTint_;  // constant-Fresnel colour → energy-comp Fss
                     L.roughness = roughness_;
@@ -1182,6 +1210,7 @@ class PrincipledPlugin : public Material {
                     float aT = thinGlassTransmissionRoughness(aReflect, ior_);
                     Lobe L;
                     L.kind = LobeKind::ThinGlassTransmit;
+                    glossLobe(L);  // #1154
                     L.weight = baseW * Tp;
                     L.color = Vec3(1.0f);  // white constant Fresnel (reflection ggx_E tables)
                     L.ior = ior_;
@@ -1195,6 +1224,7 @@ class PrincipledPlugin : public Material {
                 Lobe L;
                 L.kind = LobeKind::Transmission;
                 L.weight = weight * transmission_;
+                glossLobe(L);  // #1154
                 L.color = baseColor_;
                 L.roughness = roughness_;
                 // #1084: rough transmission at eta == 1 exactly has wi = -wo, so the
@@ -1211,7 +1241,7 @@ class PrincipledPlugin : public Material {
                     // average(darkening)` (Blender 5.2 kernel/closure/bsdf_microfacet.h:483,
                     // BSD-3-Clause). Selection only (variance); eval/pdf use the same sel.
                     Vec3 dark; float eScale;
-                    glassEnergyTerms(L, rec.frontFace ? ior_ : (1.0f / ior_), nv, dark, eScale);
+                    glassEnergyTerms(L, rec.frontFace ? ior_ : (1.0f / ior_), nvG, dark, eScale);
                     L.sel = std::max(luminance(L.weight) * ((dark.x + dark.y + dark.z) / 3.0f), 1e-4f);
                 }
                 // Film-off transmission eval uses L.weight directly (pkg188 Finding A
@@ -1237,11 +1267,12 @@ class PrincipledPlugin : public Material {
                 if (ior_ < 1.0f) specEta = 1.0f / specEta;
             }
             Vec3 specF0 = Vec3(f0s) * specularTint_;  // fresnel->f0 = f0 * specular_tint
-            float sView = generalizedSchlickS(nv, specEta);
+            float sView = generalizedSchlickS(nvG, specEta);
             Vec3 Fview = specF0 + (Vec3(1.0f) - specF0) * sView;  // mix(f0, f90=1, s)
             Lobe L;
             L.kind = LobeKind::Specular;
             L.weight = weight;
+            glossLobe(L);  // #1154
             L.color = specF0;
             L.roughness = roughness_;
             L.ior = specEta;
@@ -1251,7 +1282,7 @@ class PrincipledPlugin : public Material {
             // specF0 upsampled separately in the eval (Fresnel) → weightSpec = layer weight.
             if (lam) L.weightSpec = weightSp;
             lobes.push_back(L);
-            Vec3 specAlb = ggxLayeringAlbedo(specF0, roughness_, nv, specEta);
+            Vec3 specAlb = ggxLayeringAlbedo(specF0, roughness_, nvG, specEta);
             float layT = layeringScale(weight, specAlb);
             weight = weight * layT;
             if (lam) weightSp = weightSp * layT;
@@ -1302,6 +1333,7 @@ class PrincipledPlugin : public Material {
                 Lobe L;
                 L.kind = LobeKind::Subsurface;
                 L.weight = weight * baseColor_ * subsurfaceWeight_;
+                glossLobe(L);  // #1154: Cycles lifts the BSSRDF normal too (svm/closure.h:495)
                 L.color = baseColor_;
                 L.roughness = 0.0f;  // Lambertian approximation
                 L.sel = std::max(luminance(L.weight), 1e-4f);
@@ -2210,6 +2242,7 @@ public:
     bool isDispersive() const override { return dispersive_; }
     Vec3 getCauchyAB() const override { return Vec3(cauchyA_, cauchyB_, 0.0f); }
     bool isGlossy() const override { return true; }
+    bool appliesBumpCorrectionPerLobe() const override { return true; }  // #1154
     // #1045: smooth conductor (metallic, no transmission, roughness_is_almost_specular
     // alpha^2 <= 2e-10, the threshold the glass lobes use above) = no diffuse lobe.
     bool isDeltaOnly() const override {
@@ -2318,7 +2351,7 @@ public:
         auto lobes = assembleLobes(rec, wo);
         Vec3 sum(0);
         for (const auto& L : lobes)
-            if (!L.isDelta) sum += evalLobeRGB(L, rec, wo, wi);
+            if (!L.isDelta) sum += evalLobeRGB(L, rec, wo, wi) * bumpShadowing(L, rec, wi);
         return Vec3::max(sum, Vec3(0.0f));
     }
 
@@ -2329,7 +2362,7 @@ public:
         auto lobes = assembleLobes(rec, wo, &lambdas);  // pkg194: per-λ layering carry
         astroray::SampledSpectrum sum(0.0f);
         for (const auto& L : lobes)
-            if (!L.isDelta) sum += evalLobeSpectral(L, rec, wo, wi, lambdas);
+            if (!L.isDelta) sum += evalLobeSpectral(L, rec, wo, wi, lambdas) * bumpShadowing(L, rec, wi);
         return sum;
     }
 

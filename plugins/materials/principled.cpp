@@ -188,7 +188,7 @@ class PrincipledPlugin : public Material {
     // CLOSURE_IS_BSDF_DIFFUSE: diffuse, sheen, translucent; the subsurface lobe stands in for the
     // diffuse exit closure) also get the terminator softening when the correction is on.
     static float bumpShadowing(const Lobe& L, const HitRecord& rec, const Vec3& wi) {
-        if (!rec.bumpPerLobe || !rec.hasSvmNormal) return 1.0f;
+        if (!rec.bumpPerLobe || !rec.hasSvmNormal || rec.bumpSetsSdN) return 1.0f;
         const bool diffuse = L.kind == LobeKind::Diffuse || L.kind == LobeKind::Sheen ||
                              L.kind == LobeKind::Translucent || L.kind == LobeKind::Subsurface;
         return astroray::bumpcorr::bumpShadowingTerm(rec.svmNormal, L.ownN ? L.N : rec.normal, wi, true,

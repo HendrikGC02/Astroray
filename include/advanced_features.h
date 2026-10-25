@@ -1266,7 +1266,7 @@ std::shared_ptr<Material> makeNormalMapped(
     std::shared_ptr<Texture> normalTex,
     std::shared_ptr<Texture> bumpTex,
     float normalStr, float bumpStr, float bumpDist, bool coatFollows = false,
-    bool bumpMapCorrection = true);  // #1154
+    bool bumpMapCorrection = true, bool bumpSetsSdN = false);  // #1154
 } // namespace astroray
 
 

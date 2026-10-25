@@ -1698,7 +1698,7 @@ __device__ ASTRORAY_SHADE_NOINLINE inline float gpu_bumpShadowing(
     const GPUWavefrontHitBuffers& hitBufs, int idx, int materialId, const GVec3& N, const GVec3& wi)
 {
     const int bm = c_wfTexBinding.matBumpCorrect ? c_wfTexBinding.matBumpCorrect[materialId] : 0;
-    if (bm == 0) return 1.0f;
+    if (bm == 0 || (bm & astroray::bumpcorr::kSetsSdNBit)) return 1.0f;  // displacement: sd->N = N
     const GVec3 Ns(hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx], hitBufs.hit_normal_z[idx]);
     return astroray::bumpcorr::bumpShadowingTerm(
         Ns, N, wi, true, (bm & astroray::bumpcorr::kClassMask) == astroray::bumpcorr::kDiffuse,
@@ -2604,8 +2604,10 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                     if (cosI <= 1e-3f) return 0.0f;
                     GSampledWavelengths one;
                     for (int li = 0; li < G_SPECTRUM_SAMPLES; ++li) { one.lambda[li] = ph.lambda; }
-                    const float f = gpu_material_eval_spectral<HasPrincipled>(
+                    float f = gpu_material_eval_spectral<HasPrincipled>(
                         mat, rec, wo, wi, one).v[0] / cosI;
+                    if constexpr (HasNormalPerturb)  // #1154 (CPU twin: evalSpectral)
+                        f *= gpu_bumpShadowing(hitBufs, idx, rec.materialId, rec.normal, wi);
                     return f > 0.0f ? f * M_PI_F : 0.0f;
                 };
                 GVec3 E = astroray::photon::gpu::photonGridGatherKnnWeighted(
@@ -2669,8 +2671,10 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // (all 7 GMAT types + closure graphs), drawing directly from the
     // per-path PCG32 stream (template-RNG arc; see the NEE note above).
     GBSDFSample bss = gpu_shade_sample_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, lambdas, &rng);
-    if constexpr (HasNormalPerturb)  // #1154 bump_shadowing_term (CPU: NormalMappedPlugin::sample)
-        bss.fSpectral *= gpu_bumpShadowing(hitBufs, idx, rec.materialId, rec.normal, bss.wi);
+    if constexpr (HasNormalPerturb) {  // #1154 bump_shadowing_term (CPU: NormalMappedPlugin::sample)
+        if (!bss.isDelta)  // a delta sample is never zeroed (Cycles bsdf.h:297-315)
+            bss.fSpectral *= gpu_bumpShadowing(hitBufs, idx, rec.materialId, rec.normal, bss.wi);
+    }
     if (bss.pdf <= 0.0f) {
         state.color_0[idx] = color.v[0];
         state.color_1[idx] = color.v[1];

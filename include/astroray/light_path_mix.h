@@ -60,6 +60,7 @@ public:
     std::shared_ptr<Texture> bumpMapTexture() const override { return a_->bumpMapTexture(); }
     float bumpMapStrength() const override { return a_->bumpMapStrength(); }
     float bumpMapDistance() const override { return a_->bumpMapDistance(); }
+    int bumpCorrectionMode() const override { return a_->bumpCorrectionMode(); }  // #1154
     HairGPUParams hairGPUParams() const override { return a_->hairGPUParams(); }
     std::shared_ptr<Texture> scalarProgram(int slot) const override { return a_->scalarProgram(slot); }
     MaterialClosureGraph closureGraph() const override { return a_->closureGraph(); }

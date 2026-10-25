@@ -436,6 +436,7 @@ struct HitRecord {
     // (ensure_valid_specular_reflection on glossy lobes + diffuse terminator softening).
     bool bumpPerLobe = false;
     bool bumpMapCorrection = false;
+    bool bumpSetsSdN = false;  // Output Displacement bump: sd->N is the bumped normal, term = 1
     const Vec3& shadingContextNormal() const { return hasSvmNormal ? svmNormal : normal; }
 
     HitRecord() : t(std::numeric_limits<float>::max()), frontFace(true), isDelta(false), hitObject(nullptr) {}

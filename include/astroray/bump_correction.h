@@ -40,6 +40,11 @@ enum Mode : int {
     kPerLobe = 3,  // Principled: the CPU applies both per closure; the GPU treats it as kGlossy
     kClassMask = 3,
     kCorrectionBit = 4,
+    // An Output Displacement (Bump method) bump: Cycles bump_from_displacement sets sd->N to the
+    // bumped normal (scene/shader_graph.cpp:1092-1100, svm/closure.h:1519-1525), so
+    // bump_shadowing_term sees sc->N == sd->N and returns 1 (bsdf.h:91-93): no hemisphere test,
+    // no softening. The glossy lift still applies (toward Ng; here the pre-bump normal).
+    kSetsSdNBit = 8,
 };
 
 // Cycles ensure_valid_specular_reflection (bsdf_util.h:322-395): if the reflection of I about
@@ -49,6 +54,7 @@ template<class V>
 AR_BUMPC_HD inline V ensureValidSpecularReflection(const V& Ng, const V& I, const V& N) {
     const V R = N * (2.0f * N.dot(I)) - I;
     const float Iz = I.dot(Ng);
+    if (Iz <= 0.0f) return N;  // Cycles' facet Ng always faces wi; a smooth Ns may not (silhouettes)
     const float threshold = fminf(0.9f * Iz, 0.01f);
     if (Ng.dot(R) >= threshold) return N;
     V X = N - Ng * N.dot(Ng);  // safe_normalize_fallback(N - dot(N, Ng) Ng, N)
@@ -69,9 +75,11 @@ AR_BUMPC_HD inline V ensureValidSpecularReflection(const V& Ng, const V& I, cons
 // Cycles bump_shadowing_term (bsdf.h:86-146). I = light direction. Zero when I and N lie on
 // opposite sides of Ns (all closures on eval, diffuse closures on sample); with the correction
 // on, diffuse closures are softened by the GGX G1 of alpha^2 = 0.125 tan^2(N, Ns).
-// Astroray calls it with isEval = true on the sample path too: its spectral sample re-evaluates
-// f through evalSpectral, so a sampled glossy direction crossing Ns is zeroed as well (Cycles
-// keeps the sampled glossy closure there). CPU and GPU agree.
+// Sample path (Cycles bsdf.h:297-315): a delta sample is never zeroed (transmission labels skip
+// the term; a reflection uses is_eval = false, which only touches diffuse closures). A non-delta
+// sample takes the eval rule (isEval = true): Astroray's spectral sample re-evaluates f through
+// evalSpectral, so a sampled glossy direction crossing Ns is zeroed too (Cycles keeps it).
+// CPU and GPU agree.
 template<class V>
 AR_BUMPC_HD inline float bumpShadowingTerm(const V& Ns, const V& N, const V& I, bool isEval,
                                            bool isDiffuse, bool correction) {

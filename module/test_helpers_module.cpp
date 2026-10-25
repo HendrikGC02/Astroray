@@ -135,6 +135,9 @@ std::array<int, 2> probeGuideSnapshotCollapse(int trials, bool dispersive) {
     renderer.addObject(std::make_shared<Sphere>(Vec3(0, 0, -3), 1.0f, reg.create("lambertian", diffuse)));
     renderer.addObject(std::make_shared<Sphere>(Vec3(0, 3, -3), 0.2f, reg.create("light", glow)));
     renderer.addObject(std::make_shared<Sphere>(Vec3(0, 0, 0), 20.0f, reg.create("dielectric", shell)));
+    // #1165: the continuation through the shell is now traced (Cycles max_bounces + 1), so a
+    // black world keeps the probe's premise (only the small lamp lies downstream).
+    renderer.setBackgroundColor(Vec3(0.0f));
     renderer.buildAcceleration();
     renderer.setGuiding(true);
     std::vector<std::vector<astroray::guiding::GuideRecord>> bufs(1);

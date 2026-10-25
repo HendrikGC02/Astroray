@@ -1809,7 +1809,7 @@ std::vector<float> cuda_wavefront_render(
     if (numPixels <= 0 || samples <= 0) {
         throw std::runtime_error("cuda_wavefront_render: invalid dimensions");
     }
-    int total_paths = wavefrontPoolSize(numPixels, samples, max_depth,
+    int total_paths = wavefrontPoolSize(numPixels, samples, max_depth + 2,  // #1165: vertices / path
                                         wfCtx().stateCapacity);
     // Per-path state is allocated here, before any pool-strided buffer or
     // binding, so a failed enlarged pool can fall back to numPixels slots.
@@ -2227,7 +2227,9 @@ std::vector<float> cuda_wavefront_render(
                                                : kWfTransparentOff);
     setWavefrontDielectricCapPass(capPassOn);
     const int tLim = renderer.getMaxTransparentBounces();
-    const int passDepth = max_depth +
+    // #1165: a path has up to max_depth + 2 vertices (Cycles max_bounces + 1 scatters, then
+    // the emission-only surface).
+    const int passDepth = max_depth + 2 +
         (transparentOn ? (tLim >= 0 ? tLim : 31) + 1 : 0);
     ::GLight*   d_lights    = wfSync(reuse, C.lights, res.lights);
     // pkg89-wavefront (C7): dedicated lights join wavefront NEE (unified
@@ -2768,8 +2770,8 @@ std::vector<float> cuda_wavefront_render(
         // Pass-count planning. waves = how many full pools the work needs.
         // SINGLE-WAVE renders (1-spp viewport chunks: total_work <= pool)
         // need NO counter readbacks at all: every path is claimed by the
-        // first regen and bounce-capped within max_depth passes, so exactly
-        // max_depth passes + the final accumulating regen finish the frame
+        // first regen and bounce-capped within max_depth + 2 passes (#1165), so exactly
+        // that many passes + the final accumulating regen finish the frame
         // (each readback is a 4-byte D2H sync = a pipeline stall per pass —
         // measured as the dominant 1-spp overhead, 2026-06-12). Multi-wave
         // renders keep the every-16 counter cadence.

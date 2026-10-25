@@ -318,6 +318,9 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
             return false;
         }
     }
+    // #1165: Cycles max_bounces convention (production pathTraceSpectral twin): the
+    // vertex after max_depth scatters adds its emission only and ends the path.
+    if (bounce > max_depth) { ps.alive = false; return false; }
 
     Vec3 wo = -ps.ray_direction.normalized();
 
@@ -506,8 +509,7 @@ bool advance_one_bounce(PathState& ps, HitRecord& rec,
     float maxC = ps.throughput.maxValue();
     if (maxC > 10.0f) ps.throughput = ps.throughput * (10.0f / maxC);
 
-    ps.bounce = bounce + 1;
-    if (ps.bounce >= max_depth) { ps.alive = false; return false; }
+    ps.bounce = bounce + 1;  // #1165: the continuation is always traced
     return true;
 }
 

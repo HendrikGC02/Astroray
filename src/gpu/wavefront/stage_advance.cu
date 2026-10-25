@@ -853,7 +853,8 @@ __global__ void stageVolumeScatterKernel(
     state.rng_dimension[idx] = rng.dimension();
     int next_bounce = bounce + 1;
     state.bounce[idx] = next_bounce;
-    if (next_bounce >= max_depth) { state.path_alive[idx] = 0; return; }
+    // #1165: reaching the total cap sets terminate-after; the continuation is traced.
+    if (bounce >= max_depth) gpu_setTerminateAfter(state.per_type_bounce, idx);
     int slot = atomicAdd(count_out, 1);
     queue_out[slot] = idx;
 }

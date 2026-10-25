@@ -57,7 +57,7 @@ std::vector<float> cpu_wavefront_render(
     // Wavefront loop: advance every alive path one bounce per iteration
     // until all paths terminate. Each iteration is the SHARED per-bounce
     // kernel applied across the queue.
-    for (int iter = 0; iter < max_depth; ++iter) {
+    for (int iter = 0; iter <= max_depth + 1; ++iter) {  // #1165: max_depth + 2 vertices
         int num_alive = 0;
         for (int i = 0; i < state.num_active; ++i) {
             if (state.path_alive[i]) num_alive++;

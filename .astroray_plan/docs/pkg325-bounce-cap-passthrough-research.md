@@ -16,14 +16,16 @@ Source: Blender v5.2.0 (Apache-2.0), read from the tag; line numbers are that ta
 So Cycles "terminate" = the next glass surface has no BSDF. A path through k glass interfaces needs `max_bounces >= k-1`
 (measured on the pkg325 scene: 2 / 4 / 6 interfaces pass at caps 1 / 3 / 5).
 
-## Astroray terminate (unchanged)
-`pathTraceSpectral` ends a path whose continuation would be vertex `maxDepth` (`bounce + 1 >= maxDepth`) or whose lobe type
-counter reached its limit. k interfaces need `maxDepth >= k+1`: at equal Blender setting Astroray allows 2 fewer glass bounces
-than Cycles (measured, CPU = GPU = addon route). Pre-existing, not changed here; the default stays as is. Filed as
-#1165 (Cycles k-1 suffices for k interfaces, Astroray needs k+1).
+## Astroray terminate
+Before #1165 `pathTraceSpectral` ended a path whose continuation would be vertex `maxDepth` (`bounce + 1 >= maxDepth`) or
+whose lobe type counter reached its limit, so k interfaces needed `maxDepth >= k+1` (2 fewer glass bounces than Cycles).
+#1165 adopts the Cycles rule above on CPU and GPU: the scatter with `bounce >= maxDepth`, or the one whose per-type count
+reaches its limit, sets a sticky terminate-after; its continuation is traced and the next surface adds emission only. k
+interfaces now need `max_bounces >= k-1` (pkg325 stack ROI means match the Cycles s7 renders within 0.004 at caps 1..64).
+Transparent and volume caps already followed Cycles and are unchanged.
 
 ## passthrough
-Where terminate would end the path after a TRANSMISSION sample, the sample keeps its weight f/pdf but goes straight on
+Where terminate would end the path after a TRANSMISSION sample (since #1165: where the sample sets terminate-after), the sample keeps its weight f/pdf but goes straight on
 (`wi = -wo`) as a transparent pass. The weight is kept because it carries the 1/eta^2 radiance scaling of entering glass:
 resetting the throughput to 1 (the literal "unchanged throughput") leaves a path that is capped inside a slab at 1/2.25 of
 the white world (measured: stack ROI mean 0.46 at cap 4 vs 0.89 with the weight kept; 1.0 uncapped). Reflection samples at a

@@ -111,10 +111,3 @@ channels = ["b"]
 issue = "#986"
 reason = "heavy-tailed emitter glow; 5-seed GPU mean = baseline (z 0.3), seed 278 reads 0.929"
 
-[[row]]
-scene = "v2_thin_film_metals"
-backend = "gpu"
-roi = "sphere_RoughGlassFilm"
-channels = ["r", "L"]
-issue = "#986"
-reason = "20-seed GPU mean = baseline (z -0.3); seed 278 reads 0.951 (L) and r 0.9466 vs tol 0.0534 on bd651551, d846d85c and ecd36567 alike (2026-10-25 sweep); g passes on all three (the old row's g was a strict XPASS)"

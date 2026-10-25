@@ -17,7 +17,7 @@ scene = "prod_car_paint"
 backend = "cpu"
 kind = "parity"
 issue = "#1005"
-reason = "#1005: procedural flake Bump now applied on CPU and the coat keeps sd->N (the ~2x overshoot was the bump reaching the coat): 3/16 -> 13/16; residual B-channel deficit also present without the bump (lit_front B 0.93x, upper_flake B 0.97x, lower_shadowed G 1.03x)"
+reason = "#1005: procedural flake Bump now applied on CPU and the coat keeps sd->N (the ~2x overshoot was the bump reaching the coat): 3/16 -> 13/16; residual B-channel deficit also present without the bump (lit_front B 0.93x, upper_flake B 0.97x, lower_shadowed G 1.03x); #1165 (+1 bounce, CPU seed 278, MinGW staged build vs main 18b4c053): 13/16 -> 12/16, lit_front L 0.962 B 0.924, lower_shadowed B 0.950, upper_flake B 0.972"
 
 [[row]]
 scene = "prod_car_paint"
@@ -31,7 +31,7 @@ scene = "prod_wood"
 backend = "cpu"
 kind = "parity"
 issue = "#993"
-reason = "#1006 + #881 fixed (Object coords object-local, Noise matches Cycles: ring/band layout now as Cycles, 4/16 -> 7/16); residual is the Roughness chain hitting VM_MAX_SLOTS (#993): flattened to grey: too-glossy sparkly specular + sun highlight Cycles does not show; procedural Bump now applied on CPU (#1005; bump effect matches Cycles within ~1 % at 256 spp): B-channel deficit grain_center B 0.95x, lower B 0.95x, grain_right B 0.94x (12/16)"
+reason = "#1006 + #881 fixed (Object coords object-local, Noise matches Cycles: ring/band layout now as Cycles, 4/16 -> 7/16); residual is the Roughness chain hitting VM_MAX_SLOTS (#993): flattened to grey: too-glossy sparkly specular + sun highlight Cycles does not show; procedural Bump now applied on CPU (#1005; bump effect matches Cycles within ~1 % at 256 spp): B-channel deficit grain_center B 0.95x, lower B 0.95x, grain_right B 0.94x (12/16); #1165 (CPU seed 278, vs main 18b4c053): 12/16 -> 13/16, grain_center B 0.948, grain_right B 0.931, lower B 0.952"
 
 [[row]]
 scene = "prod_wood"
@@ -45,7 +45,7 @@ scene = "prod_pbr_group"
 backend = "cpu"
 kind = "parity"
 issue = "#1004"
-reason = "#1004 root cause was Image Texture extension REPEAT (fixed: tile layout now matches); image Bump now steps the input UV and differences the Linear height, Normal Map read Linear (#1004): 9/16 -> 11/16, centre 0.99x; at 1024 spp every ROI L is 0.975-0.995x, the seed-278 right ROI reads 0.94x (MC tail) and lower B 0.91x is pre-existing"
+reason = "#1004 root cause was Image Texture extension REPEAT (fixed: tile layout now matches); image Bump now steps the input UV and differences the Linear height, Normal Map read Linear (#1004): 9/16 -> 11/16, centre 0.99x; at 1024 spp every ROI L is 0.975-0.995x, the seed-278 right ROI reads 0.94x (MC tail) and lower B 0.91x is pre-existing; #1165 (CPU seed 278, vs main 18b4c053): 11/16 -> 14/16, right B 0.926, lower B 0.925"
 
 [[row]]
 scene = "prod_pbr_group"
@@ -59,7 +59,7 @@ scene = "prod_shader_stack"
 backend = "cpu"
 kind = "parity"
 issue = "#995"
-reason = "#995 fixed (per-hit closure mix, Add sum, emission + BSDF continue): 0/16 -> 4/16, L lit_front 0.989 right 0.965 lower 0.894 upper_left 0.933 (seed 278). Residual = emission inside the glass seen through it: Astroray's BTDF keeps the pbrt-v4 radiance factor 1/eta^2 (ggx_glass_energy.h), Cycles omits it; with glass IOR 1 the same stack is 15/16 within 1 % of Cycles. Physics divergence for owner review"
+reason = "#995 fixed (per-hit closure mix, Add sum, emission + BSDF continue): 0/16 -> 4/16, L lit_front 0.989 right 0.965 lower 0.894 upper_left 0.933 (seed 278). Residual = emission inside the glass seen through it: Astroray's BTDF keeps the pbrt-v4 radiance factor 1/eta^2 (ggx_glass_energy.h), Cycles omits it; with glass IOR 1 the same stack is 15/16 within 1 % of Cycles. Physics divergence for owner review; #1165 (CPU seed 278, vs main 18b4c053): 4/16 -> 5/16, L right 0.965 lower 0.899 upper_left 0.929"
 
 [[row]]
 scene = "prod_shader_stack"
@@ -73,7 +73,7 @@ scene = "prod_light_path"
 backend = "cpu"
 kind = "parity"
 issue = "#1038"
-reason = "#991 fixed (hidden emitter 0.07x -> 1.00, shadow-transparent glass, Ray Length floor tint); bands re-blessed on b4e15d06 (the old ones measured the flattened export). Residual: glass_ball_centre r 1.065 / b 1.037 = the plain-Glass bias (#1038), floor_near r 0.975 (17/20)"
+reason = "#991 fixed (hidden emitter 0.07x -> 1.00, shadow-transparent glass, Ray Length floor tint); bands re-blessed on b4e15d06 (the old ones measured the flattened export). Residual: glass_ball_centre r 1.065 / b 1.037 = the plain-Glass bias (#1038), floor_near r 0.975 (17/20); #1165 (CPU seed 278, vs main 18b4c053 which reads 20/20 on this build): 19/20, floor_near r 0.976"
 
 [[row]]
 scene = "prod_light_path"
@@ -87,7 +87,7 @@ scene = "prod_curves_geometry"
 backend = "cpu"
 kind = "parity"
 issue = "#1141"
-reason = "pkg322 landed Pointiness (CPU 0/16 -> 13/16 channels in band); residual inner_backface R 0.85 (mean of 8 seeds 0.853): saturated R=0.05 albedo loses red after >=2 spectral bounces (not Backfacing, #1141); outer_front G/B 0.98/0.96 is the low draw of an 8-seed mean 0.988/0.974 (sd 0.012)"
+reason = "pkg322 landed Pointiness (CPU 0/16 -> 13/16 channels in band); residual inner_backface R 0.85 (mean of 8 seeds 0.853): saturated R=0.05 albedo loses red after >=2 spectral bounces (not Backfacing, #1141); outer_front G/B 0.98/0.96 is the low draw of an 8-seed mean 0.988/0.974 (sd 0.012); #1165 (CPU seed 278, vs main 18b4c053): 12/16 -> 15/16, inner_backface R 0.833"
 
 [[row]]
 scene = "prod_curves_geometry"

@@ -11,6 +11,11 @@ questions), `stage0-gate-scoring-2026-10-18.md` (rows (b), (e), (g) re-measures)
   restaged 07:46 from the same HEAD. No worktrees remain.
 - **#1173 pkg306 Phase 0 merged** (main 0a4d4aaa; engine byte-identical). Diag switches live on `lane/pkg306-diag`
   372da5c9 for Phase 1.
+- **During the pause:** merged #1197 #1196 #1195 (main 0d750304); open PR #1191 only. On resume, first build and
+  GPU-test `i1038` at 42b0613c (`HANDOFF.md` in its evidence dir lists the runs), then message lane #1032 to continue
+  (smoke_plume 7.25x vs 3x gate: 50/50 MIS and the light sample at the scatter point are its next levers), then #1153
+  once #1191 merges. Issues filed during the pause: #1198 (caustics toggle inert on Principled floor, same root as
+  #1178), #1199 (`prod_light_path floor_near`).
 - **PAUSE (owner took the PC ~15:40 local 10-25; local GPU/CPU work stopped):** merged #1189 #1192 (main 27f621db);
   main `build_cuda` = 4d5d1188, `dist/astroray` restaged 15:32. On resume: merge #1191 #1195 #1196 #1197 when green
   (each pull_request run merges main), rebuild main + restage, then row (g) (`ASTRORAY_PYD_DIR=diststroray

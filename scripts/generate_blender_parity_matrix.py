@@ -1125,7 +1125,130 @@ def scan_vm_socket_evidence(addon_module, vm_path=None):
     return evidence
 
 
-def scan_object_image_evidence(addon_module):
+# =============================================================================
+# #1168 -- a value read only to be reported is not a use of it
+# =============================================================================
+#
+# `getattr(img_node, 'interpolation', ..)` feeding only a `_warn_shader_fallback` message tells the user
+# the property is NOT honoured; crediting it as SUPPORTED inverts that. A read counts only when its value
+# reaches a call other than the report sinks / `str`, a `return`, a store, or a decision that does more than
+# report. Variables a read is stored in are followed (one function scope).
+
+_REPORT_SINKS = frozenset({'_warn_shader_fallback', 'print'})
+_PASSTHROUGH_CALLS = frozenset({'str', 'repr'})
+_IDENTITY_ATTRS = frozenset({'type', 'bl_idname', 'name'})
+
+
+def _set_parents(tree):
+    """Annotate every node of `tree` with `_parent` (needed by `_is_consumed`)."""
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            child._parent = parent
+    return tree
+
+
+def _call_name(call):
+    f = call.func
+    return f.attr if isinstance(f, ast.Attribute) else f.id if isinstance(f, ast.Name) else None
+
+
+def _report_only_stmts(stmts):
+    return all(isinstance(s, ast.Pass) or (isinstance(s, ast.Expr) and isinstance(s.value, ast.Call)
+                                           and _call_name(s.value) in _REPORT_SINKS) for s in stmts)
+
+
+def _is_str_format(parent, cur):
+    """`'..' % cur` (and `'..' % (a, cur)` via the tuple): formatting passes the value through."""
+    return (isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.Mod) and cur is parent.right
+            and isinstance(parent.left, ast.Constant) and isinstance(parent.left.value, str))
+
+
+def _is_consumed(node, _seen=None):
+    """True when the value of expression `node` (an `x.P` Attribute or a `getattr(x, 'P', ..)` Call) is used
+    for more than reporting. A node without `_parent` (an unannotated tree) is conservatively consumed."""
+    seen = _seen if _seen is not None else set()
+    cur = node
+    while True:
+        parent = getattr(cur, '_parent', None)
+        if parent is None:
+            return True
+        if isinstance(parent, ast.keyword):
+            cur, parent = parent, getattr(parent, '_parent', None)
+            if parent is None:
+                return True
+        if isinstance(parent, ast.Call):
+            if cur is parent.func:
+                return True
+            name = _call_name(parent)
+            if name in _REPORT_SINKS:
+                return False
+            if name in _PASSTHROUGH_CALLS or (name == 'format' and isinstance(parent.func, ast.Attribute)
+                                              and isinstance(parent.func.value, ast.Constant)):
+                cur = parent
+                continue
+            return True
+        if isinstance(parent, (ast.JoinedStr, ast.FormattedValue, ast.Compare, ast.BoolOp)) or (
+                isinstance(parent, ast.UnaryOp) and isinstance(parent.op, ast.Not)) or _is_str_format(parent, cur):
+            cur = parent
+            continue
+        if isinstance(parent, ast.Tuple) and _is_str_format(getattr(parent, '_parent', None), parent):
+            cur = parent._parent
+            continue
+        if isinstance(parent, (ast.If, ast.While)) and cur is parent.test:
+            return not _report_only_stmts(parent.body + parent.orelse)
+        if isinstance(parent, ast.IfExp):
+            if cur is parent.test:
+                return True
+            cur = parent
+            continue
+        if isinstance(parent, ast.Expr):
+            return False
+        if isinstance(parent, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and cur is parent.value:
+            targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
+            names = [t.id for t in targets if isinstance(t, ast.Name)]
+            if len(names) != len(targets):
+                return True  # stored into an attribute / subscript / tuple
+            scope = parent
+            while getattr(scope, '_parent', None) is not None and not isinstance(
+                    scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                scope = scope._parent
+            for use in ast.walk(scope):
+                if (isinstance(use, ast.Name) and isinstance(use.ctx, ast.Load) and use.id in names
+                        and id(use) not in seen):
+                    seen.add(id(use))
+                    if _is_consumed(use, seen):
+                        return True
+            return False
+        return True
+
+
+def _is_identity_probe(name_node):
+    """`node.type` / `node.bl_idname` / `getattr(node, 'type', ..)`: the type test itself, not a use of the node."""
+    parent = getattr(name_node, '_parent', None)
+    if isinstance(parent, ast.Attribute) and parent.attr in _IDENTITY_ATTRS:
+        return True
+    return bool(isinstance(parent, ast.Call) and _call_name(parent) == 'getattr' and parent.args
+                and parent.args[0] is name_node and len(parent.args) >= 2 and isinstance(parent.args[1], ast.Constant)
+                and parent.args[1].value in _IDENTITY_ATTRS)
+
+
+def _receiver_consumed(roots, receivers):
+    """True when a node `receivers` names is used beyond the type test within `roots` (an attribute of it read
+    for more than reporting, or the node itself passed on / stored)."""
+    for root in roots:
+        for n in ast.walk(root):
+            if not (isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) and n.id in receivers):
+                continue
+            if _is_identity_probe(n):
+                continue
+            parent = getattr(n, '_parent', None)
+            target = parent if isinstance(parent, ast.Attribute) and parent.value is n else n
+            if _is_consumed(target):
+                return True
+    return False
+
+
+def scan_object_image_evidence(addon_module, addon_path=None):
     """pkg260 -- whole-file AST evidence for the `object` and `image_property`
     categories. Unlike shader-node sockets (scoped to convert_shader_node's
     ntype dispatch), Object/Mesh/Image properties are read across several
@@ -1133,24 +1256,27 @@ def scan_object_image_evidence(addon_module):
     _load_blender_image_resolved) with no shared dispatch pattern to scope a
     scanner to -- so this scans the WHOLE addon source, unscoped, for:
       - direct attribute reads (`x.attr`) and `getattr(x, 'attr', default)`
-        calls naming a target property;
+        calls naming a target property, whose value is used (#1168: a read that
+        only feeds a `_warn_shader_fallback` / `print` message is not);
       - `<expr>.attr == 'LITERAL'` comparisons (e.g. `obj.type == 'CURVES'`,
         `image.source == 'TILED'`), keyed by the compared attribute name.
     Same "mechanical, no hand-typed classification" discipline as the
     shader-node scanner above -- just unscoped, since there is no shared
     caller function to scope it to. Returns (found_attrs, compare_literals).
     """
-    addon_source_path = inspect.getfile(addon_module.CustomRaytracerRenderEngine)
+    addon_source_path = addon_path or inspect.getfile(addon_module.CustomRaytracerRenderEngine)
     with open(addon_source_path, 'r', encoding='utf-8') as f:
-        tree = ast.parse(f.read())
+        tree = _set_parents(ast.parse(f.read()))
 
+    # #1168: an attribute / getattr read is evidence only when its value is used, not merely reported.
     found_attrs = set()
     compare_literals = defaultdict(set)
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute):
-            found_attrs.add(node.attr)
+            if not isinstance(node.ctx, ast.Load) or _is_consumed(node):
+                found_attrs.add(node.attr)
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'getattr':
-            if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
+            if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) and _is_consumed(node):
                 found_attrs.add(node.args[1].value)
         elif isinstance(node, ast.Compare):
             left = node.left
@@ -1271,6 +1397,16 @@ def _out_name_test(test, aliases, consts):
     return None
 
 
+def _out_name_guards(test, aliases, consts):
+    """Every `_out_name_test` guard in `test`, looking inside `and` / `or` (#1168). A raise under
+    `out_name == 'X' and <cond>` rejects X at least sometimes, so it is a rejection (fail-closed); under
+    `or` each disjunct is a rejection outright."""
+    if isinstance(test, ast.BoolOp):
+        return [g for v in test.values for g in _out_name_guards(v, aliases, consts)]
+    guard = _out_name_test(test, aliases, consts)
+    return [guard] if guard else []
+
+
 def _out_name_mentions(test, aliases, consts):
     """[(positive, names)] for every comparison of an `aliases` name with a literal / literal collection /
     module constant anywhere in `test` (`out_name == 'X'`, `out_name not in OUTS`, inside `and` / `or`).
@@ -1340,11 +1476,12 @@ def _branch_output_rule(body, node_type, functions, consts):
                 if not _has_raise(stmt.body) and _appends_to_approx_list(stmt.body, aliases):
                     state['approximate'].update(n for positive, names in mentions if positive for n in names)
                 guard = _out_name_test(stmt.test, aliases, consts)
-                if guard and _has_raise(stmt.body):
-                    if guard[0] == 'not in':
-                        narrow(guard[1])
-                    else:
-                        state['rejected'].update(guard[1])
+                if _has_raise(stmt.body):
+                    for kind, names in _out_name_guards(stmt.test, aliases, consts):
+                        if kind == 'not in':
+                            narrow(names)
+                        else:
+                            state['rejected'].update(names)
                 if (isinstance(stmt.test, ast.Compare) and len(stmt.test.ops) == 1
                         and isinstance(stmt.test.ops[0], ast.Is) and isinstance(stmt.test.left, ast.Name)
                         and stmt.test.left.id in dict_gets and _has_raise(stmt.body)):
@@ -1485,7 +1622,7 @@ def scan_addon_output_names(addon_path):
                     keys = dict_vars.get(owner.id) if isinstance(owner, ast.Name) else dict_keys(owner)
                     names |= keys or set()
                 elif (isinstance(sub, ast.Compare) and isinstance(sub.left, ast.Name) and sub.left.id in name_vars
-                      and len(sub.ops) == 1):
+                      and len(sub.ops) == 1 and isinstance(sub.ops[0], (ast.Eq, ast.In))):  # #1168: not `!=`
                     comp = sub.comparators[0]
                     if isinstance(comp, ast.Constant) and isinstance(comp.value, str):
                         names.add(comp.value)
@@ -1537,7 +1674,7 @@ def scan_output_evidence(addon_module, vm_path=None, addon_path=None):
             if prev is not None:  # several branches for one type: the union of what they accept
                 rule['accepted'] = (None if (rule['accepted'] is None or prev['accepted'] is None)
                                     else rule['accepted'] | prev['accepted'])
-                rule['rejected'] = rule['rejected'] & prev['rejected']
+                rule['rejected'] = rule['rejected'] | prev['rejected']  # #1168: a refusal in any branch stands
                 rule['named'] = rule['named'] | prev['named']
                 rule['approximate'] = rule['approximate'] | prev['approximate']
                 rule['texture_leaf'] = rule['texture_leaf'] or prev['texture_leaf']
@@ -1587,7 +1724,8 @@ def _getattr_props(tree_node, receivers=None):
             if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name) and sub.func.id == 'getattr'
             and len(sub.args) >= 2 and isinstance(sub.args[1], ast.Constant) and isinstance(sub.args[1].value, str)
             and sub.args[1].value not in ('inputs', 'outputs', 'type', 'name', 'bl_idname', 'bl_rna', 'bl_label')
-            and (receivers is None or (isinstance(sub.args[0], ast.Name) and sub.args[0].id in receivers))}
+            and (receivers is None or (isinstance(sub.args[0], ast.Name) and sub.args[0].id in receivers))
+            and _is_consumed(sub)}  # #1168: a getattr read that only feeds a report is not a use
 
 
 def _type_aliases(fn):
@@ -1640,7 +1778,9 @@ def scan_root_node_evidence(addon_module, addon_path=None):
         nodes if n.type == 'OUTPUT_MATERIAL'), None)`, and variables assigned from such a variable), including
         the reads a one-level engine helper makes on the parameter that variable is passed to
         (`self.get_displacement_bump_inputs(output, mat)`).
-    Returns node_type -> {'sockets': names, 'properties': names, 'source_lines': [..], 'methods': names}. The
+    Returns node_type -> {'sockets': names, 'properties': names, 'source_lines': [..], 'methods': names,
+    'consumed': bool}; `consumed` is True when the tested node is used beyond the type test (an attribute of it
+    read for more than reporting, or the node passed on / stored; #1168). The
     matrix generator applies it only to node types with no other evidence and only to sockets / properties the
     live node has; `methods` (the engine methods the evidence came from) goes into the row notes, because the
     matrix has no context axis (#1101 review finding 6)."""
@@ -1648,7 +1788,7 @@ def scan_root_node_evidence(addon_module, addon_path=None):
         addon_path = inspect.getfile(addon_module.CustomRaytracerRenderEngine)
     try:
         with open(addon_path, 'r', encoding='utf-8') as f:
-            tree = ast.parse(f.read())
+            tree = _set_parents(ast.parse(f.read()))
     except (OSError, SyntaxError):
         return {}
     engine = next((n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == 'CustomRaytracerRenderEngine'),
@@ -1658,9 +1798,10 @@ def scan_root_node_evidence(addon_module, addon_path=None):
     methods = {n.name: n for n in engine.body if isinstance(n, ast.FunctionDef)}
     out = {}
 
-    def credit(node_type, sockets=(), props=(), line=0, method=None):
+    def credit(node_type, sockets=(), props=(), line=0, method=None, consumed=False):
         entry = out.setdefault(node_type, {'sockets': set(), 'properties': set(), 'source_lines': [],
-                                           'methods': set()})
+                                           'methods': set(), 'consumed': False})
+        entry['consumed'] = entry['consumed'] or consumed
         entry['sockets'].update(sockets)
         entry['properties'].update(props)
         if line and line not in entry['source_lines']:
@@ -1683,7 +1824,8 @@ def scan_root_node_evidence(addon_module, addon_path=None):
                     for node_type in literals:
                         credit(node_type, {n for r, n in _socket_reads(body) if r in receivers},
                                _getattr_props(body, receivers) | _getattr_props(stmt.test, receivers),
-                               stmt.lineno, fn.name)
+                               stmt.lineno, fn.name,
+                               consumed=_receiver_consumed([stmt.test, body], receivers))
                         for inner in stmt.body:  # `if node.type == 'T': output = node`
                             if (isinstance(inner, ast.Assign) and isinstance(inner.value, ast.Name)
                                     and inner.value.id in receivers
@@ -1750,6 +1892,8 @@ def _apply_root_node_evidence(evidence, root_reads, shader_nodes, handled_elsewh
         reads = root_reads.get(node_type)
         if reads is None or node_type in evidence or node_type in handled_elsewhere:
             continue
+        if not (reads['sockets'] or reads['properties'] or reads.get('consumed')):
+            continue  # #1168: a bare type comparison (or one that only reports) proves no consumption
         live = {}
         for sock in node_info['sockets_in']:
             live[sock['name']] = sock['name']

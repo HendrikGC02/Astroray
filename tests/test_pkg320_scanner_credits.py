@@ -46,6 +46,18 @@ def _compile_socket_value(socket, builder, depth=0):
         return _shared(node, out_name, builder)
     if ntype == 'OPEN':
         return 0
+    if ntype == 'COMPOUND':
+        if out_name == 'Bad' and builder.strict:
+            raise VMCompileError("refused sometimes")
+        if out_name == 'Worse' or out_name == 'Worst':
+            raise VMCompileError("refused")
+        return 0
+    if ntype == 'MERGE':
+        if out_name == 'Bad':
+            raise VMCompileError("refused")
+        return 0
+    if ntype == 'MERGE':
+        return 1
     if ntype == 'DICT':
         comp = {'X': 0, 'Y': 1}.get(out_name)
         if comp is None:
@@ -187,6 +199,12 @@ def walk(edge, node):
     if kind == 'PLAIN':
         name = edge.from_socket.name
         other = name
+    if kind == 'POLAR':
+        name = edge.from_socket.name
+        if name != 'Skip':
+            return 0
+        if name == 'Keep':
+            return 1
 '''
 
 
@@ -754,3 +772,110 @@ def test_committed_matrix_has_no_review_1101_false_credits():
     )
     for key in kept:
         assert m[key] in ("SUPPORTED", "APPROXIMATED"), key
+
+
+# --- #1168: fail-closed scanner paths (negative fixtures) -----------------------------------------------------
+
+def test_compound_condition_raise_is_a_rejection_negative_fixture(fx_out):
+    """NEGATIVE (#1168): `if out_name == 'Bad' and <cond>: raise` refuses Bad at least sometimes, and each
+    disjunct of `if out_name == 'A' or out_name == 'B': raise` is refused outright; the names the test mentions
+    must not earn a multi-output node's SUPPORTED credit."""
+    assert fx_out["COMPOUND"]["rejected"] == frozenset({"Bad", "Worse", "Worst"})
+    outs = [_out("Back"), _out("Bad"), _out("Worse"), _out("Worst")]
+    assert [_classify_out("COMPOUND", o, fx_out, outputs=outs) for o in outs] == \
+        ["SUPPORTED", "DROPPED-SILENT", "DROPPED-SILENT", "DROPPED-SILENT"]
+
+
+def test_sibling_branch_without_an_allow_list_does_not_unreject_negative_fixture(fx_out):
+    """NEGATIVE (#1168): two dispatch branches for one node type; the second refuses nothing. The rejected set
+    was intersected, so Bad (refused in the first branch, merely `named` by it) was credited SUPPORTED."""
+    assert fx_out["MERGE"]["rejected"] == frozenset({"Bad"})
+    outs = [_out("Back"), _out("Bad")]
+    assert [_classify_out("MERGE", o, fx_out, outputs=outs) for o in outs] == ["SUPPORTED", "DROPPED-SILENT"]
+
+
+def test_not_equal_comparison_does_not_name_an_output_negative_fixture(fx_out):
+    """NEGATIVE (#1168): in the addon walker `name != 'Skip'` is not positive evidence for Skip."""
+    assert fx_out["POLAR"]["named"] == frozenset({"Keep"})
+
+
+FIXTURE_IMAGE_ADDON = '''
+class CustomRaytracerRenderEngine:
+    def report_only(self, node):
+        interp = str(getattr(node, 'interpolation', 'Linear'))
+        if interp != 'Linear':
+            self._warn_shader_fallback('TEX_IMAGE', "interpolation '%s' is read Linear" % interp)
+
+    def printed(self, node):
+        print(node.projection)
+
+    def direct_message(self, node):
+        self._warn_shader_fallback('TEX_IMAGE', 'alpha %s' % node.alpha_mode)
+
+    def used(self, node):
+        return getattr(node, 'extension', 'REPEAT')
+
+    def kwarg(self, node, renderer):
+        renderer.load(mode=getattr(node, 'instance_type', None))
+
+    def stored_then_used(self, node, renderer):
+        cs = node.colorspace_settings
+        renderer.load(cs)
+
+    def decision(self, node):
+        src = node.source
+        if src == 'TILED':
+            return 1
+        return 0
+'''
+
+
+def test_report_only_attribute_reads_earn_no_credit_negative_fixture(tmp_path):
+    """NEGATIVE (#1168): a read whose value only feeds a `_warn_shader_fallback` / `print` message (directly, via
+    `str`, or through a variable that is only compared before the warning) is not evidence the property is
+    honoured; the same reads passed to a call, returned, stored or used in a decision are."""
+    src = tmp_path / "image_addon.py"
+    src.write_text(FIXTURE_IMAGE_ADDON, encoding="utf-8")
+    found, _ = GEN.scan_object_image_evidence(None, addon_path=src)
+    assert {"extension", "instance_type", "colorspace_settings", "source"} <= found
+    assert not ({"interpolation", "projection", "alpha_mode"} & found)
+
+
+def test_real_texture_image_interpolation_is_report_only():
+    """The live instance: `_report_non_linear_interp` reads `interpolation` only to format its warning."""
+    found, _ = GEN.scan_object_image_evidence(_addon_namespace())
+    assert "interpolation" not in found
+    assert {"extension", "instance_type"} <= found
+
+
+FIXTURE_ROOT_FAIL_CLOSED = '''
+class CustomRaytracerRenderEngine:
+    def setup(self, nt, renderer):
+        for node in nt.nodes:
+            if node.type == 'REPORT_ROOT':
+                note = getattr(node, 'only_reported', 0)
+                if note:
+                    self._warn_shader_fallback('REPORT_ROOT', 'not honoured %s' % note)
+                used = getattr(node, 'really_used', 1)
+                renderer.set(used)
+            elif node.type == 'TYPE_ONLY':
+                self._warn_shader_fallback('TYPE_ONLY', 'not honoured')
+            elif node.type == 'TYPE_USED':
+                renderer.load(node.image)
+'''
+
+
+def test_root_evidence_requires_a_consumed_use_negative_fixture(tmp_path):
+    """NEGATIVE (#1168): a root node whose only evidence is a type comparison (here followed by a warning that
+    never touches the node) is not SUPPORTED; a getattr read that only feeds a report is no property credit."""
+    src = tmp_path / "root_addon.py"
+    src.write_text(FIXTURE_ROOT_FAIL_CLOSED, encoding="utf-8")
+    reads = GEN.scan_root_node_evidence(None, addon_path=src)
+    assert reads["REPORT_ROOT"]["properties"] == {"really_used"}
+    assert reads["TYPE_ONLY"]["consumed"] is False and reads["TYPE_USED"]["consumed"] is True
+    nodes = [{"node_type": t, "sockets_in": [], "properties": {"only_reported": {}, "really_used": {}, "image": {}}}
+             for t in ("REPORT_ROOT", "TYPE_ONLY", "TYPE_USED")]
+    ev = GEN._apply_root_node_evidence({}, reads, nodes, set())
+    assert "TYPE_ONLY" not in ev
+    assert ev["TYPE_USED"]["classification"] == "SUPPORTED"
+    assert ev["REPORT_ROOT"]["properties"] == {"really_used"}

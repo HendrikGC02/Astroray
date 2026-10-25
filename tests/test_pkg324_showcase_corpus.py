@@ -159,8 +159,6 @@ def test_diamond_scene_uses_peter_1923_coefficients():
 
 
 @pytest.mark.cpu
-@pytest.mark.xfail(strict=True, reason="#1155: the engine's diamond Sellmeier preset has C = (0.0175, 0.106) (n_d = 2.758); "
-                                        "remove this marker in the fix PR")
 def test_engine_diamond_preset_matches_peter1923():
     text = (REPO / "include" / "astroray" / "optical_presets.h").read_text(encoding="utf-8")
     import re

@@ -149,3 +149,17 @@ def test_narrow_line_disperses_narrower_than_broadband():
         f"well below the broadband control's ({broadband_spread:.4f}) -- "
         f"expected narrow-line spread < broadband/3"
     )
+
+
+def test_diamond_preset_ior_is_peter_1923_cpu():
+    """#1155: the diamond preset's iorAt(587.56 nm) is 2.417 +-0.002. Through the CPU
+    dielectric path the preset renders bit-identically to a prism carrying the analytic
+    Peter (1923) coefficients (C = lambda_i^2, um^2) and not to the former C = (0.0175, 0.106)."""
+    B, C = [0.3306, 4.3356, 0.0], [0.175 ** 2, 0.106 ** 2, 0.0]
+    l2 = 0.58756 ** 2
+    assert np.sqrt(1.0 + sum(b * l2 / (l2 - c) for b, c in zip(B[:2], C[:2]))) == pytest.approx(2.417, abs=2e-3)
+    preset = render_edge_prism(astroray, "dielectric", {"sellmeier_preset": "diamond"})
+    manual = render_edge_prism(astroray, "dielectric", {"sellmeier_b": B, "sellmeier_c": C})
+    wrong = render_edge_prism(astroray, "dielectric", {"sellmeier_b": B, "sellmeier_c": [0.0175, 0.1060, 0.0]})
+    assert np.array_equal(preset, manual), "diamond preset != analytic Peter 1923 coefficients"
+    assert np.abs(preset - wrong).mean() > 0.005, "wrong-C control indistinguishable; test is vacuous"

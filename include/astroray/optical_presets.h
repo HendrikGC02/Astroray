@@ -32,7 +32,7 @@ inline const std::vector<OpticalGlassPreset>& opticalGlassPresets() {
             {1.0f, 1.0f, 1.0f}, true},
         {"diamond", 2.417f,
             {0.3306f, 4.3356f, 0.0f},
-            {0.0175f, 0.1060f, 0.0f},
+            {0.030625f, 0.011236f, 0.0f},
             {1.0f, 1.0f, 1.0f}, true},
         {"water", 1.333f,
             {0.0f, 0.0f, 0.0f},

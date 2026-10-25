@@ -165,7 +165,14 @@ AABB SpotLight::bounds() const {
 }
 
 OrientationCone SpotLight::orientationCone() const {
-    return OrientationCone::fromAxisAngle(axis_, outerAngle_);
+    // #1172: every emission direction is within the half angle of the axis, so
+    // theta_o = 0 and theta_e = the half angle (capped at pi/2), as Cycles
+    // v5.2.0 scene/light_tree.cpp:187-208 (Apache-2.0). The old (half, half)
+    // cone kept tree importance out to twice the spot cone. Not mirrored: the
+    // non-uniform-scale atan correction there (Astroray spots carry no scale)
+    // and the blend smoothstep on the emitter energy (kernel/light/spot.h:311-316,
+    // Astroray uses the node form for emitters).
+    return OrientationCone{axis_, 0.0f, std::min(outerAngle_, static_cast<float>(M_PI) * 0.5f)};
 }
 
 // Helper: compute falloff for angle θ from axis.

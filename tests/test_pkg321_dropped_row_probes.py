@@ -80,10 +80,13 @@ PROBE_VERDICT = {
     "s_sun_direction": ("inert", ""),                 # inert in Cycles for the Nishita types too (audit doc)
     "s_sun_direction_preetham": ("inert", "sun_direction (Cycles reads it for this sky_type"),
     # Glass thin film + misc
-    # pkg326 (#1136): consumed on rough glass; #1162: on smooth glass (the delta path) too
+    # pkg326 (#1136): consumed on rough glass; #1162: on smooth glass (the delta path) too, but the
+    # smooth sphere's noise floor is ~3x the rough one's, so its mean shift (as large as the rough
+    # probe's) stays under the 3x-noise bar: d_ab 1.4e-2 vs d_aa 1.1e-2, db_ab 7.4e-3 vs db_aa 5.1e-3.
+    # It was bit-identical (inert) before #1162; tests/test_pkg326_glass_thin_film.py layer 3 proves it.
     "g_thin_film_thickness": ("moves", ""),
     "g_thin_film_ior": ("moves", ""),
-    "g_thin_film_smooth": ("moves", ""),
+    "g_thin_film_smooth": ("faint", ""),
     "m_geometry_normal": ("reported", "Geometry output 'Normal' unsupported in the op-VM"),
 }
 

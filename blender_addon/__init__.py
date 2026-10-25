@@ -25,6 +25,14 @@ if addon_dir not in sys.path: sys.path.insert(0, addon_dir)
 
 from shader_blending import blend_shader_specs, add_shader_specs
 
+def _abspath_for(id_block, filepath):
+    """``bpy.path.abspath`` for a path stored on ``id_block``. A ``//`` path on a datablock
+    linked from a library .blend is relative to that library file, not the main file (#1158)."""
+    library = getattr(id_block, "library", None)
+    if library is not None:
+        return bpy.path.abspath(filepath, library=library)
+    return bpy.path.abspath(filepath)
+
 # #955: spec-kind pairs blend_shader_specs lerps/folds; any other Mix Shader pair
 # keeps the dominant shader and is reported.
 _MIX_LERPED_PAIRS = (("principled", "principled"), ("principled", "transparent"),
@@ -4109,7 +4117,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         filepath = getattr(bpy_image, "filepath", "") or ""
         packed = bool(getattr(bpy_image, "packed_file", None))
         if filepath and not packed:
-            abspath = bpy.path.abspath(filepath)
+            abspath = _abspath_for(bpy_image, filepath)
             if not os.path.exists(abspath):
                 try:
                     renderer.load_texture(cache_key, [1.0, 0.0, 1.0], 1, 1)
@@ -7626,7 +7634,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
         for node in node_tree.nodes:
             if node.type == 'TEX_ENVIRONMENT' and node.image:
-                hdri_path = bpy.path.abspath(node.image.filepath)
+                hdri_path = _abspath_for(node.image, node.image.filepath)
             elif node.type == 'TEX_SKY':
                 sky_node = node
             elif node.type == 'BACKGROUND':

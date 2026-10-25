@@ -3340,6 +3340,11 @@ std::vector<float> cuda_wavefront_render_restir(
     // the cache must not serve the next cuda_wavefront_render.
     C.sceneCached = false;
     SceneUploadResult res = buildSceneArrays(renderer, &cam);
+    // #1150: an alpha < 1 Principled scene passes through alpha surfaces in the primary
+    // stage (a pass is not a bounce): publish the transparent limit the shared intersect
+    // reads (pass_dist / pass_count / terminate), as cuda_wavefront_render does.
+    const bool alphaPass = res.hasAlphaShadow;
+    if (alphaPass) setWavefrontTransparentLimit(renderer.getMaxTransparentBounces());
     // #962: ReSTIR candidates/resolve carry no emitter point -> flat mean emission.
     if (res.hasEmissionTextureRequested)
         std::fprintf(stderr, "[#962] DEGRADED: ReSTIR-DI renders textured Emission "
@@ -3494,7 +3499,7 @@ std::vector<float> cuda_wavefront_render_restir(
             d_tlas, d_instances, d_blas, d_bvhNodes, d_prims, d_tris, d_spheres,
             d_motionVerts, d_materials, envMap, gbg, hasBg, worldMaxBounces,
             useLuminanceOutput, clampDirect, clampIndirect,  // pkg157
-            d_curveSegments);                                // #1042
+            d_curveSegments, alphaPass);                     // #1042, #1150
 
         launchStageRestirInitialRIS(
             state, hitBufs, curRes, d_prims, d_tris, d_spheres, d_materials,

@@ -869,6 +869,8 @@ void freeGPUWavefrontHitBuffers(GPUWavefrontHitBuffers& hb);
 // Primary pass: init the bounce-0 ray + intersect for every pixel (slot=pixel).
 // Writes env/emissive radiance into state.color and parks the shading hit in
 // hitBufs (hit_valid=1) for RIS. Reuses the shared initPathSlot/intersectPathSlot.
+// #1150: alphaPass (scene has a Principled alpha < 1; the caller then publishes
+// c_wfTransparentLimit) passes stochastically through alpha surfaces, not a bounce.
 void launchStageRestirPrimary(
     GPUWavefrontState& state,
     GPUWavefrontHitBuffers& hitBufs,
@@ -889,7 +891,8 @@ void launchStageRestirPrimary(
     int               worldMaxBounces,
     bool              useLuminanceOutput,
     float             clampDirect, float clampIndirect,  // pkg157
-    const GCurveSegment* d_curveSegments);               // #1042 (nullptr = no curves)
+    const GCurveSegment* d_curveSegments,                // #1042 (nullptr = no curves)
+    bool              alphaPass);                        // #1150
 
 // Initial RIS (Bitterli 2020, Algorithm 1) over the parked primary hits.
 void launchStageRestirInitialRIS(

@@ -128,12 +128,28 @@ public:
         Ray   pathRay    = ray;
         bool  wasSpecular = true;
         const int rrDepth = 3;
+        // #1150: transparent pass-throughs are not bounces (pathTraceSpectral #1033
+        // twin): `transparentDepth` counts them against transparent_max_bounces and
+        // `vertexOrigin` is the last real vertex, so the camera far clip after a pass
+        // is still measured from the camera.
+        int  transparentDepth = 0;
+        const int maxTransparent = renderer_->getMaxTransparentBounces();
+        Vec3 vertexOrigin = pathRay.origin;
+        bool passPrev = false;
 
         for (int bounce = 0; bounce <= maxDepth_ + 1; ++bounce) {  // #1165 (pathTraceSpectral twin)
             HitRecord rec;
+            if (!passPrev) vertexOrigin = pathRay.origin;
+            const float passDist = passPrev ? (pathRay.origin - vertexOrigin).length() : 0.0f;
+            passPrev = false;
             // #873: camera clip planes bound the primary ray (pathTraceSpectral twin).
+            // #1150: behind a pass no near clip; the far clip is reduced by passDist.
             float tMin = 0.001f, tMax = std::numeric_limits<float>::max();
-            if (bounce == 0) renderer_->primaryClipBounds(pathRay.direction, tMin, tMax);
+            if (bounce == 0) {
+                renderer_->primaryClipBounds(pathRay.direction, tMin, tMax);
+                if (transparentDepth > 0) tMin = 0.001f;
+                if (tMax < std::numeric_limits<float>::max()) tMax -= passDist;
+            }
             if (!bvh->hit(pathRay, tMin, tMax, rec)) {
                 if (bounce <= worldMaxB) {
                     astroray::SampledSpectrum envSpec(0.0f);
@@ -205,6 +221,9 @@ public:
                 break;
             }
             if (bounce > maxDepth_) break;  // #1165: emission-only vertex (pathTraceSpectral twin)
+            // #1150: transparent_max_bounces exhausted (pathTraceSpectral #1033 twin).
+            if (maxTransparent >= 0 && transparentDepth > 0 &&
+                transparentDepth >= maxTransparent) break;
 
             Vec3 wo = -pathRay.direction.normalized();
 
@@ -241,7 +260,7 @@ public:
                     // Temporal reuse (Algorithm 2, Bitterli 2020).
                     if (useTemporal_) {
                         if (isTemporallyValid(frameState_.previous, px, py,
-                                              rec.normal, rec.t)) {
+                                              rec.normal, rec.t + passDist)) {
                             // M-cap (Bitterli 2020 §5.2): clamp the PREVIOUS
                             // reservoir's M to <= effectiveMCap (=20*numCandidates)
                             // BEFORE the merge, then let the combined M
@@ -268,7 +287,7 @@ public:
                             if (!nbuf[ni].valid) continue;
                             int nx = nbuf[ni].x, ny = nbuf[ni].y;
                             if (!isTemporallyValid(frameState_.previous, nx, ny,
-                                                   rec.normal, rec.t))
+                                                   rec.normal, rec.t + passDist))
                                 continue;
                             // M-cap (Bitterli 2020 §5.2): cap each neighbour's
                             // source M before the merge (see the temporal stage);
@@ -294,7 +313,7 @@ public:
                     // Write geometry metadata (for next frame's validity gates).
                     auto& hist = frameState_.current.meta(px, py);
                     hist.normal = rec.normal;
-                    hist.depth  = rec.t;
+                    hist.depth  = rec.t + passDist;  // #1150: cumulative since the last real vertex (GPU meta_depth twin)
                     hist.valid  = true;
                     // Store fully-finalized reservoir for next frame's temporal reuse.
                     frameState_.current.at(px, py) = res;
@@ -310,7 +329,7 @@ public:
                     // shadowTransmittance in raytracer.h). Tr==0 for an all-opaque
                     // scene in one hop, so pre-pkg253 ReSTIR renders are unchanged.
                     float shadowTr = shadowTransmittance(*bvh, spawnRay(rec, wi), distLocal,
-                                                         renderer_->shadowTransparentHits(0));  // #1073
+                                                         renderer_->shadowTransparentHits(transparentDepth));  // #1073/#1150
                     if (shadowTr > 0.0f) {
                         astroray::SampledSpectrum f_spec =
                             rec.material->evalSpectral(rec, wo, wi, lambdas);
@@ -356,10 +375,15 @@ public:
             // BSDF sample.
             BSDFSampleSpectral bss = rec.material->sampleSpectral(rec, wo, gen, lambdas);
             if (bss.pdf <= 0.0f) break;
-            wasSpecular = bss.isDelta;
+            // #1150: an alpha pass-through (Cycles LABEL_TRANSPARENT) keeps the MIS
+            // state, credits no cryptomatte and spends no bounce (pathTraceSpectral twin).
+            const bool transparentPass = astroray::lightpath::is_transparent_pass(
+                bss.isDelta, wo.dot(bss.wi), rec.material->shadowAlpha(rec) < 1.0f);
+            if (!transparentPass) wasSpecular = bss.isDelta;
 
             // pkg87b: Cryptomatte accumulation at BSDF shade point (before throughput update).
-            if (renderer_->getCryptomatteEnabled() && cryptoObjRanks && cryptoMatRanks) {
+            if (renderer_->getCryptomatteEnabled() && cryptoObjRanks && cryptoMatRanks &&
+                !transparentPass) {
                 astroray::SampledSpectrum contrib = throughput * bss.f_spectral;
                 astroray::XYZ contribXYZ = contrib.toXYZ(lambdas);
                 float r =  3.2406f * contribXYZ.X - 1.5372f * contribXYZ.Y - 0.4986f * contribXYZ.Z;
@@ -388,6 +412,7 @@ public:
             next.cameraV        = pathRay.cameraV;
             next.cameraW        = pathRay.cameraW;
             pathRay             = next;
+            if (transparentPass) { --bounce; ++transparentDepth; passPrev = true; }  // #1150
 
             float maxC = throughput.maxValue();
             if (maxC > 10.0f) throughput = throughput * (10.0f / maxC);

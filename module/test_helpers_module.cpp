@@ -28,6 +28,7 @@
 #include "astroray/register.h"
 #include "astroray/shapes.h"
 #include "astroray/hair_melanin_spectral.h"  // #1037 follow-up: sigma_a(lambda) seam probe
+#include "astroray/wavefront_pass_plan.h"  // #1152: GPU wavefront pass plan (host arithmetic)
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -345,6 +346,18 @@ PYBIND11_MODULE(astroray_test_helpers, m) {
           "x"_a, "y"_a, "jitter_u"_a, "jitter_v"_a, "orthographic"_a = false,
           "#845: pixel -> film (u,v) -> Camera::getRay -> screenToPixel.");
     m.doc() = "Astroray test/oracle utilities (internal, not public API)";
+
+    // #1152 - the host pass-plan arithmetic cuda_wavefront_render uses (header-only).
+    m.def("wavefront_pass_depth", &astroray::wfplan::passDepth,
+          "max_depth"_a, "transparent_on"_a, "transparent_limit"_a);
+    m.def("wavefront_plan_pool", &astroray::wfplan::planPool,
+          "num_pixels"_a, "samples"_a, "pass_depth"_a, "min_paths"_a);
+    m.def("wavefront_counter_slack_per_path", &astroray::wfplan::counterSlackPerPath,
+          "pass_depth"_a);
+    m.def("wavefront_max_samples_per_round", &astroray::wfplan::maxSamplesPerRound,
+          "round_pixels"_a, "pool"_a, "pass_depth"_a);
+    m.def("wavefront_max_passes", &astroray::wfplan::maxPasses,
+          "waves"_a, "per_pixel"_a, "pass_depth"_a);
 
     // pkg280 — expose the exact production thin-disk transfer helper for
     // analytic invariance tests. This is deliberately not part of astroray's

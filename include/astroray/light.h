@@ -107,11 +107,6 @@ struct OrientationCone {
     static OrientationCone fullSphere() {
         return OrientationCone{ Vec3(0,0,1), static_cast<float>(M_PI), static_cast<float>(M_PI) };
     }
-
-    // Cone from axis + half-angle (outer == emission).
-    static OrientationCone fromAxisAngle(const Vec3& ax, float halfAngle) {
-        return OrientationCone{ ax.normalized(), halfAngle, halfAngle };
-    }
 };
 
 // --------------------------------------------------------------------------

@@ -97,8 +97,9 @@ __device__ inline void gpu_light_tree_importance_mm(
         return;  // cluster invisible from this shading point
     }
 
-    *maxImp = energy * cosMinIncidenceAngle * cosMinOutgoingAngle /
-              (clampedDistance * clampedDistance);
+    // fabsf as Cycles tree.h:215-216 (CPU mirror, #1172: spots wider than pi/2).
+    *maxImp = fabsf(energy * cosMinIncidenceAngle * cosMinOutgoingAngle /
+                    (clampedDistance * clampedDistance));
 
     // Lower bound (Cycles tree.h), used only for leaf emitter selection.
     float cosThetaPlusSubtended = cosTheta * cosSubtendedAngle - sinTheta * sinSubtendedAngle;

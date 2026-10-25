@@ -2307,6 +2307,80 @@ __device__ inline float gpu_pr_glassReflectProb(const GPrincipledClosure& c, con
     float r = R.x + R.y + R.z, s = r + T.x + T.y + T.z;
     return (s > 0.f) ? r / s : F;
 }
+// #1162: smooth (delta) film glass, twin of principled.cpp deltaFilmF / deltaFilmFSpectral
+// (Cycles v5.2.0 bsdf_microfacet.h:795-917 singular branch: pR = avg(R)/avg(R+T) :847,
+// eval = R or T :865-879). __noinline__ with scalar args only (the pkg224/#1033 pattern,
+// .astroray_plan memory "noinline avoids shade spill"): the film work stays out of the
+// register-saturated fused shade kernels, which only pay a not-taken call; no closure, hit
+// or wavelength address crosses the call, so no caller local is forced to the stack.
+// Film R at H = N: gpu_pr_thinFilmFresnelRGB + F0 rescale on scalars.
+__device__ inline GVec3 gpu_pr_deltaFilmRGB(float thickness, float filmIorIn, GVec3 tint, float ior,
+                                            bool entering, float cosI) {
+    namespace tf = astroray::thinfilm;
+    float etap = entering ? ior : (1.f / ior);
+    float filmIor = entering ? filmIorIn : filmIorIn / ior;
+    GVec3 F;
+    for (int ch = 0; ch < 3; ++ch) {
+        auto S = [ch](float argOPD) { return gpu_pr_sensitivityRGB(argOPD, ch); };
+        (&F.x)[ch] = tf::fresnelIridescenceChannel<false>(
+            1.f, thickness, filmIor, etap, 0.f, -1.f, cosI, nullptr, S);
+    }
+    return gpu_pr_thinFilmF0RescaleRGB(F, GVec3(gpu_pr_F0_from_ior(etap)) * tint, etap);
+}
+// gpu_pr_glassReflectProb's film branch at H = N (same arithmetic as the CPU glassReflectProb).
+__device__ __noinline__ inline float gpu_pr_deltaFilmReflectProb(float thickness, float filmIor,
+                                                                 GVec3 tint, GVec3 color, float ior,
+                                                                 bool entering, float cosI, float F) {
+    GVec3 R = gpu_pr_deltaFilmRGB(thickness, filmIor, tint, ior, entering, cosI);
+    GVec3 T = gvec3_max((GVec3(1.f) - R) * gpu_pr_sqrtColor(color), GVec3(0.f));
+    float r = R.x + R.y + R.z, s = r + T.x + T.y + T.z;
+    return (s > 0.f) ? r / s : F;
+}
+// f = weight*R (reflect) or weight*sqrt(base)*(1-R)*eta^2 (refract); pdf is qj*(pR or 1-pR).
+__device__ __noinline__ inline GVec3 gpu_pr_deltaFilmF(float thickness, float filmIor, GVec3 tint,
+                                                       GVec3 color, GVec3 weight, float ior,
+                                                       bool entering, float cosI, bool refract,
+                                                       float eta) {
+    GVec3 R = gpu_pr_deltaFilmRGB(thickness, filmIor, tint, ior, entering, cosI);
+    return refract ? weight * gpu_pr_sqrtColor(color) * gvec3_max(GVec3(1.f) - R, GVec3(0.f)) * (eta * eta)
+                   : weight * R;
+}
+// Per-lambda twin, called by gpu_material_sample_spectral AFTER the sample: fRGB is the
+// RGB weight above (Wc * X_rgb, X = R or (1-R)*eta^2, Wc = weight or weight*sqrt(base));
+// Wc = fRGB / X_rgb is recovered (X_rgb recomputed bit-identically) and the result is
+// U(Wc)(l) * X(l) with analytic-sensitivity R(l) and the upsampled tint, as on the CPU.
+__device__ __noinline__ inline GSampledSpectrum gpu_pr_deltaFilmFSpectral(
+        float thickness, float filmIorIn, GVec3 tint, GVec3 fRGB, float ior, bool entering,
+        float cosI, bool refract, float eta, GSampledSpectrum lambdas) {
+    namespace tf = astroray::thinfilm;
+    GSampledWavelengths wl;
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) wl.lambda[i] = lambdas[i];
+    GVec3 Rrgb = gpu_pr_deltaFilmRGB(thickness, filmIorIn, tint, ior, entering, cosI);
+    GVec3 X = refract ? gvec3_max(GVec3(1.f) - Rrgb, GVec3(0.f)) * (eta * eta) : Rrgb;
+    GVec3 rgb;
+    for (int ch = 0; ch < 3; ++ch)
+        (&rgb.x)[ch] = (&X.x)[ch] > 1e-12f ? (&fRGB.x)[ch] / (&X.x)[ch] : 0.f;
+    float etap = entering ? ior : (1.f / ior);
+    float filmIor = entering ? filmIorIn : filmIorIn / ior;
+    float F0real = gpu_pr_F0_from_ior(etap);
+    GSampledSpectrum R(0.f);
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+        float lambda = wl.lambda[i];
+        auto S = [lambda](float argOPD) { return tf::sensitivitySpectral(argOPD, lambda); };
+        R[i] = tf::fresnelIridescenceChannel<false>(1.f, thickness, filmIor, etap, 0.f, -1.f, cosI,
+                                                    nullptr, S);
+    }
+    if (F0real > 1e-5f) {
+        GSampledSpectrum tintSpec = gpu_rgbToSampledSpectrum(tint, wl, GSPEC_RGB_ALBEDO);
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+            R[i] = gpu_pr_thinFilmF0RescaleChannel(R[i], F0real * tintSpec[i], F0real);
+    }
+    float maxc = fmaxf(fmaxf(fmaxf(rgb.x, rgb.y), rgb.z), 1.f);
+    GSampledSpectrum f = gpu_rgbToSampledSpectrum(rgb * (1.f / maxc), wl, GSPEC_RGB_ALBEDO) * maxc;
+    for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+        f[i] *= refract ? fmaxf(1.f - R[i], 0.f) * (eta * eta) : R[i];
+    return f;
+}
 
 // --- Transmission rough glass (principled.cpp transmissionEvalRGB) ----------
 // pkg188 Finding A (GPU twin of principled.cpp transmissionEvalRGB): film-OFF
@@ -2889,6 +2963,11 @@ __device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GPrincipledClos
     // #1112: exact side-aware dielectric Fresnel (Cycles fresnel_dielectric;
     // pbrt-v4 FrDielectric), CPU twin principled.cpp chooseAndSampleDir.
     float fresnel = gpu_pr_fresnelDielectric(cosTheta, etaI, etaT);
+    // #1162: smooth film glass, Cycles pdf_reflect = avg(R)/avg(R+T) over the film R
+    // (bsdf_microfacet.h:840-847). Only delta lobes reach here on the GPU.
+    if (gpu_pr_filmActive(c))
+        fresnel = gpu_pr_deltaFilmReflectProb(c.thinFilmThickness, c.thinFilmIor, c.specularTint,
+                                              c.color, L.ior, rec.frontFace, cosTheta, fresnel);
     ds.isDelta = true;
     if (cannotRefract || gpu_rng_uniform(rng) < fresnel) {
         ds.wi = nn * (2.f * wo.dot(nn)) - wo;
@@ -2941,6 +3020,13 @@ __device__ inline GBSDFSample gpu_principled_sample(const GPrincipledClosure& c,
             // pdf = qj → f/pdf = weight/qj (Cycles bsdf_transparent.h /
             // bsdf_thin_glass_transmission_sample passthrough; W cancels).
             s.f = L.weight;
+        else if (gpu_pr_filmActive(c)) {
+            // #1162: smooth film glass (GPU: only delta transmission lobes reach here).
+            // The spectral wrapper re-weights it per lambda (gpu_pr_deltaFilmFSpectral).
+            s.f = gpu_pr_deltaFilmF(c.thinFilmThickness, c.thinFilmIor, c.specularTint, c.color,
+                                    L.weight, L.ior, rec.frontFace, fabsf(wo.dot(rec.normal)),
+                                    ds.deltaRefract, ds.eta);
+        }
         else if (ds.deltaRefract)
             s.f = L.weight * gpu_pr_sqrtColor(c.color) * (ds.eta * ds.eta * ds.pdfInternal);
         else
@@ -3528,6 +3614,27 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     // the generic eta²-clamp guard below, which factors the >1 magnitude and
     // upsamples the normalized tint — exactly PrincipledPlugin::sampleSpectral's
     // delta branch (principled.cpp:762-766, upsample(rgb/maxc)*maxc).
+    // #1162: a smooth film-glass event (delta, film on, no alpha / thin-wall delta lobe, so
+    // the delta event is the transmission lobe) gets per-lambda R(l) / 1-R(l) from the
+    // sampled direction, out of line with scalar args (no caller address crosses the call).
+    // alpha < 1 or thin-wall film glass keep the RGB-upsampled film weight below.
+    if constexpr (HasPrincipled) {
+        if (s.isDelta && mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_is_principled(mat) &&
+            gpu_pr_filmActive(mat.principled) && mat.principled.alpha >= 1.f &&
+            !gpu_pr_thinWall(mat.principled) && s.pdf > 0.0f) {
+            const GPrincipledClosure& c = mat.principled;
+            float ior = mat.isDispersive
+                ? gpu_cauchy_ior(mat.dispersion.b1, mat.dispersion.b2, wl.lambda[0]) : c.ior;
+            float cosO = wo.dot(rec.normal);
+            bool refract = (s.wi.dot(rec.normal) > 0.f) != (cosO > 0.f);
+            GSampledSpectrum lambdas;
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) lambdas[i] = wl.lambda[i];
+            s.fSpectral = gpu_pr_deltaFilmFSpectral(c.thinFilmThickness, c.thinFilmIor, c.specularTint,
+                                                    s.f, ior, rec.frontFace, fabsf(cosO), refract,
+                                                    rec.frontFace ? 1.f / ior : ior, lambdas);
+            return s;
+        }
+    }
     if constexpr (HasPrincipled) {
         if (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_is_principled(mat) &&
             !s.isDelta && s.pdf > 0.0f && s.f.length2() > 0.0f) {

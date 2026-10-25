@@ -849,6 +849,44 @@ class PrincipledPlugin : public Material {
         float r = R.x + R.y + R.z, s = r + T.x + T.y + T.z;
         return (s > 0.0f) ? r / s : F;
     }
+    // #1162: smooth (delta) film glass. Cycles v5.2.0 bsdf_microfacet.h:795-917: the
+    // singular branch still calls microfacet_fresnel (:840 -> generalized_schlick_fresnel
+    // thin-film branch :274-298) at H = N, picks reflect with pdf_reflect = avg(R)/avg(R+T)
+    // (:847) and returns eval = R or T (:865-879), R = F, T = (1-F)*sqrt(base_color).
+    // The f helpers return R / T (eta^2 radiance factor on refraction, as the film-free
+    // delta branch); sample() pairs them with pdf = qj * (pR or 1-pR), pR = glassReflectProb.
+    Vec3 deltaFilmF(const Lobe& L, const HitRecord& rec, const Vec3& wo, bool refract,
+                    float eta) const {
+        float etap = rec.frontFace ? L.ior : (1.0f / L.ior);
+        float filmIor = rec.frontFace ? thinFilmIor_ : thinFilmIor_ / L.ior;
+        Vec3 R = thinFilmF0RescaleRGB(thinFilmFresnelRGB(std::abs(wo.dot(rec.normal)), etap, filmIor),
+                                      Vec3(F0_from_ior(etap)) * specularTint_, etap);
+        return refract ? L.weight * sqrtColor(baseColor_) * Vec3::max(Vec3(1.0f) - R, Vec3(0.0f)) *
+                             (eta * eta)
+                       : L.weight * R;
+    }
+    // Per-λ twin: analytic-sensitivity R(λ), upsampled tint (as transmissionEvalSpectral),
+    // so E[f/pdf] = R(λ) + T(λ) per wavelength over the RGB-chosen pR.
+    astroray::SampledSpectrum deltaFilmFSpectral(
+            const Lobe& L, const HitRecord& rec, const Vec3& wo, bool refract, float eta,
+            const astroray::SampledWavelengths& lam) const {
+        float etap = rec.frontFace ? L.ior : (1.0f / L.ior);
+        float filmIor = rec.frontFace ? thinFilmIor_ : thinFilmIor_ / L.ior;
+        float F0real = F0_from_ior(etap);
+        astroray::SampledSpectrum R =
+            thinFilmFresnelSpectral(std::abs(wo.dot(rec.normal)), etap, filmIor, lam);
+        if (F0real > 1e-5f) {
+            astroray::SampledSpectrum tintSpec = upsample(specularTint_, lam);
+            for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+                R[i] = thinFilmF0RescaleChannel(R[i], F0real * tintSpec[i], F0real);
+        }
+        Vec3 rgb = refract ? L.weight * sqrtColor(baseColor_) : L.weight;
+        float maxc = std::max({rgb.x, rgb.y, rgb.z, 1.0f});
+        astroray::SampledSpectrum f = upsample(rgb * (1.0f / maxc), lam) * maxc;
+        for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+            f[i] *= refract ? std::max(1.0f - R[i], 0.0f) * (eta * eta) : R[i];
+        return f;
+    }
     float glassReflTintAvg() const {
         return (specularTint_.x + specularTint_.y + specularTint_.z) / 3.0f;
     }
@@ -2070,6 +2108,12 @@ class PrincipledPlugin : public Material {
         // fresnel_dielectric; pbrt-v4 FrDielectric). Schlick at the incident angle
         // was ~43 % low for internal reflections (it ignores the eta>1 exit side).
         float fresnel = fresnelDielectric(cosTheta, etaI, etaT);
+        // #1162: smooth film glass picks reflect with Cycles' pdf_reflect = avg(R)/avg(R+T)
+        // over the thin-film R (v5.2.0 bsdf_microfacet.h:840-847, singular H = N); the
+        // weights are set in sample()/sampleSpectral() (deltaFilmF). Not the rough-film
+        // dead-sample fallback (L.isDelta false), which keeps plain Fresnel.
+        if (L.isDelta && filmActive())
+            fresnel = glassReflectProb(L, rec.frontFace, cosTheta, fresnel);
         ds.isDelta = true;
         if (cannotRefract || dist(gen) < fresnel) {
             ds.wi = n * (2.0f * wo.dot(n)) - wo;
@@ -2519,6 +2563,8 @@ public:
                 // pdf = qj → f/pdf = weight/qj (Cycles bsdf_transparent.h /
                 // bsdf_thin_glass_transmission_sample passthrough; W cancels).
                 s.f = L.weight;
+            } else if (L.kind == LobeKind::Transmission && L.isDelta && filmActive()) {
+                s.f = deltaFilmF(L, rec, wo, ds.deltaRefract, ds.eta);  // #1162
             } else if (ds.deltaRefract) {
                 s.f = L.weight * sqrtColor(baseColor_) * (ds.eta * ds.eta * ds.pdfInternal);
             } else {
@@ -2591,6 +2637,13 @@ public:
         if (ds.isDelta) {
             const Lobe& L = lobes[ds.lobe];
             float qj = L.sel / W;
+            if (L.kind == LobeKind::Transmission && L.isDelta && filmActive()) {  // #1162
+                bss.f_spectral = deltaFilmFSpectral(L, rec, wo, ds.deltaRefract, ds.eta, lambdas);
+                bss.pdf = qj * ds.pdfInternal;
+                bss.isDelta = true;
+                const_cast<HitRecord&>(rec).isDelta = true;
+                return bss;
+            }
             // eta²-clamp guard (base-class pattern): upsample normalized tint × magnitude.
             Vec3 rgb = (L.kind == LobeKind::Transparent || L.kind == LobeKind::ThinGlassTransmit)
                            ? L.weight  // straight-through weight (weight_T carries T')

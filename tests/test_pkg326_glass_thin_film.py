@@ -11,6 +11,8 @@ Layers:
   2. engine truth (CPU, and GPU when available): a bubble built from the Glass node vs
      the same bubble built from the Principled node (MC band), film vs no film
      (the film must move the render), zero thickness vs plain glass (<= 1e-6).
+  3. #1162 smooth glass (Roughness <= 0.03, the delta path): the film shows, matches the
+     near-delta rough film (independent code path), CPU == GPU, and the white furnace holds.
 """
 
 from __future__ import annotations
@@ -34,7 +36,7 @@ except ImportError:
 IOR = 1.45
 THICKNESS = 380.0       # nm: strong first/second-order interference
 FILM_IOR = 1.33
-ROUGHNESS = 0.12        # > 0.03: smooth glass takes the delta path, which has no film (see below)
+ROUGHNESS = 0.12        # > 0.03: the rough (microfacet) film path; smooth glass is layer 3
 WIDTH = HEIGHT = 96
 SAMPLES = 256
 MAX_DEPTH = 8
@@ -215,20 +217,84 @@ def test_zero_thickness_glass_equals_plain_glass(monkeypatch, use_gpu):
     assert diff <= 1e-6, diff
 
 
+# --------------------------------------------------------------------------- #
+# layer 3: #1162 smooth glass. Cycles applies the film on the singular lobe too
+# (v5.2.0 bsdf_microfacet.h:795-917); before #1162 the delta path used plain Fresnel.
+# --------------------------------------------------------------------------- #
+
 @pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
-@pytest.mark.xfail(strict=True, reason="smooth glass (Roughness <= 0.03) takes the delta-glass sampler with "
-                   "plain dielectric Fresnel on CPU and GPU; Cycles applies the film there "
-                   "(bsdf_microfacet.h:795-917). #1162 owns the fix; un-xfail when the delta path gets the film Fresnel.")
-def test_smooth_glass_bubble_shows_film(monkeypatch):
+@pytest.mark.parametrize("use_gpu", LEGS)
+def test_smooth_glass_bubble_shows_film(monkeypatch, use_gpu):
+    """Failed before #1162 (film == plain glass bit for bit on the delta path)."""
     f_base, f_params = _native_args(monkeypatch, _glass_node(roughness=0.0))
     n_base, n_params = _native_args(monkeypatch, _glass_node(thickness=0.0, roughness=0.0))
-    film = _sphere_mean(_render(f_base, f_params, False, seed=326_06))
-    plain = _sphere_mean(_render(n_base, n_params, False, seed=326_07))
-    assert (np.abs(_hue(film) / _hue(plain) - 1.0)).max() > HUE_SHIFT
+    film = _sphere_mean(_render(f_base, f_params, use_gpu, seed=326_06))
+    plain = _sphere_mean(_render(n_base, n_params, use_gpu, seed=326_07))
+    shift = np.abs(_hue(film) / _hue(plain) - 1.0)
+    print(f"[i1162] gpu={use_gpu} film={film} plain={plain} hue shift={shift}")
+    assert shift.max() > HUE_SHIFT, (film, plain, shift)
 
 
-def test_smooth_glass_film_is_reported_not_silent(monkeypatch):
-    _, engine = _convert(monkeypatch, _glass_node(roughness=0.0))
-    assert any("smooth Glass BSDF" in t for t in _report_texts(engine)), _report_texts(engine)
-    _, engine = _convert(monkeypatch, _glass_node(roughness=ROUGHNESS))
-    assert not [t for t in _report_texts(engine) if "smooth Glass" in t]
+@pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
+@pytest.mark.parametrize("use_gpu", LEGS)
+def test_smooth_film_glass_continues_the_rough_limit(monkeypatch, use_gpu):
+    """The delta film (sampler) must agree with the near-delta rough film (microfacet eval, an
+    independent code path; roughness 0.05 sits on the alpha floor). CPU measured: hue ratio
+    within 0.07 % after #1162, ~1 % off before (the delta path ignored the film)."""
+    s_base, s_params = _native_args(monkeypatch, _glass_node(roughness=0.0))
+    r_base, r_params = _native_args(monkeypatch, _glass_node(roughness=0.05))
+    smooth = _sphere_mean(_render(s_base, s_params, use_gpu, seed=326_08))
+    rough = _sphere_mean(_render(r_base, r_params, use_gpu, seed=326_09))
+    print(f"[i1162] gpu={use_gpu} smooth={smooth} rough={rough} hue {_hue(smooth)} vs {_hue(rough)}")
+    assert np.all(np.abs(smooth / rough - 1.0) < MC_BAND), (smooth, rough)
+    assert np.all(np.abs(_hue(smooth) / _hue(rough) - 1.0) < HUE_BAND), (smooth, rough)
+
+
+@pytest.mark.skipif(not _gpu_ok(), reason="needs the CUDA build + a GPU")
+def test_smooth_film_glass_cpu_gpu_twin(monkeypatch):
+    """3-seed means per backend. The smooth sphere's per-seed hue scatter is larger than the
+    rough one's (HUE_BAND's 0.1 %): lead probe, seeds 326_10..13, sd (G/R, B/R) CPU (0.0005,
+    0.0016), GPU (0.0008, 0.0011); means CPU (1.0103, 1.0064), GPU (1.0109, 1.0072). The mean of
+    3 brings the ratio sd to ~0.1 %, so HUE_BAND 0.004 is ~3 sigma."""
+    base, params = _native_args(monkeypatch, _glass_node(roughness=0.0))
+    cpu = np.mean([_sphere_mean(_render(base, params, False, seed=s)) for s in (326_10, 326_11, 326_12)],
+                  axis=0)
+    gpu = np.mean([_sphere_mean(_render(base, params, True, seed=s)) for s in (326_13, 326_14, 326_15)],
+                  axis=0)
+    print(f"[i1162] cpu={cpu} gpu={gpu} hue {_hue(cpu)} vs {_hue(gpu)}")
+    assert np.all(np.abs(gpu / cpu - 1.0) < MC_BAND), (cpu, gpu)
+    assert np.all(np.abs(_hue(gpu) / _hue(cpu) - 1.0) < HUE_BAND), (cpu, gpu)
+
+
+def _smooth_film_furnace(thickness, ior, film_ior, use_gpu):
+    """Smooth film sphere in a uniform white field (linear): R + T = 1 per channel / per
+    wavelength, so the sphere is invisible. A regression guard on the f/pdf weights."""
+    r = astroray.Renderer()
+    r.set_background_color([1.0, 1.0, 1.0])
+    r.set_integrator("path_tracer")
+    r.set_use_gpu(bool(use_gpu))
+    mid = r.create_material("principled", [1.0, 1.0, 1.0], {
+        "roughness": 0.0, "ior": ior, "transmission_weight": 1.0,
+        "thin_film_thickness": thickness, "thin_film_ior": film_ior})
+    r.add_sphere([0.0, 0.0, 0.0], 1.0, mid)
+    r.setup_camera([0, 0, 4], [0, 0, 0], [0, 1, 0], 40.0, 1.0, 0.0, 4.0, 80, 80)
+    r.set_seed(7)
+    img = np.asarray(r.render(64, 32, None, False), dtype=np.float64).reshape(80, 80, 3)
+    return img[20:60, 20:60].reshape(-1, 3).mean(axis=0)
+
+
+@pytest.mark.skipif(not AVAILABLE, reason="astroray not built")
+@pytest.mark.parametrize("use_gpu", LEGS)
+@pytest.mark.parametrize("thickness,ior,film_ior", [(380.0, 1.45, 1.33), (250.0, 1.5, 2.0),
+                                                    (600.0, 2.0, 1.33)])
+def test_smooth_film_glass_furnace(use_gpu, thickness, ior, film_ior):
+    # CPU measured (64 spp): within 0.3 % of 1 on every channel.
+    m = _smooth_film_furnace(thickness, ior, film_ior, use_gpu)
+    assert np.all(np.abs(m - 1.0) < 0.02), m
+
+
+def test_smooth_glass_film_is_not_reported(monkeypatch):
+    # #1162 removed the per-render "Thin Film is not rendered on a smooth Glass BSDF" report.
+    for roughness in (0.0, ROUGHNESS):
+        _, engine = _convert(monkeypatch, _glass_node(roughness=roughness))
+        assert not [t for t in _report_texts(engine) if "Thin Film" in t], _report_texts(engine)

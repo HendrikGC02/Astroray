@@ -206,6 +206,20 @@
       "classification": "SUPPORTED",
       "feature": "BSDF_GLASS",
       "socket_or_prop": "input:Thin Film IOR"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputMaterial",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "OUTPUT_MATERIAL",
+      "socket_or_prop": "input:Thickness"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputMaterial",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "OUTPUT_MATERIAL",
+      "socket_or_prop": "prop:target"
     }
   ],
   "textures_mapping": [
@@ -747,6 +761,13 @@
       "classification": "SUPPORTED",
       "feature": "NEW_GEOMETRY",
       "socket_or_prop": "output:Pointiness"
+    },
+    {
+      "bl_idname": "ShaderNodeMapRange",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "MAP_RANGE",
+      "socket_or_prop": "prop:clamp"
     }
   ],
   "world_sky": [
@@ -798,6 +819,27 @@
       "classification": "APPROXIMATED",
       "feature": "TEX_SKY",
       "socket_or_prop": "prop:sun_size"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputWorld",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "OUTPUT_WORLD",
+      "socket_or_prop": "input:Surface"
+    },
+    {
+      "bl_idname": "ShaderNodeOutputWorld",
+      "category": "shader_node",
+      "classification": "SUPPORTED",
+      "feature": "OUTPUT_WORLD",
+      "socket_or_prop": "prop:is_active_output"
+    },
+    {
+      "bl_idname": "ShaderNodeTexEnvironment",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "TEX_ENVIRONMENT",
+      "socket_or_prop": "input:Vector"
     }
   ]
 }

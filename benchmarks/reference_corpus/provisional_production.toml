@@ -72,15 +72,15 @@ reason = "#995 fixed on GPU (closure tree: 4 closures, graph-program Facs, baked
 scene = "prod_light_path"
 backend = "cpu"
 kind = "parity"
-issue = "#1038"
-reason = "#991 fixed (hidden emitter 0.07x -> 1.00, shadow-transparent glass, Ray Length floor tint); bands re-blessed on b4e15d06. #1038 glass terms fixed (#1103 tint; delta-glass spectral tint 2026-10-25: glass_ball_centre r 0.954 -> 0.981, plain Glass 7-seed 0.971 -> 0.996). Residual 19/20 is NOT glass: floor_near r 0.977 (plain-Glass variant 7-seed mean 0.981 +- 0.001, g/b 1.006/0.996; floor away from the ball), needs its own issue"
+issue = "#1199"
+reason = "#991 fixed (hidden emitter 0.07x -> 1.00, shadow-transparent glass, Ray Length floor tint); bands re-blessed on b4e15d06. #1038 glass terms fixed (#1103 tint; delta-glass spectral tint 2026-10-25: glass_ball_centre r 0.954 -> 0.981, plain Glass 7-seed 0.971 -> 0.996). Residual 19/20 is NOT glass: floor_near r 0.975 (plain-Glass variant 7-seed mean 0.981 +- 0.001, g/b 1.006/0.996; floor away from the ball), #1199"
 
 [[row]]
 scene = "prod_light_path"
 backend = "gpu"
 kind = "parity"
-issue = "#1038"
-reason = "#991 fixed as on CPU; residual glass_ball_centre r 1.095 / b 1.063 (#1038, GPU/CPU 1.000 at 256 spp), floor_far +2.1-2.7 % (GPU/CPU 1.007 without Light Path) (14/20)"
+issue = "#1199"
+reason = "#991 fixed as on CPU; #1038 delta-glass tint fixed glass_ball_centre (was r 1.095 / b 1.063, now in band, 14/20 -> 17/20 on 86426dd3). Residual is NOT glass: floor_far g 1.027 / b 1.021 / L 1.025 (GPU/CPU 1.007 without Light Path), #1199"
 
 [[row]]
 scene = "prod_curves_geometry"

@@ -426,8 +426,8 @@ _ASTRORAY_ONLY = [
                  "GR/Kerr black-hole objects (mass/spin/accretion model/jets); wholly engine-unique."),
     MappingEntry("astroray_only", "dielectric_bounce_cap", "", "custom_raytracer.dielectric_bounce_cap",
                  "renderer.set_dielectric_bounce_cap", "astroray-only", "n/a",
-                 "pkg325: terminate (default, Cycles) | passthrough (a path capped while crossing glass continues "
-                 "straight on as a null pass-through). No Cycles counterpart."),
+                 "pkg325: passthrough (default; a path capped while crossing glass continues straight on as a null "
+                 "pass-through) | terminate (Cycles behaviour; forced by every Cycles-parity harness). No Cycles counterpart."),
     MappingEntry("astroray_only", "is_caustic_caster", "", "object.astroray (is_caustic_caster)",
                  "SMS caustic caster opt-in", "astroray-only", "n/a",
                  "Loosely mirrors Cycles is_caustics_caster but is an Astroray SMS opt-in (behaviour only)."),

@@ -123,6 +123,9 @@ def _configure_render(scene, engine, device, res, samples, seed=7):
         cr = scene.custom_raytracer
         if hasattr(cr, "device_mode"):
             cr.device_mode = device  # 'cpu' or 'gpu' (astroray-only tri-state)
+        # Owner 2026-10-31: addon default is passthrough; Cycles parity compares like with like.
+        if hasattr(cr, "dielectric_bounce_cap"):
+            cr.dielectric_bounce_cap = "terminate"
 
 
 def _render_to_npy(bpy, scene, out_stem: Path, *, top_down: bool = False):

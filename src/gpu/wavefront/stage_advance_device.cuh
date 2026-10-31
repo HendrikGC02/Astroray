@@ -2676,6 +2676,9 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // (all 7 GMAT types + closure graphs), drawing directly from the
     // per-path PCG32 stream (template-RNG arc; see the NEE note above).
     GBSDFSample bss = gpu_shade_sample_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, lambdas, &rng);
+    // #1178: only the Principled sampler and the closure tree (HasAdd requires HasPrincipled) report
+    // a label; elsewhere it is the constant NONE, so the fleet <false> kernels keep no new live state.
+    if constexpr (!HasPrincipled) bss.label = BSDF_LABEL_NONE;
     if constexpr (HasNormalPerturb) {  // #1154 bump_shadowing_term (CPU: NormalMappedPlugin::sample)
         if (!bss.isDelta)  // a delta sample is never zeroed (Cycles bsdf.h:297-315)
             bss.fSpectral *= gpu_bumpShadowing(hitBufs, idx, rec.materialId, rec.normal, bss.wi);

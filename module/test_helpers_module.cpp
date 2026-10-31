@@ -29,6 +29,7 @@
 #include "astroray/shapes.h"
 #include "astroray/hair_melanin_spectral.h"  // #1037 follow-up: sigma_a(lambda) seam probe
 #include "astroray/wavefront_pass_plan.h"  // #1152: GPU wavefront pass plan (host arithmetic)
+#include "astroray/volume/volume_transport.h"  // #1032: tracked segment direct light
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -337,9 +338,100 @@ std::array<int, 3> probeGrSegmentHitCrossings(double hit_frac) {
     return {none.nCrossings, with.nCrossings, with.stopped ? 1 : 0};
 }
 
+// #1032: volume::sampleSegmentDirectTracked on ray o=(-1,.25,.25), d=+x through
+// an AABB [0,8]x[0,1]x[0,1] (t = x + 1): kind "slab" = homogeneous, "step" =
+// an 8x1x1 grid (index == world) with voxels 0-3 at 0 and 4-7 at 1, so the
+// nearest-voxel density is 1 on x in [3.5,7.5). Returns per-lane mean / variance
+// of the estimate Tr*sigma_s(t)*w over n draws (target: integral of
+// T(t)*sigma_s(t) over [a,b]), the mean reservoir weight sum (distance-only),
+// the mean local / global ratio-tracking Tr over the whole AABB, and the unit
+// sigma_s / sigma_t per lane for the Python closed forms.
+py::dict segmentTrackedProbe(const std::string& kind, float density, std::array<float, 3> color,
+                             float a, float b, bool hasAnchor, std::array<double, 3> anchor,
+                             int n, unsigned seed, int supervoxel,
+                             const std::vector<float>& lambdas_nm) {
+    namespace av = astroray::volume;
+    constexpr int kN = astroray::kSpectrumSamples;
+    const auto wl = volumetricLambdas(lambdas_nm);
+    av::PrincipledVolume pv;
+    pv.density = density;
+    pv.color = color;
+    av::GridMedium grid;
+    av::BoundedMedium m;
+    m.aabbMin[0] = 0.f; m.aabbMin[1] = 0.f; m.aabbMin[2] = 0.f;
+    m.aabbMax[0] = 8.f; m.aabbMax[1] = 1.f; m.aabbMax[2] = 1.f;
+    if (kind == "step") {
+        av::DenseGrid d;
+        d.dim[0] = 8; d.dim[1] = 1; d.dim[2] = 1;
+        d.data = {0.f, 0.f, 0.f, 0.f, 1.f, 1.f, 1.f, 1.f};
+        const av::Mat4 I = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        grid.setDensity(d, I, I, supervoxel);
+        m.heterogeneous = true;
+        m.grid = &grid;
+        m.maxDensity = grid.majorant().globalMax();
+    } else if (kind != "slab") {
+        throw std::invalid_argument("kind must be 'slab' or 'step'");
+    }
+    av::setupPrincipled(m, pv);
+    const std::vector<av::BoundedMedium> media{m};
+    const Vec3 o(-1.f, 0.25f, 0.25f), d(1.f, 0.f, 0.f);
+    const Vec3 anc = toVec3(anchor);
+    astroray::SampledSpectrum sU, aU;
+    av::principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, wl, sU, aU);
+    auto sigmaAt = [&](const Vec3& P, float, astroray::SampledSpectrum& sigS,
+                       astroray::SampledSpectrum& sigT) {
+        const float dens = m.densityAt(P);
+        sigS = sU * dens;
+        sigT = (sU + aU) * dens;
+    };
+    std::mt19937 gen(seed);
+    std::vector<double> sum(kN, 0.0), sum2(kN, 0.0), trL(kN, 0.0), trG(kN, 0.0);
+    double wSum = 0.0;
+    for (int s = 0; s < n; ++s) {
+        const av::TrackedSegmentSample r = av::sampleSegmentDirectTracked(
+            media, o, d, 1.f, a, b, hasAnchor, anc, wl, gen, sigmaAt);
+        if (r.w > 0.f) {
+            astroray::SampledSpectrum sigS, sigT;
+            sigmaAt(o + d * r.t, r.t, sigS, sigT);
+            for (int i = 0; i < kN; ++i) {
+                const double e = double(r.Tr[i]) * sigS[i] * r.w;
+                sum[i] += e;
+                sum2[i] += e * e;
+            }
+            if (!hasAnchor) wSum += double(r.w) * r.pdfDist;  // w = wSum / pd
+        }
+        const auto tl = av::segmentTransmittanceSpectral(media, o, d, 1.f, 9.f, wl, gen, nullptr, true);
+        const auto tg = av::segmentTransmittanceSpectral(media, o, d, 1.f, 9.f, wl, gen, nullptr, false);
+        for (int i = 0; i < kN; ++i) { trL[i] += tl[i]; trG[i] += tg[i]; }
+    }
+    std::vector<double> mean(kN), var(kN), tl(kN), tg(kN), su(kN), st(kN);
+    for (int i = 0; i < kN; ++i) {
+        mean[i] = sum[i] / n;
+        var[i] = sum2[i] / n - mean[i] * mean[i];
+        tl[i] = trL[i] / n;
+        tg[i] = trG[i] / n;
+        su[i] = sU[i];
+        st[i] = sU[i] + aU[i];
+    }
+    py::dict out;
+    out["mean"] = mean;
+    out["var"] = var;
+    out["wsum_mean"] = wSum / n;
+    out["tr_local"] = tl;
+    out["tr_global"] = tg;
+    out["sigma_s_unit"] = su;
+    out["sigma_t_unit"] = st;
+    out["majorant"] = m.extinctionMajorant();
+    return out;
+}
+
 } // namespace
 
 PYBIND11_MODULE(astroray_test_helpers, m) {
+    m.def("segment_tracked_probe", &segmentTrackedProbe, "kind"_a, "density"_a, "color"_a,
+          "a"_a, "b"_a, "has_anchor"_a, "anchor"_a, "n"_a, "seed"_a, "supervoxel"_a,
+          "lambdas_nm"_a,
+          "#1032: tracked segment direct-light sampler on a slab / 1D grid step.");
     m.def("gr_segment_hit_crossings_probe", &probeGrSegmentHitCrossings, "hit_frac"_a,
           "#1063: {crossings w/o hit, crossings w/ hit at the plane-crossing step, stopped}.");
     m.def("camera_pixel_roundtrip", &cameraPixelRoundtrip, "width"_a, "height"_a,

@@ -1,6 +1,18 @@
 # Astroray Status
 
-## 2026-10-31 CURRENT — resumed session (Opus 5.5 lead; Opus/Sonnet lanes)
+## 2026-11-01 CURRENT — batch/2026-11-01 sweep (Opus 5.5 lead)
+
+**Merged:** #1203 (#1038 glass tint), #1211 (#1201 linked film sockets), #1212 (pkg325 passthrough ON for users; parity legs terminate), #1210 (architect plan + pkg327/pkg328).
+
+**Batch** `.claude/worktrees/batch1101` (#1032, #1153, #1174, #1178, #1186; 34927d7c, main merged in). First sweep: 5917 passed, 11 failed. Attributed per lane build vs main:
+- **#1032:** pkg289 shaft variance 8-10x Cycles (gate 4x), CPU and GPU. pkg306 GPU fog_floor_lit z -3.8. Smoke GPU probe 2.3x slower. Back with lane i1032.
+- **#1153:** bump + coat GPU probe 1.28x slower. Back with lane i1153.
+- **Pre-existing on main** (same numbers on main's build): pkg64 Cornell pin, v2_light_tree CPU floor_under_pendant_dim 0.975. Both are #1213.
+- #1174, #1178, #1186: clean (#1178 bump probe 0.999x).
+
+When both fixes land: one batch rebuild, the failing tests, perf A/B, a full sweep, then the batch PR. The draft PR body is in the lead scratchpad.
+
+## 2026-10-31 — resumed session (Opus 5.5 lead; Opus/Sonnet lanes)
 
 **Builds:** main `build_cuda` 6f2b0c70 and `dist/astroray` f477f024 restaged 22:13. `lead_build_queue.py` now resolves
 `.claude/worktrees/<lane>` (f477f024).

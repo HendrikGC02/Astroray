@@ -1292,6 +1292,11 @@ inline bool gpuLowersBumpHeight(const Texture& t) {
     if (auto* pt = dynamic_cast<const ProgramTexture*>(&t)) {
         const size_t n = pt->numInputs();
         if (n < 1 || n > (size_t)svm::VM_MAX_TEX) return false;
+        // The GPU taps run the program without the per-hit shading context (OP_SHADING:
+        // Fresnel / Layer Weight / Light Path read defaults), so such a Height stays CPU-only.
+        const svm::ShaderVMProgram& prog = pt->getProgram();
+        for (int k = 0; k < prog.numInstr && k < svm::VM_MAX_INSTR; ++k)
+            if (prog.code[k].op == svm::OP_SHADING) return false;
         for (size_t i = 0; i < n; ++i)
             if (!gpuEvaluatesPerHit(pt->getInput(i).get())) return false;
         return true;

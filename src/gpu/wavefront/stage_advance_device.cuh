@@ -1725,18 +1725,19 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline float gpu_bumpHeightAt(
 }
 
 // Cycles svm_node_set_bump (Cycles @ Blender v5.2.0 kernel/svm/displace.h:20-80, Apache-2.0)
-// over the taps at P, P + dPdx, P + dPdy with world steps of 1e-3 along the tangent frame, as
-// the CPU does. The step cancels (det ~ h^2, surfgrad ~ h^2) and the result does not depend on
-// the tangent basis (any orthonormal T, N x T gives h^2 (N - grad h)), so the hit's ONB tangent
-// stands in for the CPU's UV tangent. Returns the bumped, Strength-blended normal.
+// over the taps at P, P + dPdx, P + dPdy with world steps of 1e-3 along the surface frame, as
+// the CPU does: T = the UV-aligned tangent (rec.uvTangent, perpendicular to the pre-map normal
+// Ng in every kernel), Bt = Ng x T * sign; N is the current (possibly normal-mapped) normal the
+// surface gradient perturbs. Returns the bumped, Strength-blended normal.
 static __device__ ASTRORAY_SHADE_NOINLINE inline GVec3 gpu_bumpProceduralNormal(
-    GVec3 P, GVec3 N, GVec3 T, int primId, const GPrimitive* prims, const GTriangle* tris, int matId)
+    GVec3 P, GVec3 N, GVec3 Ng, GVec3 T, float bSign, int primId, const GPrimitive* prims,
+    const GTriangle* tris, int matId)
 {
     static_assert(astroray::svm::VM_MAX_TEX == 2, "matBumpProc holds 2 inputs");
     const int* bp = c_wfTexBinding.matBumpProc + 3 * matId;
     const int prog = bp[0], in0 = bp[1], in1 = bp[2];
     const float h = 1.0e-3f;
-    const GVec3 dPdx = T * h, dPdy = N.cross(T) * h;
+    const GVec3 dPdx = T * h, dPdy = Ng.cross(T) * (bSign * h);
     const float h_c = gpu_bumpHeightAt(P, primId, prims, tris, prog, in0, in1);
     const float h_x = gpu_bumpHeightAt(P + dPdx, primId, prims, tris, prog, in0, in1);
     const float h_y = gpu_bumpHeightAt(P + dPdy, primId, prims, tris, prog, in0, in1);
@@ -2378,8 +2379,11 @@ __device__ __forceinline__ bool shadePathSlotImpl(
         }
         // #1153 - a procedural / op-VM Height (scene_upload.cu materialBumpProc), out of line.
         if (c_wfTexBinding.matBumpProc && c_wfTexBinding.matBumpProc[3 * rec.materialId + 1] >= 0) {
-            rec.normal = gpu_bumpProceduralNormal(rec.point, rec.normal, rec.tangent, rec.primId,
-                                                  prims, tris, rec.materialId);
+            // CPU twin T = rec.uvTangent, Bt = (pre-map normal) x T * uvBitangentSign.
+            const GVec3 Ng(hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx], hitBufs.hit_normal_z[idx]);
+            rec.normal = gpu_bumpProceduralNormal(rec.point, rec.normal, Ng, rec.uvTangent,
+                                                  rec.uvBitangentSign, rec.primId, prims, tris,
+                                                  rec.materialId);
             gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
         }
     }

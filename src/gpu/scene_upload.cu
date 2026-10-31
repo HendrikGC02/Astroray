@@ -12,6 +12,8 @@
 #include "advanced_features.h"
 #include "astroray/light_path_mix.h"  // #991 Mix Shader with a Light Path Fac
 #include "astroray/add_material.h"    // #1072 Add Shader partner upload
+#include "astroray/bump_correction.h"  // #1153 kCoatOnSdNBit
+#include "astroray/thin_film_fresnel.h"  // #1153 kThinFilmThicknessCutoff (gpu_pr_filmActive)
 // pkg87a — Cryptomatte hash function.
 // Path is `src/util/...` (not `util/...`) because astroray_cuda's include
 // search has `${CMAKE_SOURCE_DIR}` private — not `${CMAKE_SOURCE_DIR}/src`.
@@ -1394,6 +1396,21 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         graphIdx[gpt] = id;
         return id;
     };
+    // #1153 - the GPU keeps a coated Principled's coat on sd->N under a Bump / Normal Map
+    // (gpu_coatN_*) except for thin film, dispersion and closure-tree leaves, where the coat
+    // follows the bump (the CPU keeps it on sd->N): report those. The addon reports the same
+    // cases (_report_gpu_coat_on_bump).
+    auto reportCoatOnBump = [&](int id, const char* why) {
+        if (replayBail || id < 0 || id >= (int)r.materialBumpCorrect.size() ||
+            !(r.materialBumpCorrect[id] & astroray::bumpcorr::kCoatOnSdNBit))
+            return;
+        const GMaterial& g = r.materials[id];
+        if (g.type == GMAT_CLOSURE_GRAPH && g.closureCount >= 1 &&
+            g.closures[0].type == GCLOSURE_PRINCIPLED && g.principled.coatWeight > 1e-4f)
+            fprintf(stderr, "[#1153] DEGRADED: Principled coat under a Bump / Normal Map on %s "
+                            "shades on the bumped normal on GPU (CPU: the unbumped normal, "
+                            "Cycles' unlinked Coat Normal)\n", why);
+    };
     auto getOrAddMat = [&](const std::shared_ptr<Material>& mKey) -> int {
         auto it = matIdx.find(mKey.get());
         if (it != matIdx.end()) return it->second;
@@ -1744,6 +1761,10 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         r.materialBumpStrength.push_back(bmStrength);
         r.materialBumpDistance.push_back(bmDistance);
         r.materialBumpCorrect.push_back(bumpCorrect);
+        if (r.materials[id].isDispersive)  // #1153 (gpu_coatOnSdN excludes these)
+            reportCoatOnBump(id, "a dispersive material");
+        else if (r.materials[id].principled.thinFilmThickness > astroray::thinfilm::kThinFilmThicknessCutoff)
+            reportCoatOnBump(id, "a thin-film material");
         r.materialTextureId.push_back(texId);
         r.materialProgramId.push_back(progId);
         for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t)
@@ -1893,6 +1914,7 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             for (size_t i = 0; i < t.leaves.size(); ++i) {
                 e.leafMat[i] = (i == 0) ? tp.id : getOrAddMat(t.leaves[i]);
                 if (t.leaves[i]->hasBSDF()) e.bsdfMask |= static_cast<uint8_t>(1u << i);
+                reportCoatOnBump(e.leafMat[i], "a Mix / Add Shader leaf");  // #1153
             }
             for (size_t n = 0; n < t.nodes.size(); ++n) {
                 const auto& entry = t.nodes[n];

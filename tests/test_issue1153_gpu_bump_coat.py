@@ -69,8 +69,9 @@ PROC_CASES = {"wave_object": 0.004, "noise_generated": 0.02, "voronoi_distance_o
               "program_object": 0.006, "coordprog_object": 0.004}
 
 
-def _proc_bump_render(case, use_gpu, bump=True, seed=7):
-    """Sun-lit Lambertian quad, Height = a #1007 test texture (period a few pixels)."""
+def _proc_bump_render(case, use_gpu, bump=True, seed=7, normal_map=False):
+    """Sun-lit Lambertian quad, Height = a #1007 test texture (period a few pixels);
+    optionally a constant 25-degree-tilted tangent-space Normal Map on the same material."""
     r = create_renderer()
     if use_gpu:
         _gpu_or_skip(r)
@@ -80,6 +81,11 @@ def _proc_bump_render(case, use_gpu, bump=True, seed=7):
     params = {}
     if bump:
         params = {"bump_map_texture": TEX[case](r), "bump_distance": PROC_CASES[case], "bump_strength": 1.0}
+    if normal_map:
+        a = np.radians(25.0)
+        tilt = np.array([0.0, np.sin(a), np.cos(a)], np.float32) * 0.5 + 0.5
+        r.load_texture("nm1153", np.tile(tilt, (2, 2, 1)).astype(np.float32), 2, 2, "UV")
+        params.update({"normal_map_texture": "nm1153", "normal_strength": 1.0})
     _quad(r, r.create_material("lambertian", [0.8, 0.8, 0.8], params))
     r.add_sun_light_dedicated(_SUN.tolist(), 0.02, {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 3.0)
     setup_camera(r, look_from=[0, 0, 3.0], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=30.0, width=RES, height=RES)
@@ -113,6 +119,26 @@ def test_gpu_procedural_bump_matches_cpu(case, capfd):
     assert abs(gpu.mean() / cpu.mean() - 1.0) < 0.02, (gpu.mean(), cpu.mean())
 
 
+def test_gpu_procedural_bump_over_a_normal_map_matches_cpu():
+    """Normal Map + procedural Bump on one material: the taps step along the surface frame
+    (UV tangent, pre-map normal x tangent), not the frame rebuilt around the mapped normal,
+    which leaves the surface plane (#1153 review)."""
+    case = "wave_object"
+    gpu = _proc_bump_render(case, True, normal_map=True)
+    gpu_nm = _proc_bump_render(case, True, bump=False, normal_map=True)
+    cpu = _proc_bump_render(case, False, normal_map=True)
+    cpu_nm = _proc_bump_render(case, False, bump=False, normal_map=True)
+    _save(gpu, "proc_normalmap_gpu.png")
+    _save(cpu, "proc_normalmap_cpu.png")
+    assert abs(gpu_nm.mean() / cpu_nm.mean() - 1.0) < 0.02, (gpu_nm.mean(), cpu_nm.mean())
+    relief_cpu, relief_gpu = np.abs(cpu - cpu_nm).mean(), np.abs(gpu - gpu_nm).mean()
+    assert relief_cpu > 0.02, relief_cpu
+    assert abs(relief_gpu / relief_cpu - 1.0) < 0.2, (relief_gpu, relief_cpu)
+    block_relief = np.abs(_blocks(cpu) - _blocks(cpu_nm)).mean()
+    block_diff = np.abs(_blocks(gpu) - _blocks(cpu)).mean()
+    assert block_diff < max(0.35 * block_relief, 0.003), (block_diff, block_relief)
+
+
 def test_gpu_bump_height_supported_binding():
     """The engine's own answer the addon uses to decide the GPU report (#1153)."""
     r = create_renderer()
@@ -126,6 +152,24 @@ def test_gpu_bump_height_supported_binding():
     r.load_texture("img_h", np.zeros((4, 4, 3), np.float32), 4, 4, "UV")  # image: the UV path
     assert not r.gpu_bump_height_supported("img_h")
     assert not r.gpu_bump_height_supported("no_such_texture")
+    # An op-VM Height that reads the per-hit shading context (Layer Weight -> OP_SHADING) stays
+    # CPU-only: the GPU taps carry no shading context (#1153 review).
+    C = T1007.C
+    wave, noise = T1007.Node('TEX_WAVE', inputs=[T1007.Sock('Vector')]), T1007.Node('TEX_NOISE', inputs=[T1007.Sock('Vector')])
+    lw = T1007.Node('LAYER_WEIGHT', inputs=[T1007.Sock('Blend', 0.5), T1007.Sock('Normal')])
+    mix = T1007.Node('MIX_RGB', blend_type='MIX', inputs=[
+        T1007.Sock('Fac', 0.5, T1007.Link(lw, 'Facing')),
+        T1007.Sock('Color1', [0, 0, 0], T1007.Link(wave, 'Color')),
+        T1007.Sock('Color2', [0, 0, 0], T1007.Link(noise, 'Color'))])
+    compiled = C.compile_chain(T1007.Sock('Height', 0.0, T1007.Link(mix, 'Color')))
+    r.create_procedural_texture("sw1153", "wave", T1007.WAVE_RINGS)
+    r.create_procedural_texture("sn1153", "noise_perlin", T1007.NOISE)
+    r.create_program_texture("shading1153", "OBJECT")
+    r.program_texture_add_input("shading1153", "sw1153")
+    r.program_texture_add_input("shading1153", "sn1153")
+    r.set_program_texture_program("shading1153", compiled['num_tex'], compiled['out_slot'],
+                                  compiled['code_flat'], compiled['consts_flat'], compiled['ramps_flat'])
+    assert not r.gpu_bump_height_supported("shading1153")
 
 
 def test_gpu_unsupported_procedural_bump_is_reported(capfd):
@@ -165,6 +209,29 @@ def test_addon_reports_gpu_bump_only_when_the_engine_cannot_difference_it(monkey
     assert bool(bump_msgs) is (not supported), seen
 
 
+@pytest.mark.parametrize("extra,tree,on_gpu,reported", [
+    ({}, 0, True, False),                                  # plain coat: GPU keeps it on sd->N
+    ({"thin_film_thickness": 300.0}, 0, True, True),
+    ({"dispersion_scale": 0.5}, 0, True, True),
+    ({}, 1, True, True),                                   # Mix / Add Shader leaf
+    ({"thin_film_thickness": 300.0}, 0, False, False),     # CPU render
+    ({"thin_film_thickness": 300.0, "coat_follows_bump": 1.0}, 0, True, False),
+    ({"thin_film_thickness": 300.0, "coat_weight": 0.0}, 0, True, False),
+], ids=["plain", "film", "dispersion", "tree", "cpu", "follows", "no_coat"])
+def test_addon_reports_gpu_coat_on_the_bumped_normal(monkeypatch, extra, tree, on_gpu, reported):
+    """#1153 review: thin film / dispersion / closure-tree Principled keep the coat on the bumped
+    normal on the GPU (gpu_coatOnSdN excludes them); the addon says so, as scene_upload does."""
+    addon = P._load_blender_addon(monkeypatch)
+    engine = addon.CustomRaytracerRenderEngine()
+    seen = []
+    engine._warn_shader_fallback = lambda *a, **k: seen.append(a)
+    engine._bump_render_on_gpu = lambda renderer: on_gpu
+    engine._closure_tree_depth = tree
+    native = dict({"coat_weight": 1.0, "normal_map_texture": "nm"}, **extra)
+    engine._report_gpu_coat_on_bump(native, P._RecordingRenderer())
+    assert any("coat under a Bump" in a[1] for a in seen) is reported, seen
+
+
 # ---------------------------------------------------------------------------
 # 2. Coat and sheen normals under a Bump
 # ---------------------------------------------------------------------------
@@ -175,9 +242,9 @@ def _ramp_tex(r, name="h_ramp1153", n_tex=64):
     return name
 
 
-def _layered_render(use_gpu, bump, sun, sheen=0.0, coat_follows=False, proc=None):
+def _layered_render(use_gpu, bump, sun, sheen=0.0, coat_follows=False, proc=None, eye=(0, 0, 3)):
     """Principled base 0.4 with a clear coat (and optionally sheen); steep image-ramp or
-    procedural bump; a sun from `sun`."""
+    procedural bump (Bump Map Correction on, the default); a sun from `sun`, camera at `eye`."""
     r = create_renderer()
     if use_gpu:
         _gpu_or_skip(r)
@@ -196,18 +263,22 @@ def _layered_render(use_gpu, bump, sun, sheen=0.0, coat_follows=False, proc=None
     d = np.asarray(sun, float)
     r.add_sun_light_dedicated((d / np.linalg.norm(d)).tolist(), 0.05,
                               {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, 3.0)
-    setup_camera(r, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=30, width=32, height=32)
+    setup_camera(r, look_from=list(eye), look_at=[0, 0, 0], vup=[0, 0, 1] if eye[2] < 2.9 else [0, 1, 0],
+                 vfov=30, width=32, height=32)
     return np.asarray(render_image(r, samples=256, max_depth=1, apply_gamma=False), np.float32)
 
 
 _C = (slice(8, 24), slice(8, 24))
+_GRAZE = (0.0, -2.8, 0.75)   # 15 deg above the quad: the #1154 glossy lift engages
 LAYERED = {
-    # name: (sun direction, sheen, coat_follows, procedural height)
+    # name: (sun direction, sheen, coat_follows, procedural height[, camera])
     "coat_mirror_sun": ([0.0, 0.0, -1.0], 0.0, False, None),
     "coat_oblique_sun": ([-0.5, 0.2, -1.0], 0.0, False, None),
     "sheen_coat": ([-0.6, 0.0, -1.0], 0.8, False, None),
     "coat_follows": ([0.0, 0.0, -1.0], 0.0, True, None),
     "coat_voronoi": ([0.0, 0.0, -1.0], 0.0, False, "voronoi_distance_object"),
+    # grazing camera, sun at the flat quad's mirror direction
+    "coat_grazing_camera": ([0.0, -2.8, -0.75], 0.0, False, None, _GRAZE),
 }
 
 
@@ -219,9 +290,9 @@ def test_gpu_layered_principled_under_bump_matches_cpu(case):
     bump; the CPU with coat_follows_bump stands in for it: coat_mirror_sun 0.20x,
     coat_voronoi 0.56x, coat_oblique_sun 0.98x, sheen_coat 0.99x (the last two are parity
     checks of the layering). CPU seed-to-seed spread <= 0.1 %."""
-    sun, sheen, follows, proc = LAYERED[case]
-    gpu = _layered_render(True, True, sun, sheen, follows, proc)
-    cpu = _layered_render(False, True, sun, sheen, follows, proc)
+    sun, sheen, follows, proc, *eye = LAYERED[case]
+    gpu = _layered_render(True, True, sun, sheen, follows, proc, *eye)
+    cpu = _layered_render(False, True, sun, sheen, follows, proc, *eye)
     _save(gpu, f"layered_{case}_gpu.png")
     _save(cpu, f"layered_{case}_cpu.png")
     g, c = float(gpu[_C].mean()), float(cpu[_C].mean())

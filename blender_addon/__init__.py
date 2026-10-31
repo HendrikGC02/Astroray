@@ -3480,6 +3480,30 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 "(#1153)" % src)
         return tex_name
 
+    def _report_gpu_coat_on_bump(self, native, renderer):
+        """#1153: under a Bump / Normal Map the GPU keeps the Principled coat on the
+        unbumped normal (Cycles' unlinked Coat Normal, as the CPU) except for thin film,
+        dispersion and Mix / Add Shader leaves, where it follows the bump (scene_upload.cu
+        reports the same cases). A coat that follows the bump anyway (coat_follows_bump)
+        renders alike on both."""
+        if not (native.get('normal_map_texture') or native.get('bump_map_texture')):
+            return
+        if float(native.get('coat_follows_bump', 0.0) or 0.0) > 0.5:
+            return
+        try:
+            if float(native.get('coat_weight', 0.0)) <= 1e-4:
+                return
+            why = ('a Mix / Add Shader leaf' if getattr(self, '_closure_tree_depth', 0) > 0 else
+                   'thin film' if float(native.get('thin_film_thickness', 0.0)) > 0.1 else
+                   'dispersion' if float(native.get('dispersion_scale', 0.0)) > 0.0 else None)
+        except (TypeError, ValueError):
+            return
+        if why is not None and self._bump_render_on_gpu(renderer):
+            self._warn_shader_fallback(
+                'BSDF_PRINCIPLED', "coat under a Bump / Normal Map with %s shades on the bumped "
+                "normal on the GPU (CPU: the unbumped normal, Cycles' unlinked Coat Normal, #1153)"
+                % why)
+
     @staticmethod
     def _gpu_bump_height_supported(renderer, tex_name):
         """#1153: the engine's own answer (astroray::gpuLowersBumpHeight); a module
@@ -5417,6 +5441,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # pkg119-C: surface every socket the native path does not honour.
         for msg in spec.get('native_gaps', []):
             self._warn_shader_fallback('BSDF_PRINCIPLED', msg)
+        self._report_gpu_coat_on_bump(native, renderer)  # #1153
 
         # #846: per-texel scalar op-VM programs (Roughness/Metallic/IOR/Transmission).
         native.update(spec.get('scalar_programs') or {})
@@ -5987,13 +6012,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                            'sums: the first shader is used')
                 return self._create_material_from_shader_spec(spec.get('a'), renderer)
             children = []
-            for key in ('a', 'b'):
-                child = dict(spec[key])
-                # A Displacement bump merged onto the Add spec applies to both.
-                for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction', 'bump_sets_sd_n'):
-                    if bump_key in spec and bump_key not in child:
-                        child[bump_key] = spec[bump_key]
-                children.append(self._create_material_from_shader_spec(child, renderer))
+            self._closure_tree_depth = getattr(self, '_closure_tree_depth', 0) + 1  # #1153
+            try:
+                for key in ('a', 'b'):
+                    child = dict(spec[key])
+                    # A Displacement bump merged onto the Add spec applies to both.
+                    for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction', 'bump_sets_sd_n'):
+                        if bump_key in spec and bump_key not in child:
+                            child[bump_key] = spec[bump_key]
+                    children.append(self._create_material_from_shader_spec(child, renderer))
+            finally:
+                self._closure_tree_depth -= 1
             add_id = renderer.create_add_material(children[0], children[1])
             if self._gpu_renders_first_closure_only(renderer, add_id):
                 self._warn_shader_fallback(
@@ -6009,13 +6038,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                            'the dominant shader is kept')
                 return self._create_material_from_shader_spec(keep, renderer)
             children = []
-            for key in ('a', 'b'):
-                child = dict(spec[key])
-                # A Displacement bump merged onto the Mix spec applies to both.
-                for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction', 'bump_sets_sd_n'):
-                    if bump_key in spec and bump_key not in child:
-                        child[bump_key] = spec[bump_key]
-                children.append(self._create_material_from_shader_spec(child, renderer))
+            self._closure_tree_depth = getattr(self, '_closure_tree_depth', 0) + 1  # #1153
+            try:
+                for key in ('a', 'b'):
+                    child = dict(spec[key])
+                    # A Displacement bump merged onto the Mix spec applies to both.
+                    for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction', 'bump_sets_sd_n'):
+                        if bump_key in spec and bump_key not in child:
+                            child[bump_key] = spec[bump_key]
+                    children.append(self._create_material_from_shader_spec(child, renderer))
+            finally:
+                self._closure_tree_depth -= 1
             mix_id = renderer.create_mix_material(children[0], children[1],
                                                   float(spec.get('fac', 0.5)),
                                                   spec.get('fac_texture') or '')

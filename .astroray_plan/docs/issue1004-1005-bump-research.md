@@ -69,4 +69,22 @@ Astroray has neither (#1154).
 - General Linear/Cubic image sampling (base colour etc.): pkg234.
 - `ensure_valid_specular_reflection` (`kernel/closure/bsdf_util.h:322-408`) and
   `bump_shadowing_term`: #1154.
-- GPU: procedural Bump Height and the coat normal: #1153.
+- GPU: procedural Bump Height and the coat normal: #1153 (below).
+
+## GPU twin (#1153)
+
+- Procedural Height: `scene_upload.cu` lowers a Noise / Wave / Voronoi Height (or an op-VM
+  ProgramTexture whose inputs all are) in Object / Generated coordinates to
+  `materialBumpProc` {program, input texIds} (#1007 per-hit descriptors;
+  `astroray::gpuLowersBumpHeight`, also the addon's `gpu_bump_height_supported`). The
+  HasNormalPerturb kernel differences it out of line (`gpu_bumpProceduralNormal`): taps at P,
+  P + 1e-3 T, P + 1e-3 (N x T), each resolving the coordinate and Mapping at its own point, then
+  `svm_node_set_bump`. Anything else (bakes, Camera / UV coordinates, graph programs) stays
+  unbumped on the GPU and is reported (`[#1153] DEGRADED`, addon BUMP entry).
+- Coat / sheen: the decorator's `kCoatOnSdNBit` (matBumpCorrect) routes a coated Principled to
+  `gpu_coatN_*` (eval / pdf / sample): coat on the parked pre-bump normal, sheen on
+  normalize(mix(N, sd->N, coat_weight)), view-angle terms via `gpu_pr_assembleLobes<true>`;
+  bump shadowing per closure (coat 1, sheen diffuse rule on its normal, the rest the #1154
+  whole-closure rule). Not routed (one-normal path kept): thin film, dispersion, closure trees.
+  Deviation kept from #1154: the GPU base lobes use the whole-closure lifted normal, so the
+  sheen mix uses the lifted N where the CPU uses the unlifted bumped N.

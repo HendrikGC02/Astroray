@@ -786,6 +786,10 @@ struct GWavefrontTextureBinding {
     // kCorrectionBit, 0 = no Bump / Normal Map). Read ONLY inside HasNormalPerturb=true;
     // last so the fleet kernels' constant offsets of the fields above are unchanged.
     const int*           matBumpCorrect;
+    // #1153 - procedural / op-VM Bump Height, 3 ints per material {program id or -1, input 0
+    // texId (-1 = none), input 1 texId or -1} (SceneUploadResult::materialBumpProc); null when
+    // no material has one. Read ONLY inside HasNormalPerturb=true; appended last (see above).
+    const int*           matBumpProc;
 };
 
 // pkg197 — wavefront first-hit denoise-guide AOV binding. Published ONCE per

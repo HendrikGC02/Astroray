@@ -1267,6 +1267,37 @@ std::shared_ptr<Material> makeNormalMapped(
     std::shared_ptr<Texture> bumpTex,
     float normalStr, float bumpStr, float bumpDist, bool coatFollows = false,
     bool bumpMapCorrection = true, bool bumpSetsSdN = false);  // #1154
+
+// #1153 - a texture the GPU evaluates per hit (scene_upload.cu lowerProcTexture): Noise /
+// Wave / Voronoi, or a CoordProgramTexture warp of one with at most one such input.
+inline bool gpuEvaluatesPerHit(const Texture* t) {
+    auto leaf = [](const Texture* x) {
+        return dynamic_cast<const NoiseTextureCycles*>(x) || dynamic_cast<const WaveTexture*>(x) ||
+               dynamic_cast<const VoronoiTexture*>(x);
+    };
+    if (auto* cp = dynamic_cast<const CoordProgramTexture*>(t))
+        return leaf(cp->child().get()) && cp->numInputs() <= 1 &&
+               (cp->numInputs() == 0 || leaf(cp->getInput(0).get()));
+    return t && leaf(t);
+}
+
+// #1153 - whether the GPU HasNormalPerturb kernel differences this procedural Bump Height
+// (gpu_bumpProceduralNormal): the CPU world-step branch of NormalMappedPlugin (Object /
+// Generated coordinates; Camera is CPU-only) over a per-hit procedural, or an op-VM
+// ProgramTexture whose 1..VM_MAX_TEX inputs all are. Images keep the UV image path; bakes
+// are not differenced (a 1e-3 world step inside one bake cell reads a zero slope).
+inline bool gpuLowersBumpHeight(const Texture& t) {
+    const Texture::CoordMode cm = t.getCoordMode();
+    if (cm != Texture::CoordMode::Object && cm != Texture::CoordMode::Generated) return false;
+    if (auto* pt = dynamic_cast<const ProgramTexture*>(&t)) {
+        const size_t n = pt->numInputs();
+        if (n < 1 || n > (size_t)svm::VM_MAX_TEX) return false;
+        for (size_t i = 0; i < n; ++i)
+            if (!gpuEvaluatesPerHit(pt->getInput(i).get())) return false;
+        return true;
+    }
+    return gpuEvaluatesPerHit(&t);
+}
 } // namespace astroray
 
 

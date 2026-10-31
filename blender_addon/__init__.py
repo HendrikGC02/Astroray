@@ -3456,8 +3456,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         Image Texture Height keeps the image path (with its Mapping, #1004). A
         procedural / op-VM Height (#1005) is loaded like a Base Color chain and
         differenced by the CPU NormalMappedPlugin (Texture::valueDisplaced in Object /
-        Generated / Camera coordinates); the GPU bump path samples uploaded images
-        only, so a GPU render reports it (#1153)."""
+        Generated / Camera coordinates). The GPU differences Noise / Wave / Voronoi
+        in Object / Generated coordinates, directly or as op-VM inputs (#1153,
+        renderer.gpu_bump_height_supported); a GPU render reports any other Height."""
         if spec.get('bump_image') is not None:
             return self.load_blender_image(spec['bump_image'], renderer,
                                            vector_input=spec.get('bump_vector'),
@@ -3471,11 +3472,25 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if tex_name is None:
             self._warn_shader_fallback(
                 'BUMP', "Height from '%s' cannot be loaded as a texture: bump not applied" % src)
-        elif self._bump_render_on_gpu(renderer):
+        elif self._bump_render_on_gpu(renderer) and not self._gpu_bump_height_supported(
+                renderer, tex_name):
             self._warn_shader_fallback(
-                'BUMP', "Height from '%s' is procedural: bump applied on CPU only, the GPU "
-                "bump path samples images (#1153)" % src)
+                'BUMP', "Height from '%s' is not differenced on the GPU (Noise / Wave / "
+                "Voronoi in Object / Generated coordinates only): bump applied on CPU only "
+                "(#1153)" % src)
         return tex_name
+
+    @staticmethod
+    def _gpu_bump_height_supported(renderer, tex_name):
+        """#1153: the engine's own answer (astroray::gpuLowersBumpHeight); a module
+        without the binding cannot difference a procedural Height on the GPU."""
+        fn = getattr(renderer, 'gpu_bump_height_supported', None)
+        if fn is None:
+            return False
+        try:
+            return bool(fn(tex_name))
+        except Exception:
+            return False
 
     def _report_non_linear_interp(self, kind, socket):
         """#1004: Normal Map / Bump height images are read Linear (Cycles' default); a

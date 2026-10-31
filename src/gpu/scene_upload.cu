@@ -1697,6 +1697,49 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
                 r.hasNormalPerturb = true;  // Bump shares the HasNormalPerturb axis
             }
         }
+        // #1153 - a procedural / op-VM Height (CPU: NormalMappedPlugin's #1005 world-step
+        // branch) is differenced per hit by the HasNormalPerturb kernel
+        // (gpu_bumpProceduralNormal): each input is a #1007 per-hit descriptor at the
+        // Height texture's own point, so the taps at P + dP resolve the object / Generated
+        // coordinate and the Mapping exactly as Texture::valueDisplaced does.
+        int bumpProc[3] = {-1, -1, -1};
+        if (bmTex && !std::dynamic_pointer_cast<ImageTexture>(bmTex)) {
+            static_assert(astroray::svm::VM_MAX_TEX == 2, "materialBumpProc holds 2 inputs");
+            bool ok = astroray::gpuLowersBumpHeight(*bmTex);
+            if (ok) {
+                if (auto pt = std::dynamic_pointer_cast<ProgramTexture>(bmTex)) {
+                    for (size_t t = 0; ok && t < pt->numInputs(); ++t) {
+                        bumpProc[1 + t] = perHitTexId(pt.get(), pt->getInput(t).get());
+                        ok = bumpProc[1 + t] >= 0;
+                    }
+                    if (ok) {
+                        auto pit = progIdx.find(pt.get());
+                        if (pit != progIdx.end()) {
+                            bumpProc[0] = pit->second;
+                        } else {
+                            bumpProc[0] = (int)r.programs.size();
+                            progIdx[pt.get()] = bumpProc[0];
+                            r.programs.push_back(pt->getProgram());
+                        }
+                    }
+                } else {
+                    bumpProc[1] = perHitTexId(bmTex.get(), bmTex.get());
+                    ok = bumpProc[1] >= 0;
+                }
+            }
+            if (ok) {
+                r.hasNormalPerturb = true;
+                r.hasProgram = true;  // c_wfProgBinding carries the evaluators / program
+            } else {
+                bumpProc[0] = bumpProc[1] = bumpProc[2] = -1;
+                if (!replayBail)  // pkg315: a bailed replay is rebuilt in full
+                    fprintf(stderr, "[#1153] DEGRADED: Bump Height texture is not differenced on "
+                                    "GPU (only Noise / Wave / Voronoi in Object / Generated "
+                                    "coordinates, directly or as op-VM inputs); GPU renders the "
+                                    "unbumped normal\n");
+            }
+        }
+        r.materialBumpProc.insert(r.materialBumpProc.end(), bumpProc, bumpProc + 3);
         r.materialBumpTexId.push_back(bumpTexId);
         r.materialBumpStrength.push_back(bmStrength);
         r.materialBumpDistance.push_back(bmDistance);
@@ -2502,6 +2545,7 @@ void adoptMaterialDomain(SceneUploadResult& dst, SceneUploadResult&& src) {
     dst.materialBumpStrength = std::move(src.materialBumpStrength);
     dst.materialBumpDistance = std::move(src.materialBumpDistance);
     dst.materialBumpCorrect = std::move(src.materialBumpCorrect);
+    dst.materialBumpProc = std::move(src.materialBumpProc);  // #1153
     dst.hasNormalPerturb = src.hasNormalPerturb;
     dst.programs = std::move(src.programs);
     dst.materialProgramId = std::move(src.materialProgramId);

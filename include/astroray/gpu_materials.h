@@ -1923,10 +1923,18 @@ __device__ inline void gpu_pr_glassEnergy(const GPrincipledClosure& c, const GPr
     dark = GVec3(gg::darkening(fss.x, E, Eavg), gg::darkening(fss.y, E, Eavg),
                  gg::darkening(fss.z, E, Eavg));
 }
+// #1153: CoatN = the coat and sheen shade on their own normals (Cycles svm/closure.h:127-129,
+// 152-161; CPU twin principled.cpp assembleLobes coatOwnN): their view-angle terms use nvCoat /
+// nvSheen. Only the out-of-line HasNormalPerturb helpers (stage_advance_device.cuh gpu_coatN_*)
+// instantiate it; every other caller gets the CoatN=false body unchanged.
+template<bool CoatN = false>
 __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GHitRecord& rec,
                                            const GVec3& wo, GPrincipledLobe lobes[kMaxPrincipledLobes],
-                                           const GSampledWavelengths* wl = nullptr) {
+                                           const GSampledWavelengths* wl = nullptr,
+                                           float nvCoat = 0.f, float nvSheen = 0.f) {
     float nv = fminf(fmaxf(rec.normal.dot(wo), 1e-4f), 1.f);
+    float nvS = nv, nvC = nv;
+    if constexpr (CoatN) { nvS = nvSheen; nvC = nvCoat; }
     GVec3 weight(1.f, 1.f, 1.f);  // W₀ = 1
     GVec3 baseColor = c.color;
     int n = 0;
@@ -1954,7 +1962,7 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
     // 2. Sheen (LTC microfiber) — principled.cpp assembleLobes
     if (c.sheenWeight > 1e-4f) {
         astroray::SheenLtcCoeffs sc =
-            astroray::sheenLtcFetch(fminf(fmaxf(c.sheenRoughness, 1e-3f), 1.f), nv);
+            astroray::sheenLtcFetch(fminf(fmaxf(c.sheenRoughness, 1e-3f), 1.f), nvS);
         if (fabsf(sc.aInv) >= 1e-5f && sc.albedo >= 1e-5f) {
             GVec3 shAlb = c.sheenTint * (c.sheenWeight * sc.albedo);
             GVec3 sheenW = weight * shAlb;
@@ -1972,7 +1980,7 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
     // 3. Coat (clear GGX dielectric, coat_ior) + Beer absorption + layering
     if (c.coatWeight > 1e-4f) {
         float f0c = gpu_pr_F0_from_ior(c.coatIor);
-        float sView = gpu_pr_generalizedSchlickS(nv, c.coatIor);
+        float sView = gpu_pr_generalizedSchlickS(nvC, c.coatIor);
         float Fview = f0c + (1.f - f0c) * sView;
         GPrincipledLobe& L = lobes[n++];
         L.kind = GPR_COAT; L.weight = weight * c.coatWeight; L.color = GVec3(f0c);
@@ -1980,10 +1988,10 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         L.sheenA = 0.f; L.sheenB = 0.f;
         L.sel = fmaxf(luminance(weight * c.coatWeight) * Fview, 1e-4f);
         if (wl) L.weightSpec = weightSp * c.coatWeight;
-        GVec3 coatAlb = gpu_ggxLayeringAlbedo(GVec3(f0c), c.coatRoughness, nv, c.coatIor) * c.coatWeight;  // pkg261
+        GVec3 coatAlb = gpu_ggxLayeringAlbedo(GVec3(f0c), c.coatRoughness, nvC, c.coatIor) * c.coatWeight;  // pkg261
         float layT = gpu_pr_layeringScale(weight, coatAlb);
         weight = weight * layT;
-        GVec3 beer = gpu_pr_coatBeerFactor(c, nv);  // chromatic coat-tint Beer
+        GVec3 beer = gpu_pr_coatBeerFactor(c, nvC);  // chromatic coat-tint Beer
         weight = weight * beer;
         if (wl) weightSp = weightSp * layT * usp(beer);
     }

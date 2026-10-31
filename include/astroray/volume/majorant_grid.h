@@ -29,6 +29,14 @@
 namespace astroray {
 namespace volume {
 
+// #1032: step cap of the local-majorant walks (CPU volume_transport.h and the
+// GPU stage_volume_hetero.cu twin share it). Cycles v5.2.0 shade_volume.h
+// VOLUME_MAX_STEPS (:64, checked at :950, Apache-2.0): "restrict the number of
+// steps in case of numerical problems". A walk also stops when a free-flight
+// step no longer advances t in float (1/sigma_bar below the precision at t).
+// A capped walk abandons its sample (zero contribution), as Cycles ends it.
+inline constexpr int kVolumeMaxSteps = 1024;
+
 // Coarse per-supervoxel upper bound on density (σ_t = density · extinction(λ),
 // extinction ≥ 0 constant per medium, so max-density is a true σ_t majorant once
 // scaled by the caller — pkg268). Values live in the fine grid's index space.

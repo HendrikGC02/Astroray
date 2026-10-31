@@ -36,11 +36,26 @@ samples at the AABB entry or into empty space of a sparse dense VDB.
    before the lit interval are forced null (pdf 1 in both strategies).
 3. Ratio-tracking Tr = Π σ_n(λ)/σ̄ rides the chain (RR below 0.05 on the max lane).
 4. Distance strategy: reservoir over scatter candidates on [a,b], W_k = Π p_n · p_s,k
-   (Cycles `VolumeSampleReservoir`); the kept k carries ΣW (RIS normalisation, so the
-   expectation is the collision estimator Σ Tr_k σ_s,k / σ̄).
-5. p_s = hero average of σ_s/(σ_s+σ_n) (Cycles uniform channel pdf), absorption a weight.
+   (Cycles `VolumeSampleReservoir`, `add_sample` :1352, direct throughput × total_weight
+   :1155-1160); the kept k carries ΣW (RIS normalisation, so the expectation is the
+   collision estimator Σ Tr_k σ_s,k / σ̄). **Deliberate divergence:** Cycles runs this
+   VSPG reservoir on primary rays only (`vstate.vspg = bounce == 0`, :1616) and takes the
+   first real collision on later bounces; we use it at every bounce (unbiased, lower
+   variance; lead decision 2026-10-31).
+5. p_s = plain average of σ_s/(σ_s+σ_n) over the wavelength lanes (`heroAverage`),
+   absorption a weight. Cycles instead weights channels by albedo × path throughput
+   (`volume_sample_channel_pdf`, :1331). Both are valid channel pdfs, so this changes
+   variance only, not the mean.
 6. Power-heuristic one-sample MIS, w = 2·p_c/(p_c² + p_o²).
 7. Segment-NEE shadow rays use local-majorant ratio tracking too (surface NEE unchanged).
+8. Step cap: both local-majorant walks stop after `kVolumeMaxSteps` = 1024 tentative
+   collisions (Cycles `VOLUME_MAX_STEPS` :64, checked :950) or when a step no longer
+   advances t in float; the sample is abandoned. On the GPU this also keeps the 17-bit
+   `GSegRng` / grid-shadow draw counters from wrapping (<= 3 draws per step).
+
+GPU kind 0 (`gpuSampleSegmentDirectTracked`) mirrors the CPU line for line, except that its
+`sigmaAt` tests the medium AABB only; the CPU uses `mediumContains` with the pkg296 mesh
+boundary. That split predates #1032 (main's GPU kind 0 is AABB-only too).
 
 ## Verification
 

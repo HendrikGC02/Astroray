@@ -30,6 +30,7 @@
 #include "astroray/gpu_types.h"
 #include "astroray/gpu_materials.h"
 #include "astroray/sampling/wavefront_rng_device.h"
+#include "astroray/volume/majorant_grid.h"   // #1032: kVolumeMaxSteps (shared with the CPU)
 #include "../profile.h"
 #include "../gpu_spectral_tables.h"
 
@@ -512,13 +513,21 @@ __device__ GSampledSpectrum gpu_gridVolumeTransmittance(int mi, const GVec3& o,
     }
     uint32_t draw = 0;
     if (local && m.majorant) {
+        int steps = 0;
         gpuWalkGridMajorants(m, o, d, tMin, tMax, 0.f, [&](float s0, float s1, float sb) {
             if (!(sb > 0.f)) return true;
             for (float t = s0;;) {
                 float xi = gpu_freeflightUniform(rpix, rsmp, rsd,
                                                  salt + (draw++ & G_WF_GRIDSHADOW_DRAW_MASK));
-                t -= __logf(fmaxf(1e-20f, 1.f - xi)) / sb;
-                if (t >= s1) return true;
+                const float tn = t - __logf(fmaxf(1e-20f, 1.f - xi)) / sb;
+                if (tn >= s1) return true;
+                // Step cap (majorant_grid.h kVolumeMaxSteps; Cycles VOLUME_MAX_STEPS):
+                // also keeps the 17-bit draw counter far from wrapping.
+                if (!(tn > t) || ++steps > astroray::volume::kVolumeMaxSteps) {
+                    Tr = GSampledSpectrum(0.f);
+                    return false;
+                }
+                t = tn;
                 const float dens = gridDensityAt(m, o + d * t);
                 for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
                     Tr.v[i] *= fmaxf(sb - dens * (sUnit.v[i] + aUnit.v[i]), 0.f) / sb;
@@ -736,7 +745,9 @@ __device__ inline bool segInsideAabb(const GGridMedium& m, const GVec3& P)
 // at the local majorants; Tr = Π σ_n(λ)/σ̄ before t (collisions in [a0,a) are
 // forced null). Distance pdf / shared exponentials = Π p_n · σ̄ · p_s with p_s
 // the hero average of σ_s/(σ_s+σ_n); the distance strategy keeps one scatter
-// candidate by reservoir (W_k = Π p_n · p_s,k) and carries ΣW.
+// candidate by reservoir (W_k = Π p_n · p_s,k; Cycles :1352, :1155-1160) and
+// carries ΣW. Deliberate divergence (as the CPU): Cycles uses this VSPG
+// reservoir on primary rays only (:1616); we use it at every bounce.
 struct GSegTracked { float t, w; GSampledSpectrum Tr; };
 
 __device__ GSegTracked gpuSampleSegmentDirectTracked(const GVec3& o, const GVec3& d, float a0,
@@ -790,12 +801,20 @@ __device__ GSegTracked gpuSampleSegmentDirectTracked(const GVec3& o, const GVec3
     GSampledSpectrum Tr(1.f), trHit(1.f);
     float pNull = 1.f, lastSb = 0.f, wSum = 0.f, tHit = -1.f, pdHit = 0.f;
     bool dead = false;
+    int steps = 0;
     gpuWalkSegmentMajorants(o, d, a0, pickEq ? tEq : b, [&](float s0, float s1, float sb) {
         lastSb = sb;
         if (!(sb > 0.f)) return true;
         for (float t = s0;;) {
-            t -= __logf(fmaxf(1e-20f, 1.f - gpu_rng_uniform(&rng))) / sb;
-            if (t >= s1) return true;
+            const float tn = t - __logf(fmaxf(1e-20f, 1.f - gpu_rng_uniform(&rng))) / sb;
+            if (tn >= s1) return true;
+            // Step cap (majorant_grid.h kVolumeMaxSteps; Cycles VOLUME_MAX_STEPS):
+            // <= 3 draws/step keeps the 17-bit GSegRng counter far from wrapping.
+            if (!(tn > t) || ++steps > astroray::volume::kVolumeMaxSteps) {
+                dead = true;
+                return false;
+            }
+            t = tn;
             sigmaAt(t);
             const float ps = scatterProb(sb);
             const bool lit = t >= a;

@@ -9,7 +9,8 @@ invalidates the cache.
 The gate is the driver's own upload count, ``last_render_info()["grid_uploads"]``
 (host->device grid buffer copies of the last GPU render; the key does not exist
 before #828, so every test here fails on main):
-  1. an upload render copies density + temperature (2); a following reuse
+  1. an upload render copies density + temperature + the #1032 majorant grid
+     (3); a following reuse
      render copies nothing (0) and renders the same image;
   2. ``set_volume_grid`` / ``add_homogeneous_medium`` after an upload force the
      next reuse render to re-upload (and match an upload render);
@@ -90,7 +91,7 @@ def test_reuse_render_uploads_no_grid_buffers():
     _gpu_or_skip()
     r = _scene()
     a = _render(r, skip_upload=False)
-    assert _uploads(r) == 2, "upload render must copy density + temperature"
+    assert _uploads(r) == 3, "upload render must copy density + temperature + majorant (#1032)"
     b = _render(r, skip_upload=True)
     assert _uploads(r) == 0, "reuse render re-uploaded the grids (no device grid cache)"
     assert a.mean() > 0.01, "grid scene renders black -- fixture broken"
@@ -103,7 +104,8 @@ def test_set_volume_grid_invalidates_the_cache():
     base = _render(r, skip_upload=False)
     _add_fire(r, T=3500.0, name="fire2", offset=(1.6, 0.0, -1.0))  # a second, hotter grid
     after_reuse = _render(r, skip_upload=True)
-    assert _uploads(r) == 4, "set_volume_grid did not invalidate the grid cache"
+    assert _uploads(r) == 6, ("set_volume_grid did not invalidate the grid cache "
+                              "(2 grids x density + temperature + majorant)")
     after_upload = _render(r, skip_upload=False)
     assert after_reuse.mean() > 1.05 * base.mean(), "second grid not rendered"
     _close(after_reuse, after_upload)
@@ -116,7 +118,8 @@ def test_add_homogeneous_medium_invalidates_the_cache():
     r.add_homogeneous_medium([-3, -3, -3], [3, 3, -1.5], 0.0, [0, 0, 0], [1, 1, 1], 0.0,
                              emission_strength=2.0, emission_color=[0.2, 0.4, 1.0])
     after_reuse = _render(r, skip_upload=True)
-    assert _uploads(r) == 2, "add_homogeneous_medium did not invalidate the grid cache"
+    assert _uploads(r) == 3, ("add_homogeneous_medium did not invalidate the grid cache "
+                              "(density + temperature + majorant)")
     after_upload = _render(r, skip_upload=False)
     assert not np.allclose(base, after_reuse, rtol=1e-3), "new medium not rendered"
     _close(after_reuse, after_upload)

@@ -640,11 +640,17 @@ inline astroray::SampledSpectrum ratioTrackingTransmittanceSpectral(
     }
     if (local) {
         astroray::SampledSpectrum Tr(1.0f);
+        int steps = 0;
         walkGridMajorants(m, o, d, tMin, tMax, 0.0f, [&](float s0, float s1, float sb) {
             if (!(sb > 0.0f)) return true;
             for (float t = s0;;) {
-                t -= std::log(std::max(1e-20f, 1.0f - u(gen))) / sb;
-                if (t >= s1) return true;
+                const float tn = t - std::log(std::max(1e-20f, 1.0f - u(gen))) / sb;
+                if (tn >= s1) return true;
+                if (!(tn > t) || ++steps > kVolumeMaxSteps) {  // step cap (majorant_grid.h)
+                    Tr = astroray::SampledSpectrum(0.0f);
+                    return false;
+                }
+                t = tn;
                 float dens = m.densityAt(o + d * t);
                 for (int i = 0; i < astroray::kSpectrumSamples; ++i)
                     Tr[i] *= std::max(sb - dens * (sUnit[i] + aUnit[i]), 0.0f) / sb;
@@ -917,19 +923,29 @@ inline TrackedSegmentSample sampleSegmentDirectTracked(
     astroray::SampledSpectrum Tr(1.0f), trHit(1.0f);
     float pNull = 1.0f, lastSb = 0.0f;
     // Distance strategy: a reservoir over the scatter candidates of the whole
-    // chain (Cycles VolumeSampleReservoir / volume_sample_indirect_scatter):
-    // candidate k has weight W_k = Π p_n · p_s,k (the probability that delta
-    // tracking scatters there) and estimate Tr_k·σ_s,k/pd_k; one k is kept with
-    // probability W_k/ΣW, so the estimate is that times ΣW.
+    // chain (Cycles VolumeSampleReservoir, add_sample :1352, direct throughput
+    // × total_weight :1155-1160): candidate k has weight W_k = Π p_n · p_s,k
+    // (the probability that delta tracking scatters there) and estimate
+    // Tr_k·σ_s,k/pd_k; one k is kept with probability W_k/ΣW, so the estimate
+    // is that times ΣW. Deliberate divergence: Cycles runs this VSPG reservoir
+    // on primary rays only (vstate.vspg = bounce == 0, :1616) and takes the
+    // first real collision otherwise; we use it at every bounce (unbiased,
+    // lower variance; lead decision 2026-10-31).
     float wSum = 0.0f, tHit = -1.0f, pdHit = 0.0f;
     bool dead = false;
+    int steps = 0;
     walkSegmentMajorants(media, o, d, a0, pickEq ? tEq : b, [&](float s0, float s1, float sb) {
         lastSb = sb;
         if (!(sb > 0.0f)) return true;
         float t = s0;
         for (;;) {
-            t -= std::log(std::max(1e-20f, 1.0f - u(gen))) / sb;
-            if (t >= s1) return true;
+            const float tn = t - std::log(std::max(1e-20f, 1.0f - u(gen))) / sb;
+            if (tn >= s1) return true;
+            if (!(tn > t) || ++steps > kVolumeMaxSteps) {  // step cap (majorant_grid.h)
+                dead = true;
+                return false;
+            }
+            t = tn;
             sigmaAt(o + d * t, t, sigS, sigT);
             const float ps = scatterProb(sb);
             const bool lit = t >= a;

@@ -338,58 +338,154 @@ std::array<int, 3> probeGrSegmentHitCrossings(double hit_frac) {
     return {none.nCrossings, with.nCrossings, with.stopped ? 1 : 0};
 }
 
-// #1032: volume::sampleSegmentDirectTracked on ray o=(-1,.25,.25), d=+x through
-// an AABB [0,8]x[0,1]x[0,1] (t = x + 1): kind "slab" = homogeneous, "step" =
-// an 8x1x1 grid (index == world) with voxels 0-3 at 0 and 4-7 at 1, so the
-// nearest-voxel density is 1 on x in [3.5,7.5). Returns per-lane mean / variance
-// of the estimate Tr*sigma_s(t)*w over n draws (target: integral of
-// T(t)*sigma_s(t) over [a,b]), the mean reservoir weight sum (distance-only),
-// the mean local / global ratio-tracking Tr over the whole AABB, and the unit
-// sigma_s / sigma_t per lane for the Python closed forms.
+// #1032: volume::sampleSegmentDirectTracked + local/global ratio tracking on a
+// small media set crossed by one ray. Scenes:
+//   "slab"      homogeneous AABB [0,8]x[0,1]x[0,1], ray o=(-1,.25,.25) along +x
+//               (t = x + 1, hull [1,9]);
+//   "step"      the same box as an 8x1x1 grid (index == world), voxels 0-3 at 0
+//               and 4-7 at 1 (nearest-voxel density 1 on x in [3.5,7.5));
+//   "oblique"   an 8^3 patterned grid with a scaled + rotated + translated
+//               world-to-index transform, crossed obliquely (multi-axis DDA
+//               steps, zero-majorant supervoxels, AABB edge pieces);
+//   "grid_hom"  that grid + an overlapping homogeneous box (one-grid rule);
+//   "two_grids" that grid + an overlapping second grid (sum of global majorants).
+// fa/fb place the lit interval [a,b] in the media hull [a0,b0] as fractions.
+// Returns the per-lane mean / variance of the estimate Tr*sigma_s(t)*w over n
+// draws, its reference int_a^b T(t) sigma_s(t) dt from a fine quadrature along
+// the ray, the mean local / global ratio-tracking Tr over the hull and its
+// quadrature reference, the mean reservoir weight sum (distance-only), the
+// unit sigma_s / sigma_t per lane, the first medium's majorant and the hull.
 py::dict segmentTrackedProbe(const std::string& kind, float density, std::array<float, 3> color,
-                             float a, float b, bool hasAnchor, std::array<double, 3> anchor,
+                             float fa, float fb, bool hasAnchor, std::array<double, 3> anchor,
                              int n, unsigned seed, int supervoxel,
                              const std::vector<float>& lambdas_nm) {
     namespace av = astroray::volume;
     constexpr int kN = astroray::kSpectrumSamples;
     const auto wl = volumetricLambdas(lambdas_nm);
-    av::PrincipledVolume pv;
-    pv.density = density;
-    pv.color = color;
-    av::GridMedium grid;
-    av::BoundedMedium m;
-    m.aabbMin[0] = 0.f; m.aabbMin[1] = 0.f; m.aabbMin[2] = 0.f;
-    m.aabbMax[0] = 8.f; m.aabbMax[1] = 1.f; m.aabbMax[2] = 1.f;
-    if (kind == "step") {
-        av::DenseGrid d;
-        d.dim[0] = 8; d.dim[1] = 1; d.dim[2] = 1;
-        d.data = {0.f, 0.f, 0.f, 0.f, 1.f, 1.f, 1.f, 1.f};
-        const av::Mat4 I = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-        grid.setDensity(d, I, I, supervoxel);
+    const av::Mat4 I = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    av::GridMedium g1, g2;
+    std::vector<av::BoundedMedium> media;
+    auto principled = [&](av::BoundedMedium& m, float D) {
+        av::PrincipledVolume pv;
+        pv.density = D;
+        pv.color = color;
+        av::setupPrincipled(m, pv);
+    };
+    auto addGrid = [&](av::GridMedium& g, const av::DenseGrid& dg, const av::Mat4& i2o,
+                       const av::Mat4& o2w, float D) {
+        g.setDensity(dg, i2o, o2w, supervoxel);
+        av::BoundedMedium m;
         m.heterogeneous = true;
-        m.grid = &grid;
-        m.maxDensity = grid.majorant().globalMax();
-    } else if (kind != "slab") {
-        throw std::invalid_argument("kind must be 'slab' or 'step'");
+        m.grid = &g;
+        const auto bb = g.worldAABB();
+        for (int a = 0; a < 3; ++a) { m.aabbMin[a] = bb[a]; m.aabbMax[a] = bb[3 + a]; }
+        m.maxDensity = g.majorant().globalMax();
+        principled(m, D);
+        media.push_back(m);
+    };
+    auto addBox = [&](const Vec3& mn, const Vec3& mx, float D) {
+        av::BoundedMedium m;
+        m.aabbMin[0] = mn.x; m.aabbMin[1] = mn.y; m.aabbMin[2] = mn.z;
+        m.aabbMax[0] = mx.x; m.aabbMax[1] = mx.y; m.aabbMax[2] = mx.z;
+        principled(m, D);
+        media.push_back(m);
+    };
+    // Patterned 8^3 grid, voxel 0.25 m, object box [-1,1]^3, rotated 30 deg
+    // about z then 20 deg about x, shifted by (0.3,-0.2,0.1).
+    auto addObliqueGrid = [&]() {
+        av::DenseGrid dg;
+        dg.dim[0] = dg.dim[1] = dg.dim[2] = 8;
+        dg.data.resize(512);
+        for (int z = 0; z < 8; ++z)
+            for (int y = 0; y < 8; ++y)
+                for (int x = 0; x < 8; ++x)
+                    dg.data[size_t((z * 8 + y) * 8 + x)] =
+                        x < 2 ? 0.f : 0.25f * float((x + 2 * y + 3 * z) % 4) + 0.25f;
+        const av::Mat4 i2o = {0.25f, 0, 0, -1, 0, 0.25f, 0, -1, 0, 0, 0.25f, -1, 0, 0, 0, 1};
+        const float cz = std::cos(0.5235988f), sz = std::sin(0.5235988f);
+        const float cx = std::cos(0.3490659f), sx = std::sin(0.3490659f);
+        const av::Mat4 o2w = {cz,      -sz,     0.f, 0.3f,     // Rx(20) * Rz(30), row-major
+                              cx * sz, cx * cz, -sx, -0.2f,
+                              sx * sz, sx * cz, cx,  0.1f,
+                              0.f,     0.f,     0.f, 1.f};
+        addGrid(g1, dg, i2o, o2w, density);
+    };
+    Vec3 o(-1.f, 0.25f, 0.25f), d(1.f, 0.f, 0.f);
+    if (kind == "slab") {
+        addBox(Vec3(0.f, 0.f, 0.f), Vec3(8.f, 1.f, 1.f), density);
+    } else if (kind == "step") {
+        av::DenseGrid dg;
+        dg.dim[0] = 8; dg.dim[1] = 1; dg.dim[2] = 1;
+        dg.data = {0.f, 0.f, 0.f, 0.f, 1.f, 1.f, 1.f, 1.f};
+        addGrid(g1, dg, I, I, density);
+    } else if (kind == "oblique" || kind == "grid_hom" || kind == "two_grids") {
+        addObliqueGrid();
+        o = Vec3(-3.f, -1.2f, -0.5f);
+        d = (Vec3(0.3f, -0.15f, 0.12f) - o).normalized();
+        if (kind == "grid_hom") addBox(Vec3(0.f, -2.f, -2.f), Vec3(3.f, 2.f, 2.f), 0.3f * density);
+        if (kind == "two_grids") {
+            av::DenseGrid dg;
+            dg.dim[0] = dg.dim[1] = dg.dim[2] = 4;
+            dg.data.assign(64, 1.f);
+            const av::Mat4 i2o = {0.5f, 0, 0, -0.5f, 0, 0.5f, 0, -1, 0, 0, 0.5f, -1, 0, 0, 0, 1};
+            addGrid(g2, dg, i2o, I, 0.5f * density);
+        }
+    } else {
+        throw std::invalid_argument("kind: slab | step | oblique | grid_hom | two_grids");
     }
-    av::setupPrincipled(m, pv);
-    const std::vector<av::BoundedMedium> media{m};
-    const Vec3 o(-1.f, 0.25f, 0.25f), d(1.f, 0.f, 0.f);
+    float a0 = 1e30f, b0 = 0.f;
+    for (const auto& m : media) {
+        float t0, t1;
+        if (av::intersectAABB(o, d, m.aabbMin, m.aabbMax, 0.f, 1e30f, t0, t1)) {
+            a0 = std::min(a0, t0);
+            b0 = std::max(b0, t1);
+        }
+    }
+    if (!(b0 > a0)) throw std::runtime_error("ray misses the media");
+    const float a = a0 + fa * (b0 - a0), b = a0 + fb * (b0 - a0);
     const Vec3 anc = toVec3(anchor);
-    astroray::SampledSpectrum sU, aU;
-    av::principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, wl, sU, aU);
+    astroray::SampledSpectrum sU, aU;   // same Color for every medium
+    av::principledSpectralCoeffs(media[0].colorSpec, media[0].absorptionSpec, wl, sU, aU);
+    auto densAt = [&](const Vec3& P) {
+        float sum = 0.f;
+        for (const auto& m : media) {
+            if (P.x < m.aabbMin[0] || P.x > m.aabbMax[0] || P.y < m.aabbMin[1] ||
+                P.y > m.aabbMax[1] || P.z < m.aabbMin[2] || P.z > m.aabbMax[2])
+                continue;
+            sum += m.densityAt(P);
+        }
+        return sum;
+    };
     auto sigmaAt = [&](const Vec3& P, float, astroray::SampledSpectrum& sigS,
                        astroray::SampledSpectrum& sigT) {
-        const float dens = m.densityAt(P);
+        const float dens = densAt(P);
         sigS = sU * dens;
         sigT = (sU + aU) * dens;
     };
+    // Quadrature reference (piecewise-constant density per step, exact within it).
+    std::vector<double> refI(kN, 0.0), tau(kN, 0.0);
+    {
+        const int Q = 400000;
+        const double h = double(b0 - a0) / Q;
+        for (int q = 0; q < Q; ++q) {
+            const double t0 = a0 + q * h, t1 = t0 + h;
+            const double dens = densAt(o + d * float(0.5 * (t0 + t1)));
+            const double l = std::max(t0, double(a)), hi = std::min(t1, double(b));
+            for (int i = 0; i < kN; ++i) {
+                const double st = dens * (sU[i] + aU[i]);
+                if (hi > l && st > 0.0)
+                    refI[i] += dens * sU[i] / st * std::exp(-tau[i]) *
+                               (std::exp(-st * (l - t0)) - std::exp(-st * (hi - t0)));
+                tau[i] += st * h;
+            }
+        }
+    }
     std::mt19937 gen(seed);
     std::vector<double> sum(kN, 0.0), sum2(kN, 0.0), trL(kN, 0.0), trG(kN, 0.0);
     double wSum = 0.0;
     for (int s = 0; s < n; ++s) {
         const av::TrackedSegmentSample r = av::sampleSegmentDirectTracked(
-            media, o, d, 1.f, a, b, hasAnchor, anc, wl, gen, sigmaAt);
+            media, o, d, a0, a, b, hasAnchor, anc, wl, gen, sigmaAt);
         if (r.w > 0.f) {
             astroray::SampledSpectrum sigS, sigT;
             sigmaAt(o + d * r.t, r.t, sigS, sigT);
@@ -400,28 +496,32 @@ py::dict segmentTrackedProbe(const std::string& kind, float density, std::array<
             }
             if (!hasAnchor) wSum += double(r.w) * r.pdfDist;  // w = wSum / pd
         }
-        const auto tl = av::segmentTransmittanceSpectral(media, o, d, 1.f, 9.f, wl, gen, nullptr, true);
-        const auto tg = av::segmentTransmittanceSpectral(media, o, d, 1.f, 9.f, wl, gen, nullptr, false);
+        const auto tl = av::segmentTransmittanceSpectral(media, o, d, a0, b0, wl, gen, nullptr, true);
+        const auto tg = av::segmentTransmittanceSpectral(media, o, d, a0, b0, wl, gen, nullptr, false);
         for (int i = 0; i < kN; ++i) { trL[i] += tl[i]; trG[i] += tg[i]; }
     }
-    std::vector<double> mean(kN), var(kN), tl(kN), tg(kN), su(kN), st(kN);
+    std::vector<double> mean(kN), var(kN), tl(kN), tg(kN), refTr(kN), su(kN), st(kN);
     for (int i = 0; i < kN; ++i) {
         mean[i] = sum[i] / n;
         var[i] = sum2[i] / n - mean[i] * mean[i];
         tl[i] = trL[i] / n;
         tg[i] = trG[i] / n;
+        refTr[i] = std::exp(-tau[i]);
         su[i] = sU[i];
         st[i] = sU[i] + aU[i];
     }
     py::dict out;
     out["mean"] = mean;
     out["var"] = var;
+    out["ref_integral"] = refI;
     out["wsum_mean"] = wSum / n;
     out["tr_local"] = tl;
     out["tr_global"] = tg;
+    out["ref_tr"] = refTr;
     out["sigma_s_unit"] = su;
     out["sigma_t_unit"] = st;
-    out["majorant"] = m.extinctionMajorant();
+    out["majorant"] = media[0].extinctionMajorant();
+    out["hull"] = std::vector<double>{a0, b0};
     return out;
 }
 
@@ -429,9 +529,9 @@ py::dict segmentTrackedProbe(const std::string& kind, float density, std::array<
 
 PYBIND11_MODULE(astroray_test_helpers, m) {
     m.def("segment_tracked_probe", &segmentTrackedProbe, "kind"_a, "density"_a, "color"_a,
-          "a"_a, "b"_a, "has_anchor"_a, "anchor"_a, "n"_a, "seed"_a, "supervoxel"_a,
+          "fa"_a, "fb"_a, "has_anchor"_a, "anchor"_a, "n"_a, "seed"_a, "supervoxel"_a,
           "lambdas_nm"_a,
-          "#1032: tracked segment direct-light sampler on a slab / 1D grid step.");
+          "#1032: tracked segment direct-light sampler + local Tr on small media sets.");
     m.def("gr_segment_hit_crossings_probe", &probeGrSegmentHitCrossings, "hit_frac"_a,
           "#1063: {crossings w/o hit, crossings w/ hit at the plane-crossing step, stopped}.");
     m.def("camera_pixel_roundtrip", &cameraPixelRoundtrip, "width"_a, "height"_a,

@@ -90,6 +90,9 @@ public:
         const float qc = pickB ? qB : qA, qo = pickB ? qA : qB;
         BSDFSample s = c.sample(r, wo, g);
         if (s.pdf <= 0.0f) return s;
+        // #1178: the bounce is labelled by the picked closure (Cycles path_state_next reads
+        // the sampled closure's label), not by this node's isGlossy() (true if ANY child is).
+        if (s.label == BSDF_LABEL_NONE) s.label = c.isGlossy() ? BSDF_LABEL_GLOSSY : BSDF_LABEL_DIFFUSE;
         s.f = s.f * wc;
         if (s.isDelta) { s.pdf *= qc; return s; }
         if (wo_ > 0.0f) s.f = s.f + o.eval(r, wo, s.wi) * wo_;
@@ -122,6 +125,7 @@ public:
         const float qc = pickB ? qB : qA, qo = pickB ? qA : qB;
         BSDFSampleSpectral s = c.sampleSpectral(r, wo, g, l);
         if (s.pdf <= 0.0f) return s;
+        if (s.label == BSDF_LABEL_NONE) s.label = c.isGlossy() ? BSDF_LABEL_GLOSSY : BSDF_LABEL_DIFFUSE;  // #1178
         s.f_spectral = s.f_spectral * wc;
         if (s.isDelta) { s.pdf *= qc; return s; }
         if (wo_ > 0.0f) s.f_spectral = s.f_spectral + o.evalSpectral(r, wo, s.wi, l) * wo_;

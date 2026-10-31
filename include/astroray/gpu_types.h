@@ -1150,12 +1150,20 @@ struct GNEEOcclusion {
 // ---------------------------------------------------------------------------
 // BSDF sample
 // ---------------------------------------------------------------------------
+// #1178/#1198: the sampled closure's scatter label, Cycles v5.2.0 ClosureLabel bit values
+// (kernel/types.h:329-342). Only the diffuse/glossy bits are reported: transmission is the
+// geometric side test and singular is isDelta. 0 = not reported (the integrator falls back to
+// the material class, Material::isGlossy / gpu_material_is_glossy). Shared by the CPU
+// BSDFSample/BSDFSampleSpectral (raytracer.h) and GBSDFSample below.
+enum : unsigned char { BSDF_LABEL_NONE = 0, BSDF_LABEL_DIFFUSE = 4, BSDF_LABEL_GLOSSY = 8 };
+
 struct GBSDFSample {
     GVec3 wi;
     GVec3 f;
     GSampledSpectrum fSpectral;
     float pdf;
     bool  isDelta;
+    unsigned char label = BSDF_LABEL_NONE;  // #1178: sits in isDelta's padding
 };
 
 // ---------------------------------------------------------------------------

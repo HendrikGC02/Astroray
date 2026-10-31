@@ -3025,6 +3025,12 @@ __device__ inline GBSDFSample gpu_principled_sample(const GPrincipledClosure& c,
     GPrincipledDir ds = gpu_pr_chooseAndSampleDir(c, rec, wo, rng, lobes, n, W);
     if (!ds.ok) return s;
     s.wi = ds.wi;
+    // #1178: the sampled lobe's closure label (CPU twin PrincipledPlugin::lobeLabel).
+    {
+        const int k = lobes[ds.lobe].kind;
+        s.label = (k == GPR_DIFFUSE || k == GPR_SHEEN || k == GPR_SUBSURFACE || k == GPR_TRANSLUCENT)
+                      ? BSDF_LABEL_DIFFUSE : BSDF_LABEL_GLOSSY;
+    }
     // pkg187 -- report whether this was a transmission-lobe refraction (wi crossed
     // to the far hemisphere) so the spectral wrapper can collapse to the hero
     // wavelength. Same sign test as CPU (reflected iff wi,wo same side of N).

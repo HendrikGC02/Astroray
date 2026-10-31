@@ -18,8 +18,8 @@ So with max_bounces = N the camera path scatters at vertices 1..N+1 and takes em
   Measured in Blender 5.2 Cycles (Diffuse BSDF 0.5 + Emission 1, 256 spp): 1.5000 / 1.7502 / 1.8752 /
   1.9377 for both the total and the diffuse cap. Before #1165 Astroray rendered 0.0 / 1.18 / 1.58 / 1.79.
   Walls: a Principled with specular_ior_level 0 for the total cap; the Add(lambertian, emissive) box
-  for the diffuse cap, because every Principled scatter counts as glossy (#1178) so the diffuse cap
-  never fires on it (GPU leg needs the #1180 fix: tree emission on a non-Principled leaf).
+  for the diffuse cap (its GPU leg needs the #1180 fix: tree emission on a non-Principled leaf). The
+  Principled diffuse-cap twin is test_issue1178_sampled_lobe_label.py (#1178).
 - pkg325 glass panes (white world): a camera ray crossing k interfaces reaches the sky iff N >= k-1
   (the k-th scatter's continuation is traced). Same for transmission_bounces with an unlimited total.
   Before #1165 Astroray needed N >= k+1 (total) and N >= k (transmission).

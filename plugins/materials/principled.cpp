@@ -2680,14 +2680,26 @@ public:
                 const_cast<HitRecord&>(rec).isDelta = true;
                 return bss;
             }
-            // eta²-clamp guard (base-class pattern): upsample normalized tint × magnitude.
-            Vec3 rgb = (L.kind == LobeKind::Transparent || L.kind == LobeKind::ThinGlassTransmit)
-                           ? L.weight  // straight-through weight (weight_T carries T')
-                       : ds.deltaRefract
-                           ? L.weight * sqrtColor(baseColor_) * (ds.eta * ds.eta * ds.pdfInternal)
-                           : L.weight * specularTint_ * ds.pdfInternal;
-            float maxc = std::max({rgb.x, rgb.y, rgb.z, 1.0f});
-            bss.f_spectral = upsample(rgb * (1.0f / maxc), lambdas) * maxc;
+            if (L.kind == LobeKind::Transparent || L.kind == LobeKind::ThinGlassTransmit) {
+                // eta²-clamp guard (base-class pattern): upsample normalized tint × magnitude.
+                Vec3 rgb = L.weight;  // straight-through weight (weight_T carries T')
+                float maxc = std::max({rgb.x, rgb.y, rgb.z, 1.0f});
+                bss.f_spectral = upsample(rgb * (1.0f / maxc), lambdas) * maxc;
+            } else {
+                // #1038: upsample the glass TINT (chromaticity of the lobe weight folded in at
+                // max 1) and apply eta^2, the Fresnel pick and the weight magnitude linearly,
+                // as the rough eval does (upsample(sqrt(base_color)) x scalars). Jakob-Hanika
+                // upsampling is nonlinear in magnitude (upsample(k c) != k upsample(c)), so
+                // upsampling tint x eta^2 (1-F) gave a different spectrum on entry (k ~ 0.46)
+                // and exit (k ~ 2.0) and the smooth path disagreed with the rough path of the
+                // same material by 3.4 % in R for Color (0.9, 1, 0.95) (white furnace).
+                Vec3 tint = ds.deltaRefract ? sqrtColor(baseColor_) : specularTint_;
+                float s = ds.deltaRefract ? ds.eta * ds.eta * ds.pdfInternal : ds.pdfInternal;
+                float wmax = std::max({L.weight.x, L.weight.y, L.weight.z});
+                Vec3 col = (wmax > 0.0f) ? tint * (L.weight * (1.0f / wmax)) : Vec3(0.0f);
+                float maxc = std::max({col.x, col.y, col.z, 1.0f});
+                bss.f_spectral = upsample(col * (1.0f / maxc), lambdas) * (maxc * wmax * s);
+            }
             bss.pdf = qj * ds.pdfInternal;
             bss.isDelta = true;
             const_cast<HitRecord&>(rec).isDelta = true;

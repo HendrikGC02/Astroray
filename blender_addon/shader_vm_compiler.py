@@ -841,6 +841,12 @@ def _compile_socket_value(socket, builder, depth=0):
         out = builder.alloc_slot()
         builder.emit(OP_MAP_RANGE, out, a=v_s, b=fmn, c=fmx, d=tmn, e=tmx,
                      imm=MAP_RANGE_OPS[interp])
+        if getattr(node, 'clamp', False):
+            # pkg328: Cycles svm_map_range clamps the result to [To Min, To Max] (bounds ordered); the
+            # OP_MAP_RANGE kernel has no clamp bit, so RANGE-clamp the result.
+            clamped = builder.alloc_slot()
+            builder.emit(OP_CLAMP, clamped, a=out, b=tmn, c=tmx, imm=CLAMP_TYPES['RANGE'])
+            return clamped
         return out
 
     if ntype == 'HUE_SAT':  # Hue/Saturation/Value

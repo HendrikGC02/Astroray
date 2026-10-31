@@ -1,0 +1,169 @@
+{
+ "_note": "pkg328 Phase 1 probes (tests/pkg321_probe_blender.py): CPU 64 spp 80x80, Blender 5.2; astroray = staged dist_batch_931dd0af pyd + worktree addon, cycles = PKG328_ENGINE=CYCLES. d_ab = mean |A-B| (linear), d_aa = same-scene seed-noise floor.",
+ "probes": {
+  "env_vector": {
+   "astroray": {
+    "d_aa": 0.002454,
+    "d_ab": 0.329236,
+    "db_aa": 0.000305,
+    "db_ab": 0.326204,
+    "warn_A": "",
+    "warn_B": ""
+   },
+   "cycles": {
+    "d_aa": 1.4e-05,
+    "d_ab": 0.32458,
+    "db_aa": 1e-06,
+    "db_ab": 0.322098
+   }
+  },
+  "img_interp": {
+   "astroray": {
+    "d_aa": 0.00256,
+    "d_ab": 0.0,
+    "db_aa": 0.000364,
+    "db_ab": 0.0,
+    "warn_A": "Astroray degradation: 1 approximated / 0 ignored -- approximated TEX_IMAGE: Interpolation 'Linear' is not honoured: the image is sampled Closest, so magnified texels show blocks (#1215)",
+    "warn_B": ""
+   },
+   "cycles": {
+    "d_aa": 0.000264,
+    "d_ab": 0.04425,
+    "db_aa": 6.7e-05,
+    "db_ab": 0.041466
+   }
+  },
+  "mr_clamp_const": {
+   "astroray": {
+    "d_aa": 0.001675,
+    "d_ab": 0.105124,
+    "db_aa": 0.00022,
+    "db_ab": 0.105124,
+    "warn_A": "",
+    "warn_B": ""
+   },
+   "cycles": {
+    "d_aa": 0.000228,
+    "d_ab": 0.105282,
+    "db_aa": 6e-05,
+    "db_ab": 0.105282
+   }
+  },
+  "mr_clamp_linked": {
+   "astroray": {
+    "d_aa": 0.00167,
+    "d_ab": 0.089378,
+    "db_aa": 0.000207,
+    "db_ab": 0.089378,
+    "warn_A": "",
+    "warn_B": ""
+   },
+   "cycles": {
+    "d_aa": 0.000228,
+    "d_ab": 0.089489,
+    "db_aa": 6e-05,
+    "db_ab": 0.089489
+   }
+  },
+  "n_principled_coat": {
+   "astroray": {
+    "d_aa": 0.008164,
+    "d_ab": 0.0,
+    "db_aa": 0.001212,
+    "db_ab": 0.0,
+    "warn_A": "",
+    "warn_B": "Astroray degradation: 1 approximated / 0 ignored -- approximated BSDF_PRINCIPLED: Principled socket 'Coat Normal' is linked but not honoured by the native material (dropped)"
+   }
+  },
+  "n_principled_control": {
+   "astroray": {
+    "d_aa": 0.004708,
+    "d_ab": 0.398344,
+    "db_aa": 0.000658,
+    "db_ab": 0.398344,
+    "warn_A": "",
+    "warn_B": ""
+   }
+  },
+  "o_target": {
+   "astroray": {
+    "d_aa": 0.002673,
+    "d_ab": 0.263034,
+    "db_aa": 0.000345,
+    "db_ab": 0.262969,
+    "warn_A": "",
+    "warn_B": ""
+   },
+   "cycles": {
+    "d_aa": 0.000392,
+    "d_ab": 0.263206,
+    "db_aa": 0.000105,
+    "db_ab": 0.263206
+   }
+  },
+  "o_thickness": {
+   "astroray": {
+    "d_aa": 0.002185,
+    "d_ab": 0.0,
+    "db_aa": 0.000278,
+    "db_ab": 0.0,
+    "warn_A": "",
+    "warn_B": ""
+   },
+   "cycles": {
+    "d_aa": 0.00032,
+    "d_ab": 0.0,
+    "db_aa": 7.9e-05,
+    "db_ab": 0.0
+   }
+  },
+  "w_active_output": {
+   "astroray": {
+    "d_aa": 0.000475,
+    "d_ab": 0.799901,
+    "db_aa": 5.6e-05,
+    "db_ab": 0.799901,
+    "warn_A": "",
+    "warn_B": ""
+   },
+   "cycles": {
+    "d_aa": 0.0,
+    "d_ab": 0.800001,
+    "db_aa": 0.0,
+    "db_ab": 0.800001
+   }
+  },
+  "w_bg_control": {
+   "astroray": {
+    "d_aa": 0.000475,
+    "d_ab": 0.799901,
+    "db_aa": 5.6e-05,
+    "db_ab": 0.799901,
+    "warn_A": "",
+    "warn_B": ""
+   },
+   "cycles": {
+    "d_aa": 0.0,
+    "d_ab": 0.800001,
+    "db_aa": 0.0,
+    "db_ab": 0.800001
+   }
+  },
+  "w_surface": {
+   "astroray": {
+    "d_aa": 0.000475,
+    "d_ab": 0.799901,
+    "db_aa": 5.6e-05,
+    "db_ab": 0.799901,
+    "warn_A": "",
+    "warn_B": ""
+   },
+   "cycles": {
+    "d_aa": 0.0,
+    "d_ab": 0.800001,
+    "db_aa": 0.0,
+    "db_ab": 0.800001
+   }
+  }
+ }
+}

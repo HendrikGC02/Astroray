@@ -11,6 +11,7 @@ only the scene description); .astroray_plan/docs/pkg321-dropped-row-audit.md is 
 
 Environment: ASTRORAY_PYD_DIR (a copy of the engine .pyd), CUDA_VISIBLE_DEVICES=-1 (CPU) and OMP_NUM_THREADS=8;
 PKG321_DEVICE=gpu renders on the CUDA device instead (the test's gpu leg).
+PKG328_ENGINE=CYCLES renders the same probes with Blender's Cycles (CPU): the reference for "what should move".
 """
 import json
 import math
@@ -157,6 +158,18 @@ PROBES = {
     "m_geometry_normal": dict(scene="sphere", node="ShaderNodeBsdfDiffuse", pre={},
                               A={"Color": (0.5, 0.5, 0.5, 1)}, B={"Color": (0.5, 0.5, 0.5, 1)},
                               link="geometry_normal", link_socket="Color"),
+    # ---- pkg328 Phase 1 (#1088 context-blind root rows + MapRange clamp + TexImage interpolation) -----------
+    # World probes: the camera sees the world directly (scene "wcam"); `custom` names a world builder below.
+    "w_bg_control": dict(scene="wcam", node="WORLD", custom="world_bg_color"),
+    "w_surface": dict(scene="wcam", node="WORLD", custom="world_surface"),
+    "w_active_output": dict(scene="wcam", node="WORLD", custom="world_active_output"),
+    "env_vector": dict(scene="wcam", node="WORLD", custom="env_vector"),
+    # Material probes: sphere + a custom material builder.
+    "o_thickness": dict(scene="sphere", node="ShaderNodeOutputMaterial", custom="out_thickness"),
+    "o_target": dict(scene="sphere", node="ShaderNodeOutputMaterial", custom="out_target"),
+    "img_interp": dict(scene="sphere", node="ShaderNodeTexImage", custom="img_interp"),
+    "mr_clamp_const": dict(scene="sphere", node="ShaderNodeMapRange", custom="mr_clamp_const"),
+    "mr_clamp_linked": dict(scene="sphere", node="ShaderNodeMapRange", custom="mr_clamp_linked"),
 }
 
 
@@ -244,7 +257,7 @@ def _camera(loc, rot, lens=50.0):
 
 
 def _configure(scene):
-    scene.render.engine = "CUSTOM_RAYTRACER"
+    scene.render.engine = os.environ.get("PKG328_ENGINE", "CUSTOM_RAYTRACER")   # CYCLES: the Blender reference leg (pkg328)
     scene.render.resolution_x = scene.render.resolution_y = RES
     scene.render.resolution_percentage = 100
     scene.render.film_transparent = False
@@ -261,6 +274,7 @@ def _configure(scene):
     cr.samples = SPP
     if hasattr(cr, "preview_samples"):
         cr.preview_samples = SPP
+    scene.cycles.device = "CPU"
     cr.device_mode = os.environ.get("PKG321_DEVICE", "cpu")   # "gpu": the GPU leg of the test
     cr.use_adaptive_sampling = False
 
@@ -298,6 +312,8 @@ def build_scene(kind, out_dir):
         scene.collection.objects.link(o)
         info["obj"] = o
         _camera((0, -2.2, 0.05), (math.pi / 2, 0, 0))
+    elif kind == "wcam":
+        _camera((0, 0, 0), (math.pi / 2, 0, 0), lens=24.0)      # looks along +Y at the world
     elif kind == "sky":
         info["sky"] = _world(0.0, sky=True)
         # camera at the sun azimuth, pitched up to the sun elevation (sun_elevation 0.5, rotation 0 -> +Y)
@@ -351,17 +367,18 @@ def _vdb_object(out_dir):
 # --------------------------------------------------------------------------- #
 # Material builder
 # --------------------------------------------------------------------------- #
-def _png_image(out_dir, name, arr):
+def _png_image(out_dir, name, arr, colorspace="Non-Color"):
     img = bpy.data.images.new(name, arr.shape[1], arr.shape[0], alpha=False, float_buffer=False)
     rgba = np.concatenate([arr, np.ones(arr.shape[:2] + (1,), np.float32)], axis=-1)
     img.pixels.foreach_set(rgba.ravel())
     img.filepath_raw = os.path.join(out_dir, name + ".png")
     img.file_format = "PNG"
-    img.colorspace_settings.name = "Non-Color"
+    if colorspace != "sRGB":      # pkg328: a Non-Color save blanked the random colour texture (observed); sRGB round-trips
+        img.colorspace_settings.name = colorspace
     img.save()
     bpy.data.images.remove(img)
     img = bpy.data.images.load(os.path.join(out_dir, name + ".png"))
-    img.colorspace_settings.name = "Non-Color"
+    img.colorspace_settings.name = colorspace
     return img
 
 
@@ -420,6 +437,156 @@ def _setv(node, key, val, notes):
     sock.default_value = val
 
 
+# --------------------------------------------------------------------------- #
+# pkg328 custom builders (variant "A" / "B"; A2 builds as A)
+# --------------------------------------------------------------------------- #
+def _new_world():
+    world = bpy.data.worlds.new("W")
+    world.use_nodes = True
+    world.node_tree.nodes.clear()
+    bpy.context.scene.world = world
+    return world.node_tree
+
+
+def _bg(nt, gray):
+    bg = nt.nodes.new("ShaderNodeBackground")
+    bg.inputs["Color"].default_value = (gray, gray, gray, 1.0)
+    return bg
+
+
+def _world_bg_color(variant, out_dir, notes):
+    """Control: one Background feeds Surface; B changes its colour (the world is consumed at all)."""
+    nt = _new_world()
+    out = nt.nodes.new("ShaderNodeOutputWorld")
+    bg = _bg(nt, 0.9 if variant == "B" else 0.1)
+    nt.links.new(bg.outputs["Background"], out.inputs["Surface"])
+
+
+def _world_surface(variant, out_dir, notes):
+    """Two Background nodes; A links the first to Surface, B the second. Cycles renders 0.1 vs 0.9."""
+    nt = _new_world()
+    out = nt.nodes.new("ShaderNodeOutputWorld")
+    x, y = _bg(nt, 0.1), _bg(nt, 0.9)
+    nt.links.new((y if variant == "B" else x).outputs["Background"], out.inputs["Surface"])
+
+
+def _world_active_output(variant, out_dir, notes):
+    """Two World Output nodes, each with its own Background; A activates the first, B the second."""
+    nt = _new_world()
+    o1, o2 = nt.nodes.new("ShaderNodeOutputWorld"), nt.nodes.new("ShaderNodeOutputWorld")
+    x, y = _bg(nt, 0.1), _bg(nt, 0.9)
+    nt.links.new(x.outputs["Background"], o1.inputs["Surface"])
+    nt.links.new(y.outputs["Background"], o2.inputs["Surface"])
+    (o2 if variant == "B" else o1).is_active_output = True
+    notes.append("active=%s" % [o.is_active_output for o in (o1, o2)])
+
+
+def _env_vector(variant, out_dir, notes):
+    """Environment Texture whose Vector comes from Mapping; B rotates the Mapping 90 degrees about Z."""
+    nt = _new_world()
+    out = nt.nodes.new("ShaderNodeOutputWorld")
+    w, h = 64, 32
+    a = np.zeros((h, w, 4), np.float32)
+    a[..., 0] = np.linspace(0.05, 1.0, w, dtype=np.float32)[None, :]
+    a[..., 2] = np.linspace(1.0, 0.05, w, dtype=np.float32)[None, :]
+    a[..., 1], a[..., 3] = 0.2, 1.0
+    img = _png_image(out_dir, "pkg328_env", a[..., :3], "sRGB")      # the engine's loader reads PNG, not EXR
+    tc = nt.nodes.new("ShaderNodeTexCoord")
+    mp = nt.nodes.new("ShaderNodeMapping")
+    mp.inputs["Rotation"].default_value = (0.0, 0.0, math.pi / 2 if variant == "B" else 0.0)
+    env = nt.nodes.new("ShaderNodeTexEnvironment")
+    env.image = img
+    bg = nt.nodes.new("ShaderNodeBackground")
+    nt.links.new(tc.outputs["Generated"], mp.inputs["Vector"])
+    nt.links.new(mp.outputs["Vector"], env.inputs["Vector"])
+    nt.links.new(env.outputs["Color"], bg.inputs["Color"])
+    nt.links.new(bg.outputs["Background"], out.inputs["Surface"])
+
+
+WORLD_BUILDERS = {"world_bg_color": _world_bg_color, "world_surface": _world_surface,
+                  "world_active_output": _world_active_output, "env_vector": _env_vector}
+
+
+def _diffuse_mat(name, color=(0.6, 0.3, 0.2, 1)):
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    d = nt.nodes.new("ShaderNodeBsdfDiffuse")
+    d.inputs["Color"].default_value = color
+    nt.links.new(d.outputs["BSDF"], out.inputs["Surface"])
+    return mat, nt, out, d
+
+
+def _out_thickness(variant, out_dir, notes):
+    """Material Output Thickness: B links a Value 5 into it (Cycles ignores the socket)."""
+    mat, nt, out, _d = _diffuse_mat("probe_%s" % variant)
+    if variant == "B":
+        v = nt.nodes.new("ShaderNodeValue")
+        v.outputs[0].default_value = 5.0
+        nt.links.new(v.outputs[0], out.inputs["Thickness"])
+    return mat
+
+
+def _out_target(variant, out_dir, notes):
+    """Two Material Outputs: A = (red: Cycles, blue: EEVEE), B = (red: EEVEE, blue: Cycles). Cycles shows red then blue."""
+    mat = bpy.data.materials.new("probe_%s" % variant)
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+    outs = []
+    for col, tgt in (((0.8, 0.05, 0.05, 1), "EEVEE" if variant == "B" else "CYCLES"),
+                     ((0.05, 0.05, 0.8, 1), "CYCLES" if variant == "B" else "EEVEE")):
+        o = nt.nodes.new("ShaderNodeOutputMaterial")
+        o.target = tgt
+        d = nt.nodes.new("ShaderNodeBsdfDiffuse")
+        d.inputs["Color"].default_value = col
+        nt.links.new(d.outputs["BSDF"], o.inputs["Surface"])
+        outs.append(o)
+    for o in outs:                 # make each target's output the active one for that target
+        o.is_active_output = True
+    notes.append("targets/active=%s" % [(o.target, o.is_active_output) for o in outs])
+    return mat
+
+
+def _img_interp(variant, out_dir, notes):
+    """4x4 random texture as Base Colour; A Linear, B Closest. Cycles: smooth vs hard-edged."""
+    mat, nt, out, d = _diffuse_mat("probe_%s" % variant)
+    rng = np.random.RandomState(7)
+    a = rng.uniform(0.05, 0.95, (4, 4, 3)).astype(np.float32)
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.image = _png_image(out_dir, "pkg328_checker", a, "sRGB")
+    tex.interpolation = "Closest" if variant == "B" else "Linear"
+    nt.links.new(tex.outputs["Color"], d.inputs["Color"])
+    return mat
+
+
+def _mr_clamp(linked):
+    def build(variant, out_dir, notes):
+        """Map Range: From 0..0.5 -> To 0..0.25. Value 0.9 (constant, or a Noise Fac linked): clamp on caps at 0.25, off gives up to 0.45."""
+        mat, nt, out, d = _diffuse_mat("probe_%s" % variant)
+        mr = nt.nodes.new("ShaderNodeMapRange")
+        mr.clamp = variant != "B"
+        mr.inputs["From Max"].default_value = 0.5
+        mr.inputs["To Min"].default_value = 0.0
+        mr.inputs["To Max"].default_value = 0.25
+        if linked:
+            noise = nt.nodes.new("ShaderNodeTexNoise")      # a procedural source the op-VM compiles
+            noise.inputs["Scale"].default_value = 4.0
+            mr.inputs["From Max"].default_value = 0.3          # noise sits around 0.5, so the clamp bites
+            nt.links.new(noise.outputs["Fac"], mr.inputs["Value"])
+        else:
+            mr.inputs["Value"].default_value = 0.9
+        nt.links.new(mr.outputs["Result"], d.inputs["Color"])
+        return mat
+    return build
+
+
+MATERIAL_BUILDERS = {"out_thickness": _out_thickness, "out_target": _out_target, "img_interp": _img_interp,
+                     "mr_clamp_const": _mr_clamp(False), "mr_clamp_linked": _mr_clamp(True)}
+
+
 def build_material(p, variant, out_dir, scene_info):
     mat = bpy.data.materials.new(f"probe_{variant}")
     mat.use_nodes = True
@@ -427,6 +594,9 @@ def build_material(p, variant, out_dir, scene_info):
     nt.nodes.clear()
     out = nt.nodes.new("ShaderNodeOutputMaterial")
     notes = []
+    if p.get("custom") in MATERIAL_BUILDERS:
+        bpy.data.materials.remove(mat)
+        return MATERIAL_BUILDERS[p["custom"]](variant, out_dir, notes), notes
     if p.get("custom") == "displacement":
         pr = nt.nodes.new("ShaderNodeBsdfPrincipled")
         pr.inputs["Base Color"].default_value = (0.6, 0.6, 0.6, 1)
@@ -491,7 +661,12 @@ def run_probe(pid, p, out_dir, scene_info):
     pix, warns, notes = {}, {}, []
     for variant in ("A", "A2", "B"):
         scene.cycles.seed = 322 if variant == "A2" else 321      # A2 = A under another seed: the noise floor
-        if p["node"] == "ShaderNodeTexSky":
+        if p.get("custom") in WORLD_BUILDERS:
+            n = []
+            WORLD_BUILDERS[p["custom"]](variant, out_dir, n)
+            if variant == "B":
+                notes += n
+        elif p["node"] == "ShaderNodeTexSky":
             # the Sky node lives in the world tree; rebuild the mutation each time
             apply_sky(p, variant, scene_info, notes if variant == "B" else [])
         else:

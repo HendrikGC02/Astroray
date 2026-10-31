@@ -90,15 +90,15 @@ __device__ __noinline__ bool gpu_isDielectricCapPass(bool transmitted, const uin
 // test (a straight-through delta sample keeps the flags).
 // pkg325: forcePass = the shade stage already classified this bounce a transparent pass
 // (a capped dielectric null pass-through, which has no alpha lobe to detect here).
+// #1178: `label` = the sampled lobe's BSDF_LABEL_* (0 = fall back to the material class).
 __device__ __noinline__ unsigned gpu_lpAdvance(unsigned lpState, const ::GMaterial* mat,
                                                GVec3 wo, GVec3 n, GVec3 wi, bool isDelta,
-                                               bool forcePass)
+                                               bool forcePass, unsigned label)
 {
     using namespace astroray::lightpath;
     const float sWo = wo.dot(n);
     const float sWi = wi.dot(n);
-    const int cat = (sWo * sWi < 0.f) ? 2
-                  : ((isDelta || gpu_material_is_glossy(*mat)) ? 1 : 0);
+    const int cat = bounce_class(sWo * sWi < 0.f, isDelta, label, gpu_material_is_glossy(*mat));
     // Transparent lobe: a Principled alpha < 1 (device twin of the CPU
     // shadowAlpha() < 1 test; gpu_nee.cuh gpu_shadowAlpha).
     const bool alphaLobe = mat->closureCount >= 1 &&

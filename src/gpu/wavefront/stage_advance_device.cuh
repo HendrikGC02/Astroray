@@ -263,7 +263,8 @@ __device__ astroray::lightpath::PathContext gpu_lpContext(
     unsigned lpState, int bounce, float t, GVec3 dir);
 __device__ int gpu_lpRemap(int matId, unsigned lpState, int bounce, float t, GVec3 dir);
 __device__ unsigned gpu_lpAdvance(unsigned lpState, const ::GMaterial* mat,
-                                  GVec3 wo, GVec3 n, GVec3 wi, bool isDelta, bool forcePass);
+                                  GVec3 wo, GVec3 n, GVec3 wi, bool isDelta, bool forcePass,
+                                  unsigned label);
 __device__ unsigned gpu_lpVolume(unsigned lpState);
 // #1033 (shading_inputs_eval.cu): transparent pass-through test / count.
 __device__ bool gpu_isTransparentPass(const ::GMaterial* mat, GVec3 wo, GVec3 wi, bool isDelta);
@@ -1675,6 +1676,10 @@ __device__ __noinline__ inline GBSDFSample gpu_tree_sample_spectral(
     if (c < 0) c = (q[0] > 0.0f) ? 0 : last;
     GBSDFSample s = gpu_material_sample_spectral<HasPrincipled>(gpu_treeLeaf(t, c, leaf0), rec, wo, wl, rng);
     if (s.pdf <= 0.0f || !(q[c] > 0.0f)) { s.pdf = 0.0f; return s; }
+    // #1178: label the bounce by the picked leaf (CPU twin ClosureNodeMaterial::sampleSpectral),
+    // not by the tree root's class.
+    if (s.label == BSDF_LABEL_NONE)
+        s.label = gpu_material_is_glossy(gpu_treeLeaf(t, c, leaf0)) ? BSDF_LABEL_GLOSSY : BSDF_LABEL_DIFFUSE;
     // s.f (RGB) stays the chosen leaf's: the wavefront consumes fSpectral only.
     s.fSpectral = s.fSpectral * w[c];
     if (s.isDelta) { s.pdf *= q[c]; return s; }
@@ -2724,8 +2729,8 @@ __device__ __forceinline__ bool shadePathSlotImpl(
             float sWo = wo.dot(rec.normal);
             float sWi = bss.wi.dot(rec.normal);
             bool transmitted = (sWo * sWi) < 0.f;
-            unsigned char cat = transmitted ? 2
-                              : ((bss.isDelta || gpu_material_is_glossy(mat)) ? 1 : 0);
+            unsigned char cat = (unsigned char)astroray::lightpath::bounce_class(  // #1178
+                transmitted, bss.isDelta, bss.label, gpu_material_is_glossy(mat));
             c_wfLpBinding.firstCat[idx] = cat;
         }
     }
@@ -2843,7 +2848,7 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     if constexpr (HasProgram) {
         if (c_wfLightPath.enabled)
             state.lp_state[idx] = gpu_lpAdvance(state.lp_state[idx], &mat, wo, rec.normal,
-                                                bss.wi, bss.isDelta, tp);
+                                                bss.wi, bss.isDelta, tp, bss.label);
     }
     // #1033/#1125 — count the pass in pass_count (full uint32); the intersect stage
     // reads it against c_wfTransparentLimit (terminate-on-next-surface). The 5-bit
@@ -2913,8 +2918,8 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     if (!tp && (c_wfBounceLimit[0] >= 0 || c_wfBounceLimit[1] >= 0 || c_wfBounceLimit[2] >= 0)) {
         float sWo = wo.dot(rec.normal);
         float sWi = bss.wi.dot(rec.normal);
-        int lobeCat = (sWo * sWi < 0.f) ? 2
-                    : ((bss.isDelta || gpu_material_is_glossy(mat)) ? 1 : 0);
+        int lobeCat = astroray::lightpath::bounce_class(  // #1178: sampled-lobe label
+            sWo * sWi < 0.f, bss.isDelta, bss.label, gpu_material_is_glossy(mat));
         int lim = c_wfBounceLimit[lobeCat];
         if (lim >= 0) {
             uint32_t packed = state.per_type_bounce[idx];
@@ -2939,8 +2944,8 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     if (!tp && (c_wfCausticGate[0] == 0 || c_wfCausticGate[1] == 0)) {
         float sWo = wo.dot(rec.normal);
         float sWi = bss.wi.dot(rec.normal);
-        int cat = (sWo * sWi < 0.f) ? 2
-                : ((bss.isDelta || gpu_material_is_glossy(mat)) ? 1 : 0);
+        int cat = astroray::lightpath::bounce_class(  // #1178/#1198: sampled-lobe label
+            sWo * sWi < 0.f, bss.isDelta, bss.label, gpu_material_is_glossy(mat));
         if (state.had_diffuse_ancestor[idx] && bss.isDelta &&
             ((cat == 2 && c_wfCausticGate[1] == 0) ||
              (cat == 1 && c_wfCausticGate[0] == 0))) {

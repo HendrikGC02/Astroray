@@ -195,6 +195,16 @@ class PrincipledPlugin : public Material {
                                                      diffuse, rec.bumpMapCorrection);
     }
 
+    // #1178/#1198: the sampled lobe's Cycles closure label (path_state_next classifies the
+    // bounce by it). Diffuse-class lobes: Cycles bsdf_diffuse/translucent/sheen return
+    // LABEL_DIFFUSE (bsdf_diffuse.h:72,124, bsdf_sheen.h:101-109, v5.2.0); the subsurface
+    // lobe stands in for the diffuse exit closure. Microfacet / glass lobes are
+    // LABEL_GLOSSY (or SINGULAR, which the integrator reads from isDelta).
+    static unsigned char lobeLabel(LobeKind k) {
+        return (k == LobeKind::Diffuse || k == LobeKind::Sheen || k == LobeKind::Subsurface ||
+                k == LobeKind::Translucent) ? BSDF_LABEL_DIFFUSE : BSDF_LABEL_GLOSSY;
+    }
+
     // #1005: `rec` re-framed on a lobe's own shading normal (see Lobe::ownN).
     static HitRecord lobeFrame(const HitRecord& rec, const Vec3& N) {
         HitRecord r = rec;
@@ -2567,6 +2577,7 @@ public:
         DirSample ds = chooseAndSampleDir(rec, wo, gen, lobes, W);
         if (!ds.ok) return s;
         s.wi = ds.wi;
+        s.label = lobeLabel(lobes[ds.lobe].kind);  // #1178
         if (ds.isWalk) {
             // pkg265: the Heitz-2016 dielectric walk is a perfect importance
             // sampler (phase weight == 1). The MC estimator of the full BSDF is
@@ -2643,6 +2654,7 @@ public:
         DirSample ds = chooseAndSampleDir(rec, wo, gen, lobes, W);
         if (!ds.ok) return bss;
         bss.wi = ds.wi;
+        bss.label = lobeLabel(lobes[ds.lobe].kind);  // #1178
         // pkg187 — hero-wavelength collapse: each λ refracts differently but only
         // one direction is traced, so on an actual transmission-lobe refraction
         // (wi crosses to the far hemisphere) terminate the secondary wavelengths.

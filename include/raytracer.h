@@ -536,8 +536,10 @@ struct LightSample {
     // volume segment can draw its equiangular anchor as Cycles does.
     const astroray::Light* dedicated = nullptr;
 };
-struct BSDFSample { Vec3 wi, f; float pdf; bool isDelta; };
-struct BSDFSampleSpectral { Vec3 wi; astroray::SampledSpectrum f_spectral; float pdf; bool isDelta; };
+// label: #1178 sampled closure label (BSDF_LABEL_*, gpu_types.h); NONE = use isGlossy().
+struct BSDFSample { Vec3 wi, f; float pdf; bool isDelta; unsigned char label = BSDF_LABEL_NONE; };
+struct BSDFSampleSpectral { Vec3 wi; astroray::SampledSpectrum f_spectral; float pdf; bool isDelta;
+                            unsigned char label = BSDF_LABEL_NONE; };
 
 struct MaterialBackendCapabilities {
     bool cpu = true;
@@ -723,6 +725,7 @@ public:
         bss.wi = bs.wi;
         bss.pdf = bs.pdf;
         bss.isDelta = bs.isDelta;
+        bss.label = bs.label;  // #1178 (a decorator forwarding a Principled sample())
         if (bs.isDelta) {
             // pkg118 / #404 (CPU analog): the exit refraction carries eta^2=2.25, but the
             // Jakob-Hanika ALBEDO LUT in RGBAlbedoSpectrum clamps rgb>1 to 1, clipping that
@@ -829,6 +832,7 @@ public:
         bss.wi = bs.wi;
         bss.pdf = bs.pdf;
         bss.isDelta = bs.isDelta;
+        bss.label = bs.label;  // #1178
         // pkg195 Stage C: in Replace mode the authored SPD is the reflectance for
         // every λ — route the non-delta BSDF factor straight through evalSpectralExt
         // so it never passes through the RGB-upsample branch below.
@@ -4834,14 +4838,15 @@ public:
             // Classify this bounce's lobe (0=diffuse, 1=glossy, 2=transmission)
             // from the same geometric sign + glossy test the AOV lock uses.
             // Computed EVERY bounce for the per-type counters (pkg201 Stage 3),
-            // not just at firstCat.
+            // not just at firstCat. #1178/#1198: a reflection is diffuse or glossy by the
+            // SAMPLED lobe's label (Cycles path_state_next), isGlossy() only as fallback.
             int lobeCat;
             {
                 float sWo = wo.dot(rec.normal);
                 float sWi = bss.wi.dot(rec.normal);
                 bool transmitted = (sWo * sWi) < 0.0f;
-                lobeCat = transmitted ? 2
-                        : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
+                lobeCat = astroray::lightpath::bounce_class(
+                    transmitted, bss.isDelta, bss.label, rec.material->isGlossy());
             }
             if (firstCat < 0 && !transparentPass) firstCat = lobeCat;
             lpc = astroray::lightpath::next_surface(  // #991
@@ -5278,8 +5283,8 @@ public:
             bool transparentPass;  // #1033 (see pathTraceSpectral)
             {   // #991 — same bounce class as pathTraceSpectral's lobeCat.
                 const bool transmitted = wo.dot(rec.normal) * bss.wi.dot(rec.normal) < 0.0f;
-                const int cat = transmitted ? 2
-                              : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
+                const int cat = astroray::lightpath::bounce_class(  // #1178
+                    transmitted, bss.isDelta, bss.label, rec.material->isGlossy());
                 transparentPass = astroray::lightpath::is_transparent_pass(
                     bss.isDelta, wo.dot(bss.wi), rec.material->shadowAlpha(rec) < 1.0f);
                 lpc = astroray::lightpath::next_surface(lpc, cat, bss.isDelta, transparentPass);
@@ -5565,8 +5570,8 @@ public:
             if (bs.pdf <= 0.0f) return 0.0f;
             {   // #36 — same bounce class as pathTraceSpectral's lobeCat (light_path.h)
                 const bool transmitted = wo.dot(rec.normal) * bs.wi.dot(rec.normal) < 0.0f;
-                const int cat = transmitted ? 2
-                              : ((bs.isDelta || rec.material->isGlossy()) ? 1 : 0);
+                const int cat = astroray::lightpath::bounce_class(  // #1178
+                    transmitted, bs.isDelta, bs.label, rec.material->isGlossy());
                 lpc = astroray::lightpath::next_surface(
                     lpc, cat, bs.isDelta,
                     astroray::lightpath::is_transparent_pass(bs.isDelta, wo.dot(bs.wi),

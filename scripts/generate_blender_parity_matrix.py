@@ -3136,6 +3136,15 @@ PKG321_PROBE_CREDITS = {
     ('ShaderNodeTexSky', 'prop:altitude'): ('s_altitude', 'APPROXIMATED'),
     ('ShaderNodeTexSky', 'prop:sun_intensity'): ('s_sun_intensity', 'APPROXIMATED'),
     ('ShaderNodeTexSky', 'prop:sun_size'): ('s_sun_size', 'APPROXIMATED'),
+    # pkg328 (#1088): a World Environment Texture's Vector is read through the world Mapping (rotation baked into the
+    # env lookup; Mapping Location / Scale are reported as dropped), so it is approximated, not exact.
+    ('ShaderNodeTexEnvironment', 'input:Vector'): ('env_vector', 'APPROXIMATED'),
+}
+# pkg328: Cycles ignores these too -- the Cycles leg of the probe (PKG328_ENGINE=CYCLES) renders bit-identically for
+# A and B, and so does Astroray, so the socket is faithfully "consumed as nothing". Evidence: docs/blender_parity/
+# evidence/pkg328/probe_results.json (both engines).
+PKG328_CYCLES_IGNORED = {
+    ('ShaderNodeOutputMaterial', 'input:Thickness'): ('o_thickness', 'SUPPORTED'),
 }
 # Hair `model`: the node is consumed and the Huang model is reported as approximated with Chiang (pixels identical).
 PKG321_REPORTED_APPROXIMATIONS = {
@@ -3175,6 +3184,8 @@ PKG321_REPORTED_DROPS = {
     ('ShaderNodeBsdfPrincipled', 'input:Subsurface IOR'): ('e_principled_subsurface_ior', 1133),
     ('ShaderNodeVolumePrincipled', 'input:Color Attribute'): ('v_color_attribute', 1134),
     ('ShaderNodeTexSky', 'prop:ground_albedo'): ('s_ground_albedo', 1135),
+    # pkg328: every ImageTexture samples the nearest texel; the addon names Interpolation != Closest (#1215).
+    ('ShaderNodeTexImage', 'prop:interpolation'): ('img_interp', 1215),
     # Reported by the op-VM compiler's own warning ("Geometry output 'Normal' unsupported"); #989 owns the gap.
     ('ShaderNodeNewGeometry', 'output:Normal'): ('m_geometry_normal', 989),
 }
@@ -3193,6 +3204,10 @@ def _apply_pkg321_probe_audit(matrix_rows):
         if key in PKG321_PROBE_CREDITS:
             probe, cls = PKG321_PROBE_CREDITS[key]
             row['classification'], row['notes'] = cls, _P321 % probe
+        elif key in PKG328_CYCLES_IGNORED:
+            probe, cls = PKG328_CYCLES_IGNORED[key]
+            row['classification'] = cls
+            row['notes'] = 'pkg328 probe `%s`: Cycles ignores the socket (bit-identical A/B) and so does Astroray' % probe
         elif key in PKG321_REPORTED_APPROXIMATIONS:
             probe, why, issue = PKG321_REPORTED_APPROXIMATIONS[key]
             row['classification'] = 'APPROXIMATED'
@@ -3201,6 +3216,7 @@ def _apply_pkg321_probe_audit(matrix_rows):
             probe, issue = PKG321_REPORTED_DROPS[key]
             note = 'pkg321 probe `%s` leaves the CPU render identical: dropped, reported at runtime (#%d)' % (probe, issue)
             row['notes'] = '%s; %s' % (row['notes'], note) if row['notes'] else note
+            row['reported_at_runtime'] = True    # pkg328: the per-render DegradationReport names it, so b4 does not count it
     return matrix_rows
 
 

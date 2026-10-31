@@ -2729,6 +2729,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
         try:
             inlined = mat.inline_shader_nodes()
             node_tree = inlined.node_tree
+            # pkg328: inline_shader_nodes() only follows a target=ALL output; with a Cycles/EEVEE-targeted
+            # output it returns an empty tree (a neutral grey material), so read the original tree instead.
+            if (original_tree is not None and node_tree is not None
+                    and not any(n.type == 'OUTPUT_MATERIAL' for n in node_tree.nodes)
+                    and any(n.type == 'OUTPUT_MATERIAL' for n in original_tree.nodes)):
+                node_tree = original_tree
         except (AttributeError, RuntimeError):
             # Pre-5.0 Blender: fall back to direct access
             node_tree = original_tree
@@ -2758,9 +2764,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # Find the active output node (preferred), or any OUTPUT_MATERIAL
         output = None
         for node in node_tree.nodes:
-            if node.type == 'OUTPUT_MATERIAL' and getattr(node, 'is_active_output', True):
+            # pkg328: an output targeting only EEVEE is not Cycles' (Blender keeps one active output per target).
+            if (node.type == 'OUTPUT_MATERIAL' and getattr(node, 'is_active_output', True)
+                    and getattr(node, 'target', 'ALL') in ('ALL', 'CYCLES')):
                 output = node
                 break
+        if output is None:
+            # Blender keeps one active flag per tree; Cycles falls back to the first output it can use.
+            output = next((n for n in node_tree.nodes if n.type == 'OUTPUT_MATERIAL'
+                           and getattr(n, 'target', 'ALL') in ('ALL', 'CYCLES')), None)
         if output is None:
             output = next((n for n in node_tree.nodes if n.type == 'OUTPUT_MATERIAL'), None)
         if output is None:
@@ -3476,6 +3488,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 'BUMP', "Height from '%s' is procedural: bump applied on CPU only, the GPU "
                 "bump path samples images (#1153)" % src)
         return tex_name
+
+    def _report_image_interpolation(self, node):
+        """pkg328 (#1215): ImageTexture samples the nearest texel whatever the node's Interpolation says,
+        so only Closest matches Cycles; Linear (its default), Cubic and Smart blend texels."""
+        interp = str(getattr(node, 'interpolation', 'Closest'))
+        if interp != 'Closest':
+            self._warn_shader_fallback(
+                'TEX_IMAGE', "Interpolation '%s' is not honoured: the image is sampled Closest, so magnified "
+                "texels show blocks (#1215)" % interp)
 
     def _report_non_linear_interp(self, kind, socket):
         """#1004: Normal Map / Bump height images are read Linear (Cycles' default); a
@@ -4590,6 +4611,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # so Mapping/Texture-Coordinate wiring is honored by the upload path.
         if linked_node.type == 'TEX_IMAGE' and linked_node.image:
             vector_inp = linked_node.inputs.get('Vector') if hasattr(linked_node, 'inputs') else None
+            self._report_image_interpolation(linked_node)
             tex_name = self.load_blender_image(linked_node.image, renderer, vector_input=vector_inp,
                                                extension=getattr(linked_node, 'extension', 'REPEAT'))
             fallback = list(inp.default_value[:3]) if hasattr(inp.default_value, '__iter__') else [0.8, 0.8, 0.8]
@@ -4815,6 +4837,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # child's GPU descriptor on (image, parent Mapping) since #825.)
             identity = {'matrix': np.identity(4), 'coord_mode': 'UV', 'uv_layer': ''}
             for in_node in inputs:
+                self._report_image_interpolation(in_node)
                 cn = self._load_blender_image_resolved(
                     in_node.image, renderer, identity, child_signature=signatures[0],
                     extension=getattr(in_node, 'extension', 'REPEAT'))
@@ -4965,6 +4988,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return self._load_blender_image_resolved(
                     image, renderer, identity, child_signature='graph-coord',
                     extension=extension)
+            self._report_image_interpolation(in_node)
             name = self.load_blender_image(image, renderer, vector_input=vinp,
                                            extension=extension)
             mode = self._resolve_affine_coordinates(vinp, warn=lambda *a: None)['coord_mode']
@@ -7669,12 +7693,23 @@ class CustomRaytracerRenderEngine(RenderEngine):
         bg_color = None           # solid background fallback when no HDRI
         sky_node = None           # pkg256: ShaderNodeTexSky, baked to a temp HDRI
 
+        # pkg328 (#1088): the active World Output's Surface link names the Background; a second
+        # Background (or a second World Output) in the tree is not the world. Other wirings keep
+        # the previous behaviour (every Background in the tree, the last one wins).
+        world_outs = [n for n in node_tree.nodes if n.type == 'OUTPUT_WORLD']
+        active_out = next((n for n in world_outs if getattr(n, 'is_active_output', True)),
+                          world_outs[0] if world_outs else None)
+        surface_src = self._shader_input_node(active_out, 'Surface') if active_out is not None else None
+        only_bg = surface_src if getattr(surface_src, 'type', '') == 'BACKGROUND' else None
+
         for node in node_tree.nodes:
             if node.type == 'TEX_ENVIRONMENT' and node.image:
                 hdri_path = _abspath_for(node.image, node.image.filepath)
             elif node.type == 'TEX_SKY':
                 sky_node = node
             elif node.type == 'BACKGROUND':
+                if only_bg is not None and node.name != only_bg.name:      # bpy wrappers are not identity-stable
+                    continue
                 strength = float(node.inputs['Strength'].default_value)
                 color_input = node.inputs.get('Color')
                 if color_input is not None:
@@ -7731,7 +7766,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     self._warn_shader_fallback(
                         'MAPPING', 'world Mapping Location is not honoured (a directional env map has no translation); dropped')
 
-        output = next((n for n in node_tree.nodes if n.type == 'OUTPUT_WORLD'), None)
+        output = active_out
         volume_spec = None
         if output is not None:
             volume_node = self._shader_input_node(output, 'Volume')

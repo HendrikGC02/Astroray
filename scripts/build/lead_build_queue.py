@@ -3,8 +3,9 @@
 Usage (one build per background task, so each completion notifies):
     python scripts/build/lead_build_queue.py <lane>[:addon-cpu|:addon-cuda|:addon-cpu-clean]
 
-<lane> is "main" (this checkout) or a sibling worktree suffix: "batchZ" builds
-../Astroray-batchZ. CUDA builds go through scripts/build/build_cuda_worktree.bat
+<lane> is "main" (this checkout), a lane worktree name ("i1038" builds
+.claude/worktrees/i1038 when it exists) or a sibling worktree suffix ("batchZ" builds
+../Astroray-batchZ). CUDA builds go through scripts/build/build_cuda_worktree.bat
 with the sccache launcher (WinGet Links shim on PATH). Set ASTRORAY_NO_SCCACHE=1 to
 strip it and build uncached. The old ">10 min stage_advance.cu compile dropped" failure
 was the sccache server idle timeout (600 s) firing during one long compile;
@@ -70,7 +71,9 @@ def _cuda_cmd(wt, sha):
 
 for item in sys.argv[1:]:
     lane, _, kind = item.partition(":")
-    wt = MAIN if lane == "main" else os.path.join(os.path.dirname(MAIN), f"Astroray-{lane}")
+    wt = MAIN if lane == "main" else os.path.join(MAIN, ".claude", "worktrees", lane)
+    if lane != "main" and not os.path.isdir(wt):
+        wt = os.path.join(os.path.dirname(MAIN), f"Astroray-{lane}")
     ticket = os.path.join(TICKETS, f"{time.time_ns()}_{os.getpid()}_{lane}_{kind or 'cuda'}")
     open(ticket, "w").close()
     no_nvcc = kind.startswith("addon-cpu")  # MinGW-only build: safe beside a CUDA build

@@ -80,7 +80,7 @@ scene = "prod_light_path"
 backend = "gpu"
 kind = "parity"
 issue = "#1199"
-reason = "#991 fixed as on CPU; #1038 delta-glass tint fixed glass_ball_centre (was r 1.095 / b 1.063, now in band, 14/20 -> 17/20 on 86426dd3). Residual is NOT glass: floor_far g 1.027 / b 1.021 / L 1.025 (GPU/CPU 1.007 without Light Path), #1199"
+reason = "#991 fixed as on CPU; glass_ball_centre in band (main f477f024 r 0.978, #1038 delta-glass tint 1.005; the old r 1.095 / 14/20 predates #1103). 17/20; residual is NOT glass: floor_far g 1.027 / b 1.021 / L 1.025 (GPU/CPU 1.007 without Light Path), #1199"
 
 [[row]]
 scene = "prod_curves_geometry"

@@ -5329,6 +5329,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         model get a report line. Thin Film, Thin Wall and Subsurface Anisotropy
         are now wired (pkg178 Stage 4) and no longer reported as gaps."""
         gaps = []
+        film_gap = self._unfoldable_film_message(node)
+        if film_gap:
+            gaps.append(film_gap)
         for nm in self._NATIVE_PRINCIPLED_UNMAPPED:
             inp = node.inputs.get(nm)
             if inp is None:
@@ -5535,6 +5538,31 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 label, "distribution '%s' is not honoured (the native microfacet lobes ignore the "
                 "enum; the default '%s' behaviour is used)" % (dist, default))
 
+    def _unfoldable_film_message(self, node):
+        """#1201: Thin Film Thickness / IOR are read with get_float_input (constant or
+        Math/Clamp/MapRange fold only); a Noise/Image/etc. link falls to the default (0 nm
+        film), where Cycles evaluates it per shading point. Name it instead of dropping it."""
+        names = []
+        for nm in ('Thin Film Thickness', 'Thin Film IOR'):
+            inp = node.inputs.get(nm)
+            if inp is None or not getattr(inp, 'is_linked', False):
+                continue
+            try:
+                folded = self._eval_float_socket_node(inp.links[0].from_node, inp.links[0].from_socket.name)
+            except (IndexError, AttributeError):
+                folded = None
+            if folded is None:
+                names.append(nm)
+        if names:
+            return ("%s linked to a non-constant node is not honoured (per-texel thin film is "
+                    "unsupported; the socket default is used); dropped" % ' / '.join(names))
+        return None
+
+    def _report_unfoldable_film(self, node, label):
+        msg = self._unfoldable_film_message(node)
+        if msg:
+            self._warn_shader_fallback(label, msg)
+
     def _report_unhonoured_bsdf_props(self, node):
         """pkg321: report what a standalone BSDF node carries that its lowering drops."""
         ntype = node.type
@@ -5547,6 +5575,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     "only apply through the Principled Normal input); dropped")
         if ntype in ('BSDF_GLASS', 'BSDF_REFRACTION', 'BSDF_SHEEN', 'BSDF_GLOSSY'):
             self._report_distribution(node, label)
+        if ntype in ('BSDF_GLASS', 'BSDF_METALLIC'):
+            self._report_unfoldable_film(node, label)
         if label == 'BSDF_ANISOTROPIC':
             dropped = [nm for nm in ('Anisotropy', 'Rotation', 'Tangent') if self._input_is_set(node.inputs.get(nm))]
             if dropped:

@@ -82,7 +82,7 @@ __device__ inline uint32_t gpu_gridShadowSalt(int bounce, int medium)
 // #929 — volume-segment direct light + lamp-pass Tr (intersect stage):
 //   0xC | bounce&0x3F << 22 | stream&0x1F << 17 | draw & 0x1FFFF
 // streams: 0/1 = segment sampling (kind 0 bounded / 1 fog), 2+k = camera-segment
-// Tr of medium k (unused since #1032: the tracked walk carries Tr), 10+k = lamp-pass Tr of medium k (k < 8).
+// Tr of medium k (homogeneous-only hulls since #1032), 10+k = lamp-pass Tr of medium k (k < 8).
 static constexpr uint32_t G_WF_SEG_DIM_SALT  = 0xC0000000u;
 static constexpr uint32_t G_WF_SEG_DRAW_MASK = 0x0001FFFFu;
 __device__ inline uint32_t gpu_segSalt(int bounce, int stream)

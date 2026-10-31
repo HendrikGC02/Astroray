@@ -3321,9 +3321,13 @@ private:
     }
 
     // #925 — segmentDirectLight over the bounded media on [0.001, surfaceT].
-    // #1032: the distance strategy is the tracked scatter collision at the
-    // local (supervoxel) majorants, MIS'd with equiangular through the
-    // null-scattering path pdf (volume::sampleSegmentDirectTracked).
+    // #1032: with a grid medium on the hull, the distance strategy is the
+    // tracked scatter collision at the local (supervoxel) majorants, MIS'd
+    // with equiangular through the null-scattering path pdf
+    // (volume::sampleSegmentDirectTracked). A hull of homogeneous media only
+    // keeps the #925 analytic exponential truncated to the lit interval
+    // (rate = Σ per-λ σ_t), as Cycles v5.2.0 volume_integrate_homogeneous
+    // (shade_volume.h :1703, chosen at :1961) samples its direct scatter.
     astroray::SampledSpectrum boundedSegmentDirect(const Ray& ray, const Vec3& dUnit,
                                                    float tStart, float surfaceT,
                                                    const astroray::volume::SegmentCrossings& sc,
@@ -3331,15 +3335,54 @@ private:
                                                    std::mt19937& gen, int shadowHits) const {
         namespace av = astroray::volume;
         float a = std::numeric_limits<float>::max(), b = 0.0f;
-        for (const auto& m : gridMedia_) {
+        astroray::SampledSpectrum rate(0.0f);
+        bool anyGrid = false;
+        // Unit σ_s / σ_t per medium, once per call (not per collision); per-thread
+        // buffers, so no allocation per call (this function does not recurse).
+        static thread_local std::vector<astroray::SampledSpectrum> unitS, unitT;
+        unitS.assign(gridMedia_.size(), astroray::SampledSpectrum(0.0f));
+        unitT.assign(gridMedia_.size(), astroray::SampledSpectrum(0.0f));
+        for (size_t k = 0; k < gridMedia_.size(); ++k) {
+            const auto& m = gridMedia_[k];
             float t0, t1;
             if (!av::intersectAABB(ray.origin, dUnit, m.aabbMin, m.aabbMax, tStart, surfaceT, t0, t1))
                 continue;
             a = std::min(a, t0);
             b = std::max(b, t1);
+            astroray::SampledSpectrum aU;
+            av::principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, lambdas, unitS[k], aU);
+            unitT[k] = unitS[k] + aU;
+            rate += unitT[k] * (m.densityScale * m.maxDensity);
+            anyGrid = anyGrid || m.heterogeneous;
         }
-        const astroray::SampledSpectrum rate(0.0f);  // refPoint only (finite hull: midpoint)
         if (!(b > a)) return astroray::SampledSpectrum(0.0f);
+        // Medium components at P (σ_s, g) for the phase sum; Tr comes from `trOf`.
+        auto componentsAt = [&](const Vec3& P, float t, astroray::SampledSpectrum* sigS, float* g) {
+            int n = 0;
+            for (size_t k = 0; k < gridMedia_.size() && n < 8; ++k) {
+                const auto& m = gridMedia_[k];
+                // pkg296: AABB, or the mesh boundary when the medium has one.
+                if (!av::mediumContains(m, ray.origin, dUnit, t, P,
+                                        m.boundary ? sc.find(k) : nullptr))
+                    continue;
+                float dens = m.densityAt(P);
+                if (dens <= 0.0f) continue;
+                sigS[n] = unitS[k] * dens;
+                g[n] = m.g;
+                ++n;
+            }
+            return n;
+        };
+        if (!anyGrid)
+            return segmentDirectLight(ray, dUnit, a, b, surfaceT, rate, lambdas, gen, shadowHits,
+                [&](const Vec3& P, float t, astroray::SampledSpectrum* sigS, float* g,
+                    astroray::SampledSpectrum& Tr) {
+                    const int n = componentsAt(P, t, sigS, g);
+                    if (n > 0)
+                        Tr = av::segmentTransmittanceSpectral(gridMedia_, ray.origin, dUnit, tStart,
+                                                              t, lambdas, gen, &sc);
+                    return n;
+                });
         // #1032: summed σ_s / σ_t of the media containing P (pkg296 boundary).
         auto sigmaAt = [&](const Vec3& P, float t, astroray::SampledSpectrum& sigS,
                            astroray::SampledSpectrum& sigT) {
@@ -3352,35 +3395,18 @@ private:
                     continue;
                 float dens = m.densityAt(P);
                 if (dens <= 0.0f) continue;
-                astroray::SampledSpectrum sU, aU;
-                av::principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, lambdas, sU, aU);
-                sigS += sU * dens;
-                sigT += (sU + aU) * dens;
+                sigS += unitS[k] * dens;
+                sigT += unitT[k] * dens;
             }
         };
-        // #1032: tracked scatter collision at local majorants vs equiangular;
-        // the walk's ratio-tracking Tr (from the hull entry `a`) is Tr(P).
+        // The walk's ratio-tracking Tr (from the hull entry `a`) is Tr(P).
         astroray::SampledSpectrum trTracked(1.0f);
         const float hullA = a;
-        return segmentDirectLight(ray, dUnit, a, b, surfaceT, rate, lambdas, gen, shadowHits,
+        return segmentDirectLight(ray, dUnit, a, b, surfaceT, astroray::SampledSpectrum(0.0f),
+            lambdas, gen, shadowHits,
             [&](const Vec3& P, float t, astroray::SampledSpectrum* sigS, float* g,
                 astroray::SampledSpectrum& Tr) {
-                int n = 0;
-                for (size_t k = 0; k < gridMedia_.size(); ++k) {
-                    const auto& m = gridMedia_[k];
-                    if (n >= 8) break;
-                    // pkg296: AABB, or the mesh boundary when the medium has one.
-                    if (!av::mediumContains(m, ray.origin, dUnit, t, P,
-                                            m.boundary ? sc.find(k) : nullptr))
-                        continue;
-                    float dens = m.densityAt(P);
-                    if (dens <= 0.0f) continue;
-                    astroray::SampledSpectrum sU, aU;
-                    av::principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, lambdas, sU, aU);
-                    sigS[n] = sU * dens;
-                    g[n] = m.g;
-                    ++n;
-                }
+                const int n = componentsAt(P, t, sigS, g);
                 if (n > 0) Tr = trTracked;
                 return n;
             },

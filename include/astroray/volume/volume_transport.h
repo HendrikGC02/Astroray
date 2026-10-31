@@ -932,6 +932,8 @@ inline TrackedSegmentSample sampleSegmentDirectTracked(
     // first real collision otherwise; we use it at every bounce (unbiased,
     // lower variance; lead decision 2026-10-31).
     float wSum = 0.0f, tHit = -1.0f, pdHit = 0.0f;
+    // One uniform, rescaled per candidate (Cycles VolumeSampleReservoir::add_sample :1019).
+    float rRes = pickEq ? 0.0f : u(gen);
     bool dead = false;
     int steps = 0;
     walkSegmentMajorants(media, o, d, a0, pickEq ? tEq : b, [&](float s0, float s1, float sb) {
@@ -952,7 +954,14 @@ inline TrackedSegmentSample sampleSegmentDirectTracked(
             if (!pickEq && lit && ps > 0.0f) {
                 const float wk = pNull * ps;
                 wSum += wk;
-                if (u(gen) * wSum < wk) { tHit = t; pdHit = wk * sb; trHit = Tr; }
+                const float thresh = wk / wSum;
+                if (rRes <= thresh || wSum == wk) {
+                    tHit = t; pdHit = wk * sb; trHit = Tr;
+                    rRes /= thresh;
+                } else {
+                    rRes = (rRes - thresh) / (1.0f - thresh);
+                }
+                rRes = std::clamp(rRes, 0.0f, 1.0f);
             }
             for (int i = 0; i < kN; ++i) Tr[i] *= sigN[i] / sb;
             if (lit) pNull *= 1.0f - ps;

@@ -3241,6 +3241,22 @@ private:
                                                  const astroray::SampledWavelengths& lambdas,
                                                  std::mt19937& gen, int shadowHits,
                                                  MediumAt&& mediumAt) const {
+        return segmentDirectLight(ray, d, a, b, segT, rate, lambdas, gen, shadowHits, mediumAt,
+            [&](float lo, float hi, bool hasAnchor, const Vec3& anchor) {
+                return astroray::volume::sampleSegmentDirect(ray.origin, d, lo, hi, hasAnchor,
+                                                             anchor, rate, gen);
+            });
+    }
+    // #1032: `sampleDist(lo, hi, hasAnchor, anchor)` draws the distance on the
+    // clipped interval (one-sample MIS weight / pdf in `.w`).
+    template <class MediumAt, class SampleDist>
+    astroray::SampledSpectrum segmentDirectLight(const Ray& ray, const Vec3& d, float a, float b,
+                                                 float segT,
+                                                 const astroray::SampledSpectrum& rate,
+                                                 const astroray::SampledWavelengths& lambdas,
+                                                 std::mt19937& gen, int shadowHits,
+                                                 MediumAt&& mediumAt,
+                                                 SampleDist&& sampleDist) const {
         namespace av = astroray::volume;
         const astroray::SampledSpectrum zero(0.0f);
         const Vec3& o = ray.origin;
@@ -3274,8 +3290,7 @@ private:
             if (anc.dedicated->segmentAnchor(ap, gen)) anc.position = ap;
         }
         const bool hasAnchor = anc.distance > 0.0f && anc.distance < 1e18f;
-        av::SegmentDirectSample ds =
-            av::sampleSegmentDirect(o, d, a, b, hasAnchor, anc.position, rate, gen);
+        const auto ds = sampleDist(a, b, hasAnchor, anc.position);
         if (!(ds.w > 0.0f)) return zero;
         const Vec3 P = o + d * ds.t;
         astroray::SampledSpectrum sigS[8];
@@ -3299,14 +3314,16 @@ private:
         astroray::SampledSpectrum c = sum * ls.emission_spec * TrP * (shadowTr * ds.w / ls.pdf);
         // Shadow-ray transmittance through the world fog and every bounded medium.
         c *= worldTransmittanceSpectral(ls.distance, lambdas);
-        if (!gridMedia_.empty())
-            c *= av::segmentTransmittanceSpectral(gridMedia_, P, wi, 1e-3f, ls.distance, lambdas, gen);
+        if (!gridMedia_.empty())  // #1032: local majorants
+            c *= av::segmentTransmittanceSpectral(gridMedia_, P, wi, 1e-3f, ls.distance, lambdas, gen,
+                                                  nullptr, /*local=*/true);
         return c;
     }
 
     // #925 — segmentDirectLight over the bounded media on [0.001, surfaceT].
-    // Distance rate = sum_k per-λ σ_t majorant of the media on the ray (exact
-    // for one homogeneous medium).
+    // #1032: the distance strategy is the tracked scatter collision at the
+    // local (supervoxel) majorants, MIS'd with equiangular through the
+    // null-scattering path pdf (volume::sampleSegmentDirectTracked).
     astroray::SampledSpectrum boundedSegmentDirect(const Ray& ray, const Vec3& dUnit,
                                                    float tStart, float surfaceT,
                                                    const astroray::volume::SegmentCrossings& sc,
@@ -3314,18 +3331,37 @@ private:
                                                    std::mt19937& gen, int shadowHits) const {
         namespace av = astroray::volume;
         float a = std::numeric_limits<float>::max(), b = 0.0f;
-        astroray::SampledSpectrum rate(0.0f);
         for (const auto& m : gridMedia_) {
             float t0, t1;
             if (!av::intersectAABB(ray.origin, dUnit, m.aabbMin, m.aabbMax, tStart, surfaceT, t0, t1))
                 continue;
             a = std::min(a, t0);
             b = std::max(b, t1);
-            astroray::SampledSpectrum sU, aU;
-            av::principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, lambdas, sU, aU);
-            rate += (sU + aU) * (m.densityScale * m.maxDensity);
         }
+        const astroray::SampledSpectrum rate(0.0f);  // refPoint only (finite hull: midpoint)
         if (!(b > a)) return astroray::SampledSpectrum(0.0f);
+        // #1032: summed σ_s / σ_t of the media containing P (pkg296 boundary).
+        auto sigmaAt = [&](const Vec3& P, float t, astroray::SampledSpectrum& sigS,
+                           astroray::SampledSpectrum& sigT) {
+            sigS = astroray::SampledSpectrum(0.0f);
+            sigT = astroray::SampledSpectrum(0.0f);
+            for (size_t k = 0; k < gridMedia_.size(); ++k) {
+                const auto& m = gridMedia_[k];
+                if (!av::mediumContains(m, ray.origin, dUnit, t, P,
+                                        m.boundary ? sc.find(k) : nullptr))
+                    continue;
+                float dens = m.densityAt(P);
+                if (dens <= 0.0f) continue;
+                astroray::SampledSpectrum sU, aU;
+                av::principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, lambdas, sU, aU);
+                sigS += sU * dens;
+                sigT += (sU + aU) * dens;
+            }
+        };
+        // #1032: tracked scatter collision at local majorants vs equiangular;
+        // the walk's ratio-tracking Tr (from the hull entry `a`) is Tr(P).
+        astroray::SampledSpectrum trTracked(1.0f);
+        const float hullA = a;
         return segmentDirectLight(ray, dUnit, a, b, surfaceT, rate, lambdas, gen, shadowHits,
             [&](const Vec3& P, float t, astroray::SampledSpectrum* sigS, float* g,
                 astroray::SampledSpectrum& Tr) {
@@ -3345,10 +3381,15 @@ private:
                     g[n] = m.g;
                     ++n;
                 }
-                if (n > 0)
-                    Tr = av::segmentTransmittanceSpectral(gridMedia_, ray.origin, dUnit, tStart, t,
-                                                          lambdas, gen, &sc);
+                if (n > 0) Tr = trTracked;
                 return n;
+            },
+            [&](float lo, float hi, bool hasAnchor, const Vec3& anchor) {
+                av::TrackedSegmentSample s = av::sampleSegmentDirectTracked(
+                    gridMedia_, ray.origin, dUnit, hullA, lo, hi, hasAnchor, anchor, lambdas,
+                    gen, sigmaAt);
+                trTracked = s.Tr;
+                return s;
             });
     }
 

@@ -347,7 +347,8 @@ __global__ void stageShadowKernel(
                 uint32_t salt = gpu_gridShadowSalt(parkedBounce, k);   // #828
                 contrib *= gpu_gridVolumeTransmittance(k, s.origin, s.wi, s0, s1, lambdas,
                                                        state.rng_pixel[idx], state.rng_sample[idx],
-                                                       state.rng_seed[idx], salt);
+                                                       state.rng_seed[idx], salt,
+                                                       /*local=*/volSegment != 0);  // #1032
             }
         }
     }

@@ -902,6 +902,12 @@ struct GGridMedium {
     const float* tempGrid;       // dense temperature block, x fastest (null = none)
     int   tempDim[3];            // nx, ny, nz
     int   tempBboxMin[3];        // index-space origin of the dense block
+    // #1032 — pkg267 majorant grid (supervoxel max density, x fastest) for the
+    // local-majorant segment direct light; null = global majorant only.
+    const float* majorant;
+    int   majRes[3];
+    float majBoundsMin[3];       // index-space bounds of the fine block
+    float majBoundsMax[3];
 };
 struct GWavefrontGridVolumeBinding {
     int count;                   // 0 (default) = no bounded media: fleet byte-identical

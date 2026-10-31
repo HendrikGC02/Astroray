@@ -73,6 +73,9 @@ public:
         }
     }
 
+    // #1032: supervoxel values, x fastest (GPU upload).
+    const std::vector<float>& voxels() const { return voxels_; }
+
     float globalMax() const {
         float m = 0.0f;
         for (float v : voxels_) m = std::max(m, v);

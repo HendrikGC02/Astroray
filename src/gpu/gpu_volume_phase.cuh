@@ -82,7 +82,7 @@ __device__ inline uint32_t gpu_gridShadowSalt(int bounce, int medium)
 // #929 — volume-segment direct light + lamp-pass Tr (intersect stage):
 //   0xC | bounce&0x3F << 22 | stream&0x1F << 17 | draw & 0x1FFFF
 // streams: 0/1 = segment sampling (kind 0 bounded / 1 fog), 2+k = camera-segment
-// Tr of medium k, 10+k = lamp-pass Tr of medium k (k < 8).
+// Tr of medium k (unused since #1032: the tracked walk carries Tr), 10+k = lamp-pass Tr of medium k (k < 8).
 static constexpr uint32_t G_WF_SEG_DIM_SALT  = 0xC0000000u;
 static constexpr uint32_t G_WF_SEG_DRAW_MASK = 0x0001FFFFu;
 __device__ inline uint32_t gpu_segSalt(int bounce, int stream)
@@ -219,13 +219,15 @@ __device__ int gpu_gridVolumeTrackOverlap(uint32_t mask, const GVec3& o, const G
                                           uint32_t rpix, uint32_t rsmp, uint64_t rsd,
                                           uint32_t salt, uint32_t& draw, bool noScatter);
 // Per-λ ratio-tracking transmittance over [tMin,tMax] in medium `mi` (device twin
-// of astroray::volume::ratioTrackingTransmittanceSpectral).
+// of astroray::volume::ratioTrackingTransmittanceSpectral). #1032 `local`:
+// supervoxel majorants (segment direct-light shadow rays).
 __device__ GSampledSpectrum gpu_gridVolumeTransmittance(int mi, const GVec3& o,
                                                         const GVec3& d, float tMin,
                                                         float tMax,
                                                         const GSampledWavelengths& wl,
                                                         uint32_t rpix, uint32_t rsmp,
-                                                        uint64_t rsd, uint32_t salt);
+                                                        uint64_t rsd, uint32_t salt,
+                                                        bool local = false);
 // #929 — per-segment volume direct light (device twin of Renderer::
 // segmentDirectLight / boundedSegmentDirect). Called from the intersect stage
 // before the free flight over [a,b] of ray (o, unit d); kind 0 = bounded media

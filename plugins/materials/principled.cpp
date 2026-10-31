@@ -2197,9 +2197,9 @@ public:
           subsurfaceRadius_(p.getVec3("subsurface_radius", Vec3(1.0f, 0.2f, 0.1f))),
           emissionColor_(p.getVec3("emission_color", Vec3(0.0f))),
           emissionStrength_(std::max(0.0f, p.getFloat("emission_strength", 1.0f))),
-          emissionSpec_({emissionColor_.x * emissionStrength_,
-                         emissionColor_.y * emissionStrength_,
-                         emissionColor_.z * emissionStrength_}),
+          emissionSpec_({emissionColor_.x * emissionStrength_ * alpha_,   // #1186: alpha-weighted
+                         emissionColor_.y * emissionStrength_ * alpha_,
+                         emissionColor_.z * emissionStrength_ * alpha_}),
           dispersive_(false), cauchyA_(ior_), cauchyB_(0.0f) {
         // pkg178 Stage 4 PR-2: host-precompute the metallic-lobe conductor (n,k,g)
         // once (per-material constant; never per hit). No-op for the render unless
@@ -2258,19 +2258,23 @@ public:
     // EmissivePlugin). Default emission_color=(0,0,0) → emitted()=0 (non-regressing).
     // GPU twin: gpu_principled_emitted / gpu_material_emitted_spectral
     // (gpu_materials.h, #835) read GPrincipledClosure::emission* uploaded by
-    // closureGraph() below; NEE picks the emitter from the host power CDF.
+    // closureGraph() below (scene_upload.cu scales the strength by alpha); NEE picks
+    // the emitter from the host power CDF.
+    // #1186: emission is weighted by alpha (Cycles v5.2.0 kernel/svm/closure.h: the
+    // principled node does `weight *= alpha` before `emission * weight`), so emitted,
+    // emittedSpectral and getEmission (light-list power) all carry the same factor.
     Vec3 emitted(const HitRecord& /*rec*/) const override {
-        return emissionColor_ * emissionStrength_;
+        return emissionColor_ * (emissionStrength_ * alpha_);
     }
     astroray::SampledSpectrum emittedSpectral(
             const HitRecord& /*rec*/,
             const astroray::SampledWavelengths& lambdas) const override {
-        if (emissionStrength_ <= 0.0f) return astroray::SampledSpectrum(0.0f);
-        return emissionSpec_.sample(lambdas);
+        if (emissionStrength_ <= 0.0f || alpha_ <= 0.0f) return astroray::SampledSpectrum(0.0f);
+        return emissionSpec_.sample(lambdas);   // already scaled by alpha_
     }
-    Vec3 getEmission() const override { return emissionColor_ * emissionStrength_; }
+    Vec3 getEmission() const override { return emissionColor_ * (emissionStrength_ * alpha_); }
     bool isEmissive() const override {
-        return emissionStrength_ > 0.0f &&
+        return emissionStrength_ > 0.0f && alpha_ > 0.0f &&
                (emissionColor_.x > 0.0f || emissionColor_.y > 0.0f || emissionColor_.z > 0.0f);
     }
     bool hasBSDF() const override { return true; }   // #995: emission + lobes, path continues

@@ -228,7 +228,9 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
                 gp.subsurfaceWeight = c.subsurfaceWeight;
                 gp.subsurfaceScale = c.subsurfaceScale;
                 gp.emissionColor = GVec3(c.emissionColor.x, c.emissionColor.y, c.emissionColor.z);
-                gp.emissionStrength = c.emissionStrength;
+                // #1186: emission is weighted by alpha (Cycles svm/closure.h: emission *
+                // weight after weight *= alpha); CPU twin PrincipledPlugin::emitted.
+                gp.emissionStrength = c.emissionStrength * c.alpha;
                 gp.anisotropic = c.anisotropic;                 // pkg178 PR-4b
                 gp.anisotropicRotation = c.anisotropicRotation;
                 gp.alpha = c.alpha;                             // pkg178 PR-6
@@ -1464,12 +1466,13 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             // The intersect stage and the NEE emitter evaluation read emission from this
             // GMaterial (gpu_principled_emitted): it must be the TREE's weighted sum, also
             // when that is 0 (leaf 0 itself emissive with weight 0 must not keep its own;
-            // Cycles prunes a zero-weight branch, scene/shader_nodes.cpp:5359). A nonzero
-            // sum implies leaf 0 is a closure-graph Principled (lowerClosureTree).
+            // Cycles prunes a zero-weight branch, scene/shader_nodes.cpp:5359). #1180: any
+            // leaf-0 type carries it -- the GPrincipledClosure block exists (zeroed) on
+            // every GMaterial and gpu_material_emitted reads it for all types but
+            // GMAT_DIFFUSE_LIGHT (which has its own emission).
             const Vec3& e = tree->emission;
             GMaterial& ge = r.materials.back();
-            if (ge.type == GMAT_CLOSURE_GRAPH && ge.closureCount >= 1 &&
-                ge.closures[0].type == GCLOSURE_PRINCIPLED) {
+            if (ge.type != GMAT_DIFFUSE_LIGHT) {
                 const bool any = e.x > 0.0f || e.y > 0.0f || e.z > 0.0f;
                 ge.principled.emissionColor = any ? GVec3(e.x, e.y, e.z) : GVec3(0.0f, 0.0f, 0.0f);
                 ge.principled.emissionStrength = any ? 1.0f : 0.0f;

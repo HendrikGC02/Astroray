@@ -3710,7 +3710,9 @@ __device__ inline GVec3 gpu_material_emitted(
         return mat.baseColor * mat.emissionIntensity;
     if (mat.type == GMAT_CLOSURE_GRAPH)
         return gpu_closure_graph_emitted(mat, frontFace) + gpu_principled_emitted(mat);
-    return GVec3(0.f);
+    // #1180: the leaf 0 of an Add / Mix tree of any type carries the tree's constant-weight
+    // emission in the (otherwise zero) principled block (scene_upload.cu). Two-sided.
+    return gpu_principled_emitted(mat);
 }
 
 // #995: does a path continue after this material's emission? A pure emitter (Cycles
@@ -3731,7 +3733,7 @@ __device__ inline GSampledSpectrum gpu_material_emitted_spectral(
     // RGBIlluminantSpectrum (scale-renormalised JH x D65, pbrt-v4); a closure
     // graph's spectralMode is GSPEC_RGB_ALBEDO, whose JH lookup clamps rgb to
     // [0,1] and drops D65, which would cap emission_strength at 1.
-    if (mat.type == GMAT_CLOSURE_GRAPH && mat.principled.emissionStrength > 0.f)
+    if (mat.principled.emissionStrength > 0.f)   // #1180: any leaf-0 type (tree emission)
         return gpu_rgbToSampledSpectrum(
             gpu_material_emitted(mat, frontFace), wl, GSPEC_RGB_ILLUMINANT);
     return gpu_rgbToSampledSpectrum(

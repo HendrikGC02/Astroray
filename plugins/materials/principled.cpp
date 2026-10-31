@@ -195,6 +195,16 @@ class PrincipledPlugin : public Material {
                                                      diffuse, rec.bumpMapCorrection);
     }
 
+    // #1178/#1198: the sampled lobe's Cycles closure label (path_state_next classifies the
+    // bounce by it). Diffuse-class lobes: Cycles bsdf_diffuse/translucent/sheen return
+    // LABEL_DIFFUSE (bsdf_diffuse.h:72,124, bsdf_sheen.h:101-109, v5.2.0); the subsurface
+    // lobe stands in for the diffuse exit closure. Microfacet / glass lobes are
+    // LABEL_GLOSSY (or SINGULAR, which the integrator reads from isDelta).
+    static unsigned char lobeLabel(LobeKind k) {
+        return (k == LobeKind::Diffuse || k == LobeKind::Sheen || k == LobeKind::Subsurface ||
+                k == LobeKind::Translucent) ? BSDF_LABEL_DIFFUSE : BSDF_LABEL_GLOSSY;
+    }
+
     // #1005: `rec` re-framed on a lobe's own shading normal (see Lobe::ownN).
     static HitRecord lobeFrame(const HitRecord& rec, const Vec3& N) {
         HitRecord r = rec;
@@ -2197,9 +2207,9 @@ public:
           subsurfaceRadius_(p.getVec3("subsurface_radius", Vec3(1.0f, 0.2f, 0.1f))),
           emissionColor_(p.getVec3("emission_color", Vec3(0.0f))),
           emissionStrength_(std::max(0.0f, p.getFloat("emission_strength", 1.0f))),
-          emissionSpec_({emissionColor_.x * emissionStrength_,
-                         emissionColor_.y * emissionStrength_,
-                         emissionColor_.z * emissionStrength_}),
+          emissionSpec_({emissionColor_.x * emissionStrength_ * alpha_,   // #1186: alpha-weighted
+                         emissionColor_.y * emissionStrength_ * alpha_,
+                         emissionColor_.z * emissionStrength_ * alpha_}),
           dispersive_(false), cauchyA_(ior_), cauchyB_(0.0f) {
         // pkg178 Stage 4 PR-2: host-precompute the metallic-lobe conductor (n,k,g)
         // once (per-material constant; never per hit). No-op for the render unless
@@ -2258,19 +2268,23 @@ public:
     // EmissivePlugin). Default emission_color=(0,0,0) → emitted()=0 (non-regressing).
     // GPU twin: gpu_principled_emitted / gpu_material_emitted_spectral
     // (gpu_materials.h, #835) read GPrincipledClosure::emission* uploaded by
-    // closureGraph() below; NEE picks the emitter from the host power CDF.
+    // closureGraph() below (scene_upload.cu scales the strength by alpha); NEE picks
+    // the emitter from the host power CDF.
+    // #1186: emission is weighted by alpha (Cycles v5.2.0 kernel/svm/closure.h: the
+    // principled node does `weight *= alpha` before `emission * weight`), so emitted,
+    // emittedSpectral and getEmission (light-list power) all carry the same factor.
     Vec3 emitted(const HitRecord& /*rec*/) const override {
-        return emissionColor_ * emissionStrength_;
+        return emissionColor_ * (emissionStrength_ * alpha_);
     }
     astroray::SampledSpectrum emittedSpectral(
             const HitRecord& /*rec*/,
             const astroray::SampledWavelengths& lambdas) const override {
-        if (emissionStrength_ <= 0.0f) return astroray::SampledSpectrum(0.0f);
-        return emissionSpec_.sample(lambdas);
+        if (emissionStrength_ <= 0.0f || alpha_ <= 0.0f) return astroray::SampledSpectrum(0.0f);
+        return emissionSpec_.sample(lambdas);   // already scaled by alpha_
     }
-    Vec3 getEmission() const override { return emissionColor_ * emissionStrength_; }
+    Vec3 getEmission() const override { return emissionColor_ * (emissionStrength_ * alpha_); }
     bool isEmissive() const override {
-        return emissionStrength_ > 0.0f &&
+        return emissionStrength_ > 0.0f && alpha_ > 0.0f &&
                (emissionColor_.x > 0.0f || emissionColor_.y > 0.0f || emissionColor_.z > 0.0f);
     }
     bool hasBSDF() const override { return true; }   // #995: emission + lobes, path continues
@@ -2567,6 +2581,7 @@ public:
         DirSample ds = chooseAndSampleDir(rec, wo, gen, lobes, W);
         if (!ds.ok) return s;
         s.wi = ds.wi;
+        s.label = lobeLabel(lobes[ds.lobe].kind);  // #1178
         if (ds.isWalk) {
             // pkg265: the Heitz-2016 dielectric walk is a perfect importance
             // sampler (phase weight == 1). The MC estimator of the full BSDF is
@@ -2643,6 +2658,7 @@ public:
         DirSample ds = chooseAndSampleDir(rec, wo, gen, lobes, W);
         if (!ds.ok) return bss;
         bss.wi = ds.wi;
+        bss.label = lobeLabel(lobes[ds.lobe].kind);  // #1178
         // pkg187 — hero-wavelength collapse: each λ refracts differently but only
         // one direction is traced, so on an actual transmission-lobe refraction
         // (wi crosses to the far hemisphere) terminate the secondary wavelengths.

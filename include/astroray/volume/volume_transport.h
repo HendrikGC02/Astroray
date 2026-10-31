@@ -541,13 +541,93 @@ inline SpectralFlight spectralTrackSegment(const std::vector<BoundedMedium>& med
     return total;
 }
 
+// #1032 local-majorant walkers (citations: see sampleSegmentDirectTracked).
+// Majorant pieces of ONE grid medium on [s0,s1] (inside its AABB): calls
+// f(t0, t1, σ̄) with σ̄ = D·(supervoxel max density). The DDA runs over the
+// index block grown by half a voxel (nearest-voxel lookups reach that far);
+// outside it the density is 0, so σ̄ = 0 there. `add` (the summed majorant of
+// homogeneous media overlapping the piece) is added to every σ̄. Returns false
+// if f stopped.
+template <class F>
+inline bool walkGridMajorants(const BoundedMedium& m, const Vec3& o, const Vec3& d,
+                              float s0, float s1, float add, F&& f) {
+    const GridMedium& g = *m.grid;
+    const MajorantGrid& mg = g.majorant();
+    const auto oi = g.worldPointToIndex(o.x, o.y, o.z);
+    const auto di = g.worldDirToIndex(d.x, d.y, d.z);
+    float c0 = s0, c1 = s1;
+    for (int a = 0; a < 3 && c0 <= c1; ++a) {
+        const float lo = mg.boundsMin(a) - 0.5f, hi = mg.boundsMax(a) + 0.5f;
+        if (std::abs(di[a]) < 1e-12f) {
+            if (oi[a] < lo || oi[a] > hi) c1 = c0 - 1.0f;
+            continue;
+        }
+        float tn = (lo - oi[a]) / di[a], tf = (hi - oi[a]) / di[a];
+        if (tn > tf) std::swap(tn, tf);
+        c0 = std::max(c0, tn);
+        c1 = std::min(c1, tf);
+    }
+    if (!(c0 < c1)) return f(s0, s1, add);
+    if (c0 > s0 && !f(s0, c0, add)) return false;
+    DDAMajorantIterator it(&mg, oi.data(), di.data(), c0, c1);
+    MajorantSegment seg;
+    float cur = c0;
+    while (it.next(seg)) {
+        if (seg.tMax > seg.tMin && !f(seg.tMin, seg.tMax, m.densityScale * seg.majorant + add))
+            return false;
+        cur = std::max(cur, seg.tMax);
+    }
+    // A DDA that stops short of c1 (float round-off at the block face) leaves
+    // a sliver inside the grown block: bound it by the global majorant.
+    if (cur < c1 && !f(cur, c1, m.extinctionMajorant() + add)) return false;
+    if (c1 < s1 && !f(c1, s1, add)) return false;
+    return true;
+}
+
+// Piecewise-constant λ-independent σ_t majorant over the bounded media on
+// [t0,t1] of ray (o, unit d): f(s0, s1, σ̄) for consecutive pieces, σ̄ >= the
+// summed σ_t(λ) of every medium covering the piece (s+a <= 1 per λ). At most
+// one grid => its supervoxel majorants (DDA) plus D of each homogeneous medium
+// (a VDB inside a fog volume); two or more grids => Σ global majorants (#842
+// overlap rule). Pieces are AABB sweeps (a mesh boundary only lowers σ_t, so
+// the AABB bound still holds).
+template <class F>
+inline void walkSegmentMajorants(const std::vector<BoundedMedium>& media, const Vec3& o,
+                                 const Vec3& d, float t0, float t1, F&& f) {
+    float cursor = t0;
+    while (cursor < t1) {
+        const BoundedMedium* grid = nullptr;
+        int nGrid = 0;
+        float sum = 0.0f, hom = 0.0f, segEnd = t1;
+        for (const auto& m : media) {
+            float s0, s1;
+            if (!intersectAABB(o, d, m.aabbMin, m.aabbMax, cursor, t1, s0, s1)) continue;
+            if (s0 > cursor) { segEnd = std::min(segEnd, s0); continue; }
+            if (!(s1 > cursor)) continue;
+            segEnd = std::min(segEnd, s1);
+            sum += m.extinctionMajorant();
+            if (m.heterogeneous) { grid = &m; ++nGrid; }
+            else hom += m.extinctionMajorant();
+        }
+        if (nGrid == 1) {
+            if (!walkGridMajorants(*grid, o, d, cursor, segEnd, hom, f)) return;
+        } else if (!f(cursor, segEnd, sum)) {
+            return;
+        }
+        if (!(segEnd > cursor)) return;
+        cursor = segEnd;
+    }
+}
+
 // Per-λ ratio-tracking transmittance over [tMin,tMax] (Novák 2014; pbrt-v4
 // SampleLd). With a λ-independent σ̄ the tentative collisions are shared by all
 // lanes, so Tr(λ) = Π σ_n(λ)/σ̄ is unbiased per lane with no wavelength MIS.
 // Russian roulette on the max lane (survive with p = maxTr, rescale by 1/p).
+// #1032 `local`: track a grid at its supervoxel majorants (walkGridMajorants)
+// instead of the global one (same mean, fewer collisions, lower variance).
 inline astroray::SampledSpectrum ratioTrackingTransmittanceSpectral(
         const BoundedMedium& m, const Vec3& o, const Vec3& d, float tMin, float tMax,
-        const astroray::SampledWavelengths& wl, std::mt19937& gen) {
+        const astroray::SampledWavelengths& wl, std::mt19937& gen, bool local = false) {
     std::uniform_real_distribution<float> u(0.0f, 1.0f);
     astroray::SampledSpectrum sUnit, aUnit;
     principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, wl, sUnit, aUnit);
@@ -556,6 +636,31 @@ inline astroray::SampledSpectrum ratioTrackingTransmittanceSpectral(
         const float len = std::max(tMax - tMin, 0.0f);
         for (int i = 0; i < astroray::kSpectrumSamples; ++i)
             Tr[i] = std::exp(-m.densityScale * (sUnit[i] + aUnit[i]) * len);
+        return Tr;
+    }
+    if (local) {
+        astroray::SampledSpectrum Tr(1.0f);
+        int steps = 0;
+        walkGridMajorants(m, o, d, tMin, tMax, 0.0f, [&](float s0, float s1, float sb) {
+            if (!(sb > 0.0f)) return true;
+            for (float t = s0;;) {
+                const float tn = t - std::log(std::max(1e-20f, 1.0f - u(gen))) / sb;
+                if (tn >= s1) return true;
+                if (!(tn > t) || ++steps > kVolumeMaxSteps) {  // step cap (majorant_grid.h)
+                    Tr = astroray::SampledSpectrum(0.0f);
+                    return false;
+                }
+                t = tn;
+                float dens = m.densityAt(o + d * t);
+                for (int i = 0; i < astroray::kSpectrumSamples; ++i)
+                    Tr[i] *= std::max(sb - dens * (sUnit[i] + aUnit[i]), 0.0f) / sb;
+                float mx = Tr.maxValue();
+                if (mx < 0.05f) {
+                    if (u(gen) > mx) { Tr = astroray::SampledSpectrum(0.0f); return false; }
+                    Tr *= (1.0f / std::max(mx, 1e-20f));
+                }
+            }
+        });
         return Tr;
     }
     const float sigBar = m.extinctionMajorant();
@@ -636,7 +741,7 @@ inline float equiangularPdf(const Vec3& o, const Vec3& d, const Vec3& lightPos,
 inline astroray::SampledSpectrum boundaryTransmittanceSpectral(
         const BoundedMedium& m, const Vec3& o, const Vec3& d, float tMin, float tMax,
         const astroray::SampledWavelengths& wl, std::mt19937& gen,
-        const MediumBoundary::Crossings* rc = nullptr) {
+        const MediumBoundary::Crossings* rc = nullptr, bool local = false) {
     astroray::SampledSpectrum Tr(1.0f);
     MediumBoundary::Crossings own;
     if (!rc) {
@@ -645,7 +750,7 @@ inline astroray::SampledSpectrum boundaryTransmittanceSpectral(
     }
     float cur = tMin, s0, s1;
     while (cur < tMax && mediumCoverage(m, o, d, cur, tMax, s0, s1, true, rc)) {
-        Tr *= ratioTrackingTransmittanceSpectral(m, o, d, s0, s1, wl, gen);
+        Tr *= ratioTrackingTransmittanceSpectral(m, o, d, s0, s1, wl, gen, local);
         if (!(s1 > cur)) break;
         cur = s1;
     }
@@ -654,21 +759,21 @@ inline astroray::SampledSpectrum boundaryTransmittanceSpectral(
 
 // Exact per-λ transmittance over [tMin,tMax] through every bounded medium the
 // ray crosses (homogeneous: Beer-Lambert; grid: ratio tracking). sc (pkg296):
-// crossings of this ray built from <= tMin (optional).
+// crossings of this ray built from <= tMin (optional). local: #1032.
 inline astroray::SampledSpectrum segmentTransmittanceSpectral(
         const std::vector<BoundedMedium>& media, const Vec3& o, const Vec3& d,
         float tMin, float tMax, const astroray::SampledWavelengths& wl, std::mt19937& gen,
-        const SegmentCrossings* sc = nullptr) {
+        const SegmentCrossings* sc = nullptr, bool local = false) {
     astroray::SampledSpectrum Tr(1.0f);
     for (const auto& m : media) {
         if (m.boundary) {  // pkg296: mesh-bounded
             Tr *= boundaryTransmittanceSpectral(m, o, d, tMin, tMax, wl, gen,
-                                                sc ? sc->find(media, m) : nullptr);
+                                                sc ? sc->find(media, m) : nullptr, local);
             continue;
         }
         float s0, s1;
         if (intersectAABB(o, d, m.aabbMin, m.aabbMax, tMin, tMax, s0, s1))
-            Tr *= ratioTrackingTransmittanceSpectral(m, o, d, s0, s1, wl, gen);
+            Tr *= ratioTrackingTransmittanceSpectral(m, o, d, s0, s1, wl, gen, local);
     }
     return Tr;
 }
@@ -743,6 +848,154 @@ inline SegmentDirectSample sampleSegmentDirect(const Vec3& o, const Vec3& d, flo
     } else {
         out.w = 1.0f / pc;
     }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// #1032 — tracked-collision distance strategy for the BOUNDED-media segment
+// direct light, with local majorants. Source: Miller, Georgiev, Jarosz, "A
+// Null-Scattering Path Integral Formulation of Light Transport", SIGGRAPH 2019
+// (ACM TOG 38(4) 44), DOI:10.1145/3306346.3323025, §5-6 (path pdfs with null
+// vertices, MIS between distance and equiangular sampling). Reference impl:
+// Blender Cycles v5.2.0 intern/cycles/kernel/integrator/shade_volume.h
+// (volume_integrate_step_scattering :1411, volume_scatter_probability :1315,
+// volume_indirect_scatter_advance :908, volume_equiangular_direct_scatter :1491,
+// volume_direct_scatter_mis :1559), Apache-2.0. Local majorants: the pkg267
+// majorant grid + DDA (pbrt-v4 §11.4.2). Research:
+// .astroray_plan/docs/issue1032-tracked-segment-direct-research.md.
+// ---------------------------------------------------------------------------
+
+// One-sample MIS distance on the lit interval [a,b] (inside the media hull
+// that starts at a0 <= a) for the bounded-media segment direct light:
+// equiangular about `anchor` vs the tracked scatter collision, 1/2 each.
+// Both strategies walk the same null-collision chain from a0 at the local
+// majorant σ̄ and return Tr = Π σ_n(λ)/σ̄ over the tentative collisions
+// before t (ratio tracking; collisions in [a0,a) are forced null, pdf 1 in
+// both strategies). The distance pdf of a scatter at t, divided by the
+// exponential factors both strategies share, is Π_{[a,t)} p_n · σ̄(t)·p_s(t)
+// (Cycles volume_direct_scatter_mis; Miller 2019 §6). p_s = hero average of
+// σ_s/(σ_s+σ_n) (volume_scatter_probability, uniform channel pdf), so the
+// absorption is a weight. The caller's estimate is Tr·σ_s(t)·L·w.
+// sigmaAt(P, t, sigS, sigT) fills the summed coefficients at P.
+struct TrackedSegmentSample {
+    float t = 0.0f;
+    float w = 0.0f;  // MIS weight / pdf
+    float pdfDist = 0.0f, pdfEq = 0.0f;  // both strategies' pdfs at t (test seam)
+    bool equiangular = false;
+    astroray::SampledSpectrum Tr{1.0f};
+};
+template <class SigmaAt>
+inline TrackedSegmentSample sampleSegmentDirectTracked(
+        const std::vector<BoundedMedium>& media, const Vec3& o, const Vec3& d, float a0,
+        float a, float b, bool hasAnchor, const Vec3& anchor,
+        const astroray::SampledWavelengths& wl, std::mt19937& gen, SigmaAt&& sigmaAt) {
+    std::uniform_real_distribution<float> u(0.0f, 1.0f);
+    constexpr int kN = astroray::kSpectrumSamples;
+    TrackedSegmentSample out;
+    if (!(b > a) || !std::isfinite(b)) return out;
+    // Equiangular (Kulla & Fajardo 2012 Eq. 6-7), as sampleSegmentDirect.
+    const float tc = (anchor - o).dot(d);
+    const float D = std::max((anchor - (o + d * tc)).length(), 1e-4f);
+    const float thA = std::atan2(a - tc, D);
+    const float thB = std::atan2(b - tc, D);
+    const bool eqOk = hasAnchor && thB - thA > 1e-7f;
+    auto pdfEq = [&](float t) {
+        if (!eqOk || t < a || t > b) return 0.0f;
+        float dt = t - tc;
+        return D / ((thB - thA) * (D * D + dt * dt));
+    };
+    const bool pickEq = eqOk && u(gen) >= 0.5f;
+    float tEq = b;
+    if (pickEq) {
+        tEq = tc + D * std::tan(thA + u(gen) * (thB - thA));
+        if (!(tEq >= a && tEq <= b) || !std::isfinite(tEq)) return out;
+    }
+    astroray::SampledSpectrum sigS, sigT, sigN, ratio;
+    // p_s at P for majorant sb (fills sigN).
+    auto scatterProb = [&](float sb) {
+        for (int i = 0; i < kN; ++i) {
+            sigN[i] = std::max(sb - sigT[i], 0.0f);
+            float c = sigS[i] + sigN[i];
+            ratio[i] = c > 0.0f ? sigS[i] / c : 0.0f;
+        }
+        return heroAverage(ratio, wl);
+    };
+    astroray::SampledSpectrum Tr(1.0f), trHit(1.0f);
+    float pNull = 1.0f, lastSb = 0.0f;
+    // Distance strategy: a reservoir over the scatter candidates of the whole
+    // chain (Cycles VolumeSampleReservoir, add_sample :1352, direct throughput
+    // × total_weight :1155-1160): candidate k has weight W_k = Π p_n · p_s,k
+    // (the probability that delta tracking scatters there) and estimate
+    // Tr_k·σ_s,k/pd_k; one k is kept with probability W_k/ΣW, so the estimate
+    // is that times ΣW. Deliberate divergence: Cycles runs this VSPG reservoir
+    // on primary rays only (vstate.vspg = bounce == 0, :1616) and takes the
+    // first real collision otherwise; we use it at every bounce (unbiased,
+    // lower variance; lead decision 2026-10-31).
+    float wSum = 0.0f, tHit = -1.0f, pdHit = 0.0f;
+    // One uniform, rescaled per candidate (Cycles VolumeSampleReservoir::add_sample :1019).
+    float rRes = pickEq ? 0.0f : u(gen);
+    bool dead = false;
+    int steps = 0;
+    walkSegmentMajorants(media, o, d, a0, pickEq ? tEq : b, [&](float s0, float s1, float sb) {
+        lastSb = sb;
+        if (!(sb > 0.0f)) return true;
+        float t = s0;
+        for (;;) {
+            const float tn = t - std::log(std::max(1e-20f, 1.0f - u(gen))) / sb;
+            if (tn >= s1) return true;
+            if (!(tn > t) || ++steps > kVolumeMaxSteps) {  // step cap (majorant_grid.h)
+                dead = true;
+                return false;
+            }
+            t = tn;
+            sigmaAt(o + d * t, t, sigS, sigT);
+            const float ps = scatterProb(sb);
+            const bool lit = t >= a;
+            if (!pickEq && lit && ps > 0.0f) {
+                const float wk = pNull * ps;
+                wSum += wk;
+                const float thresh = wk / wSum;
+                if (rRes <= thresh || wSum == wk) {
+                    tHit = t; pdHit = wk * sb; trHit = Tr;
+                    rRes /= thresh;
+                } else {
+                    rRes = (rRes - thresh) / (1.0f - thresh);
+                }
+                rRes = std::clamp(rRes, 0.0f, 1.0f);
+            }
+            for (int i = 0; i < kN; ++i) Tr[i] *= sigN[i] / sb;
+            if (lit) pNull *= 1.0f - ps;
+            // Russian roulette on the ratio-tracking weight: the equiangular
+            // estimate dies, the reservoir only stops taking candidates (the
+            // survivors carry 1/q). The MIS pdfs ignore it.
+            const float q = Tr.maxValue();
+            if (q < 0.05f) {
+                if (!(q > 0.0f) || u(gen) > q) { dead = pickEq; return false; }
+                Tr *= 1.0f / q;
+            }
+        }
+    });
+    if (dead) return out;
+    float pd, pe;
+    if (pickEq) {
+        sigmaAt(o + d * tEq, tEq, sigS, sigT);
+        pd = (lastSb > 0.0f) ? pNull * lastSb * scatterProb(lastSb) : 0.0f;
+        pe = pdfEq(tEq);
+        out.t = tEq;
+        if (!(pe > 0.0f)) return out;
+        out.w = 2.0f * pe / (pe * pe + pd * pd);
+        out.Tr = Tr;
+    } else {
+        if (!(tHit >= 0.0f) || !(pdHit > 0.0f)) return out;  // no candidate on [a,b]
+        pd = pdHit;
+        pe = pdfEq(tHit);
+        out.t = tHit;
+        out.w = (eqOk ? 2.0f * pd / (pd * pd + pe * pe) : 1.0f / pd) * wSum;
+        out.Tr = trHit;
+    }
+    out.pdfDist = pd;
+    out.pdfEq = pe;
+    out.equiangular = pickEq;
     return out;
 }
 

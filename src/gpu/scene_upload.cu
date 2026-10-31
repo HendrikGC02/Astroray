@@ -12,6 +12,8 @@
 #include "advanced_features.h"
 #include "astroray/light_path_mix.h"  // #991 Mix Shader with a Light Path Fac
 #include "astroray/add_material.h"    // #1072 Add Shader partner upload
+#include "astroray/bump_correction.h"  // #1153 kCoatOnSdNBit
+#include "astroray/thin_film_fresnel.h"  // #1153 kThinFilmThicknessCutoff (gpu_pr_filmActive)
 // pkg87a — Cryptomatte hash function.
 // Path is `src/util/...` (not `util/...`) because astroray_cuda's include
 // search has `${CMAKE_SOURCE_DIR}` private — not `${CMAKE_SOURCE_DIR}/src`.
@@ -228,7 +230,9 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
                 gp.subsurfaceWeight = c.subsurfaceWeight;
                 gp.subsurfaceScale = c.subsurfaceScale;
                 gp.emissionColor = GVec3(c.emissionColor.x, c.emissionColor.y, c.emissionColor.z);
-                gp.emissionStrength = c.emissionStrength;
+                // #1186: emission is weighted by alpha (Cycles svm/closure.h: emission *
+                // weight after weight *= alpha); CPU twin PrincipledPlugin::emitted.
+                gp.emissionStrength = c.emissionStrength * c.alpha;
                 gp.anisotropic = c.anisotropic;                 // pkg178 PR-4b
                 gp.anisotropicRotation = c.anisotropicRotation;
                 gp.alpha = c.alpha;                             // pkg178 PR-6
@@ -379,6 +383,17 @@ static void appendAttrCorners(const Triangle& tri, size_t triIndex, size_t first
 // compares the same classification the full flatten stamped on the triangles.
 struct UvGate { bool textureUVConsumer = false; bool anisoPrincipled = false; };
 static UvGate classifyUvGate(const std::shared_ptr<Material>& mtl) {
+    // #1174 -- an Add / Mix closure tree's triangles carry the tree's material id, so
+    // they need UVs whenever ANY leaf does or a Mix Fac is per-texel: the Fac graph
+    // program samples its inputs (a UV-mode image / procedural bake, the hit UV) on
+    // these triangles. The node's own getters follow child A only, so a UV-mode Fac
+    // read no UVs (NaN -> the constant Fac on every hit).
+    if (const auto* cn = dynamic_cast<const astroray::ClosureNodeMaterial*>(mtl.get())) {
+        const UvGate a = classifyUvGate(cn->childA()), b = classifyUvGate(cn->childB());
+        const auto* mix = dynamic_cast<const astroray::MixMaterial*>(cn);
+        return UvGate{a.textureUVConsumer || b.textureUVConsumer || (mix && mix->facTexture()),
+                      a.anisoPrincipled || b.anisoPrincipled};
+    }
     // pkg178 aniso-Principled UV-tangent OR pkg186 image-textured
     // lambertian both need the active-layer UVs on the device. hasUV
     // stays false (zero shade cost / zero upload) for every other
@@ -1394,6 +1409,21 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         graphIdx[gpt] = id;
         return id;
     };
+    // #1153 - the GPU keeps a coated Principled's coat on sd->N under a Bump / Normal Map
+    // (gpu_coatN_*) except for thin film, dispersion and closure-tree leaves, where the coat
+    // follows the bump (the CPU keeps it on sd->N): report those. The addon reports the same
+    // cases (_report_gpu_coat_on_bump).
+    auto reportCoatOnBump = [&](int id, const char* why) {
+        if (replayBail || id < 0 || id >= (int)r.materialBumpCorrect.size() ||
+            !(r.materialBumpCorrect[id] & astroray::bumpcorr::kCoatOnSdNBit))
+            return;
+        const GMaterial& g = r.materials[id];
+        if (g.type == GMAT_CLOSURE_GRAPH && g.closureCount >= 1 &&
+            g.closures[0].type == GCLOSURE_PRINCIPLED && g.principled.coatWeight > 1e-4f)
+            fprintf(stderr, "[#1153] DEGRADED: Principled coat under a Bump / Normal Map on %s "
+                            "shades on the bumped normal on GPU (CPU: the unbumped normal, "
+                            "Cycles' unlinked Coat Normal)\n", why);
+    };
     auto getOrAddMat = [&](const std::shared_ptr<Material>& mKey) -> int {
         auto it = matIdx.find(mKey.get());
         if (it != matIdx.end()) return it->second;
@@ -1428,7 +1458,7 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         // #995 -- an Add / Mix Shader node tree uploads its first BSDF leaf at this id
         // (from the leaf itself, not the node, whose forwarded getters follow child A).
         // A tree that lowers is linked after the walk (treePending) and its constant-
-        // weight emission is baked into that leaf's Principled emission below; one that
+        // weight emission is baked into that leaf's principled block below (any leaf type, #1180); one that
         // does not lower renders the leaf alone (the addon reports it).
         std::shared_ptr<astroray::ClosureTreeLowering> tree;
         if (auto* cn = dynamic_cast<astroray::ClosureNodeMaterial*>(mIn.get())) {
@@ -1464,12 +1494,13 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             // The intersect stage and the NEE emitter evaluation read emission from this
             // GMaterial (gpu_principled_emitted): it must be the TREE's weighted sum, also
             // when that is 0 (leaf 0 itself emissive with weight 0 must not keep its own;
-            // Cycles prunes a zero-weight branch, scene/shader_nodes.cpp:5359). A nonzero
-            // sum implies leaf 0 is a closure-graph Principled (lowerClosureTree).
+            // Cycles prunes a zero-weight branch, scene/shader_nodes.cpp:5359). #1180: any
+            // leaf-0 type carries it -- the GPrincipledClosure block exists (zeroed) on
+            // every GMaterial and gpu_material_emitted reads it for all types but
+            // GMAT_DIFFUSE_LIGHT (which has its own emission).
             const Vec3& e = tree->emission;
             GMaterial& ge = r.materials.back();
-            if (ge.type == GMAT_CLOSURE_GRAPH && ge.closureCount >= 1 &&
-                ge.closures[0].type == GCLOSURE_PRINCIPLED) {
+            if (ge.type != GMAT_DIFFUSE_LIGHT) {
                 const bool any = e.x > 0.0f || e.y > 0.0f || e.z > 0.0f;
                 ge.principled.emissionColor = any ? GVec3(e.x, e.y, e.z) : GVec3(0.0f, 0.0f, 0.0f);
                 ge.principled.emissionStrength = any ? 1.0f : 0.0f;
@@ -1697,10 +1728,57 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
                 r.hasNormalPerturb = true;  // Bump shares the HasNormalPerturb axis
             }
         }
+        // #1153 - a procedural / op-VM Height (CPU: NormalMappedPlugin's #1005 world-step
+        // branch) is differenced per hit by the HasNormalPerturb kernel
+        // (gpu_bumpProceduralNormal): each input is a #1007 per-hit descriptor at the
+        // Height texture's own point, so the taps at P + dP resolve the object / Generated
+        // coordinate and the Mapping exactly as Texture::valueDisplaced does.
+        int bumpProc[3] = {-1, -1, -1};
+        if (bmTex && !std::dynamic_pointer_cast<ImageTexture>(bmTex)) {
+            static_assert(astroray::svm::VM_MAX_TEX == 2, "materialBumpProc holds 2 inputs");
+            bool ok = astroray::gpuLowersBumpHeight(*bmTex);
+            if (ok) {
+                if (auto pt = std::dynamic_pointer_cast<ProgramTexture>(bmTex)) {
+                    for (size_t t = 0; ok && t < pt->numInputs(); ++t) {
+                        bumpProc[1 + t] = perHitTexId(pt.get(), pt->getInput(t).get());
+                        ok = bumpProc[1 + t] >= 0;
+                    }
+                    if (ok) {
+                        auto pit = progIdx.find(pt.get());
+                        if (pit != progIdx.end()) {
+                            bumpProc[0] = pit->second;
+                        } else {
+                            bumpProc[0] = (int)r.programs.size();
+                            progIdx[pt.get()] = bumpProc[0];
+                            r.programs.push_back(pt->getProgram());
+                        }
+                    }
+                } else {
+                    bumpProc[1] = perHitTexId(bmTex.get(), bmTex.get());
+                    ok = bumpProc[1] >= 0;
+                }
+            }
+            if (ok) {
+                r.hasNormalPerturb = true;
+                r.hasProgram = true;  // c_wfProgBinding carries the evaluators / program
+            } else {
+                bumpProc[0] = bumpProc[1] = bumpProc[2] = -1;
+                if (!replayBail)  // pkg315: a bailed replay is rebuilt in full
+                    fprintf(stderr, "[#1153] DEGRADED: Bump Height texture is not differenced on "
+                                    "GPU (only Noise / Wave / Voronoi in Object / Generated "
+                                    "coordinates, directly or as op-VM inputs); GPU renders the "
+                                    "unbumped normal\n");
+            }
+        }
+        r.materialBumpProc.insert(r.materialBumpProc.end(), bumpProc, bumpProc + 3);
         r.materialBumpTexId.push_back(bumpTexId);
         r.materialBumpStrength.push_back(bmStrength);
         r.materialBumpDistance.push_back(bmDistance);
         r.materialBumpCorrect.push_back(bumpCorrect);
+        if (r.materials[id].isDispersive)  // #1153 (gpu_coatOnSdN excludes these)
+            reportCoatOnBump(id, "a dispersive material");
+        else if (r.materials[id].principled.thinFilmThickness > astroray::thinfilm::kThinFilmThicknessCutoff)
+            reportCoatOnBump(id, "a thin-film material");
         r.materialTextureId.push_back(texId);
         r.materialProgramId.push_back(progId);
         for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t)
@@ -1850,6 +1928,7 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             for (size_t i = 0; i < t.leaves.size(); ++i) {
                 e.leafMat[i] = (i == 0) ? tp.id : getOrAddMat(t.leaves[i]);
                 if (t.leaves[i]->hasBSDF()) e.bsdfMask |= static_cast<uint8_t>(1u << i);
+                reportCoatOnBump(e.leafMat[i], "a Mix / Add Shader leaf");  // #1153
             }
             for (size_t n = 0; n < t.nodes.size(); ++n) {
                 const auto& entry = t.nodes[n];
@@ -2468,6 +2547,10 @@ bool buildMaterialDomain(const Renderer& cpu, const SceneUploadResult& cached,
             if (a.emissive != b.emissive || ga.baseColor.x != gb.baseColor.x ||
                 ga.baseColor.y != gb.baseColor.y || ga.baseColor.z != gb.baseColor.z ||
                 ga.emissionIntensity != gb.emissionIntensity ||
+                ga.principled.emissionColor.x != gb.principled.emissionColor.x ||   // #1186: alpha-scaled
+                ga.principled.emissionColor.y != gb.principled.emissionColor.y ||   // Principled / tree
+                ga.principled.emissionColor.z != gb.principled.emissionColor.z ||   // emission feeds the
+                ga.principled.emissionStrength != gb.principled.emissionStrength || // light-power CDF
                 ga.anisotropicRotation != gb.anisotropicRotation)  // #1099 two-sided flag
                 return false;
         }
@@ -2502,6 +2585,7 @@ void adoptMaterialDomain(SceneUploadResult& dst, SceneUploadResult&& src) {
     dst.materialBumpStrength = std::move(src.materialBumpStrength);
     dst.materialBumpDistance = std::move(src.materialBumpDistance);
     dst.materialBumpCorrect = std::move(src.materialBumpCorrect);
+    dst.materialBumpProc = std::move(src.materialBumpProc);  // #1153
     dst.hasNormalPerturb = src.hasNormalPerturb;
     dst.programs = std::move(src.programs);
     dst.materialProgramId = std::move(src.materialProgramId);

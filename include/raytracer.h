@@ -536,8 +536,10 @@ struct LightSample {
     // volume segment can draw its equiangular anchor as Cycles does.
     const astroray::Light* dedicated = nullptr;
 };
-struct BSDFSample { Vec3 wi, f; float pdf; bool isDelta; };
-struct BSDFSampleSpectral { Vec3 wi; astroray::SampledSpectrum f_spectral; float pdf; bool isDelta; };
+// label: #1178 sampled closure label (BSDF_LABEL_*, gpu_types.h); NONE = use isGlossy().
+struct BSDFSample { Vec3 wi, f; float pdf; bool isDelta; unsigned char label = BSDF_LABEL_NONE; };
+struct BSDFSampleSpectral { Vec3 wi; astroray::SampledSpectrum f_spectral; float pdf; bool isDelta;
+                            unsigned char label = BSDF_LABEL_NONE; };
 
 struct MaterialBackendCapabilities {
     bool cpu = true;
@@ -723,6 +725,7 @@ public:
         bss.wi = bs.wi;
         bss.pdf = bs.pdf;
         bss.isDelta = bs.isDelta;
+        bss.label = bs.label;  // #1178 (a decorator forwarding a Principled sample())
         if (bs.isDelta) {
             // pkg118 / #404 (CPU analog): the exit refraction carries eta^2=2.25, but the
             // Jakob-Hanika ALBEDO LUT in RGBAlbedoSpectrum clamps rgb>1 to 1, clipping that
@@ -829,6 +832,7 @@ public:
         bss.wi = bs.wi;
         bss.pdf = bs.pdf;
         bss.isDelta = bs.isDelta;
+        bss.label = bs.label;  // #1178
         // pkg195 Stage C: in Replace mode the authored SPD is the reflectance for
         // every λ — route the non-delta BSDF factor straight through evalSpectralExt
         // so it never passes through the RGB-upsample branch below.
@@ -3241,6 +3245,22 @@ private:
                                                  const astroray::SampledWavelengths& lambdas,
                                                  std::mt19937& gen, int shadowHits,
                                                  MediumAt&& mediumAt) const {
+        return segmentDirectLight(ray, d, a, b, segT, rate, lambdas, gen, shadowHits, mediumAt,
+            [&](float lo, float hi, bool hasAnchor, const Vec3& anchor) {
+                return astroray::volume::sampleSegmentDirect(ray.origin, d, lo, hi, hasAnchor,
+                                                             anchor, rate, gen);
+            });
+    }
+    // #1032: `sampleDist(lo, hi, hasAnchor, anchor)` draws the distance on the
+    // clipped interval (one-sample MIS weight / pdf in `.w`).
+    template <class MediumAt, class SampleDist>
+    astroray::SampledSpectrum segmentDirectLight(const Ray& ray, const Vec3& d, float a, float b,
+                                                 float segT,
+                                                 const astroray::SampledSpectrum& rate,
+                                                 const astroray::SampledWavelengths& lambdas,
+                                                 std::mt19937& gen, int shadowHits,
+                                                 MediumAt&& mediumAt,
+                                                 SampleDist&& sampleDist) const {
         namespace av = astroray::volume;
         const astroray::SampledSpectrum zero(0.0f);
         const Vec3& o = ray.origin;
@@ -3274,8 +3294,7 @@ private:
             if (anc.dedicated->segmentAnchor(ap, gen)) anc.position = ap;
         }
         const bool hasAnchor = anc.distance > 0.0f && anc.distance < 1e18f;
-        av::SegmentDirectSample ds =
-            av::sampleSegmentDirect(o, d, a, b, hasAnchor, anc.position, rate, gen);
+        const auto ds = sampleDist(a, b, hasAnchor, anc.position);
         if (!(ds.w > 0.0f)) return zero;
         const Vec3 P = o + d * ds.t;
         astroray::SampledSpectrum sigS[8];
@@ -3299,14 +3318,20 @@ private:
         astroray::SampledSpectrum c = sum * ls.emission_spec * TrP * (shadowTr * ds.w / ls.pdf);
         // Shadow-ray transmittance through the world fog and every bounded medium.
         c *= worldTransmittanceSpectral(ls.distance, lambdas);
-        if (!gridMedia_.empty())
-            c *= av::segmentTransmittanceSpectral(gridMedia_, P, wi, 1e-3f, ls.distance, lambdas, gen);
+        if (!gridMedia_.empty())  // #1032: local majorants
+            c *= av::segmentTransmittanceSpectral(gridMedia_, P, wi, 1e-3f, ls.distance, lambdas, gen,
+                                                  nullptr, /*local=*/true);
         return c;
     }
 
     // #925 — segmentDirectLight over the bounded media on [0.001, surfaceT].
-    // Distance rate = sum_k per-λ σ_t majorant of the media on the ray (exact
-    // for one homogeneous medium).
+    // #1032: with a grid medium on the hull, the distance strategy is the
+    // tracked scatter collision at the local (supervoxel) majorants, MIS'd
+    // with equiangular through the null-scattering path pdf
+    // (volume::sampleSegmentDirectTracked). A hull of homogeneous media only
+    // keeps the #925 analytic exponential truncated to the lit interval
+    // (rate = Σ per-λ σ_t), as Cycles v5.2.0 volume_integrate_homogeneous
+    // (shade_volume.h :1703, chosen at :1961) samples its direct scatter.
     astroray::SampledSpectrum boundedSegmentDirect(const Ray& ray, const Vec3& dUnit,
                                                    float tStart, float surfaceT,
                                                    const astroray::volume::SegmentCrossings& sc,
@@ -3315,40 +3340,86 @@ private:
         namespace av = astroray::volume;
         float a = std::numeric_limits<float>::max(), b = 0.0f;
         astroray::SampledSpectrum rate(0.0f);
-        for (const auto& m : gridMedia_) {
+        bool anyGrid = false;
+        // Unit σ_s / σ_t per medium, once per call (not per collision); per-thread
+        // buffers, so no allocation per call (this function does not recurse).
+        static thread_local std::vector<astroray::SampledSpectrum> unitS, unitT;
+        unitS.assign(gridMedia_.size(), astroray::SampledSpectrum(0.0f));
+        unitT.assign(gridMedia_.size(), astroray::SampledSpectrum(0.0f));
+        for (size_t k = 0; k < gridMedia_.size(); ++k) {
+            const auto& m = gridMedia_[k];
             float t0, t1;
             if (!av::intersectAABB(ray.origin, dUnit, m.aabbMin, m.aabbMax, tStart, surfaceT, t0, t1))
                 continue;
             a = std::min(a, t0);
             b = std::max(b, t1);
-            astroray::SampledSpectrum sU, aU;
-            av::principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, lambdas, sU, aU);
-            rate += (sU + aU) * (m.densityScale * m.maxDensity);
+            astroray::SampledSpectrum aU;
+            av::principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, lambdas, unitS[k], aU);
+            unitT[k] = unitS[k] + aU;
+            rate += unitT[k] * (m.densityScale * m.maxDensity);
+            anyGrid = anyGrid || m.heterogeneous;
         }
         if (!(b > a)) return astroray::SampledSpectrum(0.0f);
-        return segmentDirectLight(ray, dUnit, a, b, surfaceT, rate, lambdas, gen, shadowHits,
+        // Medium components at P (σ_s, g) for the phase sum; Tr comes from `trOf`.
+        auto componentsAt = [&](const Vec3& P, float t, astroray::SampledSpectrum* sigS, float* g) {
+            int n = 0;
+            for (size_t k = 0; k < gridMedia_.size() && n < 8; ++k) {
+                const auto& m = gridMedia_[k];
+                // pkg296: AABB, or the mesh boundary when the medium has one.
+                if (!av::mediumContains(m, ray.origin, dUnit, t, P,
+                                        m.boundary ? sc.find(k) : nullptr))
+                    continue;
+                float dens = m.densityAt(P);
+                if (dens <= 0.0f) continue;
+                sigS[n] = unitS[k] * dens;
+                g[n] = m.g;
+                ++n;
+            }
+            return n;
+        };
+        if (!anyGrid)
+            return segmentDirectLight(ray, dUnit, a, b, surfaceT, rate, lambdas, gen, shadowHits,
+                [&](const Vec3& P, float t, astroray::SampledSpectrum* sigS, float* g,
+                    astroray::SampledSpectrum& Tr) {
+                    const int n = componentsAt(P, t, sigS, g);
+                    if (n > 0)
+                        Tr = av::segmentTransmittanceSpectral(gridMedia_, ray.origin, dUnit, tStart,
+                                                              t, lambdas, gen, &sc);
+                    return n;
+                });
+        // #1032: summed σ_s / σ_t of the media containing P (pkg296 boundary).
+        auto sigmaAt = [&](const Vec3& P, float t, astroray::SampledSpectrum& sigS,
+                           astroray::SampledSpectrum& sigT) {
+            sigS = astroray::SampledSpectrum(0.0f);
+            sigT = astroray::SampledSpectrum(0.0f);
+            for (size_t k = 0; k < gridMedia_.size(); ++k) {
+                const auto& m = gridMedia_[k];
+                if (!av::mediumContains(m, ray.origin, dUnit, t, P,
+                                        m.boundary ? sc.find(k) : nullptr))
+                    continue;
+                float dens = m.densityAt(P);
+                if (dens <= 0.0f) continue;
+                sigS += unitS[k] * dens;
+                sigT += unitT[k] * dens;
+            }
+        };
+        // The walk's ratio-tracking Tr (from the hull entry `a`) is Tr(P).
+        astroray::SampledSpectrum trTracked(1.0f);
+        const float hullA = a;
+        return segmentDirectLight(ray, dUnit, a, b, surfaceT, astroray::SampledSpectrum(0.0f),
+            lambdas, gen, shadowHits,
             [&](const Vec3& P, float t, astroray::SampledSpectrum* sigS, float* g,
                 astroray::SampledSpectrum& Tr) {
-                int n = 0;
-                for (size_t k = 0; k < gridMedia_.size(); ++k) {
-                    const auto& m = gridMedia_[k];
-                    if (n >= 8) break;
-                    // pkg296: AABB, or the mesh boundary when the medium has one.
-                    if (!av::mediumContains(m, ray.origin, dUnit, t, P,
-                                            m.boundary ? sc.find(k) : nullptr))
-                        continue;
-                    float dens = m.densityAt(P);
-                    if (dens <= 0.0f) continue;
-                    astroray::SampledSpectrum sU, aU;
-                    av::principledSpectralCoeffs(m.colorSpec, m.absorptionSpec, lambdas, sU, aU);
-                    sigS[n] = sU * dens;
-                    g[n] = m.g;
-                    ++n;
-                }
-                if (n > 0)
-                    Tr = av::segmentTransmittanceSpectral(gridMedia_, ray.origin, dUnit, tStart, t,
-                                                          lambdas, gen, &sc);
+                const int n = componentsAt(P, t, sigS, g);
+                if (n > 0) Tr = trTracked;
                 return n;
+            },
+            [&](float lo, float hi, bool hasAnchor, const Vec3& anchor) {
+                av::TrackedSegmentSample s = av::sampleSegmentDirectTracked(
+                    gridMedia_, ray.origin, dUnit, hullA, lo, hi, hasAnchor, anchor, lambdas,
+                    gen, sigmaAt);
+                trTracked = s.Tr;
+                return s;
             });
     }
 
@@ -4834,14 +4905,15 @@ public:
             // Classify this bounce's lobe (0=diffuse, 1=glossy, 2=transmission)
             // from the same geometric sign + glossy test the AOV lock uses.
             // Computed EVERY bounce for the per-type counters (pkg201 Stage 3),
-            // not just at firstCat.
+            // not just at firstCat. #1178/#1198: a reflection is diffuse or glossy by the
+            // SAMPLED lobe's label (Cycles path_state_next), isGlossy() only as fallback.
             int lobeCat;
             {
                 float sWo = wo.dot(rec.normal);
                 float sWi = bss.wi.dot(rec.normal);
                 bool transmitted = (sWo * sWi) < 0.0f;
-                lobeCat = transmitted ? 2
-                        : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
+                lobeCat = astroray::lightpath::bounce_class(
+                    transmitted, bss.isDelta, bss.label, rec.material->isGlossy());
             }
             if (firstCat < 0 && !transparentPass) firstCat = lobeCat;
             lpc = astroray::lightpath::next_surface(  // #991
@@ -5278,8 +5350,8 @@ public:
             bool transparentPass;  // #1033 (see pathTraceSpectral)
             {   // #991 — same bounce class as pathTraceSpectral's lobeCat.
                 const bool transmitted = wo.dot(rec.normal) * bss.wi.dot(rec.normal) < 0.0f;
-                const int cat = transmitted ? 2
-                              : ((bss.isDelta || rec.material->isGlossy()) ? 1 : 0);
+                const int cat = astroray::lightpath::bounce_class(  // #1178
+                    transmitted, bss.isDelta, bss.label, rec.material->isGlossy());
                 transparentPass = astroray::lightpath::is_transparent_pass(
                     bss.isDelta, wo.dot(bss.wi), rec.material->shadowAlpha(rec) < 1.0f);
                 lpc = astroray::lightpath::next_surface(lpc, cat, bss.isDelta, transparentPass);
@@ -5565,8 +5637,8 @@ public:
             if (bs.pdf <= 0.0f) return 0.0f;
             {   // #36 — same bounce class as pathTraceSpectral's lobeCat (light_path.h)
                 const bool transmitted = wo.dot(rec.normal) * bs.wi.dot(rec.normal) < 0.0f;
-                const int cat = transmitted ? 2
-                              : ((bs.isDelta || rec.material->isGlossy()) ? 1 : 0);
+                const int cat = astroray::lightpath::bounce_class(  // #1178
+                    transmitted, bs.isDelta, bs.label, rec.material->isGlossy());
                 lpc = astroray::lightpath::next_surface(
                     lpc, cat, bs.isDelta,
                     astroray::lightpath::is_transparent_pass(bs.isDelta, wo.dot(bs.wi),

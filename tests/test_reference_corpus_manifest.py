@@ -494,8 +494,18 @@ PKG326_PROOF_PENDING = frozenset({
     "ShaderNodeBsdfGlass|input:Thin Film IOR",
     "ShaderNodeBsdfGlass|input:Thin Film Thickness",
 })
+# pkg328 Phase 1 (gate b4): rows credited by the docs/blender_parity/evidence/pkg328 probes that the frozen corpus
+# scenes do not exercise (inactive outputs, Material Output target/Thickness, Map Range clamp). Shrink-only as above.
+PKG328_PROOF_PENDING = frozenset({
+    "ShaderNodeOutputMaterial|input:Thickness",
+    "ShaderNodeOutputMaterial|prop:target",
+    "ShaderNodeMapRange|prop:clamp",
+    "ShaderNodeOutputWorld|input:Surface",
+    "ShaderNodeOutputWorld|prop:is_active_output",
+    "ShaderNodeTexEnvironment|input:Vector",
+})
 PROOF_PENDING_BASELINE = (PROOF_PENDING_BASELINE | PKG320_PROOF_PENDING | PKG321_PROOF_PENDING | I1117_PROOF_PENDING
-                          | PKG326_PROOF_PENDING)
+                          | PKG326_PROOF_PENDING | PKG328_PROOF_PENDING)
 
 
 def _proof_pending() -> dict:

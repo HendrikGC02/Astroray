@@ -2729,6 +2729,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
         try:
             inlined = mat.inline_shader_nodes()
             node_tree = inlined.node_tree
+            # pkg328: inline_shader_nodes() only follows a target=ALL output; with a Cycles/EEVEE-targeted
+            # output it returns an empty tree (a neutral grey material), so read the original tree instead.
+            if (original_tree is not None and node_tree is not None
+                    and not any(n.type == 'OUTPUT_MATERIAL' for n in node_tree.nodes)
+                    and any(n.type == 'OUTPUT_MATERIAL' for n in original_tree.nodes)):
+                node_tree = original_tree
         except (AttributeError, RuntimeError):
             # Pre-5.0 Blender: fall back to direct access
             node_tree = original_tree
@@ -2758,9 +2764,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # Find the active output node (preferred), or any OUTPUT_MATERIAL
         output = None
         for node in node_tree.nodes:
-            if node.type == 'OUTPUT_MATERIAL' and getattr(node, 'is_active_output', True):
+            # pkg328: an output targeting only EEVEE is not Cycles' (Blender keeps one active output per target).
+            if (node.type == 'OUTPUT_MATERIAL' and getattr(node, 'is_active_output', True)
+                    and getattr(node, 'target', 'ALL') in ('ALL', 'CYCLES')):
                 output = node
                 break
+        if output is None:
+            # Blender keeps one active flag per tree; Cycles falls back to the first output it can use.
+            output = next((n for n in node_tree.nodes if n.type == 'OUTPUT_MATERIAL'
+                           and getattr(n, 'target', 'ALL') in ('ALL', 'CYCLES')), None)
         if output is None:
             output = next((n for n in node_tree.nodes if n.type == 'OUTPUT_MATERIAL'), None)
         if output is None:
@@ -3456,8 +3468,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         Image Texture Height keeps the image path (with its Mapping, #1004). A
         procedural / op-VM Height (#1005) is loaded like a Base Color chain and
         differenced by the CPU NormalMappedPlugin (Texture::valueDisplaced in Object /
-        Generated / Camera coordinates); the GPU bump path samples uploaded images
-        only, so a GPU render reports it (#1153)."""
+        Generated / Camera coordinates). The GPU differences Noise / Wave / Voronoi
+        in Object / Generated coordinates, directly or as op-VM inputs (#1153,
+        renderer.gpu_bump_height_supported); a GPU render reports any other Height."""
         if spec.get('bump_image') is not None:
             return self.load_blender_image(spec['bump_image'], renderer,
                                            vector_input=spec.get('bump_vector'),
@@ -3471,11 +3484,57 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if tex_name is None:
             self._warn_shader_fallback(
                 'BUMP', "Height from '%s' cannot be loaded as a texture: bump not applied" % src)
-        elif self._bump_render_on_gpu(renderer):
+        elif self._bump_render_on_gpu(renderer) and not self._gpu_bump_height_supported(
+                renderer, tex_name):
             self._warn_shader_fallback(
-                'BUMP', "Height from '%s' is procedural: bump applied on CPU only, the GPU "
-                "bump path samples images (#1153)" % src)
+                'BUMP', "Height from '%s' is not differenced on the GPU (Noise / Wave / "
+                "Voronoi in Object / Generated coordinates only): bump applied on CPU only "
+                "(#1153)" % src)
         return tex_name
+
+    def _report_gpu_coat_on_bump(self, native, renderer):
+        """#1153: under a Bump / Normal Map the GPU keeps the Principled coat on the
+        unbumped normal (Cycles' unlinked Coat Normal, as the CPU) except for thin film,
+        dispersion and Mix / Add Shader leaves, where it follows the bump (scene_upload.cu
+        reports the same cases). A coat that follows the bump anyway (coat_follows_bump)
+        renders alike on both."""
+        if not (native.get('normal_map_texture') or native.get('bump_map_texture')):
+            return
+        if float(native.get('coat_follows_bump', 0.0) or 0.0) > 0.5:
+            return
+        try:
+            if float(native.get('coat_weight', 0.0)) <= 1e-4:
+                return
+            why = ('a Mix / Add Shader leaf' if getattr(self, '_closure_tree_depth', 0) > 0 else
+                   'thin film' if float(native.get('thin_film_thickness', 0.0)) > 0.1 else
+                   'dispersion' if float(native.get('dispersion_scale', 0.0)) > 0.0 else None)
+        except (TypeError, ValueError):
+            return
+        if why is not None and self._bump_render_on_gpu(renderer):
+            self._warn_shader_fallback(
+                'BSDF_PRINCIPLED', "coat under a Bump / Normal Map with %s shades on the bumped "
+                "normal on the GPU (CPU: the unbumped normal, Cycles' unlinked Coat Normal, #1153)"
+                % why)
+
+    @staticmethod
+    def _gpu_bump_height_supported(renderer, tex_name):
+        """#1153: the engine's own answer (astroray::gpuLowersBumpHeight); a module
+        without the binding cannot difference a procedural Height on the GPU."""
+        fn = getattr(renderer, 'gpu_bump_height_supported', None)
+        if fn is None:
+            return False
+        try:
+            return bool(fn(tex_name))
+        except Exception:
+            return False
+    def _report_image_interpolation(self, node):
+        """pkg328 (#1215): ImageTexture samples the nearest texel whatever the node's Interpolation says,
+        so only Closest matches Cycles; Linear (its default), Cubic and Smart blend texels."""
+        interp = str(getattr(node, 'interpolation', 'Closest'))
+        if interp != 'Closest':
+            self._warn_shader_fallback(
+                'TEX_IMAGE', "Interpolation '%s' is not honoured: the image is sampled Closest, so magnified "
+                "texels show blocks (#1215)" % interp)
 
     def _report_non_linear_interp(self, kind, socket):
         """#1004: Normal Map / Bump height images are read Linear (Cycles' default); a
@@ -4590,6 +4649,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # so Mapping/Texture-Coordinate wiring is honored by the upload path.
         if linked_node.type == 'TEX_IMAGE' and linked_node.image:
             vector_inp = linked_node.inputs.get('Vector') if hasattr(linked_node, 'inputs') else None
+            self._report_image_interpolation(linked_node)
             tex_name = self.load_blender_image(linked_node.image, renderer, vector_input=vector_inp,
                                                extension=getattr(linked_node, 'extension', 'REPEAT'))
             fallback = list(inp.default_value[:3]) if hasattr(inp.default_value, '__iter__') else [0.8, 0.8, 0.8]
@@ -4815,6 +4875,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # child's GPU descriptor on (image, parent Mapping) since #825.)
             identity = {'matrix': np.identity(4), 'coord_mode': 'UV', 'uv_layer': ''}
             for in_node in inputs:
+                self._report_image_interpolation(in_node)
                 cn = self._load_blender_image_resolved(
                     in_node.image, renderer, identity, child_signature=signatures[0],
                     extension=getattr(in_node, 'extension', 'REPEAT'))
@@ -4965,6 +5026,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return self._load_blender_image_resolved(
                     image, renderer, identity, child_signature='graph-coord',
                     extension=extension)
+            self._report_image_interpolation(in_node)
             name = self.load_blender_image(image, renderer, vector_input=vinp,
                                            extension=extension)
             mode = self._resolve_affine_coordinates(vinp, warn=lambda *a: None)['coord_mode']
@@ -5405,6 +5467,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # pkg119-C: surface every socket the native path does not honour.
         for msg in spec.get('native_gaps', []):
             self._warn_shader_fallback('BSDF_PRINCIPLED', msg)
+        self._report_gpu_coat_on_bump(native, renderer)  # #1153
 
         # #846: per-texel scalar op-VM programs (Roughness/Metallic/IOR/Transmission).
         native.update(spec.get('scalar_programs') or {})
@@ -6002,13 +6065,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                            'sums: the first shader is used')
                 return self._create_material_from_shader_spec(spec.get('a'), renderer)
             children = []
-            for key in ('a', 'b'):
-                child = dict(spec[key])
-                # A Displacement bump merged onto the Add spec applies to both.
-                for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction', 'bump_sets_sd_n'):
-                    if bump_key in spec and bump_key not in child:
-                        child[bump_key] = spec[bump_key]
-                children.append(self._create_material_from_shader_spec(child, renderer))
+            self._closure_tree_depth = getattr(self, '_closure_tree_depth', 0) + 1  # #1153
+            try:
+                for key in ('a', 'b'):
+                    child = dict(spec[key])
+                    # A Displacement bump merged onto the Add spec applies to both.
+                    for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction', 'bump_sets_sd_n'):
+                        if bump_key in spec and bump_key not in child:
+                            child[bump_key] = spec[bump_key]
+                    children.append(self._create_material_from_shader_spec(child, renderer))
+            finally:
+                self._closure_tree_depth -= 1
             add_id = renderer.create_add_material(children[0], children[1])
             if self._gpu_renders_first_closure_only(renderer, add_id):
                 self._warn_shader_fallback(
@@ -6024,13 +6091,17 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                            'the dominant shader is kept')
                 return self._create_material_from_shader_spec(keep, renderer)
             children = []
-            for key in ('a', 'b'):
-                child = dict(spec[key])
-                # A Displacement bump merged onto the Mix spec applies to both.
-                for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction', 'bump_sets_sd_n'):
-                    if bump_key in spec and bump_key not in child:
-                        child[bump_key] = spec[bump_key]
-                children.append(self._create_material_from_shader_spec(child, renderer))
+            self._closure_tree_depth = getattr(self, '_closure_tree_depth', 0) + 1  # #1153
+            try:
+                for key in ('a', 'b'):
+                    child = dict(spec[key])
+                    # A Displacement bump merged onto the Mix spec applies to both.
+                    for bump_key in ('bump_map_texture', 'bump_strength', 'bump_distance', 'coat_follows_bump', 'bump_map_correction', 'bump_sets_sd_n'):
+                        if bump_key in spec and bump_key not in child:
+                            child[bump_key] = spec[bump_key]
+                    children.append(self._create_material_from_shader_spec(child, renderer))
+            finally:
+                self._closure_tree_depth -= 1
             mix_id = renderer.create_mix_material(children[0], children[1],
                                                   float(spec.get('fac', 0.5)),
                                                   spec.get('fac_texture') or '')
@@ -7669,12 +7740,23 @@ class CustomRaytracerRenderEngine(RenderEngine):
         bg_color = None           # solid background fallback when no HDRI
         sky_node = None           # pkg256: ShaderNodeTexSky, baked to a temp HDRI
 
+        # pkg328 (#1088): the active World Output's Surface link names the Background; a second
+        # Background (or a second World Output) in the tree is not the world. Other wirings keep
+        # the previous behaviour (every Background in the tree, the last one wins).
+        world_outs = [n for n in node_tree.nodes if n.type == 'OUTPUT_WORLD']
+        active_out = next((n for n in world_outs if getattr(n, 'is_active_output', True)),
+                          world_outs[0] if world_outs else None)
+        surface_src = self._shader_input_node(active_out, 'Surface') if active_out is not None else None
+        only_bg = surface_src if getattr(surface_src, 'type', '') == 'BACKGROUND' else None
+
         for node in node_tree.nodes:
             if node.type == 'TEX_ENVIRONMENT' and node.image:
                 hdri_path = _abspath_for(node.image, node.image.filepath)
             elif node.type == 'TEX_SKY':
                 sky_node = node
             elif node.type == 'BACKGROUND':
+                if only_bg is not None and node.name != only_bg.name:      # bpy wrappers are not identity-stable
+                    continue
                 strength = float(node.inputs['Strength'].default_value)
                 color_input = node.inputs.get('Color')
                 if color_input is not None:
@@ -7731,7 +7813,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     self._warn_shader_fallback(
                         'MAPPING', 'world Mapping Location is not honoured (a directional env map has no translation); dropped')
 
-        output = next((n for n in node_tree.nodes if n.type == 'OUTPUT_WORLD'), None)
+        output = active_out
         volume_spec = None
         if output is not None:
             volume_node = self._shader_input_node(output, 'Volume')

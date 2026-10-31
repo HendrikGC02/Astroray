@@ -523,13 +523,15 @@ def test_real_root_nodes_credit_what_the_engine_reads(real_root):
 
 
 def test_real_root_nodes_without_a_read_get_no_credit(real_root):
-    """NEGATIVE: Material Output's Thickness, World Output's Surface (only the UI panel reads it), the
-    Environment texture's Vector and the IES texture's Vector are read nowhere in the engine."""
+    """NEGATIVE: Material Output's Thickness, the Environment texture's Vector and the IES texture's Vector are
+    read nowhere in the engine. (pkg328: setup_world now reads the World Output's Surface and is_active_output, so
+    those two are credited; Thickness and the Environment Vector are resolved by probe, not by the scanner.)"""
     assert "Thickness" not in real_root["OUTPUT_MATERIAL"]["sockets"]
-    assert "Surface" not in real_root["OUTPUT_WORLD"]["sockets"]
+    assert {"Surface"} <= real_root["OUTPUT_WORLD"]["sockets"]
+    assert "is_active_output" in real_root["OUTPUT_WORLD"]["properties"]
+    assert "target" in real_root["OUTPUT_MATERIAL"]["properties"]
     assert "Vector" not in real_root.get("TEX_ENVIRONMENT", {"sockets": set()})["sockets"]
     assert "Vector" not in real_root["TEX_IES"]["sockets"]
-    assert "is_active_output" not in real_root["OUTPUT_WORLD"]["properties"]
 
 
 def test_real_addon_scans_the_mix_and_add_shader_branches():
@@ -728,6 +730,11 @@ def test_committed_matrix_credits_the_listed_rows_and_keeps_the_negatives():
         "ShaderNodeOutputMaterial|input:Volume", "ShaderNodeOutputMaterial|input:Displacement",
         "ShaderNodeOutputMaterial|prop:is_active_output", "ShaderNodeOutputLight|input:Surface",
         "ShaderNodeOutputWorld|input:Volume", "ShaderNodeBackground|input:Color", "ShaderNodeBackground|input:Strength",
+        # pkg328: setup_world follows the active World Output's Surface link; the Material Output honours `target`
+        "ShaderNodeOutputWorld|input:Surface", "ShaderNodeOutputWorld|prop:is_active_output",
+        "ShaderNodeOutputMaterial|prop:target",
+        # pkg328: resolved by probe (Cycles-ignored socket; Environment Vector read through the world Mapping)
+        "ShaderNodeOutputMaterial|input:Thickness", "ShaderNodeTexEnvironment|input:Vector",
         "ShaderNodeTexIES|input:Strength", "ShaderNodeBsdfDiffuse|output:BSDF", "ShaderNodeTexNoise|output:Fac",
         "ShaderNodeNewGeometry|output:Pointiness",  # #1117: the early `out_name == 'Pointiness'` return
     )
@@ -736,8 +743,7 @@ def test_committed_matrix_credits_the_listed_rows_and_keeps_the_negatives():
     refused = (  # nothing in the compiler or the engine consumes these: no false credit
         "ShaderNodeLightPath|output:Portal Depth", "ShaderNodeNewGeometry|output:Normal",
         "ShaderNodeMapRange|output:Vector",
-        "ShaderNodeMix|output:Result_Rotation", "ShaderNodeOutputMaterial|input:Thickness",
-        "ShaderNodeOutputWorld|input:Surface", "ShaderNodeTexEnvironment|input:Vector",
+        "ShaderNodeMix|output:Result_Rotation",
         "ShaderNodeTexIES|input:Vector", "ShaderNodeHairInfo|output:Intercept", "ShaderNodeRaycast|output:Is Hit",
     )
     for key in refused:

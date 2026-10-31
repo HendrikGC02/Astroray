@@ -45,6 +45,11 @@ enum Mode : int {
     // bump_shadowing_term sees sc->N == sd->N and returns 1 (bsdf.h:91-93): no hemisphere test,
     // no softening. The glossy lift still applies (toward Ng; here the pre-bump normal).
     kSetsSdNBit = 8,
+    // #1153: a Principled coat (and the sheen's coat share) stays on sd->N, Cycles' unlinked
+    // Coat Normal (svm/closure.h:127-129,152-161). Clear when the coat follows the bump
+    // (coat_follows_bump: Output Displacement, or Coat Normal wired to the same node).
+    // CPU twin HitRecord::coatOnSvmNormal; read by the GPU HasNormalPerturb kernel.
+    kCoatOnSdNBit = 16,
 };
 
 // Cycles ensure_valid_specular_reflection (bsdf_util.h:322-395): if the reflection of I about

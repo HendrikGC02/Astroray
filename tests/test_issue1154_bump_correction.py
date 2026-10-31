@@ -192,8 +192,9 @@ def test_light_behind_the_smooth_normal_is_rejected(use_gpu):
 
 
 @pytest.mark.parametrize("use_gpu", [False, pytest.param(True, marks=pytest.mark.xfail(
-    strict=True, reason="#1153: the GPU closure graph has one normal, so a Principled under a "
-                        "Bump takes the glossy rule (no diffuse-closure softening)"))],
+    strict=True, reason="#1207: the GPU closure graph has one normal, so a Principled under a "
+                        "Bump takes the glossy rule (no diffuse-closure softening); #1153 covers "
+                        "only the coat/sheen frames"))],
     ids=["cpu", "gpu"])
 def test_principled_diffuse_lobe_is_softened_like_cycles(use_gpu):
     got = _sunlit_diffuse("principled", True, 20.0, use_gpu)

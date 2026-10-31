@@ -88,6 +88,13 @@ PROBE_VERDICT = {
     "g_thin_film_ior": ("moves", ""),
     "g_thin_film_smooth": ("faint", ""),
     "m_geometry_normal": ("reported", "Geometry output 'Normal' unsupported in the op-VM"),
+    # pkg328 Phase 1 (#1088 root rows, MapRange clamp, TexImage interpolation). Cycles reference leg:
+    # docs/blender_parity/evidence/pkg328/probe_results.json (tests/test_pkg328_b4_reported_drops.py).
+    "w_bg_control": ("moves", ""), "w_surface": ("moves", ""), "w_active_output": ("moves", ""),
+    "env_vector": ("moves", ""), "o_target": ("moves", ""),
+    "mr_clamp_const": ("moves", ""), "mr_clamp_linked": ("moves", ""),
+    "o_thickness": ("inert", ""),        # Cycles ignores the socket too (PKG328_CYCLES_IGNORED)
+    "img_interp": ("inert", "Interpolation 'Linear' is not honoured"),    # #1215
 }
 
 

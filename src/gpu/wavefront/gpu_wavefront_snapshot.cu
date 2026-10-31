@@ -1129,6 +1129,7 @@ struct WfContext {
     WfDeviceBuf materialNormalTexId, materialNormalStrength;  // pkg223 normal maps
     WfDeviceBuf materialBumpTexId, materialBumpStrength, materialBumpDistance;  // pkg223b bump
     WfDeviceBuf materialBumpCorrect;          // #1154 bump-map correction mode
+    WfDeviceBuf materialBumpProc;             // #1153 procedural / op-VM Bump Height
     WfDeviceBuf programs, materialProgramId;   // pkg219b op-VM programs
     WfDeviceBuf materialProgInputTexId;        // #826 op-VM input texIds [mat*VM_MAX_TEX+t]
     WfDeviceBuf materialScalarProgId, materialScalarTexId;  // pkg219d scalar-param programs
@@ -1198,6 +1199,7 @@ struct WfContext {
     WfDeviceBuf segNeeF, segNeeI, segShadowQueue, segShadowCount; // #929 segment slots (2 kinds)
     std::vector<WfDeviceBuf> gridBufs; // pkg269 device NanoVDB grid buffers (grow-only)
     std::vector<WfDeviceBuf> gridTempBufs; // #828 dense temperature grids (grow-only)
+    std::vector<WfDeviceBuf> gridMajBufs;  // #1032 majorant grids (grow-only)
     // pkg258 - env NEE parked-record arrays + queue (SEPARATE from the lamp neeF/
     // neeI so an idx carries independent lamp AND env NEE records). Grow-only; only
     // touched when a render enables env NEE with a loaded importance-sampled HDRI.
@@ -1990,11 +1992,17 @@ std::vector<float> cuda_wavefront_render(
     float* d_matBumpStrength = wfSync(matReuse, C.materialBumpStrength, res.materialBumpStrength);
     float* d_matBumpDistance = wfSync(matReuse, C.materialBumpDistance, res.materialBumpDistance);
     int*   d_matBumpCorrect  = wfSync(matReuse, C.materialBumpCorrect, res.materialBumpCorrect);  // #1154
+    int*   d_matBumpProc     = wfSync(matReuse, C.materialBumpProc, res.materialBumpProc);  // #1153
+    // #1153 perf: null unless some material has a procedural Height, so the shade kernel's
+    // per-hit test is a constant-memory compare instead of a global load.
+    bool anyBumpProc = false;
+    for (size_t k = 1; k < res.materialBumpProc.size(); k += 3) anyBumpProc |= res.materialBumpProc[k] >= 0;
+    if (!anyBumpProc) d_matBumpProc = nullptr;
     if (res.hasTexture || res.hasNormalPerturb)
         setWavefrontTextureBinding(GWavefrontTextureBinding{
             d_textures, d_texelBuf, d_matTexId, d_matNormalTexId, d_matNormalStrength,
             d_matBumpTexId, d_matBumpStrength, d_matBumpDistance, d_triGen, d_triObj,
-            d_matBumpCorrect});
+            d_matBumpCorrect, d_matBumpProc});
     // pkg219b — op-VM program device arrays (all null when no material carries a
     // program; res.hasProgram=false then selects the <…,false> shade kernel).
     astroray::svm::ShaderVMProgram* d_programs =
@@ -2087,6 +2095,7 @@ std::vector<float> cuda_wavefront_render(
         const auto& media = renderer.gridMedia();
         if (C.gridBufs.size() < media.size()) C.gridBufs.resize(media.size());
         if (C.gridTempBufs.size() < media.size()) C.gridTempBufs.resize(media.size());
+        if (C.gridMajBufs.size() < media.size()) C.gridMajBufs.resize(media.size());
         bool anyBlackbody = false;
         s_lastGridUploads = 0;
         for (size_t k = 0; k < media.size() && gb.count < G_WF_MAX_GRID_MEDIA; ++k) {
@@ -2097,6 +2106,7 @@ std::vector<float> cuda_wavefront_render(
             g.heterogeneous = 0;
             g.grid = nullptr;
             g.tempGrid = nullptr;
+            g.majorant = nullptr;
             if (m.heterogeneous && m.grid && m.grid->nanoBytes() > 0) {
                 size_t bytes = m.grid->nanoBytes();
                 // ABI-1: only a cached pointer that actually exists serves a
@@ -2113,6 +2123,26 @@ std::vector<float> cuda_wavefront_render(
                 g.heterogeneous = 1;
                 auto w2i = m.grid->worldToIndex();   // row-major 4x4
                 for (int a = 0; a < 12; ++a) g.worldToIndex[a] = w2i[a];
+                // #1032 — majorant grid (rides the #801 reuse like the grid).
+                const astroray::volume::MajorantGrid& mg = m.grid->majorant();
+                if (!mg.voxels().empty()) {
+                    float* md = reuse ? reinterpret_cast<float*>(C.gridMajBufs[k].ptr)
+                                      : nullptr;   // ABI-1, as above
+                    if (md == nullptr) {
+                        md = wfEnsure<float>(C.gridMajBufs[k], mg.voxels().size());
+                        cudaError_t e = cudaMemcpy(md, mg.voxels().data(),
+                                                   mg.voxels().size() * sizeof(float),
+                                                   cudaMemcpyHostToDevice);
+                        if (e != cudaSuccess) throw std::runtime_error(cudaGetErrorString(e));
+                        ++s_lastGridUploads;
+                    }
+                    g.majorant = md;
+                    for (int a = 0; a < 3; ++a) {
+                        g.majRes[a] = mg.res(a);
+                        g.majBoundsMin[a] = mg.boundsMin(a);
+                        g.majBoundsMax[a] = mg.boundsMax(a);
+                    }
+                }
                 // #828 — dense temperature block (nearest voxel, CPU layout).
                 const astroray::volume::DenseGrid* tg = m.grid->temperatureDense();
                 if (tg && !tg->data.empty()) {

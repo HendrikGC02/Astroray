@@ -241,3 +241,6 @@ When in doubt, ask before adding a dependency.
 - Cycles bump coordinate offset (svm/tex_coord.h), interp_linear (device/cpu/image.h), Principled coat normal (svm/closure.h), Apache-2.0: [#1004/#1005 research](issue1004-1005-bump-research.md).
 - Cycles thin-film glass, Glass BSDF sockets + smooth (singular) lobe (bsdf_microfacet.h BSD-3, svm/closure.h Apache-2.0; Belcour & Barla 2017): [pkg326 / #1162 research](pkg326-glass-thin-film-research.md).
 - Cycles ensure_valid_specular_reflection + bump_shadowing_term (bsdf_util.h / bsdf.h, Apache-2.0; Conty Estevez et al., Ray Tracing Gems 2019 ch. 12): [#1154 research](issue1154-bump-correction-research.md).
+- Cycles Principled emission x alpha (svm/closure.h), emission + BSDF path continuation (shade_surface.h), Apache-2.0: [#1180 / #1186 research](issue1180-1186-emission-research.md).
+- Miller/Georgiev/Jarosz 2019 null-scattering path integral (TOG 38(4) 44, DOI 10.1145/3306346.3323025) + Cycles v5.2.0 shade_volume.h VolumeSampleReservoir / volume_direct_scatter_mis (Apache-2.0), tracked-collision segment direct light at pkg267 local majorants: [#1032 research](issue1032-tracked-segment-direct-research.md).
+- Cycles closure labels + path_state_next bounce classification (kernel/types.h, integrator/path_state.h, Apache-2.0): [#1178/#1198 research](issue1178-sampled-lobe-label-research.md).

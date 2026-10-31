@@ -381,6 +381,17 @@ static void appendAttrCorners(const Triangle& tri, size_t triIndex, size_t first
 // compares the same classification the full flatten stamped on the triangles.
 struct UvGate { bool textureUVConsumer = false; bool anisoPrincipled = false; };
 static UvGate classifyUvGate(const std::shared_ptr<Material>& mtl) {
+    // #1174 -- an Add / Mix closure tree's triangles carry the tree's material id, so
+    // they need UVs whenever ANY leaf does or a Mix Fac is per-texel: the Fac graph
+    // program samples its inputs (a UV-mode image / procedural bake, the hit UV) on
+    // these triangles. The node's own getters follow child A only, so a UV-mode Fac
+    // read no UVs (NaN -> the constant Fac on every hit).
+    if (const auto* cn = dynamic_cast<const astroray::ClosureNodeMaterial*>(mtl.get())) {
+        const UvGate a = classifyUvGate(cn->childA()), b = classifyUvGate(cn->childB());
+        const auto* mix = dynamic_cast<const astroray::MixMaterial*>(cn);
+        return UvGate{a.textureUVConsumer || b.textureUVConsumer || (mix && mix->facTexture()),
+                      a.anisoPrincipled || b.anisoPrincipled};
+    }
     // pkg178 aniso-Principled UV-tangent OR pkg186 image-textured
     // lambertian both need the active-layer UVs on the device. hasUV
     // stays false (zero shade cost / zero upload) for every other

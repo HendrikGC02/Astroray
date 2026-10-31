@@ -98,6 +98,10 @@ def _configure_render(scene, engine, res, samples, device="gpu", res_y=None, see
             cr.preview_samples = samples
         if hasattr(cr, "device_mode"):
             cr.device_mode = device
+        # Owner 2026-10-31: addon default is passthrough; Cycles parity compares like with like.
+        # ASTRORAY_LEG_BOUNCE_CAP=passthrough opts a pkg325 evidence run out of it.
+        if hasattr(cr, "dielectric_bounce_cap"):
+            cr.dielectric_bounce_cap = os.environ.get("ASTRORAY_LEG_BOUNCE_CAP", "terminate")
         # Adaptive sampling remains an Astroray-only setting in the resolver.
         cr.use_adaptive_sampling = os.environ.get("ASTRORAY_LEG_ADAPTIVE") == "1"
 

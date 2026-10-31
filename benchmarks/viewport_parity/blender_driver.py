@@ -283,6 +283,9 @@ def run_offline(args) -> dict:
             print(f"[pkg81-driver] astroray integrator: {args.integrator}")
         if hasattr(scene.custom_raytracer, "device_mode"):
             scene.custom_raytracer.device_mode = "gpu"
+        # Owner 2026-10-31: addon default is passthrough; Cycles parity compares like with like.
+        if hasattr(scene.custom_raytracer, "dielectric_bounce_cap"):
+            scene.custom_raytracer.dielectric_bounce_cap = "terminate"
 
     cam = _get_or_make_camera(scene)
     samples_ms: list[float] = []
@@ -535,6 +538,9 @@ if target == 'CYCLES':
 else:
     if hasattr(sc, 'custom_raytracer'):
         sc.custom_raytracer.device_mode = 'gpu'
+        # Owner 2026-10-31: addon default is passthrough; Cycles parity compares like with like.
+        if hasattr(sc.custom_raytracer, 'dielectric_bounce_cap'):
+            sc.custom_raytracer.dielectric_bounce_cap = 'terminate'
     gpu_note = 'astroray-gpu'
 # Cycle the 3D view out of and back into RENDERED shading so the active
 # RenderEngine is freed and recreated against the new engine/device (same

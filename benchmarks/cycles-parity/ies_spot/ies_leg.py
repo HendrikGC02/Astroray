@@ -134,6 +134,9 @@ def configure(scene, engine, device, res, samples, seed=7):
             cr.preview_samples = samples
         if hasattr(cr, "device_mode"):
             cr.device_mode = device
+        # Owner 2026-10-31: addon default is passthrough; Cycles parity compares like with like.
+        if hasattr(cr, "dielectric_bounce_cap"):
+            cr.dielectric_bounce_cap = "terminate"
 
 
 def main():

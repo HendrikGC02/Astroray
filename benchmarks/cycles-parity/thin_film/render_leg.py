@@ -97,6 +97,9 @@ def _configure_render(scene, engine, device, res, samples):
             cr.preview_samples = samples
         if hasattr(cr, "device_mode"):
             cr.device_mode = device  # 'cpu' or 'gpu'
+        # Owner 2026-10-31: addon default is passthrough; Cycles parity compares like with like.
+        if hasattr(cr, "dielectric_bounce_cap"):
+            cr.dielectric_bounce_cap = "terminate"
         # Route through the NATIVE Principled plugin (honours thin-film sockets),
         # not the Disney-conversion fallback — this gate exists to validate that
         # path. Explicit even though the property already defaults ON.

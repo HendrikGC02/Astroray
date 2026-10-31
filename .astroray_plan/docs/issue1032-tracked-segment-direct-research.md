@@ -57,6 +57,15 @@ GPU kind 0 (`gpuSampleSegmentDirectTracked`) mirrors the CPU line for line, exce
 `sigmaAt` tests the medium AABB only; the CPU uses `mediumContains` with the pkg296 mesh
 boundary. That split predates #1032 (main's GPU kind 0 is AABB-only too).
 
+9. Hulls of homogeneous media only keep the #925 analytic exponential truncated to the lit
+   interval, as Cycles does: `volume_integrate_homogeneous` (:1703, chosen when the volume
+   stack is homogeneous, :1961) samples its direct scatter with
+   `sample_exponential_distribution(rscatter, sigma, t_range)` over the valid interval. The
+   tracked walk would find a candidate on [a,b] only with probability 1 − exp(−σ̄ p_s (b−a));
+   in thin fog under a spot that was 8-10x Cycles' shaft variance (pkg289, 2026-11-01).
+10. The reservoir reuses one uniform, rescaled per candidate (`add_sample` :1019-1040).
+    Unit σ_s / σ_t per medium are computed once per call, not per collision.
+
 ## Verification
 
 - `tests/test_issue1032_tracked_segment_direct.py` (seam `segment_tracked_probe`):

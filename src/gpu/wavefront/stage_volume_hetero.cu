@@ -750,10 +750,13 @@ __device__ inline bool segInsideAabb(const GGridMedium& m, const GVec3& P)
 // reservoir on primary rays only (:1616); we use it at every bounce.
 struct GSegTracked { float t, w; GSampledSpectrum Tr; };
 
+// uS/uT: unit σ_s / σ_t of each medium of c_wfGridVolume (hoisted by the caller).
 __device__ GSegTracked gpuSampleSegmentDirectTracked(const GVec3& o, const GVec3& d, float a0,
                                                      float a, float b, bool hasAnchor,
                                                      const GVec3& anchor,
                                                      const GSampledWavelengths& wl,
+                                                     const GSampledSpectrum* uS,
+                                                     const GSampledSpectrum* uT,
                                                      GSegRng& rng)
 {
     GSegTracked out{0.f, 0.f, GSampledSpectrum(1.f)};
@@ -784,10 +787,8 @@ __device__ GSegTracked gpuSampleSegmentDirectTracked(const GVec3& o, const GVec3
             if (!segInsideAabb(m, P)) continue;
             const float dens = gridDensityAt(m, P);
             if (dens <= 0.f) continue;
-            GSampledSpectrum sU, aU;
-            gridCoeffs(m, wl, sU, aU);
-            sigS += sU * dens;
-            sigT += (sU + aU) * dens;
+            sigS += uS[k] * dens;
+            sigT += uT[k] * dens;
         }
     };
     auto scatterProb = [&](float sb) {
@@ -800,6 +801,8 @@ __device__ GSegTracked gpuSampleSegmentDirectTracked(const GVec3& o, const GVec3
     };
     GSampledSpectrum Tr(1.f), trHit(1.f);
     float pNull = 1.f, lastSb = 0.f, wSum = 0.f, tHit = -1.f, pdHit = 0.f;
+    // One uniform, rescaled per candidate (Cycles VolumeSampleReservoir::add_sample :1019).
+    float rRes = pickEq ? 0.f : gpu_rng_uniform(&rng);
     bool dead = false;
     int steps = 0;
     gpuWalkSegmentMajorants(o, d, a0, pickEq ? tEq : b, [&](float s0, float s1, float sb) {
@@ -821,7 +824,14 @@ __device__ GSegTracked gpuSampleSegmentDirectTracked(const GVec3& o, const GVec3
             if (!pickEq && lit && ps > 0.f) {
                 const float wk = pNull * ps;
                 wSum += wk;
-                if (gpu_rng_uniform(&rng) * wSum < wk) { tHit = t; pdHit = wk * sb; trHit = Tr; }
+                const float thresh = wk / wSum;
+                if (rRes <= thresh || wSum == wk) {
+                    tHit = t; pdHit = wk * sb; trHit = Tr;
+                    rRes /= thresh;
+                } else {
+                    rRes = (rRes - thresh) / (1.f - thresh);
+                }
+                rRes = fminf(fmaxf(rRes, 0.f), 1.f);
             }
             for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
                 Tr.v[i] *= fmaxf(sb - sigT.v[i], 0.f) / sb;
@@ -867,19 +877,33 @@ __device__ void gpu_volumeSegmentDirect(
 {
     const int cap = c_wfGridVolume.segCapacity;
     if (cap <= 0 || (numLights + numDed) <= 0 || !(totalLightPower > 0.f)) return;
+    const float segStart = a;  // pkg296: Tr(P) starts where the media do (camera clip)
     const float segT = b;      // #961: the light is picked for the ray segment (o, d, b)
     float hullA = a;
+    bool anyGrid = false;
+    GSampledSpectrum uS[G_WF_MAX_GRID_MEDIA], uT[G_WF_MAX_GRID_MEDIA];   // #1032: once per call
     if (kind == 0) {
-        // boundedSegmentDirect: hull of the media on [a,b]. #1032: the distance
-        // strategy is the tracked collision (gpuSampleSegmentDirectTracked);
-        // rate only feeds refPoint (finite hull: midpoint).
+        // boundedSegmentDirect: hull of the media on [a,b]; distance rate =
+        // Σ_k per-λ σ_t majorant (exact for one homogeneous medium). #1032:
+        // with a grid on the hull the distance strategy is the tracked
+        // collision (gpuSampleSegmentDirectTracked); a homogeneous-only hull
+        // keeps the #925 truncated exponential (Cycles v5.2.0
+        // volume_integrate_homogeneous :1703, chosen at :1961).
         float lo = 3.4e38f, hi = 0.f;
         rate = GSampledSpectrum(0.f);
         for (int k = 0; k < c_wfGridVolume.count; ++k) {
+            const GGridMedium& m = c_wfGridVolume.media[k];
+            uS[k] = GSampledSpectrum(0.f);
+            uT[k] = GSampledSpectrum(0.f);
             float t0, t1;
-            if (!gpu_gridAabbOverlap(c_wfGridVolume.media[k], o, d, a, b, t0, t1)) continue;
+            if (!gpu_gridAabbOverlap(m, o, d, a, b, t0, t1)) continue;
             lo = fminf(lo, t0);
             hi = fmaxf(hi, t1);
+            GSampledSpectrum aU;
+            gridCoeffs(m, wl, uS[k], aU);
+            uT[k] = uS[k] + aU;
+            rate += uT[k] * (m.densityScale * m.maxDensity);
+            anyGrid = anyGrid || m.heterogeneous;
         }
         if (!(hi > lo)) return;
         a = lo;
@@ -927,13 +951,14 @@ __device__ void gpu_volumeSegmentDirect(
     const bool hasAnchor = anc.valid && anc.lightPdf > 0.f && anc.geomDist > 0.f &&
                            anc.geomDist < 1e18f;
     const GVec3 anchor = hasAnchor ? anc.origin + anc.wi * anc.geomDist : o;
-    // Distance on [a,b] + Tr from the segment start to it. #1032 kind 0: the
-    // tracked walk's ratio-tracking Tr (from the hull entry).
+    // Distance on [a,b] + Tr from the segment start to it. #1032 kind 0 with a
+    // grid: the tracked walk's ratio-tracking Tr (from the hull entry).
     GSampledSpectrum TrP(1.f);
     GSegDistance ds;
-    if (kind == 0) {
+    const bool tracked = kind == 0 && anyGrid;
+    if (tracked) {
         const GSegTracked ts =
-            gpuSampleSegmentDirectTracked(o, d, hullA, a, b, hasAnchor, anchor, wl, rng);
+            gpuSampleSegmentDirectTracked(o, d, hullA, a, b, hasAnchor, anchor, wl, uS, uT, rng);
         ds = GSegDistance{ts.t, ts.w};
         TrP = ts.Tr;
     } else {
@@ -942,7 +967,7 @@ __device__ void gpu_volumeSegmentDirect(
     if (!(ds.w > 0.f)) return;
     const GVec3 P = o + d * ds.t;
 
-    // Medium at P: component count.
+    // Medium at P: component count (+ Tr for a homogeneous-only hull).
     int n = 0;
     if (kind == 1) {
         n = 1;
@@ -952,6 +977,13 @@ __device__ void gpu_volumeSegmentDirect(
             const GGridMedium& m = c_wfGridVolume.media[k];
             if (segInsideAabb(m, P) && gridDensityAt(m, P) > 0.f) ++n;
         }
+        if (n > 0 && !tracked)
+            for (int k = 0; k < c_wfGridVolume.count; ++k) {
+                float s0, s1;
+                if (gpu_gridAabbOverlap(c_wfGridVolume.media[k], o, d, segStart, ds.t, s0, s1))
+                    TrP *= gpu_gridVolumeTransmittance(k, o, d, s0, s1, wl, rpix, rsmp, rsd,
+                                                       gpu_segSalt(bounce, 2 + k));
+            }
     }
     if (n <= 0 || !(TrP.maxValue() > 0.f)) return;
 

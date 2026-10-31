@@ -201,7 +201,9 @@ def test_passthrough_is_bounded_by_the_transparent_limit():
     """Passes count as transparent bounces (#1125 machinery): at cap 4 the 6-interface ROI needs 2
     passes (#1165: interfaces 1-4 refract, 5 and 6 pass), so a transparent limit of 1 leaves it dead."""
     img = _render("cpu", 4, spp=16, mode="passthrough", transparent=1)
-    assert _roi_stats(img, "stack3")[0] > 0.95
+    # The live remainder is reflection light. The dead fraction spans 0.932-0.956 over seeds 1-7 + 325
+    # on main f477f024 (0.930-0.948 after #1038's delta-glass tint fix); 0.95 only held for seed 325.
+    assert _roi_stats(img, "stack3")[0] > 0.90
 
 
 def test_passthrough_cpu_vs_gpu_in_mc_band():

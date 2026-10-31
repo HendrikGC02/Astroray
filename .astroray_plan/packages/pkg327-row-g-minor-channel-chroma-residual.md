@@ -30,7 +30,8 @@ Grey albedo matches (0.997), and one bounce under a white world is exact. The ot
 channel, a few percent, both backends), but nobody has measured it there. #767's open candidate, HDRI illuminant
 upsampling, could add a term. Without this package curves cannot pass at any engine cost, and the other cluster scenes have
 no fix to aim at. Owner rule 2026-09-29 (memory `physics-over-cycles-look-parity`): document physical divergences, never
-mimic Cycles. Owner question 2 in `architect-plan-2026-11-01.md` asks whether that rule covers upsampler-driven shifts.
+mimic Cycles. Owner 2026-10-31 (`architect-plan-2026-11-01.md` §5, answer 5): pin a channel as an expected divergence
+when Mitsuba spectral reproduces the shift; an unconfirmed shift gets an engine fix.
 
 ---
 
@@ -111,10 +112,10 @@ cluster reads CPU ≈ GPU.
 
 #### Phase B: gate treatment
 
-- A channel is pinned only if all three hold: chroma-dependent in Phase A, the Mitsuba ratio agrees, and the owner has
-  confirmed question 2 of the 11-01 plan. Pin per channel, never per ROI.
-- An illuminant-upsampling term that Mitsuba does not reproduce is an engine finding: an Opus lane cites the method before
-  any code (cite-algorithm skill).
+- A channel is pinned when Phase A shows it chroma-dependent and the Mitsuba ratio agrees (owner 2026-10-31; no further
+  sign-off). Pin per channel, never per ROI.
+- A shift Mitsuba does not reproduce (e.g. an illuminant-upsampling term) gets an engine fix, per the owner: file it and
+  route it to an Opus lane that cites the method before any code (cite-algorithm skill). Do not pin it.
 - Never widen a tolerance or clamp to make a channel pass.
 
 ---
@@ -134,9 +135,10 @@ cluster reads CPU ≈ GPU.
 
 ## Non-goals
 
-- Do not change the upsampler, the film gamut handling (#1024) or the observer in this package; an engine change gets its
-  own issue and lane.
-- Do not touch shader_stack (#995 owner question) or the GPU-only residuals (light_path floor_far, #1156).
+- Do not change the upsampler, the film gamut handling (#1024) or the observer in this package; the engine fix for an
+  unconfirmed shift gets its own issue and lane.
+- Do not touch shader_stack (its 1/n² Cycles reference is a separate item) or the GPU-only residuals (light_path floor_far,
+  #1156).
 - Do not run Mitsuba `cuda_*` variants or GPU Astroray legs outside the lead's lock.
 
 ---
@@ -144,8 +146,8 @@ cluster reads CPU ≈ GPU.
 ## Progress
 
 - [ ] Control kinds + proxies + attribution legs (Phase A)
-- [ ] Attribution doc + owner answer on question 2
-- [ ] Per-channel pins + tests + row (g) re-run (Phase B)
+- [ ] Attribution doc
+- [ ] Per-channel pins for confirmed channels, issues for unconfirmed ones, tests, row (g) re-run (Phase B)
 
 ---
 

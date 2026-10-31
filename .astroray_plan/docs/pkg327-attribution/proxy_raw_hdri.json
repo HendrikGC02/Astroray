@@ -1,0 +1,3404 @@
+{
+ "arb_chroma_bowl": {
+  "inner_far_upper": {
+   "astroray_over_cycles": [
+    0.0264,
+    1.0132,
+    0.9859,
+    0.9864
+   ],
+   "astroray_over_cycles_se": [
+    0.0022,
+    0.0021,
+    0.0017,
+    0.002
+   ],
+   "mi_spectral_over_rgb": [
+    -0.0943,
+    1.0127,
+    0.9857,
+    0.9831
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0034,
+    0.0006,
+    0.001,
+    0.0007
+   ],
+   "difference": [
+    0.1207,
+    0.0005,
+    0.0003,
+    0.0033
+   ],
+   "band": [
+    0.0181,
+    0.0145,
+    0.0139,
+    0.0143
+   ],
+   "agree": [
+    false,
+    true,
+    true,
+    true
+   ],
+   "shift_reproduced": [
+    false,
+    true,
+    true,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9991,
+    0.9994,
+    1.0003,
+    0.9996
+   ],
+   "astroray_over_mi_spectral": [
+    -0.2797,
+    0.9999,
+    1.0006,
+    1.0029
+   ],
+   "means": {
+    "astroray": [
+     0.00042,
+     0.17143,
+     0.26797,
+     0.14204
+    ],
+    "cycles": [
+     0.01583,
+     0.1692,
+     0.27179,
+     0.144
+    ],
+    "mi_spectral": [
+     -0.00149,
+     0.17144,
+     0.26782,
+     0.14163
+    ],
+    "mi_rgb": [
+     0.01584,
+     0.16929,
+     0.27171,
+     0.14406
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "inner_far_mid": {
+   "astroray_over_cycles": [
+    0.0238,
+    1.015,
+    0.9869,
+    0.988
+   ],
+   "astroray_over_cycles_se": [
+    0.0025,
+    0.0024,
+    0.002,
+    0.0023
+   ],
+   "mi_spectral_over_rgb": [
+    -0.1005,
+    1.0129,
+    0.9854,
+    0.9832
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0022,
+    0.0009,
+    0.0009,
+    0.0008
+   ],
+   "difference": [
+    0.1243,
+    0.0021,
+    0.0015,
+    0.0049
+   ],
+   "band": [
+    0.0167,
+    0.015,
+    0.0144,
+    0.0149
+   ],
+   "agree": [
+    false,
+    true,
+    true,
+    true
+   ],
+   "shift_reproduced": [
+    false,
+    true,
+    true,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    1.0022,
+    1.001,
+    1.0014,
+    1.0011
+   ],
+   "astroray_over_mi_spectral": [
+    -0.2376,
+    1.0031,
+    1.0029,
+    1.0061
+   ],
+   "means": {
+    "astroray": [
+     0.00038,
+     0.1716,
+     0.268,
+     0.14216
+    ],
+    "cycles": [
+     0.01581,
+     0.16905,
+     0.27155,
+     0.14388
+    ],
+    "mi_spectral": [
+     -0.00159,
+     0.17106,
+     0.26723,
+     0.1413
+    ],
+    "mi_rgb": [
+     0.01578,
+     0.16888,
+     0.27118,
+     0.14372
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "inner_far_low": {
+   "astroray_over_cycles": [
+    0.027,
+    1.0155,
+    0.9869,
+    0.9885
+   ],
+   "astroray_over_cycles_se": [
+    0.0015,
+    0.0008,
+    0.0006,
+    0.0007
+   ],
+   "mi_spectral_over_rgb": [
+    -0.0962,
+    1.0128,
+    0.9857,
+    0.9832
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0023,
+    0.0008,
+    0.0006,
+    0.0007
+   ],
+   "difference": [
+    0.1232,
+    0.0027,
+    0.0012,
+    0.0053
+   ],
+   "band": [
+    0.0155,
+    0.0122,
+    0.0118,
+    0.0119
+   ],
+   "agree": [
+    false,
+    true,
+    true,
+    true
+   ],
+   "shift_reproduced": [
+    false,
+    true,
+    true,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9994,
+    0.9994,
+    1.0006,
+    0.9996
+   ],
+   "astroray_over_mi_spectral": [
+    -0.2799,
+    1.0021,
+    1.0018,
+    1.005
+   ],
+   "means": {
+    "astroray": [
+     0.00043,
+     0.17167,
+     0.26812,
+     0.14223
+    ],
+    "cycles": [
+     0.01581,
+     0.16906,
+     0.27169,
+     0.14389
+    ],
+    "mi_spectral": [
+     -0.00152,
+     0.17131,
+     0.26763,
+     0.14152
+    ],
+    "mi_rgb": [
+     0.01582,
+     0.16915,
+     0.27152,
+     0.14394
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  }
+ },
+ "arb_chroma_warm": {
+  "floor_open": {
+   "astroray_over_cycles": [
+    0.9967,
+    0.9991,
+    0.9941,
+    0.9981
+   ],
+   "astroray_over_cycles_se": [
+    0.0002,
+    0.0002,
+    0.0003,
+    0.0002
+   ],
+   "mi_spectral_over_rgb": [
+    0.9968,
+    0.9992,
+    0.9949,
+    0.9982
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0003,
+    0.0003,
+    0.0006,
+    0.0003
+   ],
+   "difference": [
+    -0.0001,
+    -0.0001,
+    -0.0008,
+    -0.0001
+   ],
+   "band": [
+    0.0108,
+    0.0108,
+    0.0113,
+    0.0108
+   ],
+   "agree": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9994,
+    0.9997,
+    0.9998,
+    0.9996
+   ],
+   "astroray_over_mi_spectral": [
+    0.9993,
+    0.9996,
+    0.9991,
+    0.9995
+   ],
+   "means": {
+    "astroray": [
+     0.46556,
+     0.22483,
+     0.07394,
+     0.26511
+    ],
+    "cycles": [
+     0.46711,
+     0.22502,
+     0.07438,
+     0.26561
+    ],
+    "mi_spectral": [
+     0.46589,
+     0.22491,
+     0.07401,
+     0.26525
+    ],
+    "mi_rgb": [
+     0.4674,
+     0.22509,
+     0.07439,
+     0.26572
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "floor_at_box": {
+   "astroray_over_cycles": [
+    0.9841,
+    1.0001,
+    0.9761,
+    0.9933
+   ],
+   "astroray_over_cycles_se": [
+    0.0005,
+    0.0007,
+    0.0009,
+    0.0006
+   ],
+   "mi_spectral_over_rgb": [
+    0.9828,
+    0.9978,
+    0.9721,
+    0.9914
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0004,
+    0.0005,
+    0.0008,
+    0.0005
+   ],
+   "difference": [
+    0.0013,
+    0.0022,
+    0.004,
+    0.0019
+   ],
+   "band": [
+    0.0114,
+    0.0118,
+    0.0124,
+    0.0116
+   ],
+   "agree": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    true,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9985,
+    0.9996,
+    1.0001,
+    0.9992
+   ],
+   "astroray_over_mi_spectral": [
+    0.9998,
+    1.0018,
+    1.0042,
+    1.0011
+   ],
+   "means": {
+    "astroray": [
+     0.36636,
+     0.16428,
+     0.05047,
+     0.19902
+    ],
+    "cycles": [
+     0.37227,
+     0.16426,
+     0.0517,
+     0.20036
+    ],
+    "mi_spectral": [
+     0.36644,
+     0.16398,
+     0.05026,
+     0.19881
+    ],
+    "mi_rgb": [
+     0.37285,
+     0.16433,
+     0.0517,
+     0.20053
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "box_front": {
+   "astroray_over_cycles": [
+    0.9767,
+    0.9971,
+    0.9519,
+    0.988
+   ],
+   "astroray_over_cycles_se": [
+    0.0004,
+    0.0005,
+    0.0007,
+    0.0005
+   ],
+   "mi_spectral_over_rgb": [
+    0.9764,
+    0.9975,
+    0.9521,
+    0.9881
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0003,
+    0.0005,
+    0.0005,
+    0.0004
+   ],
+   "difference": [
+    0.0003,
+    -0.0004,
+    -0.0002,
+    -0.0001
+   ],
+   "band": [
+    0.0111,
+    0.0114,
+    0.0117,
+    0.0112
+   ],
+   "agree": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9846,
+    0.9875,
+    0.99,
+    0.9864
+   ],
+   "astroray_over_mi_spectral": [
+    0.9849,
+    0.9871,
+    0.9897,
+    0.9863
+   ],
+   "means": {
+    "astroray": [
+     0.35463,
+     0.15069,
+     0.04278,
+     0.18625
+    ],
+    "cycles": [
+     0.3631,
+     0.15112,
+     0.04494,
+     0.18852
+    ],
+    "mi_spectral": [
+     0.36006,
+     0.15266,
+     0.04323,
+     0.18885
+    ],
+    "mi_rgb": [
+     0.36877,
+     0.15303,
+     0.0454,
+     0.19113
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  }
+ },
+ "arb_chroma_warm_sky": {
+  "floor_open": {
+   "astroray_over_cycles": [
+    1.0614,
+    1.0085,
+    1.0814,
+    1.0265
+   ],
+   "astroray_over_cycles_se": [
+    0.0003,
+    0.0002,
+    0.0004,
+    0.0002
+   ],
+   "mi_spectral_over_rgb": [
+    1.0614,
+    1.0086,
+    1.0823,
+    1.0266
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0004,
+    0.0003,
+    0.0006,
+    0.0004
+   ],
+   "difference": [
+    -0.0001,
+    -0.0001,
+    -0.0009,
+    -0.0001
+   ],
+   "band": [
+    0.0109,
+    0.0108,
+    0.0114,
+    0.0108
+   ],
+   "agree": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9994,
+    0.9997,
+    0.9998,
+    0.9996
+   ],
+   "astroray_over_mi_spectral": [
+    0.9993,
+    0.9996,
+    0.999,
+    0.9995
+   ],
+   "means": {
+    "astroray": [
+     0.0942,
+     0.06127,
+     0.03298,
+     0.06623
+    ],
+    "cycles": [
+     0.08875,
+     0.06076,
+     0.03049,
+     0.06452
+    ],
+    "mi_spectral": [
+     0.09426,
+     0.0613,
+     0.03301,
+     0.06626
+    ],
+    "mi_rgb": [
+     0.08881,
+     0.06077,
+     0.0305,
+     0.06455
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "floor_at_box": {
+   "astroray_over_cycles": [
+    1.0512,
+    1.0101,
+    1.0754,
+    1.025
+   ],
+   "astroray_over_cycles_se": [
+    0.0005,
+    0.0007,
+    0.001,
+    0.0007
+   ],
+   "mi_spectral_over_rgb": [
+    1.0497,
+    1.008,
+    1.0714,
+    1.023
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0005,
+    0.0005,
+    0.0008,
+    0.0005
+   ],
+   "difference": [
+    0.0015,
+    0.0021,
+    0.004,
+    0.002
+   ],
+   "band": [
+    0.0115,
+    0.0118,
+    0.0125,
+    0.0117
+   ],
+   "agree": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9985,
+    0.9996,
+    1.0001,
+    0.9993
+   ],
+   "astroray_over_mi_spectral": [
+    0.9999,
+    1.0017,
+    1.0038,
+    1.0012
+   ],
+   "means": {
+    "astroray": [
+     0.07435,
+     0.0448,
+     0.0228,
+     0.04949
+    ],
+    "cycles": [
+     0.07073,
+     0.04435,
+     0.0212,
+     0.04829
+    ],
+    "mi_spectral": [
+     0.07436,
+     0.04472,
+     0.02271,
+     0.04943
+    ],
+    "mi_rgb": [
+     0.07084,
+     0.04437,
+     0.0212,
+     0.04832
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "box_front": {
+   "astroray_over_cycles": [
+    1.0458,
+    1.0074,
+    1.0639,
+    1.0215
+   ],
+   "astroray_over_cycles_se": [
+    0.0004,
+    0.0005,
+    0.0008,
+    0.0005
+   ],
+   "mi_spectral_over_rgb": [
+    1.0455,
+    1.0078,
+    1.0649,
+    1.0218
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0003,
+    0.0005,
+    0.0006,
+    0.0004
+   ],
+   "difference": [
+    0.0003,
+    -0.0004,
+    -0.001,
+    -0.0002
+   ],
+   "band": [
+    0.0111,
+    0.0114,
+    0.0119,
+    0.0113
+   ],
+   "agree": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9846,
+    0.9875,
+    0.99,
+    0.9866
+   ],
+   "astroray_over_mi_spectral": [
+    0.9849,
+    0.9871,
+    0.9891,
+    0.9864
+   ],
+   "means": {
+    "astroray": [
+     0.07215,
+     0.04111,
+     0.0196,
+     0.04615
+    ],
+    "cycles": [
+     0.06899,
+     0.0408,
+     0.01843,
+     0.04518
+    ],
+    "mi_spectral": [
+     0.07326,
+     0.04164,
+     0.01982,
+     0.04679
+    ],
+    "mi_rgb": [
+     0.07007,
+     0.04132,
+     0.01861,
+     0.04579
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  }
+ },
+ "arb_chroma_warm_hdri": {
+  "floor_open": {
+   "astroray_over_cycles": [
+    0.9683,
+    0.9935,
+    0.9006,
+    0.982
+   ],
+   "astroray_over_cycles_se": [
+    0.0021,
+    0.0024,
+    0.0023,
+    0.0022
+   ],
+   "mi_spectral_over_rgb": [
+    0.9694,
+    0.9648,
+    0.8264,
+    0.9646
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0001,
+    0.0001,
+    0.0003,
+    0.0001
+   ],
+   "difference": [
+    -0.0011,
+    0.0287,
+    0.0742,
+    0.0174
+   ],
+   "band": [
+    0.0142,
+    0.0148,
+    0.0146,
+    0.0144
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "cycles_over_mi_rgb": [
+    0.996,
+    0.9963,
+    0.9968,
+    0.9962
+   ],
+   "astroray_over_mi_spectral": [
+    0.9948,
+    1.026,
+    1.0863,
+    1.0141
+   ],
+   "means": {
+    "astroray": [
+     0.25292,
+     0.11156,
+     0.02468,
+     0.13534
+    ],
+    "cycles": [
+     0.26121,
+     0.11229,
+     0.0274,
+     0.13782
+    ],
+    "mi_spectral": [
+     0.25423,
+     0.10873,
+     0.02272,
+     0.13346
+    ],
+    "mi_rgb": [
+     0.26227,
+     0.1127,
+     0.02749,
+     0.13835
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "floor_at_box": {
+   "astroray_over_cycles": [
+    0.958,
+    0.9947,
+    0.8423,
+    0.977
+   ],
+   "astroray_over_cycles_se": [
+    0.0017,
+    0.004,
+    0.0032,
+    0.0029
+   ],
+   "mi_spectral_over_rgb": [
+    0.9509,
+    0.962,
+    0.7586,
+    0.9548
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0002,
+    0.0002,
+    0.0004,
+    0.0002
+   ],
+   "difference": [
+    0.0071,
+    0.0326,
+    0.0837,
+    0.0222
+   ],
+   "band": [
+    0.0133,
+    0.0179,
+    0.0164,
+    0.0158
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "cycles_over_mi_rgb": [
+    0.9971,
+    0.9974,
+    0.9976,
+    0.9973
+   ],
+   "astroray_over_mi_spectral": [
+    1.0046,
+    1.0312,
+    1.1077,
+    1.0205
+   ],
+   "means": {
+    "astroray": [
+     0.34489,
+     0.13739,
+     0.02536,
+     0.17342
+    ],
+    "cycles": [
+     0.36,
+     0.13813,
+     0.0301,
+     0.1775
+    ],
+    "mi_spectral": [
+     0.34333,
+     0.13323,
+     0.02289,
+     0.16993
+    ],
+    "mi_rgb": [
+     0.36105,
+     0.13849,
+     0.03017,
+     0.17798
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "box_front": {
+   "astroray_over_cycles": [
+    0.9665,
+    0.9956,
+    0.8577,
+    0.9817
+   ],
+   "astroray_over_cycles_se": [
+    0.0029,
+    0.0019,
+    0.0011,
+    0.0023
+   ],
+   "mi_spectral_over_rgb": [
+    0.9612,
+    0.9625,
+    0.7724,
+    0.9595
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0002,
+    0.0003,
+    0.0006,
+    0.0003
+   ],
+   "difference": [
+    0.0054,
+    0.0331,
+    0.0853,
+    0.0222
+   ],
+   "band": [
+    0.0157,
+    0.0138,
+    0.0125,
+    0.0146
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "cycles_over_mi_rgb": [
+    0.9957,
+    0.9976,
+    0.9992,
+    0.9968
+   ],
+   "astroray_over_mi_spectral": [
+    1.0013,
+    1.0319,
+    1.1096,
+    1.0199
+   ],
+   "means": {
+    "astroray": [
+     0.47412,
+     0.19895,
+     0.03749,
+     0.24579
+    ],
+    "cycles": [
+     0.49053,
+     0.19983,
+     0.04371,
+     0.25036
+    ],
+    "mi_spectral": [
+     0.4735,
+     0.1928,
+     0.03379,
+     0.241
+    ],
+    "mi_rgb": [
+     0.49264,
+     0.20032,
+     0.04375,
+     0.25116
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  }
+ },
+ "arb_chroma_patches": {
+  "grey": {
+   "astroray_over_cycles": [
+    1.002,
+    1.0013,
+    0.9996,
+    1.0014
+   ],
+   "astroray_over_cycles_se": [
+    0.0023,
+    0.0024,
+    0.0037,
+    0.0024
+   ],
+   "mi_spectral_over_rgb": [
+    0.9996,
+    0.9818,
+    0.966,
+    0.9849
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0008,
+    0.0006,
+    0.0011,
+    0.0006
+   ],
+   "difference": [
+    0.0024,
+    0.0194,
+    0.0337,
+    0.0165
+   ],
+   "band": [
+    0.0148,
+    0.0149,
+    0.0178,
+    0.0149
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "shift_reproduced": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "cycles_over_mi_rgb": [
+    0.998,
+    0.9991,
+    1.0019,
+    0.999
+   ],
+   "astroray_over_mi_spectral": [
+    1.0004,
+    1.0188,
+    1.0369,
+    1.0157
+   ],
+   "means": {
+    "astroray": [
+     0.26251,
+     0.24636,
+     0.20807,
+     0.24703
+    ],
+    "cycles": [
+     0.26198,
+     0.24604,
+     0.20815,
+     0.2467
+    ],
+    "mi_spectral": [
+     0.26241,
+     0.2418,
+     0.20067,
+     0.24322
+    ],
+    "mi_rgb": [
+     0.26251,
+     0.24627,
+     0.20775,
+     0.24694
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "wood_dark": {
+   "astroray_over_cycles": [
+    0.9881,
+    0.9972,
+    0.9507,
+    0.9927
+   ],
+   "astroray_over_cycles_se": [
+    0.0049,
+    0.0046,
+    0.0034,
+    0.0047
+   ],
+   "mi_spectral_over_rgb": [
+    0.9825,
+    0.9793,
+    0.9146,
+    0.9795
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0009,
+    0.0009,
+    0.0005,
+    0.0008
+   ],
+   "difference": [
+    0.0057,
+    0.0179,
+    0.036,
+    0.0133
+   ],
+   "band": [
+    0.02,
+    0.0194,
+    0.017,
+    0.0196
+   ],
+   "agree": [
+    true,
+    true,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "cycles_over_mi_rgb": [
+    0.9984,
+    0.9995,
+    1.0026,
+    0.9991
+   ],
+   "astroray_over_mi_spectral": [
+    1.0042,
+    1.0178,
+    1.0421,
+    1.0127
+   ],
+   "means": {
+    "astroray": [
+     0.1826,
+     0.07816,
+     0.02123,
+     0.09625
+    ],
+    "cycles": [
+     0.1848,
+     0.07838,
+     0.02233,
+     0.09696
+    ],
+    "mi_spectral": [
+     0.18184,
+     0.07679,
+     0.02037,
+     0.09505
+    ],
+    "mi_rgb": [
+     0.18508,
+     0.07842,
+     0.02227,
+     0.09704
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "wood": {
+   "astroray_over_cycles": [
+    0.9845,
+    0.9957,
+    0.9563,
+    0.9907
+   ],
+   "astroray_over_cycles_se": [
+    0.0046,
+    0.0045,
+    0.0036,
+    0.0045
+   ],
+   "mi_spectral_over_rgb": [
+    0.9859,
+    0.9816,
+    0.9232,
+    0.9822
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0011,
+    0.0007,
+    0.0005,
+    0.0008
+   ],
+   "difference": [
+    -0.0013,
+    0.0141,
+    0.0331,
+    0.0085
+   ],
+   "band": [
+    0.0194,
+    0.0191,
+    0.0173,
+    0.0191
+   ],
+   "agree": [
+    true,
+    true,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    1.0003,
+    1.001,
+    1.0032,
+    1.0007
+   ],
+   "astroray_over_mi_spectral": [
+    0.9989,
+    1.0153,
+    1.0392,
+    1.0094
+   ],
+   "means": {
+    "astroray": [
+     0.45555,
+     0.21288,
+     0.05841,
+     0.25332
+    ],
+    "cycles": [
+     0.46271,
+     0.21381,
+     0.06108,
+     0.2557
+    ],
+    "mi_spectral": [
+     0.45605,
+     0.20967,
+     0.05621,
+     0.25097
+    ],
+    "mi_rgb": [
+     0.4626,
+     0.2136,
+     0.06089,
+     0.25551
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "wood_light": {
+   "astroray_over_cycles": [
+    1.0001,
+    1.0056,
+    0.9856,
+    1.0033
+   ],
+   "astroray_over_cycles_se": [
+    0.0032,
+    0.0032,
+    0.0026,
+    0.0032
+   ],
+   "mi_spectral_over_rgb": [
+    0.9906,
+    0.9815,
+    0.9483,
+    0.9835
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0004,
+    0.0003,
+    0.0003,
+    0.0003
+   ],
+   "difference": [
+    0.0094,
+    0.0241,
+    0.0373,
+    0.0198
+   ],
+   "band": [
+    0.0165,
+    0.0165,
+    0.0153,
+    0.0164
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "shift_reproduced": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "cycles_over_mi_rgb": [
+    0.9975,
+    0.9983,
+    1.0007,
+    0.9981
+   ],
+   "astroray_over_mi_spectral": [
+    1.007,
+    1.0228,
+    1.0401,
+    1.0182
+   ],
+   "means": {
+    "astroray": [
+     0.64853,
+     0.39521,
+     0.16197,
+     0.43223
+    ],
+    "cycles": [
+     0.64848,
+     0.39301,
+     0.16433,
+     0.43081
+    ],
+    "mi_spectral": [
+     0.64402,
+     0.3864,
+     0.15572,
+     0.42452
+    ],
+    "mi_rgb": [
+     0.6501,
+     0.39369,
+     0.16422,
+     0.43163
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "light_path_floor": {
+   "astroray_over_cycles": [
+    0.985,
+    1.0049,
+    0.9963,
+    0.9982
+   ],
+   "astroray_over_cycles_se": [
+    0.0054,
+    0.0045,
+    0.0046,
+    0.0047
+   ],
+   "mi_spectral_over_rgb": [
+    0.9862,
+    0.9899,
+    0.9674,
+    0.9868
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0009,
+    0.0009,
+    0.0008,
+    0.0009
+   ],
+   "difference": [
+    -0.0012,
+    0.0151,
+    0.0289,
+    0.0115
+   ],
+   "band": [
+    0.021,
+    0.0192,
+    0.0192,
+    0.0196
+   ],
+   "agree": [
+    true,
+    true,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "cycles_over_mi_rgb": [
+    0.9987,
+    0.9993,
+    1.0011,
+    0.9993
+   ],
+   "astroray_over_mi_spectral": [
+    0.9975,
+    1.0145,
+    1.031,
+    1.0109
+   ],
+   "means": {
+    "astroray": [
+     0.37572,
+     0.23443,
+     0.3378,
+     0.27193
+    ],
+    "cycles": [
+     0.38143,
+     0.23328,
+     0.33906,
+     0.27241
+    ],
+    "mi_spectral": [
+     0.37666,
+     0.23107,
+     0.32764,
+     0.269
+    ],
+    "mi_rgb": [
+     0.38193,
+     0.23344,
+     0.33869,
+     0.27261
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "cyan": {
+   "astroray_over_cycles": [
+    1.1963,
+    0.9982,
+    1.0093,
+    1.0061
+   ],
+   "astroray_over_cycles_se": [
+    0.0062,
+    0.0026,
+    0.0024,
+    0.0027
+   ],
+   "mi_spectral_over_rgb": [
+    1.2378,
+    0.9784,
+    0.9773,
+    0.9871
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0016,
+    0.0005,
+    0.0006,
+    0.0005
+   ],
+   "difference": [
+    -0.0415,
+    0.0199,
+    0.032,
+    0.019
+   ],
+   "band": [
+    0.0229,
+    0.0152,
+    0.015,
+    0.0154
+   ],
+   "agree": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "shift_reproduced": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "cycles_over_mi_rgb": [
+    0.999,
+    0.9993,
+    1.0005,
+    0.9994
+   ],
+   "astroray_over_mi_spectral": [
+    0.9655,
+    1.0196,
+    1.0332,
+    1.0187
+   ],
+   "means": {
+    "astroray": [
+     0.05149,
+     0.32241,
+     0.37774,
+     0.2688
+    ],
+    "cycles": [
+     0.04304,
+     0.32298,
+     0.37425,
+     0.26716
+    ],
+    "mi_spectral": [
+     0.05333,
+     0.31619,
+     0.36559,
+     0.26388
+    ],
+    "mi_rgb": [
+     0.04308,
+     0.32319,
+     0.37407,
+     0.26731
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "car_paint": {
+   "astroray_over_cycles": [
+    0.9852,
+    1.0026,
+    0.9491,
+    0.9945
+   ],
+   "astroray_over_cycles_se": [
+    0.0018,
+    0.0013,
+    0.0016,
+    0.0014
+   ],
+   "mi_spectral_over_rgb": [
+    0.9826,
+    0.9808,
+    0.9077,
+    0.9803
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0012,
+    0.001,
+    0.0007,
+    0.001
+   ],
+   "difference": [
+    0.0026,
+    0.0218,
+    0.0414,
+    0.0142
+   ],
+   "band": [
+    0.0142,
+    0.0132,
+    0.0135,
+    0.0135
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "cycles_over_mi_rgb": [
+    0.998,
+    0.9983,
+    0.9996,
+    0.9982
+   ],
+   "astroray_over_mi_spectral": [
+    1.0007,
+    1.0205,
+    1.0452,
+    1.0127
+   ],
+   "means": {
+    "astroray": [
+     0.61475,
+     0.25768,
+     0.07119,
+     0.32013
+    ],
+    "cycles": [
+     0.62398,
+     0.257,
+     0.07501,
+     0.32188
+    ],
+    "mi_spectral": [
+     0.61434,
+     0.2525,
+     0.06812,
+     0.31611
+    ],
+    "mi_rgb": [
+     0.6252,
+     0.25744,
+     0.07505,
+     0.32245
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "pbr_lower": {
+   "astroray_over_cycles": [
+    0.9827,
+    0.9967,
+    0.9729,
+    0.9906
+   ],
+   "astroray_over_cycles_se": [
+    0.003,
+    0.0034,
+    0.0023,
+    0.0032
+   ],
+   "mi_spectral_over_rgb": [
+    0.9836,
+    0.9784,
+    0.937,
+    0.9793
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0012,
+    0.0012,
+    0.0007,
+    0.0012
+   ],
+   "difference": [
+    -0.0008,
+    0.0183,
+    0.0359,
+    0.0113
+   ],
+   "band": [
+    0.0165,
+    0.0171,
+    0.0147,
+    0.0168
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9967,
+    0.9973,
+    0.9989,
+    0.9971
+   ],
+   "astroray_over_mi_spectral": [
+    0.9959,
+    1.016,
+    1.0372,
+    1.0086
+   ],
+   "means": {
+    "astroray": [
+     0.27136,
+     0.12106,
+     0.05539,
+     0.14827
+    ],
+    "cycles": [
+     0.27613,
+     0.12145,
+     0.05693,
+     0.14968
+    ],
+    "mi_spectral": [
+     0.27249,
+     0.11915,
+     0.0534,
+     0.14701
+    ],
+    "mi_rgb": [
+     0.27705,
+     0.12178,
+     0.05699,
+     0.15011
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "car_paint_sat": {
+   "astroray_over_cycles": [
+    0.98,
+    1.004,
+    0.9319,
+    0.9861
+   ],
+   "astroray_over_cycles_se": [
+    0.0019,
+    0.0028,
+    0.001,
+    0.0013
+   ],
+   "mi_spectral_over_rgb": [
+    0.9738,
+    0.9796,
+    0.8895,
+    0.9741
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.001,
+    0.0011,
+    0.001,
+    0.001
+   ],
+   "difference": [
+    0.0062,
+    0.0243,
+    0.0424,
+    0.0121
+   ],
+   "band": [
+    0.0143,
+    0.0161,
+    0.0129,
+    0.0133
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9982,
+    0.9984,
+    0.9992,
+    0.9983
+   ],
+   "astroray_over_mi_spectral": [
+    1.0046,
+    1.0232,
+    1.0469,
+    1.0107
+   ],
+   "means": {
+    "astroray": [
+     0.58728,
+     0.07486,
+     0.04037,
+     0.18131
+    ],
+    "cycles": [
+     0.59925,
+     0.07457,
+     0.04332,
+     0.18386
+    ],
+    "mi_spectral": [
+     0.58459,
+     0.07316,
+     0.03856,
+     0.1794
+    ],
+    "mi_rgb": [
+     0.60031,
+     0.07469,
+     0.04335,
+     0.18417
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "pbr_lower_sat": {
+   "astroray_over_cycles": [
+    0.9768,
+    0.9965,
+    0.938,
+    0.985
+   ],
+   "astroray_over_cycles_se": [
+    0.0062,
+    0.0064,
+    0.0046,
+    0.0062
+   ],
+   "mi_spectral_over_rgb": [
+    0.9775,
+    0.9764,
+    0.8963,
+    0.9757
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0015,
+    0.0012,
+    0.0008,
+    0.0013
+   ],
+   "difference": [
+    -0.0007,
+    0.0201,
+    0.0417,
+    0.0093
+   ],
+   "band": [
+    0.0227,
+    0.023,
+    0.0193,
+    0.0226
+   ],
+   "agree": [
+    true,
+    true,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9998,
+    1.0,
+    1.0004,
+    0.9999
+   ],
+   "astroray_over_mi_spectral": [
+    0.9991,
+    1.0205,
+    1.0469,
+    1.0094
+   ],
+   "means": {
+    "astroray": [
+     0.34647,
+     0.08789,
+     0.02852,
+     0.13858
+    ],
+    "cycles": [
+     0.35472,
+     0.0882,
+     0.0304,
+     0.14069
+    ],
+    "mi_spectral": [
+     0.34678,
+     0.08612,
+     0.02724,
+     0.13729
+    ],
+    "mi_rgb": [
+     0.35478,
+     0.0882,
+     0.03039,
+     0.1407
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  }
+ },
+ "arb_chroma_bowl_stage": {
+  "inner_backface": {
+   "astroray_over_cycles": [
+    0.7623,
+    1.0027,
+    1.0038,
+    0.9957
+   ],
+   "astroray_over_cycles_se": [
+    0.0045,
+    0.0028,
+    0.0027,
+    0.0028
+   ],
+   "mi_spectral_over_rgb": [
+    0.8018,
+    0.9844,
+    0.9712,
+    0.9776
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.001,
+    0.0007,
+    0.0006,
+    0.0006
+   ],
+   "difference": [
+    -0.0395,
+    0.0183,
+    0.0326,
+    0.0181
+   ],
+   "band": [
+    0.0192,
+    0.0158,
+    0.0155,
+    0.0158
+   ],
+   "agree": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "shift_reproduced": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "cycles_over_mi_rgb": [
+    0.9988,
+    0.9996,
+    1.0025,
+    0.9999
+   ],
+   "astroray_over_mi_spectral": [
+    0.9496,
+    1.0182,
+    1.0362,
+    1.0185
+   ],
+   "means": {
+    "astroray": [
+     0.02131,
+     0.24383,
+     0.30431,
+     0.20088
+    ],
+    "cycles": [
+     0.02795,
+     0.24318,
+     0.30317,
+     0.20175
+    ],
+    "mi_spectral": [
+     0.02244,
+     0.23947,
+     0.29369,
+     0.19724
+    ],
+    "mi_rgb": [
+     0.02798,
+     0.24327,
+     0.30241,
+     0.20177
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "outer_front": {
+   "astroray_over_cycles": [
+    1.2676,
+    1.0007,
+    1.0218,
+    1.0121
+   ],
+   "astroray_over_cycles_se": [
+    0.0038,
+    0.0025,
+    0.0018,
+    0.0024
+   ],
+   "mi_spectral_over_rgb": [
+    1.324,
+    0.9687,
+    0.9648,
+    0.9809
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.001,
+    0.0005,
+    0.0004,
+    0.0005
+   ],
+   "difference": [
+    -0.0564,
+    0.032,
+    0.057,
+    0.0312
+   ],
+   "band": [
+    0.0179,
+    0.0151,
+    0.0137,
+    0.015
+   ],
+   "agree": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "shift_reproduced": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "cycles_over_mi_rgb": [
+    0.9979,
+    0.9982,
+    0.9991,
+    0.9983
+   ],
+   "astroray_over_mi_spectral": [
+    0.9554,
+    1.0312,
+    1.0582,
+    1.03
+   ],
+   "means": {
+    "astroray": [
+     0.0548,
+     0.31863,
+     0.33275,
+     0.26356
+    ],
+    "cycles": [
+     0.04323,
+     0.3184,
+     0.32566,
+     0.26042
+    ],
+    "mi_spectral": [
+     0.05736,
+     0.30899,
+     0.31445,
+     0.25589
+    ],
+    "mi_rgb": [
+     0.04332,
+     0.31898,
+     0.32594,
+     0.26087
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  }
+ },
+ "arb_chroma_hero_wood": {
+  "grain_center": {
+   "astroray_over_cycles": [
+    0.9862,
+    0.9981,
+    0.9258,
+    0.9923
+   ],
+   "astroray_over_cycles_se": [
+    0.0042,
+    0.0045,
+    0.0032,
+    0.0043
+   ],
+   "mi_spectral_over_rgb": [
+    0.979,
+    0.9731,
+    0.869,
+    0.9738
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.001,
+    0.0009,
+    0.0006,
+    0.0009
+   ],
+   "difference": [
+    0.0072,
+    0.025,
+    0.0568,
+    0.0185
+   ],
+   "band": [
+    0.0187,
+    0.0192,
+    0.0165,
+    0.0189
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "cycles_over_mi_rgb": [
+    0.9927,
+    0.993,
+    0.9953,
+    0.9929
+   ],
+   "astroray_over_mi_spectral": [
+    1.0,
+    1.0186,
+    1.0603,
+    1.0118
+   ],
+   "means": {
+    "astroray": [
+     0.6391,
+     0.29008,
+     0.06873,
+     0.3483
+    ],
+    "cycles": [
+     0.64802,
+     0.29064,
+     0.07425,
+     0.351
+    ],
+    "mi_spectral": [
+     0.63908,
+     0.2848,
+     0.06483,
+     0.34424
+    ],
+    "mi_rgb": [
+     0.6528,
+     0.29268,
+     0.0746,
+     0.3535
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "grain_left": {
+   "astroray_over_cycles": [
+    0.9926,
+    0.9987,
+    0.9697,
+    0.9959
+   ],
+   "astroray_over_cycles_se": [
+    0.0007,
+    0.0006,
+    0.0005,
+    0.0006
+   ],
+   "mi_spectral_over_rgb": [
+    0.989,
+    0.9848,
+    0.9422,
+    0.9856
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0008,
+    0.0008,
+    0.0009,
+    0.0008
+   ],
+   "difference": [
+    0.0036,
+    0.0139,
+    0.0275,
+    0.0102
+   ],
+   "band": [
+    0.0122,
+    0.012,
+    0.012,
+    0.0119
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.991,
+    0.9926,
+    0.9983,
+    0.9921
+   ],
+   "astroray_over_mi_spectral": [
+    0.9947,
+    1.0066,
+    1.0275,
+    1.0024
+   ],
+   "means": {
+    "astroray": [
+     0.34822,
+     0.16504,
+     0.04762,
+     0.1955
+    ],
+    "cycles": [
+     0.3508,
+     0.16525,
+     0.04911,
+     0.19631
+    ],
+    "mi_spectral": [
+     0.35008,
+     0.16395,
+     0.04635,
+     0.19503
+    ],
+    "mi_rgb": [
+     0.35397,
+     0.16649,
+     0.04919,
+     0.19788
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "grain_right": {
+   "astroray_over_cycles": [
+    0.9792,
+    0.9948,
+    0.8994,
+    0.9873
+   ],
+   "astroray_over_cycles_se": [
+    0.0043,
+    0.0043,
+    0.0022,
+    0.0043
+   ],
+   "mi_spectral_over_rgb": [
+    0.9754,
+    0.9685,
+    0.8327,
+    0.9693
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0005,
+    0.0006,
+    0.0006,
+    0.0005
+   ],
+   "difference": [
+    0.0038,
+    0.0264,
+    0.0667,
+    0.018
+   ],
+   "band": [
+    0.0186,
+    0.0187,
+    0.0146,
+    0.0186
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.996,
+    0.9958,
+    0.9957,
+    0.9959
+   ],
+   "astroray_over_mi_spectral": [
+    0.9999,
+    1.0229,
+    1.0754,
+    1.0144
+   ],
+   "means": {
+    "astroray": [
+     0.74404,
+     0.33263,
+     0.07172,
+     0.40126
+    ],
+    "cycles": [
+     0.75982,
+     0.33436,
+     0.07975,
+     0.40643
+    ],
+    "mi_spectral": [
+     0.74411,
+     0.32517,
+     0.0667,
+     0.39558
+    ],
+    "mi_rgb": [
+     0.76287,
+     0.33576,
+     0.0801,
+     0.4081
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "lower": {
+   "astroray_over_cycles": [
+    0.9829,
+    0.9985,
+    0.9169,
+    0.9912
+   ],
+   "astroray_over_cycles_se": [
+    0.0022,
+    0.0019,
+    0.0016,
+    0.0019
+   ],
+   "mi_spectral_over_rgb": [
+    0.9772,
+    0.9714,
+    0.8588,
+    0.972
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0011,
+    0.001,
+    0.001,
+    0.001
+   ],
+   "difference": [
+    0.0058,
+    0.0271,
+    0.0581,
+    0.0192
+   ],
+   "band": [
+    0.0148,
+    0.0143,
+    0.0139,
+    0.0143
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "cycles_over_mi_rgb": [
+    0.9962,
+    0.9964,
+    0.998,
+    0.9963
+   ],
+   "astroray_over_mi_spectral": [
+    1.0021,
+    1.0242,
+    1.0655,
+    1.016
+   ],
+   "means": {
+    "astroray": [
+     0.34004,
+     0.15388,
+     0.03544,
+     0.1849
+    ],
+    "cycles": [
+     0.34595,
+     0.1541,
+     0.03866,
+     0.18655
+    ],
+    "mi_spectral": [
+     0.33932,
+     0.15024,
+     0.03326,
+     0.182
+    ],
+    "mi_rgb": [
+     0.34725,
+     0.15466,
+     0.03873,
+     0.18724
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  }
+ },
+ "arb_chroma_hero_car": {
+  "lit_front": {
+   "astroray_over_cycles": [
+    0.975,
+    0.9998,
+    0.9105,
+    0.9811
+   ],
+   "astroray_over_cycles_se": [
+    0.0036,
+    0.0036,
+    0.0028,
+    0.0035
+   ],
+   "mi_spectral_over_rgb": [
+    0.9713,
+    0.978,
+    0.8647,
+    0.9715
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0008,
+    0.0006,
+    0.0007,
+    0.0006
+   ],
+   "difference": [
+    0.0037,
+    0.0218,
+    0.0458,
+    0.0096
+   ],
+   "band": [
+    0.0174,
+    0.0173,
+    0.0158,
+    0.0171
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9938,
+    0.9945,
+    0.9972,
+    0.994
+   ],
+   "astroray_over_mi_spectral": [
+    0.9976,
+    1.0166,
+    1.0501,
+    1.0039
+   ],
+   "means": {
+    "astroray": [
+     0.91139,
+     0.11517,
+     0.05828,
+     0.28034
+    ],
+    "cycles": [
+     0.93476,
+     0.1152,
+     0.06401,
+     0.28574
+    ],
+    "mi_spectral": [
+     0.91359,
+     0.11329,
+     0.0555,
+     0.27926
+    ],
+    "mi_rgb": [
+     0.9406,
+     0.11583,
+     0.06419,
+     0.28745
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "limb_grazing": {
+   "astroray_over_cycles": [
+    0.9654,
+    0.9998,
+    0.8671,
+    0.9737
+   ],
+   "astroray_over_cycles_se": [
+    0.0025,
+    0.005,
+    0.0028,
+    0.0029
+   ],
+   "mi_spectral_over_rgb": [
+    0.9632,
+    0.9711,
+    0.8038,
+    0.9631
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0012,
+    0.0017,
+    0.0016,
+    0.0013
+   ],
+   "difference": [
+    0.0022,
+    0.0287,
+    0.0633,
+    0.0106
+   ],
+   "band": [
+    0.0156,
+    0.0204,
+    0.0164,
+    0.0163
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9959,
+    0.9959,
+    0.9957,
+    0.9959
+   ],
+   "astroray_over_mi_spectral": [
+    0.9982,
+    1.0254,
+    1.0741,
+    1.0069
+   ],
+   "means": {
+    "astroray": [
+     1.25067,
+     0.15515,
+     0.06785,
+     0.38175
+    ],
+    "cycles": [
+     1.2955,
+     0.15518,
+     0.07825,
+     0.39206
+    ],
+    "mi_spectral": [
+     1.25288,
+     0.15131,
+     0.06317,
+     0.37914
+    ],
+    "mi_rgb": [
+     1.3008,
+     0.15582,
+     0.07859,
+     0.39366
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "lower_shadowed": {
+   "astroray_over_cycles": [
+    0.9662,
+    1.0002,
+    0.8699,
+    0.9743
+   ],
+   "astroray_over_cycles_se": [
+    0.0036,
+    0.0034,
+    0.0025,
+    0.0034
+   ],
+   "mi_spectral_over_rgb": [
+    0.9608,
+    0.9663,
+    0.8009,
+    0.9601
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0006,
+    0.0005,
+    0.0004,
+    0.0006
+   ],
+   "difference": [
+    0.0054,
+    0.0338,
+    0.069,
+    0.0143
+   ],
+   "band": [
+    0.0173,
+    0.0169,
+    0.0152,
+    0.0169
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.997,
+    0.9967,
+    0.9978,
+    0.9969
+   ],
+   "astroray_over_mi_spectral": [
+    1.0026,
+    1.0316,
+    1.0838,
+    1.0117
+   ],
+   "means": {
+    "astroray": [
+     0.63729,
+     0.0777,
+     0.03414,
+     0.19352
+    ],
+    "cycles": [
+     0.65957,
+     0.07768,
+     0.03925,
+     0.19862
+    ],
+    "mi_spectral": [
+     0.63564,
+     0.07532,
+     0.0315,
+     0.19128
+    ],
+    "mi_rgb": [
+     0.66158,
+     0.07794,
+     0.03934,
+     0.19924
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "upper_flake": {
+   "astroray_over_cycles": [
+    0.981,
+    1.0028,
+    0.9357,
+    0.9866
+   ],
+   "astroray_over_cycles_se": [
+    0.0033,
+    0.0028,
+    0.0016,
+    0.0028
+   ],
+   "mi_spectral_over_rgb": [
+    0.977,
+    0.9825,
+    0.9013,
+    0.9773
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0008,
+    0.0006,
+    0.0007,
+    0.0006
+   ],
+   "difference": [
+    0.004,
+    0.0203,
+    0.0344,
+    0.0093
+   ],
+   "band": [
+    0.0168,
+    0.0157,
+    0.0134,
+    0.0157
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9926,
+    0.9938,
+    0.9981,
+    0.993
+   ],
+   "astroray_over_mi_spectral": [
+    0.9967,
+    1.0143,
+    1.0362,
+    1.0025
+   ],
+   "means": {
+    "astroray": [
+     0.77839,
+     0.09996,
+     0.05516,
+     0.24096
+    ],
+    "cycles": [
+     0.79349,
+     0.09967,
+     0.05895,
+     0.24424
+    ],
+    "mi_spectral": [
+     0.78099,
+     0.09855,
+     0.05323,
+     0.24036
+    ],
+    "mi_rgb": [
+     0.79941,
+     0.1003,
+     0.05906,
+     0.24595
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  }
+ },
+ "arb_chroma_hero_pbr": {
+  "centre": {
+   "astroray_over_cycles": [
+    0.9698,
+    0.9911,
+    0.9103,
+    0.9784
+   ],
+   "astroray_over_cycles_se": [
+    0.0038,
+    0.0019,
+    0.0022,
+    0.0028
+   ],
+   "mi_spectral_over_rgb": [
+    0.972,
+    0.9708,
+    0.8544,
+    0.9698
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0006,
+    0.0007,
+    0.0006,
+    0.0006
+   ],
+   "difference": [
+    -0.0022,
+    0.0203,
+    0.056,
+    0.0086
+   ],
+   "band": [
+    0.0178,
+    0.0141,
+    0.0145,
+    0.0157
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9917,
+    0.9921,
+    0.9945,
+    0.9919
+   ],
+   "astroray_over_mi_spectral": [
+    0.9895,
+    1.0129,
+    1.0597,
+    1.0008
+   ],
+   "means": {
+    "astroray": [
+     0.56129,
+     0.13989,
+     0.04091,
+     0.22234
+    ],
+    "cycles": [
+     0.57874,
+     0.14115,
+     0.04494,
+     0.22724
+    ],
+    "mi_spectral": [
+     0.56726,
+     0.13811,
+     0.03861,
+     0.22216
+    ],
+    "mi_rgb": [
+     0.58358,
+     0.14227,
+     0.04519,
+     0.22908
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "left": {
+   "astroray_over_cycles": [
+    0.9855,
+    0.9973,
+    0.9577,
+    0.9904
+   ],
+   "astroray_over_cycles_se": [
+    0.001,
+    0.0009,
+    0.0008,
+    0.0009
+   ],
+   "mi_spectral_over_rgb": [
+    0.983,
+    0.9821,
+    0.9257,
+    0.9816
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0003,
+    0.0004,
+    0.0009,
+    0.0004
+   ],
+   "difference": [
+    0.0025,
+    0.0152,
+    0.032,
+    0.0087
+   ],
+   "band": [
+    0.0122,
+    0.012,
+    0.0125,
+    0.0119
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.992,
+    0.9932,
+    0.9981,
+    0.9926
+   ],
+   "astroray_over_mi_spectral": [
+    0.9945,
+    1.0086,
+    1.0325,
+    1.0015
+   ],
+   "means": {
+    "astroray": [
+     0.37205,
+     0.0957,
+     0.03338,
+     0.14995
+    ],
+    "cycles": [
+     0.37753,
+     0.09596,
+     0.03485,
+     0.15141
+    ],
+    "mi_spectral": [
+     0.3741,
+     0.09489,
+     0.03232,
+     0.14973
+    ],
+    "mi_rgb": [
+     0.38058,
+     0.09661,
+     0.03492,
+     0.15253
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "right": {
+   "astroray_over_cycles": [
+    0.9714,
+    0.9892,
+    0.8858,
+    0.9781
+   ],
+   "astroray_over_cycles_se": [
+    0.0036,
+    0.0052,
+    0.0031,
+    0.0042
+   ],
+   "mi_spectral_over_rgb": [
+    0.9678,
+    0.9662,
+    0.8184,
+    0.9651
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0008,
+    0.0009,
+    0.0006,
+    0.0008
+   ],
+   "difference": [
+    0.0036,
+    0.0231,
+    0.0674,
+    0.0131
+   ],
+   "band": [
+    0.0173,
+    0.0205,
+    0.0163,
+    0.0186
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9954,
+    0.9953,
+    0.9954,
+    0.9954
+   ],
+   "astroray_over_mi_spectral": [
+    0.9992,
+    1.0191,
+    1.0774,
+    1.0089
+   ],
+   "means": {
+    "astroray": [
+     0.69244,
+     0.169,
+     0.04529,
+     0.27135
+    ],
+    "cycles": [
+     0.71283,
+     0.17083,
+     0.05113,
+     0.27742
+    ],
+    "mi_spectral": [
+     0.69301,
+     0.16583,
+     0.04204,
+     0.26897
+    ],
+    "mi_rgb": [
+     0.7161,
+     0.17163,
+     0.05136,
+     0.2787
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  },
+  "lower": {
+   "astroray_over_cycles": [
+    0.9781,
+    0.9969,
+    0.9127,
+    0.9855
+   ],
+   "astroray_over_cycles_se": [
+    0.0043,
+    0.0033,
+    0.0023,
+    0.0037
+   ],
+   "mi_spectral_over_rgb": [
+    0.9717,
+    0.9698,
+    0.8564,
+    0.9692
+   ],
+   "mi_spectral_over_rgb_se": [
+    0.0012,
+    0.0012,
+    0.0012,
+    0.0012
+   ],
+   "difference": [
+    0.0064,
+    0.0271,
+    0.0564,
+    0.0163
+   ],
+   "band": [
+    0.019,
+    0.0171,
+    0.0151,
+    0.0178
+   ],
+   "agree": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "shift_reproduced": [
+    true,
+    false,
+    false,
+    true
+   ],
+   "cycles_over_mi_rgb": [
+    0.9947,
+    0.9949,
+    0.9972,
+    0.9949
+   ],
+   "astroray_over_mi_spectral": [
+    1.0013,
+    1.0227,
+    1.0629,
+    1.0116
+   ],
+   "means": {
+    "astroray": [
+     0.2933,
+     0.07266,
+     0.02127,
+     0.11586
+    ],
+    "cycles": [
+     0.29987,
+     0.07289,
+     0.02331,
+     0.11756
+    ],
+    "mi_spectral": [
+     0.29292,
+     0.07105,
+     0.02001,
+     0.11453
+    ],
+    "mi_rgb": [
+     0.30146,
+     0.07326,
+     0.02337,
+     0.11817
+    ]
+   },
+   "seeds": {
+    "astroray": 4,
+    "cycles": 4,
+    "mi_spectral": 4,
+    "mi_rgb": 4
+   }
+  }
+ }
+}

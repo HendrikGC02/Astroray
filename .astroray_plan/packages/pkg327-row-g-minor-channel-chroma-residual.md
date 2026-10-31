@@ -145,8 +145,8 @@ cluster reads CPU ≈ GPU.
 
 ## Progress
 
-- [ ] Control kinds + proxies + attribution legs (Phase A)
-- [ ] Attribution doc
+- [x] Control kinds + proxies + attribution legs (Phase A; `--attrib-spec` controls in `render_leg.py`, `arb_chroma_*` proxies, `arbitration/attribution.py`)
+- [x] Attribution doc (`.astroray_plan/docs/pkg327-chroma-residual-attribution.md`)
 - [ ] Per-channel pins for confirmed channels, issues for unconfirmed ones, tests, row (g) re-run (Phase B)
 
 ---

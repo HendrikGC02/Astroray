@@ -20,5 +20,16 @@
  "arb_prism_sun": {
   "lamp_scale": 1.0,
   "anchor": null
+ },
+ "arb_chroma_stage": {
+  "lamp_scale": 4.772221207338181,
+  "anchor": {
+   "scene": "arb_chroma_patches",
+   "roi": "grey",
+   "leg": "cycles",
+   "part": "area lamp only"
+  },
+  "cycles_area_only_lum": 0.033817894756793976,
+  "mitsuba_rgb_area_only_lum_scale1": 0.0070864055305719376
  }
 }

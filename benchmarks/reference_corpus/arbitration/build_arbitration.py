@@ -45,6 +45,21 @@ ROIS = {
     "arb_narrowband_wall": [("wall_near_lamp", (0.2, 2.0, 1.4), 0.04),
                             ("wall_centre", (-0.3, 2.0, 0.8), 0.05), ("wall_far", (-2.2, 2.0, 0.8), 0.05),
                             ("floor_lit", (0.4, 1.2, 0.0), 0.05)],
+    # pkg327 chroma proxies. Bowl points are on the sphere (centre (0, 0, 0.85), r 0.9) at latitude +10 / -10 / -30 deg on the far inside
+    # (the cap ends at latitude asin(0.35 / 0.9) = 22.9 deg).
+    "arb_chroma_bowl": [("inner_far_upper", (0.0, 0.886, 1.006), 0.03), ("inner_far_mid", (0.0, 0.886, 0.694), 0.03),
+                        ("inner_far_low", (0.0, 0.779, 0.400), 0.03)],
+    "arb_chroma_warm": [("floor_open", (0.0, -1.2, 0.0), 0.05), ("floor_at_box", (0.0, -0.3, 0.0), 0.03),
+                        ("box_front", (0.0, -0.1, 0.5), 0.05)],
+    "arb_chroma_warm_sky": [("floor_open", (0.0, -1.2, 0.0), 0.05), ("floor_at_box", (0.0, -0.3, 0.0), 0.03),
+                            ("box_front", (0.0, -0.1, 0.5), 0.05)],
+    "arb_chroma_warm_hdri": [("floor_open", (0.0, -1.2, 0.0), 0.05), ("floor_at_box", (0.0, -0.3, 0.0), 0.03),
+                             ("box_front", (0.0, -0.1, 0.5), 0.05)],
+    "arb_chroma_patches": [(name, (cx, 0.0, 0.0), 0.025) for name, cx, _ in ms.PARAMS["arb_chroma_patches"]["patches"]],
+    **{sid: [(name, ms.hero_point(ms.PARAMS[sid]["hero"], dx, dz), 0.03) for name, (dx, dz) in ms.PARAMS[sid]["hero"]["rois"].items()]
+       for sid in ms.PARAMS if "hero" in ms.PARAMS[sid]},
+    # the production curves ROIs (build_corpus._prod_curves_geometry): the same world points, on the smooth bowl
+    "arb_chroma_bowl_stage": [("inner_backface", (0.0, 0.75, 0.9), 0.04), ("outer_front", (0.0, -0.9, 0.55), 0.035)],
 }
 
 
@@ -65,8 +80,15 @@ def build_scene(sid: str, bc, sc, sl, bpy, draft: bool = False):
     bc._v2_finish(scene, ms.RES)
     scene.cycles.pixel_filter_type = "BOX"
     scene.cycles.filter_width = 1.0
-    sc._world((0.0, 0.0, 0.0), 0.0)
-    floor = sc._box("Floor", (0.0, 0.0, -0.05), (20.0, 20.0, 0.1), _diffuse(sl, bpy, "FloorMat", p["floor_albedo"]))
+    world = sc._world(p.get("world", (0.03, 0.03, 0.03) if "hdri" in p else (0.0, 0.0, 0.0)), 1.0 if "world" in p else 0.0)
+    if "hdri" in p:  # as build_corpus._prod_stage: Environment Texture -> Background, strength from PARAMS
+        env = world.node_tree.nodes.new("ShaderNodeTexEnvironment")
+        env.image = bpy.data.images.load(str(REPO / p["hdri"]["path"]))
+        bg = next(n for n in world.node_tree.nodes if n.type == "BACKGROUND")
+        bg.inputs["Strength"].default_value = p["hdri"]["strength"]
+        world.node_tree.links.new(env.outputs["Color"], bg.inputs["Color"])
+    floor = (sc._box("Floor", (0.0, 0.0, -0.05), (20.0, 20.0, 0.1), _diffuse(sl, bpy, "FloorMat", p["floor_albedo"]))
+             if p["floor_albedo"] is not None else None)
     cam = p["camera"]
     if sid == "arb_prism_sun":
         pr, s = p["prism"], p["sun"]
@@ -90,6 +112,29 @@ def build_scene(sid: str, bc, sc, sl, bpy, draft: bool = False):
         sl._sock(pv.inputs, "Absorption Color").default_value = (0.0, 0.0, 0.0, 1.0)  # explicit: Color is then the scattering albedo
         cube.data.materials.append(mat)
         sc._light("Lamp", "AREA", lp["loc"], lp["target"], lp["power_w"], color=lp["color"], shape="SQUARE", size=lp["size"])
+    elif sid in ms.CHROMA_SCENES:
+        if "bowl" in p:  # the facets Mitsuba loads from the OBJ (ms.write_bowl_obj), built here from the same triangle list
+            tris = ms.bowl_triangles(p["bowl"])
+            me = bpy.data.meshes.new("Bowl")
+            me.from_pydata([v for t in tris for v in t], [], [(3 * i, 3 * i + 1, 3 * i + 2) for i in range(len(tris))])
+            me.update()
+            obj = bpy.data.objects.new("Bowl", me)
+            scene.collection.objects.link(obj)
+            sc._assign(obj, _diffuse(sl, bpy, "BowlMat", p["bowl"]["albedo"]))
+        for name, cx, albedo in p.get("patches", ()):
+            sc._box(f"Patch_{name}", (cx, 0.0, -0.05), (1.0, 1.0, 0.1), _diffuse(sl, bpy, f"Patch_{name}", albedo))
+        if "stage" in p:  # build_corpus._prod_stage lamps
+            st = p["stage"]
+            sc._light("Sun", "SUN", (0.0, 0.0, 0.0), ms.sun_direction(st["sun"]), st["sun"]["strength"], color=st["sun"]["color"],
+                      angle=math.radians(st["sun"]["angle_deg"]))
+            lp = st["lamp"]
+            sc._light("Area", "AREA", lp["loc"], lp["target"], lp["power_w"], color=lp["color"], shape="SQUARE", size=lp["size"])
+        if "hero" in p:
+            h = p["hero"]
+            sc._assign(sc._uv_sphere("Hero", h["center"], h["radius"], seg=96, rings=48), _diffuse(sl, bpy, "HeroMat", h["albedo"]))
+        if "box" in p:
+            b = p["box"]
+            sc._box("Occluder", b["center"], b["dims"], _diffuse(sl, bpy, "OccluderMat", b["albedo"]))
     else:
         lp = p["lamp"]
         wy = p["wall_y"]
@@ -115,6 +160,8 @@ def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", default=str(HERE))
+    ap.add_argument("--scenes", nargs="+", default=None, choices=ms.SCENES,
+                    help="build only these scenes and merge them into the existing manifest (default: all, rewriting it)")
     ap.add_argument("--draft", action="store_true", help="tolerate off-frame ROIs while laying out cameras (never commit a draft)")
     a = ap.parse_args(argv)
     import bpy
@@ -126,10 +173,14 @@ def main():
     import scene_library as sl
     out = Path(a.out_dir)
     (out / "scenes").mkdir(parents=True, exist_ok=True)
-    manifest = {"scenes": {}}
-    for sid in ms.SCENES:
+    mpath = out / "manifest.json"
+    manifest = json.loads(mpath.read_text(encoding="utf-8")) if a.scenes and mpath.is_file() else {"scenes": {}}
+    for sid in (a.scenes or ms.SCENES):
         _, crops = build_scene(sid, bc, sc, sl, bpy, a.draft)
         blend = out / "scenes" / f"{sid}.blend"
+        for img in bpy.data.images:  # a saved scene must not bake this checkout's absolute HDRI path
+            if img.source == "FILE" and not img.filepath.startswith("//"):
+                img.filepath = bpy.path.relpath(img.filepath, start=str(blend.parent))
         bpy.ops.wm.save_as_mainfile(filepath=str(blend))
         manifest["scenes"][sid] = {
             "family": sid, "builder_fn": "build_scene",
@@ -137,10 +188,12 @@ def main():
                            else blend.resolve().as_posix()),
             "sha256": hashlib.sha256(blend.read_bytes()).hexdigest(),
             "settings": {"res_x": ms.RES[0], "res_y": ms.RES[1], "samples": 64, "saved_default_engine": "CYCLES"},
-            "v2": {"seed": 278, "spp_gate": 64, "spp_reference": 16384, "render_gate": True, "cameras": ["Cam"],
+            "v2": {"seed": 278, "spp_gate": 64, "spp_reference": 16384, "render_gate": sid not in ms.CHROMA_SCENES, "cameras": ["Cam"],
                    "blender_version": bpy.app.version_string, "doc": ms.PARAMS[sid]["doc"],
                    "anchor": ms.PARAMS[sid]["anchor"], "divergence": {}},
-            "assets": [], "crops": crops}
+            "assets": ([{"path": ms.PARAMS[sid]["hdri"]["path"], "license": "CC0 1.0", "source_url": "https://polyhaven.com/a/syferfontein_18d_clear",
+                         "sha256": hashlib.sha256((REPO / ms.PARAMS[sid]["hdri"]["path"]).read_bytes()).hexdigest()}]
+                       if "hdri" in ms.PARAMS[sid] else []), "crops": crops}
         print(f"[pkg307] {sid}: {blend.name}, ROIs {list(crops)}", flush=True)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8", newline="\n")
     print("PKG307_BUILD PASS")

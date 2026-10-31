@@ -1,5 +1,42 @@
 # Astroray Status
 
+## 2026-10-31 CURRENT — resumed session (Opus 5.5 lead; Opus/Sonnet lanes)
+
+**Builds:** main `build_cuda` 6f2b0c70 and `dist/astroray` f477f024 restaged 22:13. `lead_build_queue.py` now resolves
+`.claude/worktrees/<lane>` (f477f024).
+
+**Gates:**
+- (e) **RED, 5 high** on 85 open (`%LOCALAPPDATA%\astroray-evidence\2026-10-31\gate-e\`). The 15 issues filed on
+  10-25 were rated by two blind Sonnet 5.5 raters plus DeepSeek flash; the stricter rating counts. Highs: #1174, #1178, #1180, #1186, #1198, all in lanes.
+- (g) **RED** on f477f02: CPU 2/8, GPU 2/8, 0 silent pairs (`...\2026-10-31\g\`). ROI channels in band per scene, CPU / GPU:
+
+  | Scene | CPU | GPU | Note |
+  |---|---|---|---|
+  | curves_geometry | 15/16 | 15/16 | inner_backface r 0.84 |
+  | light_path | 19/20 | 17/20 | #1199 |
+  | car_paint | 14/16 | 2/16 | #1153 |
+  | wood | 11/16 | 12/16 | B 0.91-0.96 |
+  | pbr_group | 11/16 | 11/16 | right ROI: CPU 1.23, GPU 0.92 |
+  | shader_stack | 6/16 | 4/16 | #995 1/eta^2, owner question |
+
+**PR open:** #1203 (#1038 smooth-glass spectral tint, CPU+GPU; GPU glass suites 66 passed; one kernel STACK -16 B).
+
+**Lanes (worktrees `.claude/worktrees/i*`):**
+
+| Lane | Issue | State |
+|---|---|---|
+| i1032 | #1032 media segment NEE | Gate met on CPU: smoke_plume variance 21.6x -> 2.05x Cycles. Parity PARITY-OK, ABI PASS-with-notes, fixes in. CUDA build running. |
+| i1153 | #1153 GPU procedural bump + coat normal | Review fixes in at 41a837c1. Build queued. |
+| i1178 | #1178/#1198 sampled-lobe labels | CPU caps now equal Cycles. Reviews non-blocking. Build queued. |
+| i1186 | #1180/#1186 emission | Alpha-weighted emission; CPU ReSTIR continues through emitters. PARITY-OK. Build queued. |
+| i1174 | #1174 GPU Mix Fac program | Fixed in the UV gate in `classifyUvGate`. Branch is stacked on i1186. Build queued. |
+
+**Issues filed:**
+- #1200: tinted Glass film F0 rescale, high candidate.
+- #1201: linked film sockets dropped.
+- #1202: pkg326 lows.
+- #1204-#1209: parity-review follow-ups (Light Path transmission flags, AOV split, caustic-toggle trigger and roughness, GPU sheen and CPU Height wo, photon loops hasBSDF, GPU coat for tree/film leaves).
+
 ## 2026-10-24/25 CURRENT — resumed overnight session (Fable 5.1 lead; Opus/Sonnet lanes; DeepSeek flash free)
 
 **Setup (owner 10-24):** all agents back, GPU/PC returned to the lead; `opencode/deepseek-v4.1-flash-free` (free, no

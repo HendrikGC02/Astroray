@@ -28,6 +28,22 @@ Lane i1186, 2026-10-31. Source: Blender Cycles tag `v5.2.0` (`intern/cycles`, Ap
 * **ReSTIR.** The only integrator difference was the unconditional `break` at an emissive hit. Emission is still added at
   `bounce == 0 || wasSpecular` only (later bounces get it through NEE, as for every surface).
 
+## Deliberate deviation: light-sampling power
+
+Cycles v5.2.0 `scene/shader.cpp` `output_estimate_emission` (~l.138-146) does not alpha-weight the Principled emission it
+uses as the light's sampling power. Astroray's host power (`getEmission`) and `isEmissive() == false` at alpha 0 are
+alpha-scaled so the power CDF matches the evaluated emission. This changes only the selection probability (the pdf and the
+radiance stay consistent), so the estimator stays unbiased; it just stops spending samples on a transparent emitter.
+The material-only replay guard (`scene_upload.cu`) compares `principled.emission*` so an alpha / strength edit that keeps
+the surface emissive rebuilds the light list.
+
+## Known limits (GPU, no current producer / tracked elsewhere)
+
+* A tree with several emitter colours upsamples the summed RGB once (not per emitter), as the single baked emission does.
+* A `GCLOSURE_EMISSION` leaf 0 would be double counted at `gpu_material_emitted` (graph emission + the stamped block);
+  nothing produces such a leaf today.
+* The photon-loop `hasBSDF` gap is tracked in #1208.
+
 ## Not taken
 
 Cycles' emission inside glass convention (1/eta^2, see issue995 note) is unchanged.

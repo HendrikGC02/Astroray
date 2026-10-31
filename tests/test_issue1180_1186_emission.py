@@ -126,8 +126,9 @@ def test_principled_emission_is_weighted_by_alpha(backend):
     np.testing.assert_allclose(half / full, [0.5, 0.5, 0.5], rtol=0.03)
 
 
-def _lit_floor(backend, alpha):
-    """A diffuse floor lit only by a downward alpha-emitter quad above it (out of view)."""
+def _lit_floor(backend, alpha, second_light=False):
+    """A diffuse floor lit only by a downward alpha-emitter quad above it (out of view),
+    plus (second_light) a fixed emitter beside it so the power CDF has two entries."""
     r = _renderer(backend)
     r.set_background_color([0.0, 0.0, 0.0])
     r.setup_camera([0, 0.6, 3], [0, 0, 0], [0, 1, 0], 30.0, 1.0, 0.0, 3.0, 32, 32)
@@ -138,6 +139,10 @@ def _lit_floor(backend, alpha):
     glow = _glow(r, alpha)
     r.add_triangle([-0.5, 1, -0.5], [0.5, 1, -0.5], [0.5, 1, 0.5], glow)
     r.add_triangle([-0.5, 1, -0.5], [0.5, 1, 0.5], [-0.5, 1, 0.5], glow)
+    if second_light:   # out of view (26 deg off axis), two-sided
+        lamp = r.create_material("light", [1.0, 1.0, 1.0], {"intensity": 3.0, "two_sided": 1.0})
+        r.add_triangle([1.5, 1, -0.5], [2.5, 1, -0.5], [2.5, 1, 0.5], lamp)
+        r.add_triangle([1.5, 1, -0.5], [2.5, 1, 0.5], [1.5, 1, 0.5], lamp)
     img = np.asarray(r.render(128, 2, None, False), dtype=np.float64)
     return img.reshape(-1, 3).mean(0)
 
@@ -149,6 +154,73 @@ def test_light_sampler_power_follows_alpha(backend):
     half = _lit_floor(backend, 0.5)
     assert full.min() > 0.01, full
     np.testing.assert_allclose(half / full, [0.5, 0.5, 0.5], rtol=0.06)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_light_power_cdf_with_two_lights_follows_alpha(backend):
+    """Two emitters: the alpha light's selection probability comes from its (alpha-scaled)
+    host power, its radiance from the device emission; a mismatch biases the sum. The
+    alpha-0 emitter is not emissive at all, so it isolates the second lamp."""
+    lamp = _lit_floor(backend, 0.0, second_light=True)
+    full = _lit_floor(backend, 1.0, second_light=True)
+    half = _lit_floor(backend, 0.5, second_light=True)
+    assert lamp.min() > 0.005 and (full - lamp).min() > 0.01, (lamp, full)
+    np.testing.assert_allclose(half - lamp, 0.5 * (full - lamp), rtol=0.08)
+
+
+# ---- #1180 trees: constant-Fac Mix, non-Principled / emissive leaf 0 --------------------------
+def _mix_lambertian_emissive(r):
+    return r.create_mix_material(r.create_material("lambertian", [0.4, 0.4, 0.4], {}),
+                                 r.create_material("emissive", [1.0, 1.0, 1.0], {"intensity": 0.5}),
+                                 0.25)
+
+
+def _mix_leaf0(kind, params):
+    def make(r):
+        return r.create_mix_material(r.create_material(kind, [0.6, 0.5, 0.4], params),
+                                     r.create_material("emissive", [1.0, 1.0, 1.0], {"intensity": 0.5}),
+                                     0.25)
+    return make
+
+
+def test_cpu_mix_lambertian_emissive_wall():
+    """Mix(0.25; lambertian 0.4, Emission 0.5) under a white sky: 0.75 * 0.4 + 0.25 * 0.5."""
+    got = _wall("cpu", _mix_lambertian_emissive, [1.0, 1.0, 1.0], spp=64)
+    np.testing.assert_allclose(got, [0.425] * 3, rtol=0.05)
+
+
+@pytest.mark.gpu
+@pytest.mark.serial
+@pytest.mark.parametrize("kind,params", [("lambertian", {}), ("metal", {"roughness": 0.3}),
+                                          ("disney", {"roughness": 0.6})])
+def test_gpu_mix_tree_with_non_principled_leaf0_matches_cpu(kind, params):
+    """The tree emission (0.25 * 0.5) rides leaf 0 whatever its type: GPU == CPU."""
+    make = _mix_leaf0(kind, params)
+    cpu = _wall("cpu", make, [1.0, 1.0, 1.0], spp=96)
+    assert cpu.min() > 0.125 + 0.05, cpu            # emission + a lit lobe
+    gpu = _wall("gpu", make, [1.0, 1.0, 1.0], spp=96)
+    np.testing.assert_allclose(gpu, cpu, rtol=0.06)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_emissive_principled_leaf0_plus_second_emitter_sums(backend):
+    """Leaf 0 is an emissive Principled and the tree emits too: the tree's summed emission
+    replaces leaf 0's own (white sky): 0.3 albedo + 0.4 own + 0.3 emitter = 1.0."""
+    def make(r):
+        glow = r.create_material("principled", [0.3, 0.3, 0.3], dict(
+            DIFFUSE, emission_color=[1.0, 1.0, 1.0], emission_strength=0.4))
+        return r.create_add_material(glow, r.create_material(
+            "emissive", [1.0, 1.0, 1.0], {"intensity": 0.3}))
+    np.testing.assert_allclose(_wall(backend, make, [1.0, 1.0, 1.0], spp=64), [1.0] * 3, rtol=0.05)
+
+
+def test_cpu_mix_alpha_principled_emission_is_alpha_weighted():
+    """Mix(0.25; glow alpha 0.5, black diffuse), black sky: 0.75 * (E * alpha) = 0.75 for E = 2."""
+    def make(r):
+        return r.create_mix_material(
+            _glow(r, 0.5, emission_color=[1.0, 1.0, 1.0]),
+            r.create_material("principled", [0.0, 0.0, 0.0], DIFFUSE), 0.25)
+    np.testing.assert_allclose(_wall("cpu", make, [0.0, 0.0, 0.0]), [0.75] * 3, rtol=0.04)
 
 
 # ---- #1186.2 -------------------------------------------------------------------------

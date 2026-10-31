@@ -1430,7 +1430,7 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         // #995 -- an Add / Mix Shader node tree uploads its first BSDF leaf at this id
         // (from the leaf itself, not the node, whose forwarded getters follow child A).
         // A tree that lowers is linked after the walk (treePending) and its constant-
-        // weight emission is baked into that leaf's Principled emission below; one that
+        // weight emission is baked into that leaf's principled block below (any leaf type, #1180); one that
         // does not lower renders the leaf alone (the addon reports it).
         std::shared_ptr<astroray::ClosureTreeLowering> tree;
         if (auto* cn = dynamic_cast<astroray::ClosureNodeMaterial*>(mIn.get())) {
@@ -2471,6 +2471,10 @@ bool buildMaterialDomain(const Renderer& cpu, const SceneUploadResult& cached,
             if (a.emissive != b.emissive || ga.baseColor.x != gb.baseColor.x ||
                 ga.baseColor.y != gb.baseColor.y || ga.baseColor.z != gb.baseColor.z ||
                 ga.emissionIntensity != gb.emissionIntensity ||
+                ga.principled.emissionColor.x != gb.principled.emissionColor.x ||   // #1186: alpha-scaled
+                ga.principled.emissionColor.y != gb.principled.emissionColor.y ||   // Principled / tree
+                ga.principled.emissionColor.z != gb.principled.emissionColor.z ||   // emission feeds the
+                ga.principled.emissionStrength != gb.principled.emissionStrength || // light-power CDF
                 ga.anisotropicRotation != gb.anisotropicRotation)  // #1099 two-sided flag
                 return false;
         }

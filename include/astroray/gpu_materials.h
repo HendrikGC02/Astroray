@@ -3694,8 +3694,8 @@ __device__ inline float gpu_material_pdf(
 // GMaterial::principled, not a GCLOSURE_EMISSION closure, so the closure-graph
 // sum never saw it and the GPU rendered emissive Principled surfaces unlit.
 // Two-sided, like the CPU twin PrincipledPlugin::emitted (principled.cpp).
-// Zero for every non-Principled material: scene_upload.cu value-initialises
-// GMaterial and only the GCLOSURE_PRINCIPLED lowering writes `principled`.
+// Zero unless scene_upload.cu writes it: the GCLOSURE_PRINCIPLED lowering (strength x
+// alpha, #1186) or an Add / Mix tree's leaf 0 of any type (the tree's summed emission, #1180).
 __device__ inline GVec3 gpu_principled_emitted(const GMaterial& mat) {
     return mat.principled.emissionColor * mat.principled.emissionStrength;
 }
@@ -3717,7 +3717,7 @@ __device__ inline GVec3 gpu_material_emitted(
 
 // #995: does a path continue after this material's emission? A pure emitter (Cycles
 // Emission shader) ends it; a Principled with emission or a closure tree
-// (GMaterial::closureTree; its emission is baked into the Principled leaf 0) continues
+// (GMaterial::closureTree; its emission is baked into leaf 0's principled block) continues
 // through its BSDF (Cycles v5.2.0 integrator/shade_surface.h:817-868). CPU twin: Material::hasBSDF.
 __device__ inline bool gpu_material_has_bsdf(const GMaterial& mat)
 {

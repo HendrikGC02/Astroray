@@ -115,8 +115,6 @@ def _stats(sid: str, leg: str) -> dict:
 
 _LEGS = [pytest.param("cpu", marks=pytest.mark.serial, id="cpu"),
          pytest.param("gpu", marks=pytest.mark.gpu, id="gpu")]
-_MEDIA_FULL = ("full relVar {}x Cycles. Owner: medium segment direct light distance strategy (#1032; "
-               "drop_voldirect leaves smoke_plume / shaft at {} / {}x)")
 _DISP_TRIM = ("trimmed relVar {}x Cycles ({}x before the #1172 spot tree cone). Owners: the photon caustic floor "
               "Cycles does not render (Mitsuba arbitration, pkg307) and dispersion colour noise in NEE through "
               "the glass (hero-wavelength collapse)")
@@ -124,9 +122,9 @@ _DISP_TRIM = ("trimmed relVar {}x Cycles ({}x before the #1172 spot tree cone). 
 
 @pytest.mark.parametrize("leg", [
     # #1172 (Cycles spot tree cone) took CPU from 4.22x to 2.71x (smoke_plume 79x -> 25x).
+    # #1032 (tracked segment direct light) took GPU from 3.46x (main 2026-11-01) to 2.99x; renders repeat to 1.5e-5.
     pytest.param("cpu", marks=pytest.mark.serial, id="cpu"),
-    pytest.param("gpu", marks=[pytest.mark.gpu, pytest.mark.xfail(
-        strict=True, reason="pkg306 2026-10-25 GPU: " + _MEDIA_FULL.format(4.52, 0.43, 0.07))], id="gpu")])
+    pytest.param("gpu", marks=pytest.mark.gpu, id="gpu")])
 def test_media_full_relvar_within_3x_cycles(leg):
     assert _stats("v2_media", leg)["full"] <= 3.0
 

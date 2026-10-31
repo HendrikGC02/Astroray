@@ -19,7 +19,17 @@
   | pbr_group | 11/16 | 11/16 | right ROI: CPU 1.23, GPU 0.92 |
   | shader_stack | 6/16 | 4/16 | #995 1/eta^2, owner question |
 
-**PR open:** #1203 (#1038 smooth-glass spectral tint, CPU+GPU; GPU glass suites 66 passed; one kernel STACK -16 B).
+**Owner decisions (10-31, memory `owner-decisions-2026-10-31`):**
+- (b): the static matrix earns credit, audited by sampled Welch-1b witnesses. The threshold is set from pkg328 data (0.95 is retired). b1 is signed by the 10-06 population decision.
+- Spectral chroma: a channel gets an expected-divergence pin once Mitsuba confirms the shift.
+- #995: keep 1/eta^2 and regenerate the shader_stack reference with the inner emitter at 1/n^2.
+- pkg325: ON by default; parity runs force it OFF.
+- Material presets: after exit.
+- README showcase: yes, with licence notes.
+- Evidence: summaries in git, frames local.
+- Gate (f): deferred past Stage 0.
+
+**PRs open:** #1203 (#1038 smooth-glass spectral tint, CPU+GPU; GPU glass suites 66 passed; one kernel STACK -16 B). #1210 (architect plan 2026-11-01 + pkg327/pkg328).
 
 **Lanes (worktrees `.claude/worktrees/i*`):**
 

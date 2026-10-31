@@ -1766,33 +1766,42 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GVec3 gpu_bumpProceduralNormal(
 // the parked pre-bump normal (hit_normal, as gpu_bumpShadowing reads it). The decorator sets
 // kCoatOnSdNBit unless the coat follows the bump (Output Displacement / a shared Coat Normal).
 // Not taken (the shared one-normal path stays): thin film, dispersion, closure trees.
-__device__ __forceinline__ bool gpu_coatOnSdN(const ::GMaterial& mat, int materialId)
+// Gate (#1153 perf): the cheap material tests first, then sd->N against the shading normal, as
+// the CPU does ((svmNormal - normal).length2() > 0): a hit the Bump / Normal Map left unbumped
+// (a sphere, a UV-less triangle, a flat stretch of the height) takes the plain path exactly.
+__device__ __forceinline__ bool gpu_coatOnSdN(const ::GMaterial& mat, const GPUWavefrontHitBuffers& hitBufs,
+                                              int idx, const GHitRecord& rec)
 {
-    const int bm = c_wfTexBinding.matBumpCorrect ? c_wfTexBinding.matBumpCorrect[materialId] : 0;
-    return (bm & astroray::bumpcorr::kCoatOnSdNBit) && mat.type == GMAT_CLOSURE_GRAPH &&
-           gpu_closure_graph_is_principled(mat) && mat.principled.coatWeight > 1e-4f &&
-           mat.closureTree == 0 && !mat.isDispersive && !gpu_pr_filmActive(mat.principled);
+    const int bm = c_wfTexBinding.matBumpCorrect ? c_wfTexBinding.matBumpCorrect[rec.materialId] : 0;
+    if (!((bm & astroray::bumpcorr::kCoatOnSdNBit) && mat.type == GMAT_CLOSURE_GRAPH &&
+          gpu_closure_graph_is_principled(mat) && mat.principled.coatWeight > 1e-4f &&
+          mat.closureTree == 0 && !mat.isDispersive && !gpu_pr_filmActive(mat.principled)))
+        return false;
+    return hitBufs.hit_normal_x[idx] != rec.normal.x || hitBufs.hit_normal_y[idx] != rec.normal.y ||
+           hitBufs.hit_normal_z[idx] != rec.normal.z;
 }
 
 // The coat (rc, on sd->N) and sheen (rs) frames and their view cosines (principled.cpp lobeFrame).
+// rs only when the material has a sheen lobe.
 struct GCoatNFrames {
     GHitRecord rc, rs;
     float nvC, nvS;
 };
-__device__ __forceinline__ GCoatNFrames gpu_coatN_frames(
+__device__ __forceinline__ void gpu_coatN_frames(
     const GPrincipledClosure& c, const GPUWavefrontHitBuffers& hitBufs, int idx,
-    const GHitRecord& rec, const GVec3& wo)
+    const GHitRecord& rec, const GVec3& wo, GCoatNFrames& f)
 {
-    GCoatNFrames f;
     f.rc = rec;
     f.rc.normal = GVec3(hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx], hitBufs.hit_normal_z[idx]);
     gpu_buildONB(f.rc.normal, f.rc.tangent, f.rc.bitangent);
-    f.rs = rec;
-    f.rs.normal = (rec.normal * (1.0f - c.coatWeight) + f.rc.normal * c.coatWeight).normalized();
-    gpu_buildONB(f.rs.normal, f.rs.tangent, f.rs.bitangent);
     f.nvC = fminf(fmaxf(f.rc.normal.dot(wo), 1e-4f), 1.0f);
-    f.nvS = fminf(fmaxf(f.rs.normal.dot(wo), 1e-4f), 1.0f);
-    return f;
+    f.nvS = f.nvC;
+    if (c.sheenWeight > 1e-4f) {
+        f.rs = rec;
+        f.rs.normal = (rec.normal * (1.0f - c.coatWeight) + f.rc.normal * c.coatWeight).normalized();
+        gpu_buildONB(f.rs.normal, f.rs.tangent, f.rs.bitangent);
+        f.nvS = fminf(fmaxf(f.rs.normal.dot(wo), 1e-4f), 1.0f);
+    }
 }
 
 __device__ __forceinline__ const GHitRecord& gpu_coatN_lobeFrame(
@@ -1801,59 +1810,55 @@ __device__ __forceinline__ const GHitRecord& gpu_coatN_lobeFrame(
     return L.kind == GPR_COAT ? f.rc : (L.kind == GPR_SHEEN ? f.rs : rec);
 }
 
-// Per-closure bump_shadowing_term (CPU principled.cpp bumpShadowing): the coat on sd->N gets 1,
-// the sheen (a diffuse closure) the term on its own normal; every other lobe keeps the GPU
-// whole-closure term on rec.normal (gpu_bumpShadowing, #1154).
-__device__ __forceinline__ float gpu_coatN_shadowing(
-    const GPrincipledLobe& L, const GCoatNFrames& f, const GHitRecord& rec, const GVec3& wi,
-    int bm, float tBase)
+// Mixture eval (bump shadowing per closure, CPU principled.cpp bumpShadowing) and pdf at wi from
+// lobes assembled once (with the spectral weights). The coat on sd->N gets term 1, the sheen (a
+// diffuse closure) the term on its own normal, every other lobe the GPU whole-closure term on
+// rec.normal (gpu_bumpShadowing's rule, #1154), computed here so no further call nests.
+struct GCoatNEvalPdf {
+    GSampledSpectrum f;
+    float pdf;  // < 0: not computed (gpu_np_eval_lazyPdf, plain path)
+};
+__device__ __forceinline__ GCoatNEvalPdf gpu_coatN_mix(
+    const GPrincipledClosure& c, const GPrincipledLobe* lobes, int n, float W,
+    const GCoatNFrames& f, const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
+    const GSampledWavelengths& wl)
 {
-    if (L.kind == GPR_COAT) return 1.0f;
-    if (L.kind != GPR_SHEEN) return tBase;
-    if (bm & astroray::bumpcorr::kSetsSdNBit) return 1.0f;
-    return astroray::bumpcorr::bumpShadowingTerm(f.rc.normal, f.rs.normal, wi, true, true,
-                                                 (bm & astroray::bumpcorr::kCorrectionBit) != 0);
+    namespace bc = astroray::bumpcorr;
+    const int bm = c_wfTexBinding.matBumpCorrect[rec.materialId];
+    const bool corr = (bm & bc::kCorrectionBit) != 0, setsSdN = (bm & bc::kSetsSdNBit) != 0;
+    const float tBase = setsSdN ? 1.0f
+        : bc::bumpShadowingTerm(f.rc.normal, rec.normal, wi, true, (bm & bc::kClassMask) == bc::kDiffuse, corr);
+    GCoatNEvalPdf r;
+    r.f = GSampledSpectrum(0.f);
+    r.pdf = 0.f;
+    for (int i = 0; i < n; ++i) {
+        const GPrincipledLobe& L = lobes[i];
+        if (L.isDelta) continue;
+        const GHitRecord& fr = gpu_coatN_lobeFrame(L, f, rec);
+        if (W > 0.f) r.pdf += (L.sel / W) * gpu_pr_pdfLobe(c, L, fr, wo, wi);
+        const float t = L.kind == GPR_COAT ? 1.0f
+                      : L.kind != GPR_SHEEN ? tBase
+                      : setsSdN ? 1.0f : bc::bumpShadowingTerm(f.rc.normal, f.rs.normal, wi, true, true, corr);
+        if (t > 0.0f) r.f += gpu_pr_evalLobeSpectral(c, L, fr, wo, wi, wl) * t;
+    }
+    return r;
 }
 
-// gpu_principled_eval_spectral with the coat / sheen frames, bump shadowing included.
-__device__ ASTRORAY_SHADE_NOINLINE inline GSampledSpectrum gpu_coatN_eval_spectral(
+// gpu_principled_eval_spectral + gpu_principled_pdf with the coat / sheen frames: one lobe
+// assembly and one call per NEE sample (#1153 perf: was two calls, two assemblies and a nested
+// gpu_bumpShadowing call).
+__device__ ASTRORAY_SHADE_NOINLINE inline GCoatNEvalPdf gpu_coatN_eval_pdf(
     const ::GMaterial& mat, const GPUWavefrontHitBuffers& hitBufs, int idx, const GHitRecord& rec,
     const GVec3& wo, const GVec3& wi, const GSampledWavelengths& wl)
 {
     const GPrincipledClosure& c = mat.principled;
-    const GCoatNFrames f = gpu_coatN_frames(c, hitBufs, idx, rec, wo);
+    GCoatNFrames f;
+    gpu_coatN_frames(c, hitBufs, idx, rec, wo, f);
     GPrincipledLobe lobes[kMaxPrincipledLobes];
     const int n = gpu_pr_assembleLobes<true>(c, rec, wo, lobes, &wl, f.nvC, f.nvS);
-    const int bm = c_wfTexBinding.matBumpCorrect[rec.materialId];
-    const float tBase = gpu_bumpShadowing(hitBufs, idx, rec.materialId, rec.normal, wi);
-    GSampledSpectrum sum(0.f);
-    for (int i = 0; i < n; ++i) {
-        const GPrincipledLobe& L = lobes[i];
-        if (L.isDelta) continue;
-        const float t = gpu_coatN_shadowing(L, f, rec, wi, bm, tBase);
-        if (t > 0.0f)
-            sum += gpu_pr_evalLobeSpectral(c, L, gpu_coatN_lobeFrame(L, f, rec), wo, wi, wl) * t;
-    }
-    return sum;
-}
-
-// gpu_principled_pdf with the coat / sheen frames.
-__device__ ASTRORAY_SHADE_NOINLINE inline float gpu_coatN_pdf(
-    const ::GMaterial& mat, const GPUWavefrontHitBuffers& hitBufs, int idx, const GHitRecord& rec,
-    const GVec3& wo, const GVec3& wi)
-{
-    const GPrincipledClosure& c = mat.principled;
-    const GCoatNFrames f = gpu_coatN_frames(c, hitBufs, idx, rec, wo);
-    GPrincipledLobe lobes[kMaxPrincipledLobes];
-    const int n = gpu_pr_assembleLobes<true>(c, rec, wo, lobes, nullptr, f.nvC, f.nvS);
     float W = 0.f;
     for (int i = 0; i < n; ++i) W += lobes[i].sel;
-    if (W <= 0.f) return 0.f;
-    float p = 0.f;
-    for (int i = 0; i < n; ++i)
-        if (!lobes[i].isDelta)
-            p += (lobes[i].sel / W) * gpu_pr_pdfLobe(c, lobes[i], gpu_coatN_lobeFrame(lobes[i], f, rec), wo, wi);
-    return p;
+    return gpu_coatN_mix(c, lobes, n, W, f, rec, wo, wi, wl);
 }
 
 // Replays the lobe-selection uniform gpu_coatN_sample_spectral already drew, so
@@ -1871,10 +1876,12 @@ __device__ inline float gpu_rng_uniform(GCoatNReplayRng* r)
 }
 
 // gpu_principled_sample + gpu_material_sample_spectral's Principled tail with the coat / sheen
-// frames (CPU: principled.cpp sampleSpectral; a coat / sheen lobe samples on Lobe::N). A
-// non-delta sample's fSpectral is gpu_coatN_eval_spectral (shadowing included, so the caller
-// does not apply gpu_bumpShadowing); a delta one is the generic eta^2-clamped upsample.
-// s.f is not read by the shade path; it carries the spectral mean so it stays nonzero.
+// frames (CPU: principled.cpp sampleSpectral; a coat / sheen lobe samples on Lobe::N). One lobe
+// assembly serves the selection, the pdf and the spectral eval (#1153 perf: was three assemblies
+// and two nested calls). A non-delta sample's fSpectral carries the per-closure bump shadowing,
+// so the caller does not apply gpu_bumpShadowing; a delta one is the generic eta^2-clamped
+// upsample. s.f is not read by the shade path; it carries the spectral mean so it stays nonzero.
+// #1178: the sampled lobe is lobes[ds.lobe] (s.label goes here).
 __device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_coatN_sample_spectral(
     const ::GMaterial& mat, const GPUWavefrontHitBuffers& hitBufs, int idx, GHitRecord& rec,
     const GVec3& wo, const GSampledWavelengths& wl, WavefrontRNG* rng)
@@ -1882,9 +1889,10 @@ __device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_coatN_sample_spectral(
     GBSDFSample s;
     s.wi = rec.normal; s.f = GVec3(0.f); s.fSpectral = GSampledSpectrum(0.f); s.pdf = 0.f; s.isDelta = false;
     const GPrincipledClosure& c = mat.principled;
-    const GCoatNFrames f = gpu_coatN_frames(c, hitBufs, idx, rec, wo);
+    GCoatNFrames f;
+    gpu_coatN_frames(c, hitBufs, idx, rec, wo, f);
     GPrincipledLobe lobes[kMaxPrincipledLobes];
-    const int n = gpu_pr_assembleLobes<true>(c, rec, wo, lobes, nullptr, f.nvC, f.nvS);
+    const int n = gpu_pr_assembleLobes<true>(c, rec, wo, lobes, &wl, f.nvC, f.nvS);
     float W = 0.f;
     for (int i = 0; i < n; ++i) W += lobes[i].sel;
     if (W <= 0.f) return s;
@@ -1922,9 +1930,10 @@ __device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_coatN_sample_spectral(
             : gpu_rgbToSampledSpectrum(s.f, wl, mat.spectralMode);
         return s;
     }
-    s.pdf = gpu_coatN_pdf(mat, hitBufs, idx, rec, wo, s.wi);
+    const GCoatNEvalPdf ep = gpu_coatN_mix(c, lobes, n, W, f, rec, wo, s.wi, wl);
+    s.pdf = ep.pdf;
     if (s.pdf > 0.0f) {
-        s.fSpectral = gpu_coatN_eval_spectral(mat, hitBufs, idx, rec, wo, s.wi, wl);
+        s.fSpectral = ep.f;
         float mean = 0.f;
         for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) mean += s.fSpectral[i];
         s.f = GVec3(mean * (1.0f / G_SPECTRUM_SAMPLES));
@@ -1972,30 +1981,22 @@ __device__ __forceinline__ GBSDFSample gpu_shade_sample_spectral(
 // #1153 - HasNormalPerturb entry points: a coat-on-sd->N Principled (gpu_coatOnSdN) runs the
 // out-of-line coat / sheen frames with per-closure bump shadowing; every other material takes
 // the shared entry point times the #1154 whole-closure term (gpu_bumpShadowing), as before.
+// NEE: gpu_np_eval_lazyPdf returns f and, on the coat path, the pdf of the same single call
+// (pdf < 0 on the plain path: the caller evaluates it only when it needs it).
 template<bool HasPrincipled, bool HasAdd>
-__device__ __forceinline__ GSampledSpectrum gpu_np_eval_spectral(
+__device__ __forceinline__ GCoatNEvalPdf gpu_np_eval_lazyPdf(
     const ::GMaterial& mat, const GPUWavefrontHitBuffers& hitBufs, int idx, GHitRecord& rec,
     const GVec3& wo, const GVec3& wi, const GSampledWavelengths& wl)
 {
     if constexpr (HasPrincipled) {
-        if (gpu_coatOnSdN(mat, rec.materialId))
-            return gpu_coatN_eval_spectral(mat, hitBufs, idx, rec, wo, wi, wl);
+        if (gpu_coatOnSdN(mat, hitBufs, idx, rec))
+            return gpu_coatN_eval_pdf(mat, hitBufs, idx, rec, wo, wi, wl);
     }
-    GSampledSpectrum f = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi, wl);
-    f *= gpu_bumpShadowing(hitBufs, idx, rec.materialId, rec.normal, wi);
-    return f;
-}
-
-template<bool HasPrincipled, bool HasAdd>
-__device__ __forceinline__ float gpu_np_pdf(
-    const ::GMaterial& mat, const GPUWavefrontHitBuffers& hitBufs, int idx, const GHitRecord& rec,
-    const GVec3& wo, const GVec3& wi)
-{
-    if constexpr (HasPrincipled) {
-        if (gpu_coatOnSdN(mat, rec.materialId))
-            return gpu_coatN_pdf(mat, hitBufs, idx, rec, wo, wi);
-    }
-    return gpu_shade_pdf<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi);
+    GCoatNEvalPdf r;
+    r.f = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi, wl);
+    r.f *= gpu_bumpShadowing(hitBufs, idx, rec.materialId, rec.normal, wi);
+    r.pdf = -1.0f;
+    return r;
 }
 
 template<bool HasPrincipled, bool HasAdd>
@@ -2004,7 +2005,7 @@ __device__ __forceinline__ GBSDFSample gpu_np_sample_spectral(
     const GVec3& wo, GSampledWavelengths& wl, WavefrontRNG* rng)
 {
     if constexpr (HasPrincipled) {
-        if (gpu_coatOnSdN(mat, rec.materialId))
+        if (gpu_coatOnSdN(mat, hitBufs, idx, rec))
             return gpu_coatN_sample_spectral(mat, hitBufs, idx, rec, wo, wl, rng);
     }
     GBSDFSample s = gpu_shade_sample_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, wl, rng);
@@ -2054,12 +2055,27 @@ __device__ __forceinline__ bool gpu_env_nee_generate_impl(
     // direction on bsdfPdf>0 so a near-delta metal (f!=0, pdf==0) does not
     // double-count with its unweighted specular miss.
     float bsdfPdf;
-    if constexpr (NP) bsdfPdf = gpu_np_pdf<HasPrincipled, HasAdd>(mat, *hitBufs, idx, rec, wo, wi);
-    else bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi);
-    if (bsdfPdf <= 0.f) return true;
     GSampledSpectrum f_spec;
-    if constexpr (NP) f_spec = gpu_np_eval_spectral<HasPrincipled, HasAdd>(mat, *hitBufs, idx, rec, wo, wi, lambdas);
-    else f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi, lambdas);
+    if constexpr (NP) {
+        // #1153: the coat path returns f and pdf from one call; the plain path keeps pdf first.
+        bool coatN = false;
+        if constexpr (HasPrincipled) coatN = gpu_coatOnSdN(mat, *hitBufs, idx, rec);
+        if (coatN) {
+            const GCoatNEvalPdf e = gpu_coatN_eval_pdf(mat, *hitBufs, idx, rec, wo, wi, lambdas);
+            bsdfPdf = e.pdf;
+            if (bsdfPdf <= 0.f) return true;
+            f_spec = e.f;
+        } else {
+            bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi);
+            if (bsdfPdf <= 0.f) return true;
+            f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi, lambdas);
+            f_spec *= gpu_bumpShadowing(*hitBufs, idx, rec.materialId, rec.normal, wi);
+        }
+    } else {
+        bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi);
+        if (bsdfPdf <= 0.f) return true;
+        f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi, lambdas);
+    }
     if (f_spec.maxValue() <= 0.f) return true;
     // pkg258 (Terra item 6): COMPLEMENTARY power heuristic (Veach 1997). This
     // w(env,bsdf) plus the miss leg's w(bsdf,env) sum to EXACTLY one; the old
@@ -2764,16 +2780,21 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                     // samples in exchange for a lean ~100-reg shadow kernel
                     // (measured tradeoff per the blueprint).
                     GSampledSpectrum f_spec;
-                    if constexpr (HasNormalPerturb)  // #1154 bump_shadowing_term, #1153 coat frame
-                        f_spec = gpu_np_eval_spectral<HasPrincipled, HasAdd>(
+                    [[maybe_unused]] float npPdf = -1.0f;  // #1153: the coat path's pdf, same call
+                    if constexpr (HasNormalPerturb) {  // #1154 bump_shadowing_term, #1153 coat frame
+                        const GCoatNEvalPdf e = gpu_np_eval_lazyPdf<HasPrincipled, HasAdd>(
                             mat, hitBufs, idx, rec, wo, s.wi, lambdas);
-                    else
+                        f_spec = e.f;
+                        npPdf = e.pdf;
+                    } else {
                         f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(
                             mat, idx, rec, wo, s.wi, lambdas);
+                    }
                     if (f_spec.maxValue() > 0.f) {
                         float bsdfPdf;
                         if constexpr (HasNormalPerturb)
-                            bsdfPdf = gpu_np_pdf<HasPrincipled, HasAdd>(mat, hitBufs, idx, rec, wo, s.wi);
+                            bsdfPdf = npPdf >= 0.0f ? npPdf
+                                                    : gpu_shade_pdf<HasPrincipled, HasAdd>(mat, idx, rec, wo, s.wi);
                         else
                             bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd>(mat, idx, rec, wo, s.wi);
                         // Power heuristic (Veach 1997) — mirrors
@@ -2908,8 +2929,8 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                     for (int li = 0; li < G_SPECTRUM_SAMPLES; ++li) { one.lambda[li] = ph.lambda; }
                     float f;
                     if constexpr (HasNormalPerturb)  // #1154 / #1153 (CPU twin: evalSpectral)
-                        f = gpu_np_eval_spectral<HasPrincipled, false>(
-                            mat, hitBufs, idx, rec, wo, wi, one).v[0] / cosI;
+                        f = gpu_np_eval_lazyPdf<HasPrincipled, false>(
+                            mat, hitBufs, idx, rec, wo, wi, one).f.v[0] / cosI;
                     else
                         f = gpu_material_eval_spectral<HasPrincipled>(
                             mat, rec, wo, wi, one).v[0] / cosI;

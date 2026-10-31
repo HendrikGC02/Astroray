@@ -1993,6 +1993,11 @@ std::vector<float> cuda_wavefront_render(
     float* d_matBumpDistance = wfSync(matReuse, C.materialBumpDistance, res.materialBumpDistance);
     int*   d_matBumpCorrect  = wfSync(matReuse, C.materialBumpCorrect, res.materialBumpCorrect);  // #1154
     int*   d_matBumpProc     = wfSync(matReuse, C.materialBumpProc, res.materialBumpProc);  // #1153
+    // #1153 perf: null unless some material has a procedural Height, so the shade kernel's
+    // per-hit test is a constant-memory compare instead of a global load.
+    bool anyBumpProc = false;
+    for (size_t k = 1; k < res.materialBumpProc.size(); k += 3) anyBumpProc |= res.materialBumpProc[k] >= 0;
+    if (!anyBumpProc) d_matBumpProc = nullptr;
     if (res.hasTexture || res.hasNormalPerturb)
         setWavefrontTextureBinding(GWavefrontTextureBinding{
             d_textures, d_texelBuf, d_matTexId, d_matNormalTexId, d_matNormalStrength,

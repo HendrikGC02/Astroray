@@ -63,6 +63,8 @@ def main():
         assert cr is not None, "scene.custom_raytracer missing — addon not registered"
         cr.use_adaptive_sampling = False           # deterministic, colour-blind stop off
         cr.device_mode = "gpu" if a.mode == "astroray_gpu" else "cpu"
+        # Owner 2026-10-31: addon default is passthrough; Cycles parity compares like with like.
+        cr.dielectric_bounce_cap = "terminate"
         print(f"issue818: device_mode={cr.device_mode}")
 
     print(f"issue818: mode={a.mode} engine={scene.render.engine} "

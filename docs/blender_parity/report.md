@@ -8,7 +8,7 @@
 
 **Note:** Integer-literal socket names (e.g., MATH '0'/'1'/'2' positional) excluded from counts.
 
-**Astroray-only render setting (pkg325):** `dielectric_bounce_cap` (Astroray > Sampling > Glass Bounce Cap, `terminate` default = Cycles, or `passthrough`) has no Cycles counterpart and no matrix row; it is listed as an astroray-only row in `blender_addon/settings_map.py`. `passthrough` lets a path that reaches the bounce cap while crossing glass continue straight on (a null pass-through, not a refraction), bounded by the Transparent bounce limit.
+**Astroray-only render setting (pkg325):** `dielectric_bounce_cap` (Astroray > Sampling > Glass Bounce Cap, `passthrough` default, or `terminate` = Cycles; the parity harnesses force `terminate`) has no Cycles counterpart and no matrix row; it is listed as an astroray-only row in `blender_addon/settings_map.py`. `passthrough` lets a path that reaches the bounce cap while crossing glass continue straight on (a null pass-through, not a refraction), bounded by the Transparent bounce limit.
 
 ## Summary
 

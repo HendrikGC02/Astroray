@@ -33,6 +33,7 @@
 #include <array>
 #include <string>    // pkg242 — procedural-bake dedup key
 #include <cstdint>   // pkg242 — uintptr_t for the transform-aware bake key
+#include <thread>    // #1229 — parallel UV procedural bake
 
 #define CUDA_CHECK(call) do {                                               \
     cudaError_t _e = (call);                                                \
@@ -1117,23 +1118,43 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         const int nx = flat[0] ? 2 : (nFlat == 0 ? res : (nFlat == 1 ? 512 : 4096));
         const int ny = flat[1] ? 2 : (nFlat == 0 ? res : (nFlat == 1 ? 512 : 4096));
         const int nz = flat[2] ? 2 : (nFlat == 0 ? res : (nFlat == 1 ? 512 : 4096));
+        // #1229: a UV bake is 1024^2. At 64^2 a ~70 px card got about one NEAREST
+        // texel per pixel: Wave bands and warped Checker edges stair-stepped on GPU
+        // (v2_textures_opvm witnesses; emitters always bake, #962). A noise-free
+        // model of the nearest bake on that card puts the worst 8x8-tile bias at
+        // 2.8 % / 10 % (Wave / warped Checker) at 64^2, 0.5 % / 2.1 % at 512^2 and
+        // 0.2 % / 0.5 % at 1024^2 (Welch-1b margin: 1 %). The 1M evaluations run
+        // on every hardware thread (the CPU evaluators are const and already run
+        // under the OpenMP render loop). Every UV consumer of the bake shares it.
+        const int uvRes = 1024;
         GImageTexture desc;
         desc.offset = (int)r.textureTexels.size();
         desc.width  = res;
         desc.height = res;
         if (uvMode) {
+            desc.width = desc.height = uvRes;
             desc.depth = 1;  // 2D UV field → pkg186 image path verbatim
-            r.textureTexels.reserve(r.textureTexels.size() + (size_t)res * res);
-            for (int j = 0; j < res; ++j) {
-                float v = 1.0f - (j + 0.5f) / res;
-                for (int i = 0; i < res; ++i) {
-                    float u = (i + 0.5f) / res;
-                    // #962: full CPU UV-mode chain (Mapping, else legacy UV
-                    // transform) -- Texture::value(HitRecord) with p=(u,v,0).
-                    Vec3 c = tex->valueAtCoord(Vec2(u, v), Vec3(u, v, 0.0f));
-                    r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+            const size_t base = r.textureTexels.size();
+            r.textureTexels.resize(base + (size_t)uvRes * uvRes);
+            GVec3* texels = r.textureTexels.data() + base;
+            auto bakeRows = [&](int j0, int j1) {
+                for (int j = j0; j < j1; ++j) {
+                    float v = 1.0f - (j + 0.5f) / uvRes;
+                    for (int i = 0; i < uvRes; ++i) {
+                        float u = (i + 0.5f) / uvRes;
+                        // #962: full CPU UV-mode chain (Mapping, else legacy UV
+                        // transform) -- Texture::value(HitRecord) with p=(u,v,0).
+                        Vec3 c = tex->valueAtCoord(Vec2(u, v), Vec3(u, v, 0.0f));
+                        texels[(size_t)j * uvRes + i] = GVec3(c.x, c.y, c.z);
+                    }
                 }
-            }
+            };
+            const int nThreads = (int)std::max(1u, std::min(32u, std::thread::hardware_concurrency()));
+            std::vector<std::thread> pool;
+            for (int t = 1; t < nThreads; ++t)
+                pool.emplace_back(bakeRows, uvRes * t / nThreads, uvRes * (t + 1) / nThreads);
+            bakeRows(0, uvRes / nThreads);
+            for (std::thread& th : pool) th.join();
         } else if (objMode) {
             desc.depth = res;
             desc.objectCoord = 1;

@@ -11,23 +11,27 @@ digest per (scene, leg) seed stack so they can be re-verified).
 |---|---|---|
 | measured ceiling (every identity at matrix credit: SUPPORTED 1, APPROXIMATED 0.5, else 0) | 364 / 474 = **0.7679** | 0.7679 |
 | **S** (ceiling minus identities zeroed by failing audit witnesses) | 226 / 474 = **0.4768** | 220 / 474 = **0.4641** |
-| seed-to-seed spread of S (leave-one-seed-out, 8 verdict sets) | 0.0000 | 0.0000 |
+| seed-to-seed spread of S (max - min over the measured S and the 8 leave-one-seed-out scores) | 0.0000 | 0.0105 (5 / 474) |
 | one witness's weight (largest single witness, Principled on `v2_viewport/Grid100k`) | 43.5 / 474 = 0.0918 | 0.0918 |
-| margin = spread + one witness's weight | 0.0918 | 0.0918 |
-| **proposed threshold** = ceiling - margin (rounded down to 3 places) | **0.676 (UNSIGNED)** | **0.676 (UNSIGNED)** |
+| margin = spread + one witness's weight | 0.0918 | 0.1023 |
+| **proposed threshold** = ceiling - margin (rounded down to 3 places) | **0.676 (UNSIGNED)** | **0.665 (UNSIGNED)** |
 
 **The owner signs the threshold in the PR.** Until then `docs/blender_parity/evidence/gate_b/threshold_b.json` has `signed: null`, b2/b3
 fail and row (b) stays red. The proposed number is recorded there only as `proposed`.
 
-Reading. Measured S is below the proposed threshold on both backends (0.477 / 0.464 against 0.676), so signing 0.676 would leave (b)
-red until the failing witnesses are fixed or re-judged; the gap is 11 CPU and 15 GPU failing witnesses, listed below. The spread term is
-0 because no verdict changes when any one of the 8 seeds is dropped: the 11 CPU failures reject 1 to 1749 Holm tests, and the one
-marginal case (`RoughnessProg`, 1 of 192) fails in every 7-seed subset too. The margin is therefore only the one-witness term; if
-the owner thinks that is too tight or too loose, it is the one number to argue.
+Reading. Measured S is below the proposed threshold on both backends (0.477 / 0.464 against 0.676 / 0.665), so signing these would
+leave (b) red until the failing witnesses are fixed or re-judged; the gap is 11 CPU and 15 GPU failing witnesses, listed below. The CPU
+spread is 0: no verdict changes when any one of the 8 seeds is dropped (the one marginal case, `RoughnessProg`, 1 of 192, fails in every
+7-seed subset too). On GPU, `v2_thin_film_metals/Gold/Metallic` fails with all 8 seeds (1 of 108 Holm tests) but passes in every 7-seed
+subset, so the 8 leave-one-out scores are all 225 / 474 while the measured S is 220 / 474; the spread is therefore taken over the
+measured S as well, 5 / 474 = 0.0105. The margin is that spread plus the one-witness term; if the owner thinks it is too tight or too
+loose, it is the one number to argue.
 
 b-subchecks on candidate_v2: b1 FAIL (population not ratified; the b1 ratification file is still open), b2 FAIL and b3 FAIL (threshold
 unsigned), **b4 PASS (0 drops no warning names; was 19)**, b5 FAIL (Displacement is not in the corpus; Metallic and Principled
-have zero-credit identities: 13 dropped-silent uses weighing 26), b6 PASS. nine_scene (legacy): S = 1/469 = 0.0021 on both, 1 silent
+have zero-credit identities: 13 dropped-silent uses weighing 26), **b6 FAIL** (computed, no longer hard-coded: 590 CPU and 560 GPU
+nonzero (identity, scene, variant) uses have no PASSing audit witness with recorded seed-stack digests; the sampled audit links only its
+witnesses' own variants, so b6 as pkg278 words it needs either a witness per use or an owner redefinition for the sampled model). nine_scene (legacy): S = 1/469 = 0.0021 on both, 1 silent
 drop, red.
 
 ## Method
@@ -129,6 +133,6 @@ python benchmarks/reference_corpus/coverage_report.py --freeze-v5 --population c
 python benchmarks/reference_corpus/coverage_report.py --score --input-manifest docs/blender_parity/coverage_input_v5_candidate_v2.json --node-uses docs/blender_parity/evidence/gate_b/node_uses_v4_candidate_v2.json --out docs/blender_parity/evidence/gate_b/candidate_v2
 ```
 
-Gotchas found: `harness._find_blender` takes Blender 5.1 from PATH unless `BLENDER_EXE` is set; the matrix generator and the legs need
+Gotchas found: score in a clone made with `core.autocrlf=false` (CRLF checkout changes the pinned hashes); `harness._find_blender` takes Blender 5.1 from PATH unless `BLENDER_EXE` is set; the matrix generator and the legs need
 `ASTRORAY_PYD_DIR`. The earlier `coverage_input_v4_candidate_v2.json` is superseded by the v5 input and no longer scores (its matrix
 hash is stale); it is left in place as history.

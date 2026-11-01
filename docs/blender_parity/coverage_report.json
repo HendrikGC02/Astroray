@@ -1919,9 +1919,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMapRange|prop:clamp",
         "scenes": [
           "textures_mapping"
@@ -2364,9 +2364,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputMaterial|input:Thickness",
         "scenes": [
           "camera_lens",
@@ -2421,9 +2421,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputWorld|input:Surface",
         "scenes": [
           "camera_lens",
@@ -2459,9 +2459,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputWorld|prop:is_active_output",
         "scenes": [
           "camera_lens",
@@ -2776,9 +2776,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexEnvironment|input:Vector",
         "scenes": [
           "world_sky_hdri"
@@ -5762,9 +5762,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeMapRange|prop:clamp",
         "scenes": [
           "textures_mapping"
@@ -6207,9 +6207,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputMaterial|input:Thickness",
         "scenes": [
           "camera_lens",
@@ -6264,9 +6264,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputWorld|input:Surface",
         "scenes": [
           "camera_lens",
@@ -6302,9 +6302,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeOutputWorld|prop:is_active_output",
         "scenes": [
           "camera_lens",
@@ -6619,9 +6619,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
+        "cpu_reason": "no hash-verified evidence artifact for this backend",
         "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "gpu_reason": "no hash-verified evidence artifact for this backend",
         "identity": "ShaderNodeTexEnvironment|input:Vector",
         "scenes": [
           "world_sky_hdri"
@@ -7715,38 +7715,9 @@
     "required": 823
   },
   "schema": "pkg278.coverage_report.v1",
-  "silent_drop_count": 30,
+  "silent_drop_count": 1,
   "silent_drops": [
-    "ShaderNodeBsdfAnisotropic|input:Anisotropy",
-    "ShaderNodeBsdfAnisotropic|input:Normal",
-    "ShaderNodeBsdfAnisotropic|input:Rotation",
-    "ShaderNodeBsdfAnisotropic|input:Tangent",
-    "ShaderNodeBsdfAnisotropic|prop:distribution",
-    "ShaderNodeBsdfDiffuse|input:Normal",
-    "ShaderNodeBsdfGlass|input:Normal",
-    "ShaderNodeBsdfGlass|prop:distribution",
-    "ShaderNodeBsdfHairPrincipled|input:Random",
-    "ShaderNodeBsdfHairPrincipled|input:Random Roughness",
-    "ShaderNodeBsdfMetallic|input:Normal",
-    "ShaderNodeBsdfMetallic|input:Tangent",
-    "ShaderNodeBsdfPrincipled|input:Coat Normal",
-    "ShaderNodeBsdfPrincipled|input:Tangent",
-    "ShaderNodeBsdfPrincipled|prop:distribution",
-    "ShaderNodeBsdfPrincipled|prop:subsurface_method",
-    "ShaderNodeBsdfRefraction|input:Normal",
-    "ShaderNodeBsdfSheen|input:Normal",
-    "ShaderNodeBsdfSheen|prop:distribution",
-    "ShaderNodeBsdfTranslucent|input:Normal",
-    "ShaderNodeDisplacement|input:Normal",
-    "ShaderNodeMapRange|prop:clamp",
-    "ShaderNodeNewGeometry|output:Normal",
-    "ShaderNodeOutputMaterial|input:Thickness",
-    "ShaderNodeOutputWorld|input:Surface",
-    "ShaderNodeOutputWorld|prop:is_active_output",
-    "ShaderNodeTexEnvironment|input:Vector",
-    "ShaderNodeTexIES|input:Vector",
-    "ShaderNodeTexSky|prop:ground_albedo",
-    "ShaderNodeVolumePrincipled|input:Color Attribute"
+    "ShaderNodeTexIES|input:Vector"
   ],
   "status": "provisional",
   "subchecks": {
@@ -7756,47 +7727,22 @@
       "ratified": false
     },
     "b2_cpu_score": {
-      "min": 0.95,
+      "min": null,
       "pass": false,
-      "score": 0.0021321961620469083
+      "proposed": 0.676,
+      "score": 0.0021321961620469083,
+      "signed": false
     },
     "b3_gpu_score": {
-      "min": 0.95,
+      "min": null,
       "pass": false,
-      "score": 0.0021321961620469083
+      "proposed": 0.676,
+      "score": 0.0021321961620469083,
+      "signed": false
     },
     "b4_zero_silent_drops": {
       "drops": [
-        "ShaderNodeBsdfAnisotropic|input:Anisotropy",
-        "ShaderNodeBsdfAnisotropic|input:Normal",
-        "ShaderNodeBsdfAnisotropic|input:Rotation",
-        "ShaderNodeBsdfAnisotropic|input:Tangent",
-        "ShaderNodeBsdfAnisotropic|prop:distribution",
-        "ShaderNodeBsdfDiffuse|input:Normal",
-        "ShaderNodeBsdfGlass|input:Normal",
-        "ShaderNodeBsdfGlass|prop:distribution",
-        "ShaderNodeBsdfHairPrincipled|input:Random",
-        "ShaderNodeBsdfHairPrincipled|input:Random Roughness",
-        "ShaderNodeBsdfMetallic|input:Normal",
-        "ShaderNodeBsdfMetallic|input:Tangent",
-        "ShaderNodeBsdfPrincipled|input:Coat Normal",
-        "ShaderNodeBsdfPrincipled|input:Tangent",
-        "ShaderNodeBsdfPrincipled|prop:distribution",
-        "ShaderNodeBsdfPrincipled|prop:subsurface_method",
-        "ShaderNodeBsdfRefraction|input:Normal",
-        "ShaderNodeBsdfSheen|input:Normal",
-        "ShaderNodeBsdfSheen|prop:distribution",
-        "ShaderNodeBsdfTranslucent|input:Normal",
-        "ShaderNodeDisplacement|input:Normal",
-        "ShaderNodeMapRange|prop:clamp",
-        "ShaderNodeNewGeometry|output:Normal",
-        "ShaderNodeOutputMaterial|input:Thickness",
-        "ShaderNodeOutputWorld|input:Surface",
-        "ShaderNodeOutputWorld|prop:is_active_output",
-        "ShaderNodeTexEnvironment|input:Vector",
-        "ShaderNodeTexIES|input:Vector",
-        "ShaderNodeTexSky|prop:ground_albedo",
-        "ShaderNodeVolumePrincipled|input:Color Attribute"
+        "ShaderNodeTexIES|input:Vector"
       ],
       "pass": false
     },

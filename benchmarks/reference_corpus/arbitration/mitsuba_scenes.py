@@ -75,8 +75,89 @@ PARAMS = {
         "max_depth": 8,
         "anchor": {"roi": "wall_centre", "leg": "cpu"},
     },
+    # pkg327 Phase A chroma proxies: diffuse-only scenes lit by a uniform world (no lamps, so no lamp-unit calibration),
+    # for the spectral-vs-RGB ratio Mitsuba scalar_spectral / scalar_rgb vs Astroray / Cycles. ``world`` is linear sRGB.
+    "arb_chroma_bowl": {
+        "doc": "pkg327: the #1141 bowl (open sphere cap, albedo (0.05, 0.4, 0.55)) in a uniform white world.",
+        "floor_albedo": None,
+        "bowl": {"center": (0.0, 0.0, 0.85), "radius": 0.9, "cut_z": 0.35, "albedo": (0.05, 0.4, 0.55)},
+        "world": (1.0, 1.0, 1.0),
+        "camera": {"loc": (0.0, -3.4, 3.0), "target": (0.0, 0.1, 0.95), "lens": 40.0},
+        "max_depth": 8,
+        "anchor": None,
+    },
+    "arb_chroma_warm": {
+        "doc": "pkg327: wood-like albedo (0.49, 0.24, 0.08) floor + box occluder in a uniform white world.",
+        "floor_albedo": (0.49, 0.24, 0.08),
+        "box": {"center": (0.0, 0.5, 0.5), "dims": (1.2, 1.2, 1.0), "albedo": (0.49, 0.24, 0.08)},
+        "world": (1.0, 1.0, 1.0),
+        "camera": {"loc": (0.0, -3.6, 1.7), "target": (0.0, 0.3, 0.4), "lens": 28.0},
+        "max_depth": 8,
+        "anchor": None,
+    },
+    "arb_chroma_warm_sky": {
+        "doc": "pkg327: as arb_chroma_warm under a uniform coloured sky (the syferfontein HDRI's sun-less upper-sky mean).",
+        "floor_albedo": (0.49, 0.24, 0.08),
+        "box": {"center": (0.0, 0.5, 0.5), "dims": (1.2, 1.2, 1.0), "albedo": (0.49, 0.24, 0.08)},
+        "world": (0.19, 0.27, 0.41),
+        "camera": {"loc": (0.0, -3.6, 1.7), "target": (0.0, 0.3, 0.4), "lens": 28.0},
+        "max_depth": 8,
+        "anchor": None,
+    },
+    "arb_chroma_warm_hdri": {
+        "doc": "pkg327: as arb_chroma_warm under the production syferfontein HDRI at strength 0.3 (no lamps): the illuminant the failing production scenes see.",
+        "floor_albedo": (0.49, 0.24, 0.08),
+        "box": {"center": (0.0, 0.5, 0.5), "dims": (1.2, 1.2, 1.0), "albedo": (0.49, 0.24, 0.08)},
+        "hdri": {"path": "benchmarks/reference_corpus/assets/syferfontein_18d_clear_1k.hdr", "strength": 0.3},
+        "camera": {"loc": (0.0, -3.6, 1.7), "target": (0.0, 0.3, 0.4), "lens": 28.0},
+        "max_depth": 8,
+        "anchor": None,
+    },
 }
+# The production stage's lighting (build_corpus._prod_stage): sun lamp 1.1 W/m2 at direction-to-sun (0.55, -0.35, 0.75) with angle 0.6 deg,
+# a 60 W 2 m square area lamp, the HDRI at strength 0.3. The sun is in physical units; the area lamp's Mitsuba scale is calibrated
+# against Cycles on a grey patch (``attribution.py calibrate-stage``, stored in calibration.json).
+_SUN_TO = (0.55, -0.35, 0.75)
+_SUN_N = math.sqrt(sum(c * c for c in _SUN_TO))
+STAGE = {
+    "sun": {"elev_deg": math.degrees(math.asin(_SUN_TO[2] / _SUN_N)),  # travel direction = -(direction to the sun)
+            "az_deg": math.degrees(math.atan2(-_SUN_TO[1], -_SUN_TO[0])), "angle_deg": 0.6, "strength": 1.1, "color": (1.0, 0.96, 0.9)},
+    "lamp": {"loc": (-3.2, -3.0, 3.2), "target": (0.0, 0.0, 0.9), "size": 2.0, "power_w": 60.0, "color": (1.0, 1.0, 1.0)},
+}
+PARAMS["arb_chroma_patches"] = {
+    "doc": "pkg327: coplanar diffuse floor patches (the minor-channel albedos of the failing production scenes + a grey control) under the production stage lighting.",
+    "floor_albedo": None,
+    "patches": [  # (name, centre x, albedo); light_path_floor = the RayLengthFloor ramp at the floor_near camera ray (4.5 m x 0.12 = 0.54); the *_sat patches are more saturated warm albedos than the ROI-mean chroma of the car-paint / pbr ROIs
+        ("grey", -4.5, (0.30, 0.30, 0.30)), ("wood_dark", -3.5, (0.20, 0.09, 0.03)), ("wood", -2.5, (0.49, 0.24, 0.08)),
+        ("wood_light", -1.5, (0.70, 0.45, 0.22)), ("light_path_floor", -0.5, (0.426, 0.277, 0.474)), ("cyan", 0.5, (0.05, 0.40, 0.55)),
+        ("car_paint", 1.5, (0.75, 0.33, 0.115)), ("pbr_lower", 2.5, (0.34, 0.16, 0.09)),
+        ("car_paint_sat", 3.5, (0.75, 0.10, 0.07)), ("pbr_lower_sat", 4.5, (0.45, 0.12, 0.05))],  # wood_dark/mid/light = the Wood Color Ramp stops
+    "stage": STAGE, "calibration": "arb_chroma_stage", "hdri": {"path": "benchmarks/reference_corpus/assets/syferfontein_18d_clear_1k.hdr", "strength": 0.3},
+    "camera": {"loc": (0.0, -4.4, 3.6), "target": (0.0, 0.0, 0.0), "lens": 20.0},
+    "max_depth": 8, "anchor": None,
+}
+PARAMS["arb_chroma_bowl_stage"] = {
+    "doc": "pkg327: the #1141 bowl (constant cyan albedo, smooth) on the production stage floor under the production stage lighting.",
+    "floor_albedo": (0.3, 0.3, 0.29),
+    "bowl": {"center": (0.0, 0.0, 0.85), "radius": 0.9, "cut_z": 0.35, "albedo": (0.05, 0.4, 0.55)},
+    "stage": STAGE, "calibration": "arb_chroma_stage", "hdri": {"path": "benchmarks/reference_corpus/assets/syferfontein_18d_clear_1k.hdr", "strength": 0.3},
+    "camera": {"loc": (0.0, -4.4, 2.6), "target": (0.0, 0.0, 0.6), "lens": 45.0},
+    "max_depth": 8, "anchor": None,
+}
+# The production hero sphere (build_corpus._prod_object_sphere: centre (0, 0, 0.9), r 0.9) with one constant diffuse albedo, on the stage
+# floor, under the stage lighting, from the production camera; ROIs are the production ones (direction (dx, -1, dz) from the centre).
+for _name, _albedo, _rois in (
+        ("wood", (0.49, 0.24, 0.08), {"grain_center": (0.0, 0.1), "grain_left": (-0.55, 0.2), "grain_right": (0.5, -0.15), "lower": (-0.1, -0.5)}),
+        ("car", (0.75, 0.10, 0.07), {"lit_front": (-0.15, 0.25), "limb_grazing": (0.62, 0.05), "lower_shadowed": (0.1, -0.55), "upper_flake": (-0.4, 0.55)}),
+        ("pbr", (0.45, 0.12, 0.05), {"centre": (0.0, 0.05), "left": (-0.5, 0.3), "right": (0.5, -0.1), "lower": (-0.15, -0.5)})):
+    PARAMS[f"arb_chroma_hero_{_name}"] = {
+        "doc": f"pkg327: the production hero sphere with a constant diffuse albedo {_albedo} on the stage floor, stage lighting, production camera and ROIs.",
+        "floor_albedo": (0.3, 0.3, 0.29), "hero": {"center": (0.0, 0.0, 0.9), "radius": 0.9, "albedo": _albedo, "rois": _rois},
+        "stage": STAGE, "calibration": "arb_chroma_stage", "hdri": {"path": "benchmarks/reference_corpus/assets/syferfontein_18d_clear_1k.hdr", "strength": 0.3},
+        "camera": {"loc": (0.0, -4.6, 1.5), "target": (0.0, 0.0, 0.85), "lens": 45.0},
+        "max_depth": 8, "anchor": None}
 SCENES = tuple(PARAMS)
+CHROMA_SCENES = tuple(s for s in PARAMS if s.startswith("arb_chroma_"))
 
 
 def prism_triangles(p: dict):
@@ -116,6 +197,52 @@ def write_prism_obj(p: dict, path: Path) -> Path:
     return path
 
 
+def bowl_triangles(p: dict, segments: int = 96, rings: int = 48):
+    """Triangle list (outward windings) of the open sphere cap of ``PARAMS[...]["bowl"]``: the part of the sphere with
+    z <= center.z + cut_z, as in the #1141 curves bowl (icosphere r 0.9 with the faces above local z 0.35 deleted).
+    Shared by Mitsuba (OBJ) and the Blender builder (from_pydata), so both render the same facets."""
+    c, r = p["center"], p["radius"]
+    top = math.asin(p["cut_z"] / r)
+    lat = [-math.pi / 2 + k * (top + math.pi / 2) / rings for k in range(rings + 1)]
+
+    def v(k, j):
+        a = 2.0 * math.pi * j / segments
+        return (c[0] + r * math.cos(lat[k]) * math.cos(a), c[1] + r * math.cos(lat[k]) * math.sin(a), c[2] + r * math.sin(lat[k]))
+
+    tris = []
+    for k in range(rings):
+        for j in range(segments):
+            j1 = (j + 1) % segments
+            if k == 0:
+                tris.append((v(0, 0), v(1, j), v(1, j1)))
+            else:
+                tris += [(v(k, j), v(k + 1, j), v(k + 1, j1)), (v(k, j), v(k + 1, j1), v(k, j1))]
+    out = []
+    for a, b, cc in tris:  # outward = away from the sphere centre
+        n = [(b[1] - a[1]) * (cc[2] - a[2]) - (b[2] - a[2]) * (cc[1] - a[1]),
+             (b[2] - a[2]) * (cc[0] - a[0]) - (b[0] - a[0]) * (cc[2] - a[2]),
+             (b[0] - a[0]) * (cc[1] - a[1]) - (b[1] - a[1]) * (cc[0] - a[0])]
+        mid = [(a[i] + b[i] + cc[i]) / 3.0 - c[i] for i in range(3)]
+        out.append((a, b, cc) if sum(n[i] * mid[i] for i in range(3)) > 0 else (a, cc, b))
+    return out
+
+
+def write_bowl_obj(p: dict, path: Path) -> Path:
+    tris = bowl_triangles(p)
+    lines = []
+    for a, b, c in tris:
+        lines += [f"v {a[0]} {a[1]} {a[2]}", f"v {b[0]} {b[1]} {b[2]}", f"v {c[0]} {c[1]} {c[2]}"]
+    lines += [f"f {3 * i + 1} {3 * i + 2} {3 * i + 3}" for i in range(len(tris))]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def hero_point(h: dict, dx: float, dz: float):
+    """World point on the camera-facing side of the hero sphere along (dx, -1, dz) from its centre (build_corpus._prod_sphere_pt)."""
+    d = math.sqrt(dx * dx + 1.0 + dz * dz)
+    return tuple(h["center"][i] + h["radius"] * v / d for i, v in enumerate((dx, -1.0, dz)))
+
+
 def sun_direction(s: dict):
     """Unit vector the sunlight travels along (showcase.build_glass convention)."""
     e, a = math.radians(s["elev_deg"]), math.radians(s["az_deg"])
@@ -143,13 +270,13 @@ def calibration() -> dict:
 
 
 def build_dict(sid: str, mi, work: Path, res=RES, spp: int = 64, lamp_scale: float | None = None,
-               prism_bsdf: str = "sellmeier") -> dict:
+               prism_bsdf: str = "sellmeier", hdri: str | None = None, keep: tuple | None = None) -> dict:
     """The ``mi.load_dict`` dictionary of one arbitration scene."""
     p = PARAMS[sid]
     cam = p["camera"]
     fov = math.degrees(2.0 * math.atan(SENSOR_MM / (2.0 * cam["lens"])))
     T = mi.ScalarTransform4f
-    scale = lamp_scale if lamp_scale is not None else calibration().get(sid, {}).get("lamp_scale", 1.0)
+    scale = lamp_scale if lamp_scale is not None else calibration().get(p.get("calibration", sid), {}).get("lamp_scale", 1.0)
     d = {
         "type": "scene",
         "integrator": {"type": "volpath", "max_depth": p["max_depth"], "rr_depth": 5},
@@ -160,9 +287,10 @@ def build_dict(sid: str, mi, work: Path, res=RES, spp: int = 64, lamp_scale: flo
             "film": {"type": "hdrfilm", "width": res[0], "height": res[1], "pixel_format": "rgb",
                      "rfilter": {"type": "box"}},
         },
-        "floor": {"type": "rectangle", "to_world": T().translate([0, 0, 0]).scale([20.0, 20.0, 1.0]),
-                  "bsdf": {"type": "diffuse", "reflectance": {"type": "rgb", "value": list(p["floor_albedo"])}}},
     }
+    if p["floor_albedo"] is not None:
+        d["floor"] = {"type": "rectangle", "to_world": T().translate([0, 0, 0]).scale([20.0, 20.0, 1.0]),
+                      "bsdf": {"type": "diffuse", "reflectance": {"type": "rgb", "value": list(p["floor_albedo"])}}}
     if sid == "arb_prism_sun":
         pr, s = p["prism"], p["sun"]
         obj = write_prism_obj(pr, work / "prism.obj")
@@ -191,6 +319,38 @@ def build_dict(sid: str, mi, work: Path, res=RES, spp: int = 64, lamp_scale: flo
                                     "sigma_t": {"type": "uniform", "value": 1.0}, "scale": c["density"],
                                     "phase": {"type": "hg", "g": c["anisotropy"]}}}
         d["lamp"] = _rect_lamp(lp, T, {"type": "rgb", "value": [k * scale for k in lp["color"]]})
+    elif sid in CHROMA_SCENES:
+        if "hdri" in p:  # Blender's equirect convention (Cycles direction_to_equirectangular): local (x, y, z) = world (Y, Z, X)
+            d["env"] = {"type": "envmap", "filename": hdri or str(HERE.parents[2] / p["hdri"]["path"]), "scale": p["hdri"]["strength"],
+                        "to_world": T([[0, 0, 1, 0], [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1]])}
+        else:
+            d["env"] = {"type": "constant", "radiance": {"type": "rgb", "value": list(p["world"])}}
+        if "bowl" in p:  # two-sided diffuse: the camera sees the concave inside; Cycles' Diffuse BSDF is two-sided
+            d["bowl"] = {"type": "obj", "filename": str(write_bowl_obj(p["bowl"], work / "bowl.obj")), "face_normals": True,
+                         "bsdf": {"type": "twosided", "bsdf": {"type": "diffuse", "reflectance": {"type": "rgb", "value": list(p["bowl"]["albedo"])}}}}
+        for name, cx, albedo in p.get("patches", ()):
+            d[f"patch_{name}"] = {"type": "rectangle", "to_world": T().translate([cx, 0.0, 0.0]).scale([0.5, 0.5, 1.0]),
+                                  "bsdf": {"type": "diffuse", "reflectance": {"type": "rgb", "value": list(albedo)}}}
+        if "stage" in p:
+            st = p["stage"]
+            dist, half = 1.0e4, math.radians(st["sun"]["angle_deg"] / 2.0)  # as arb_prism_sun's sun
+            dvec = sun_direction(st["sun"])
+            e_norm = math.pi * math.sin(half) ** 2
+            d["sun"] = {"type": "sphere", "center": [-dist * c for c in dvec], "radius": dist * math.sin(half),
+                        "emitter": {"type": "area", "radiance": {"type": "rgb", "value": [c * st["sun"]["strength"] / e_norm for c in st["sun"]["color"]]}}}
+            d["lamp"] = _rect_lamp(st["lamp"], T, {"type": "rgb", "value": [k * scale for k in st["lamp"]["color"]]})
+        if "hero" in p:
+            h = p["hero"]
+            d["hero"] = {"type": "sphere", "center": list(h["center"]), "radius": h["radius"],
+                         "bsdf": {"type": "diffuse", "reflectance": {"type": "rgb", "value": list(h["albedo"])}}}
+        if keep is not None:  # pkg327: lighting-component calibration (sun / lamp / env), the rest switched off
+            for name, part in (("sun", "sun"), ("lamp", "area"), ("env", "world")):
+                if name in d and part not in keep:
+                    del d[name]
+        if "box" in p:
+            b = p["box"]
+            d["box"] = {"type": "cube", "to_world": T().translate(list(b["center"])).scale([x / 2.0 for x in b["dims"]]),
+                        "bsdf": {"type": "diffuse", "reflectance": {"type": "rgb", "value": list(b["albedo"])}}}
     else:
         lp = p["lamp"]
         d["wall"] = {"type": "rectangle", "to_world": T().translate([0, p["wall_y"], 2.0]).rotate([1, 0, 0], 90.0).scale([10.0, 3.0, 1.0]),
@@ -267,16 +427,17 @@ def register_dispersive_dielectric(mi, dr):
 
 
 def render_scene(sid: str, spp: int, seed: int, res, work: Path, variant: str = "cuda_ad_spectral",
-                 lamp_scale: float | None = None, prism_bsdf: str = "sellmeier"):
+                 lamp_scale: float | None = None, prism_bsdf: str = "sellmeier", hdri: str | None = None, keep: tuple | None = None):
     """(HxWx3 TensorXf image, render-only seconds). Wavefronts above ~2^24 lanes are split into spp chunks with
     decorrelated seeds (a 1280x720 x 320 spp wavefront does not fit in GPU memory). No numpy here: the Mitsuba venv
     has none, so the image leaves as raw float32 that the driver reads."""
     import drjit as dr
     import mitsuba as mi
     mi.set_variant(variant)
-    register_dispersive_dielectric(mi, dr)
+    if sid == "arb_prism_sun":
+        register_dispersive_dielectric(mi, dr)
     chunk = max(1, min(spp, (1 << 24) // (res[0] * res[1])))
-    scene = mi.load_dict(build_dict(sid, mi, work, res, chunk, lamp_scale, prism_bsdf))
+    scene = mi.load_dict(build_dict(sid, mi, work, res, chunk, lamp_scale, prism_bsdf, hdri, keep))
     acc, done, t = None, 0, 0.0
     while done < spp:
         k = min(chunk, spp - done)
@@ -303,12 +464,14 @@ def main(argv=None):
     ap.add_argument("--lamp-scale", type=float, default=None, help="override the calibrated lamp scale (calibration run)")
     ap.add_argument("--prism-bsdf", choices=("sellmeier", "const_plugin", "builtin"), default="sellmeier",
                     help="validation: const_plugin = the dispersive plugin at constant IOR, builtin = stock dielectric")
+    ap.add_argument("--keep", default=None, help="pkg327: comma-separated lighting parts to keep (sun,area,world); default all")
+    ap.add_argument("--hdri", default=None, help="pkg327: replace the HDRI of an arb_chroma_*_hdri scene (attribution HDRI)")
     a = ap.parse_args(argv)
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     res = (round(RES[0] * a.res_percent / 100), round(RES[1] * a.res_percent / 100))
     try:
-        img, secs = render_scene(a.scene, a.spp, a.seed, res, out.parent, a.variant, a.lamp_scale, a.prism_bsdf)
+        img, secs = render_scene(a.scene, a.spp, a.seed, res, out.parent, a.variant, a.lamp_scale, a.prism_bsdf, a.hdri, tuple(a.keep.split(",")) if a.keep else None)
     except Exception as exc:  # noqa: BLE001 - the driver keys on the sentinel
         import traceback
         traceback.print_exc()

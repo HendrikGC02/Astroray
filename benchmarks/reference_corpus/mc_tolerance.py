@@ -180,6 +180,7 @@ def render(sid: str, leg: str, seed: int, spp: int, stem: Path, threads: int = 8
         cmd += ["--cycles-leg-device", "gpu"]
     if res_percent is not None:
         cmd += ["--res-percent", str(res_percent)]
+    cmd += list(extra)  # pkg327: e.g. ("--attrib-spec", json)
     env = dict(os.environ, OMP_NUM_THREADS=str(threads))
     stem.parent.mkdir(parents=True, exist_ok=True)
     for _ in range(3):  # Blender 5.2 rarely dies in BKE_image_render_write_exr (no sentinel printed): retry a crash

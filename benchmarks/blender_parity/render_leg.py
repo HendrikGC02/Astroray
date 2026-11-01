@@ -539,6 +539,116 @@ def _gate_b_graph(repo_root: Path, case: dict):
             "match_count": len(matched), "matches": matched, "collection_errors": errors}
 
 
+# pkg327 Phase A: chroma-attribution controls (evidence only; never part of a gate).  ``--attrib-spec`` is a JSON list
+# of {"kind": ..., ...}; each is applied before the render, receipted on a ``PKG327_ATTRIB`` line, and raises if it
+# would change nothing (a no-op control proves nothing).
+#   albedo_grey      {material, level}  every Principled Base Color of the material (node groups included) -> grey
+#   albedo_const     {material, rgb}    same, to a constant colour (the #1199 R-only albedo sweep)
+#   lambertian       {material}         Principled: roughness 1, specular/coat/sheen/transmission/metallic 0
+#   lights_only      {keep: [sun|area|world]} every other lamp / the world is switched off (lighting-component calibration)
+#   world_hdri       {path}             world Environment Texture image -> this file (an attribution HDRI, e.g. a smoothed sun)
+#   world_flat_white {level?}           world Background -> white, strength = old strength x HDRI solid-angle-mean luminance
+def _principled_nodes(tree, seen=None):
+    seen = set() if seen is None else seen
+    if tree is None or tree.name in seen:
+        return
+    seen.add(tree.name)
+    for node in tree.nodes:
+        if node.bl_idname == "ShaderNodeBsdfPrincipled":
+            yield tree, node
+        elif node.bl_idname == "ShaderNodeGroup":
+            yield from _principled_nodes(node.node_tree, seen)
+
+
+def _set_input(tree, sock, value):
+    """Unlink (if linked) and set a socket; returns True when anything changed."""
+    was_linked = sock.is_linked
+    for link in list(sock.links):
+        tree.links.remove(link)
+    before = sock.default_value
+    try:
+        before = list(before)
+    except TypeError:
+        pass
+    sock.default_value = value
+    after = sock.default_value
+    try:
+        after = list(after)
+    except TypeError:
+        pass
+    return was_linked or before != after
+
+
+def _attrib_control(bpy, spec):
+    import numpy as np
+
+    kind = spec["kind"]
+    receipt = {"kind": kind, **{k: v for k, v in spec.items() if k != "kind"}}
+    if kind in ("albedo_grey", "albedo_const", "lambertian"):
+        mat = bpy.data.materials.get(spec.get("material"))
+        nodes = list(_principled_nodes(mat.node_tree)) if mat is not None and mat.node_tree else []
+        if not nodes:
+            raise ValueError(f"pkg327 {kind}: material {spec.get('material')!r} has no Principled BSDF")
+        changed = 0
+        for tree, node in nodes:
+            if kind == "lambertian":
+                for name, value in (("Roughness", 1.0), ("Specular IOR Level", 0.0), ("Coat Weight", 0.0),
+                                    ("Sheen Weight", 0.0), ("Transmission Weight", 0.0), ("Metallic", 0.0)):
+                    changed += _set_input(tree, node.inputs[name], value)
+            else:
+                rgb = [float(spec["level"])] * 3 if kind == "albedo_grey" else [float(c) for c in spec["rgb"]]
+                changed += _set_input(tree, node.inputs["Base Color"], (*rgb, 1.0))
+        if not changed:
+            raise ValueError(f"pkg327 {kind} on {spec['material']!r} would be a no-op")
+        receipt["principled_nodes"] = [n.name for _, n in nodes]
+    elif kind == "lights_only":
+        keep = set(spec["keep"])
+        off = []
+        for obj in bpy.context.scene.objects:
+            if obj.type == "LIGHT" and obj.data.type.lower() not in keep:
+                obj.data.energy = 0.0
+                off.append(obj.name)
+        bg = next((n for n in bpy.context.scene.world.node_tree.nodes if n.bl_idname == "ShaderNodeBackground"), None)
+        if "world" not in keep and bg is not None:
+            bg.inputs["Strength"].default_value = 0.0
+            off.append("world")
+        if not off:
+            raise ValueError("pkg327 lights_only would be a no-op")
+        receipt["switched_off"] = off
+    elif kind == "world_hdri":
+        world = bpy.context.scene.world
+        env = next((n for n in world.node_tree.nodes if n.bl_idname == "ShaderNodeTexEnvironment"), None) if world else None
+        if env is None or env.image is None or not Path(spec["path"]).is_file():
+            raise ValueError("pkg327 world_hdri: no Environment Texture image to replace, or the file is absent")
+        before = env.image.filepath
+        env.image = bpy.data.images.load(str(spec["path"]), check_existing=False)
+        receipt.update({"image_before": before, "image_after": env.image.filepath,
+                        "sha256": hashlib.sha256(Path(spec["path"]).read_bytes()).hexdigest()})
+    elif kind == "world_flat_white":
+        world = bpy.context.scene.world
+        bg = next((n for n in world.node_tree.nodes if n.bl_idname == "ShaderNodeBackground"), None) if world else None
+        env = next((n for n in world.node_tree.nodes if n.bl_idname == "ShaderNodeTexEnvironment"), None) if world else None
+        if bg is None or env is None or env.image is None or not bg.inputs["Color"].is_linked:
+            raise ValueError("pkg327 world_flat_white: the world is not Background <- Environment Texture")
+        w, h = env.image.size
+        px = np.empty(w * h * 4, dtype=np.float32)
+        env.image.pixels.foreach_get(px)
+        px = px.reshape(h, w, 4)
+        lum = px[..., 0] * 0.2126 + px[..., 1] * 0.7152 + px[..., 2] * 0.0722
+        wt = np.cos((np.arange(h) + 0.5) / h * np.pi - np.pi / 2)[:, None]  # solid angle per equirect row
+        mean_lum = float((lum * wt).sum() / (wt.sum() * w))
+        old = float(bg.inputs["Strength"].default_value)
+        _set_input(world.node_tree, bg.inputs["Color"], (1.0, 1.0, 1.0, 1.0))
+        world.node_tree.nodes.remove(env)  # the Astroray addon finds the environment texture by node type, not by link
+        bg.inputs["Strength"].default_value = float(spec["level"]) if "level" in spec else old * mean_lum
+        receipt.update({"env_node_removed": True, "hdri_mean_luminance": mean_lum, "strength_before": old,
+                        "strength_after": float(bg.inputs["Strength"].default_value)})
+    else:
+        raise ValueError(f"pkg327: unknown attribution control {kind!r}")
+    receipt["ok"] = True
+    return receipt
+
+
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     p = argparse.ArgumentParser()
@@ -593,6 +703,9 @@ def main():
     p.add_argument("--max-bounces", type=int, default=None,
                    help="pkg324: set scene.cycles.max_bounces and the diffuse/glossy/transmission/transparent caps "
                         "(bounce-cap A/B renders); default: as authored")
+    p.add_argument("--attrib-spec", default="",
+                   help="pkg327: JSON list of attribution controls (albedo_grey / albedo_const / lambertian / "
+                        "world_hdri / world_flat_white), applied before the render and receipted on a PKG327_ATTRIB line")
     p.add_argument("--print-build", action="store_true",
                    help="pkg323: print the loaded Astroray build id and module/addon hashes, then exit")
     p.add_argument("--report-only", action="store_true",
@@ -674,6 +787,8 @@ def main():
                 bpy, args.category, args.feature, args.bl_idname, engine=args.engine)
 
         graph = _gate_b_graph(repo_root, gate_b_case) if gate_b_case else None
+        if args.attrib_spec:
+            print("PKG327_ATTRIB " + json.dumps([_attrib_control(bpy, c) for c in json.loads(args.attrib_spec)]), flush=True)
 
         control = None
         role = None

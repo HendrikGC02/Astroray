@@ -1,0 +1,292 @@
+[
+ {
+  "scene": "prod_curves_geometry",
+  "roi": "inner_backface",
+  "channel": "r",
+  "cpu_tol": 0.084,
+  "baseline": [
+   0.857,
+   0.007
+  ],
+  "seed278": 0.844,
+  "per_seed": [
+   0.844,
+   0.877,
+   0.853,
+   0.855
+  ],
+  "albedo_grey": [
+   1.002,
+   0.007
+  ],
+  "world_flat_white": [
+   0.457,
+   0.003
+  ],
+  "grey_flat": [
+   1.006,
+   0.002
+  ]
+ },
+ {
+  "scene": "prod_wood",
+  "roi": "grain_center",
+  "channel": "b",
+  "cpu_tol": 0.026,
+  "baseline": [
+   0.941,
+   0.003
+  ],
+  "seed278": 0.932,
+  "per_seed": [
+   0.932,
+   0.94,
+   0.957,
+   0.935
+  ],
+  "albedo_grey": [
+   1.0,
+   0.007
+  ],
+  "world_flat_white": [
+   0.992,
+   0.001
+  ],
+  "grey_flat": [
+   0.997,
+   0.001
+  ]
+ },
+ {
+  "scene": "prod_wood",
+  "roi": "grain_center",
+  "channel": "r",
+  "cpu_tol": 0.024,
+  "baseline": [
+   0.972,
+   0.005
+  ],
+  "seed278": 0.953,
+  "per_seed": [
+   0.953,
+   0.978,
+   0.994,
+   0.981
+  ],
+  "albedo_grey": [
+   1.0,
+   0.009
+  ],
+  "world_flat_white": [
+   0.996,
+   0.001
+  ],
+  "grey_flat": [
+   0.996,
+   0.001
+  ]
+ },
+ {
+  "scene": "prod_wood",
+  "roi": "grain_left",
+  "channel": "b",
+  "cpu_tol": 0.042,
+  "baseline": [
+   0.979,
+   0.001
+  ],
+  "seed278": 0.979,
+  "per_seed": [
+   0.979,
+   0.981,
+   0.979,
+   0.983
+  ],
+  "albedo_grey": [
+   0.998,
+   0.002
+  ],
+  "world_flat_white": [
+   0.992,
+   0.002
+  ],
+  "grey_flat": [
+   0.997,
+   0.001
+  ]
+ },
+ {
+  "scene": "prod_wood",
+  "roi": "grain_right",
+  "channel": "b",
+  "cpu_tol": 0.045,
+  "baseline": [
+   0.938,
+   0.002
+  ],
+  "seed278": 0.932,
+  "per_seed": [
+   0.932,
+   0.947,
+   0.937,
+   0.943
+  ],
+  "albedo_grey": [
+   0.993,
+   0.003
+  ],
+  "world_flat_white": [
+   0.988,
+   0.001
+  ],
+  "grey_flat": [
+   0.997,
+   0.002
+  ]
+ },
+ {
+  "scene": "prod_wood",
+  "roi": "lower",
+  "channel": "b",
+  "cpu_tol": 0.027,
+  "baseline": [
+   0.947,
+   0.003
+  ],
+  "seed278": 0.937,
+  "per_seed": [
+   0.937,
+   0.95,
+   0.96,
+   0.948
+  ],
+  "albedo_grey": [
+   0.994,
+   0.003
+  ],
+  "world_flat_white": [
+   0.989,
+   0.001
+  ],
+  "grey_flat": [
+   0.995,
+   0.002
+  ]
+ },
+ {
+  "scene": "prod_car_paint",
+  "roi": "lit_front",
+  "channel": "b",
+  "cpu_tol": 0.031,
+  "baseline": [
+   0.929,
+   0.005
+  ],
+  "seed278": 0.93,
+  "per_seed": [
+   0.93,
+   0.927,
+   0.936,
+   0.921
+  ],
+  "albedo_grey": [
+   0.995,
+   0.005
+  ],
+  "world_flat_white": [
+   0.981,
+   0.003
+  ],
+  "grey_flat": [
+   0.995,
+   0.001
+  ]
+ },
+ {
+  "scene": "prod_car_paint",
+  "roi": "upper_flake",
+  "channel": "b",
+  "cpu_tol": 0.026,
+  "baseline": [
+   0.96,
+   0.004
+  ],
+  "seed278": 0.958,
+  "per_seed": [
+   0.958,
+   0.96,
+   0.957,
+   0.963
+  ],
+  "albedo_grey": [
+   0.995,
+   0.003
+  ],
+  "world_flat_white": [
+   0.983,
+   0.004
+  ],
+  "grey_flat": [
+   1.0,
+   0.003
+  ]
+ },
+ {
+  "scene": "prod_pbr_group",
+  "roi": "lower",
+  "channel": "b",
+  "cpu_tol": 0.056,
+  "baseline": [
+   0.926,
+   0.008
+  ],
+  "seed278": 0.905,
+  "per_seed": [
+   0.905,
+   0.942,
+   0.938,
+   0.922
+  ],
+  "albedo_grey": [
+   0.997,
+   0.007
+  ],
+  "world_flat_white": [
+   0.98,
+   0.003
+  ],
+  "grey_flat": [
+   0.992,
+   0.002
+  ]
+ },
+ {
+  "scene": "prod_light_path",
+  "roi": "floor_near",
+  "channel": "r",
+  "cpu_tol": 0.02,
+  "baseline": [
+   0.982,
+   0.002
+  ],
+  "seed278": 0.975,
+  "per_seed": [
+   0.975,
+   0.987,
+   0.989,
+   0.975
+  ],
+  "albedo_grey": [
+   0.997,
+   0.003
+  ],
+  "world_flat_white": [
+   0.987,
+   0.003
+  ],
+  "grey_flat": [
+   0.998,
+   0.003
+  ]
+ }
+]

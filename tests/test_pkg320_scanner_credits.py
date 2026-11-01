@@ -847,11 +847,11 @@ def test_report_only_attribute_reads_earn_no_credit_negative_fixture(tmp_path):
     assert not ({"interpolation", "projection", "alpha_mode"} & found)
 
 
-def test_real_texture_image_interpolation_is_report_only():
-    """The live instance: `_report_non_linear_interp` reads `interpolation` only to format its warning."""
+def test_real_texture_image_interpolation_is_consumed():
+    """The live instance, flipped by pkg234 (#1215): `_image_interpolation_mode` hands the node's Interpolation to
+    `set_texture_interpolation`, a real read (before, `_report_image_interpolation` only formatted a warning)."""
     found, _ = GEN.scan_object_image_evidence(_addon_namespace())
-    assert "interpolation" not in found
-    assert {"extension", "instance_type"} <= found
+    assert {"extension", "instance_type", "interpolation"} <= found
 
 
 FIXTURE_ROOT_FAIL_CLOSED = '''

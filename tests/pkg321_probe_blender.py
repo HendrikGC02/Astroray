@@ -685,6 +685,32 @@ def render(scene, out_dir, stem):
     return np.ascontiguousarray(px[::-1]), warn
 
 
+def _hit_uv_map(scene, obj):
+    """(RES, RES, 2) top-first map of the active UV layer under each pixel of the sphere scene (NaN = background).
+    pkg234: the order-term prediction in tests/test_pkg234_image_filtering.py weights the texture by the visible UVs."""
+    import mathutils
+    from mathutils.interpolate import poly_3d_calc
+    cam = scene.camera
+    mw = cam.matrix_world
+    inv = obj.matrix_world.inverted()
+    half = cam.data.sensor_width / (2.0 * cam.data.lens)
+    mesh, layer = obj.data, obj.data.uv_layers.active.data
+    uv = np.full((RES, RES, 2), np.nan, np.float32)
+    origin = inv @ mw.translation
+    for py in range(RES):
+        for px in range(RES):
+            nx, ny = ((px + 0.5) / RES) * 2.0 - 1.0, 1.0 - ((py + 0.5) / RES) * 2.0
+            d = (inv.to_3x3() @ (mw.to_3x3() @ mathutils.Vector((nx * half, ny * half, -1.0)))).normalized()
+            ok, loc, _n, fi = obj.ray_cast(origin, d)
+            if not ok:
+                continue
+            poly = mesh.polygons[fi]
+            w = poly_3d_calc([mesh.vertices[mesh.loops[i].vertex_index].co for i in poly.loop_indices], loc)
+            uv[py, px] = (sum(wi * layer[i].uv.x for wi, i in zip(w, poly.loop_indices)),
+                          sum(wi * layer[i].uv.y for wi, i in zip(w, poly.loop_indices)))
+    return uv
+
+
 def run_probe(pid, p, out_dir, scene_info):
     scene = bpy.context.scene
     res = {"id": pid, "node": p["node"]}
@@ -728,6 +754,8 @@ def run_probe(pid, p, out_dir, scene_info):
     res["notes"] = notes
     np.save(os.path.join(out_dir, f"{pid}_A.npy"), a)
     np.save(os.path.join(out_dir, f"{pid}_B.npy"), b)
+    if pid.startswith("img_interp"):
+        np.save(os.path.join(out_dir, f"{pid}_uv.npy"), _hit_uv_map(scene, scene_info["obj"]))
     return res
 
 

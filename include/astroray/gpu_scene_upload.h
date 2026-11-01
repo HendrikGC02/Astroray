@@ -124,6 +124,10 @@ struct SceneUploadResult {
     std::vector<float>         materialBumpDistance;
     // #1154 - Material::bumpCorrectionMode() of the decorator (0 = none).
     std::vector<int>           materialBumpCorrect;
+    // #1153 - procedural / op-VM Bump Height, 3 per material: {program id or -1,
+    // input 0 texId (-1 = no procedural bump), input 1 texId or -1}; the inputs are
+    // #1007 per-hit descriptors (astroray::gpuLowersBumpHeight).
+    std::vector<int>           materialBumpProc;
     bool                       hasNormalPerturb = false;
 
     // pkg219b — per-texel op-VM programs. `programs` holds each unique compiled

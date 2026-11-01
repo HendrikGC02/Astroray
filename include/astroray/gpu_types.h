@@ -786,6 +786,10 @@ struct GWavefrontTextureBinding {
     // kCorrectionBit, 0 = no Bump / Normal Map). Read ONLY inside HasNormalPerturb=true;
     // last so the fleet kernels' constant offsets of the fields above are unchanged.
     const int*           matBumpCorrect;
+    // #1153 - procedural / op-VM Bump Height, 3 ints per material {program id or -1, input 0
+    // texId (-1 = none), input 1 texId or -1} (SceneUploadResult::materialBumpProc); null when
+    // no material has one. Read ONLY inside HasNormalPerturb=true; appended last (see above).
+    const int*           matBumpProc;
 };
 
 // pkg197 — wavefront first-hit denoise-guide AOV binding. Published ONCE per
@@ -902,6 +906,12 @@ struct GGridMedium {
     const float* tempGrid;       // dense temperature block, x fastest (null = none)
     int   tempDim[3];            // nx, ny, nz
     int   tempBboxMin[3];        // index-space origin of the dense block
+    // #1032 — pkg267 majorant grid (supervoxel max density, x fastest) for the
+    // local-majorant segment direct light; null = global majorant only.
+    const float* majorant;
+    int   majRes[3];
+    float majBoundsMin[3];       // index-space bounds of the fine block
+    float majBoundsMax[3];
 };
 struct GWavefrontGridVolumeBinding {
     int count;                   // 0 (default) = no bounded media: fleet byte-identical
@@ -1144,12 +1154,20 @@ struct GNEEOcclusion {
 // ---------------------------------------------------------------------------
 // BSDF sample
 // ---------------------------------------------------------------------------
+// #1178/#1198: the sampled closure's scatter label, Cycles v5.2.0 ClosureLabel bit values
+// (kernel/types.h:329-342). Only the diffuse/glossy bits are reported: transmission is the
+// geometric side test and singular is isDelta. 0 = not reported (the integrator falls back to
+// the material class, Material::isGlossy / gpu_material_is_glossy). Shared by the CPU
+// BSDFSample/BSDFSampleSpectral (raytracer.h) and GBSDFSample below.
+enum : unsigned char { BSDF_LABEL_NONE = 0, BSDF_LABEL_DIFFUSE = 4, BSDF_LABEL_GLOSSY = 8 };
+
 struct GBSDFSample {
     GVec3 wi;
     GVec3 f;
     GSampledSpectrum fSpectral;
     float pdf;
     bool  isDelta;
+    unsigned char label = BSDF_LABEL_NONE;  // #1178: sits in isDelta's padding
 };
 
 // ---------------------------------------------------------------------------

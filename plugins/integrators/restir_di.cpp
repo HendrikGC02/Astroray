@@ -218,7 +218,10 @@ public:
             astroray::SampledSpectrum Le = grHitEmission(rec, lambdas, grHitG);
             if (!Le.isZero()) {
                 if (bounce == 0 || wasSpecular) color += throughput * Le;
-                break;
+                // #1186/#995: a pure emitter ends the path; emission + BSDF continues
+                // (pathTraceSpectral twin, Cycles shade_surface.h:817-868). Later bounces
+                // take this surface's light through NEE only, as for any other surface.
+                if (!rec.material->hasBSDF()) break;
             }
             if (bounce > maxDepth_) break;  // #1165: emission-only vertex (pathTraceSpectral twin)
             // #1150: transparent_max_bounces exhausted (pathTraceSpectral #1033 twin).

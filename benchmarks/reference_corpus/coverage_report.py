@@ -811,7 +811,13 @@ def extract_exercised_uses(node_trees: Mapping[str, Iterable[Mapping[str, Any]]]
 
 class IdentityMatrix(dict):
     """``{canonical identity: class}`` where a wildcard row (``<bl_idname>|input:*`` / ``|output:*``, the
-    group-structure nodes whose interface sockets are dynamic) answers every socket of that direction."""
+    group-structure nodes whose interface sockets are dynamic) answers every socket of that direction.
+
+    ``reported``: pkg328 -- identities every one of whose DROPPED-SILENT rows carries ``reported_at_runtime``
+    (the per-render DegradationReport names the drop). They keep the DROPPED class, so they earn no credit; b4
+    counts only the drops no warning names."""
+
+    reported: frozenset = frozenset()
 
     def get(self, key, default=None):
         value = super().get(key)
@@ -841,18 +847,24 @@ def matrix_identity_keys(row: Mapping[str, Any]) -> list[str]:
 
 def matrix_by_identity(matrix_rows: Iterable[Mapping[str, Any]]) -> dict[str, str]:
     """Worst-case classification per canonical identity."""
-    out: dict[str, str] = IdentityMatrix()
+    out = IdentityMatrix()
+    flagged: set[str] = set()
+    unflagged: set[str] = set()
     for row in matrix_rows:
         cls = str(row.get("classification") or "")
         for key in matrix_identity_keys(row):
             if key not in out or _CLASS_RANK.get(cls, -1) < _CLASS_RANK.get(out[key], 99):
                 out[key] = cls
+            if cls == DROPPED_SILENT:
+                (flagged if row.get("reported_at_runtime") else unflagged).add(key)
+    out.reported = frozenset(flagged - unflagged)
     return out
 
 
 def silent_drops(uses: Mapping[str, set[str]], matrix: Mapping[str, str]) -> list[str]:
-    """Exercised uses the matrix marks DROPPED-SILENT (b4 denominator)."""
-    return sorted(k for k in uses if matrix.get(k) == DROPPED_SILENT)
+    """Exercised uses the matrix marks DROPPED-SILENT and no runtime warning names (b4 denominator)."""
+    reported = getattr(matrix, "reported", frozenset())
+    return sorted(k for k in uses if matrix.get(k) == DROPPED_SILENT and k not in reported)
 
 
 # --------------------------------------------------------------------------- #

@@ -12,9 +12,9 @@
 
 ## Summary
 
-- **SUPPORTED**: 325 features
-- **APPROXIMATED**: 101 features
-- **DROPPED-SILENT**: 311 features ⚠️
+- **SUPPORTED**: 330 features
+- **APPROXIMATED**: 102 features
+- **DROPPED-SILENT**: 305 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 737 features
 
@@ -24,23 +24,23 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5686)
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5686)
-- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4174, line 4315)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5812)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5812)
+- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4271, line 4412)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5686)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5686)
-- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5686)
-- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5686)
-- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5686)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5686)
-- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5686)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5686)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5686)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5812)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5812)
+- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5812)
+- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5812)
+- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5812)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5812)
+- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5812)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5812)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5812)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -195,14 +195,13 @@ These features are silently ignored by the addon with no warning:
 - **HOLDOUT**: `input:Weight` — no handler in addon translation layer
 - **LIGHT_FALLOFF**: `input:Strength` — no handler in addon translation layer
 - **LIGHT_FALLOFF**: `input:Smooth` — no handler in addon translation layer
-- **MAP_RANGE**: `input:Steps` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS
-- **MAP_RANGE**: `input:Vector` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS
-- **MAP_RANGE**: `input:From Min[From_Min_FLOAT3]` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS
-- **MAP_RANGE**: `input:From Max[From_Max_FLOAT3]` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS
-- **MAP_RANGE**: `input:To Min[To_Min_FLOAT3]` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS
-- **MAP_RANGE**: `input:To Max[To_Max_FLOAT3]` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS
-- **MAP_RANGE**: `input:Steps[Steps_FLOAT3]` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS
-- **MAP_RANGE**: `prop:clamp` — property BOOLEAN
+- **MAP_RANGE**: `input:Steps` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)
+- **MAP_RANGE**: `input:Vector` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)
+- **MAP_RANGE**: `input:From Min[From_Min_FLOAT3]` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)
+- **MAP_RANGE**: `input:From Max[From_Max_FLOAT3]` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)
+- **MAP_RANGE**: `input:To Min[To_Min_FLOAT3]` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)
+- **MAP_RANGE**: `input:To Max[To_Max_FLOAT3]` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)
+- **MAP_RANGE**: `input:Steps[Steps_FLOAT3]` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)
 - **MAP_RANGE**: `prop:data_type` — property ENUM
 - **MIX**: `input:Factor[Factor_Vector]` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)
 - **MIX**: `input:A[A_Rotation]` — op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: FLOAT, RGBA, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): data_type not in ('RGBA', 'FLOAT', 'VECTOR') | data_type == 'VECTOR' and getattr(node, 'factor_mode', 'UNIFORM') != 'UNIFORM' | data_type == 'RGBA' | blend not in MIX_OPS | getattr(node, 'clamp_result', False) | not getattr(node, 'clamp_factor', True)
@@ -224,10 +223,6 @@ These features are silently ignored by the addon with no warning:
 - **OUTPUT_LINESTYLE**: `prop:target` — property ENUM
 - **OUTPUT_LINESTYLE**: `prop:use_alpha` — property BOOLEAN
 - **OUTPUT_LINESTYLE**: `prop:use_clamp` — property BOOLEAN
-- **OUTPUT_MATERIAL**: `input:Thickness` — root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6)
-- **OUTPUT_MATERIAL**: `prop:target` — property ENUM
-- **OUTPUT_WORLD**: `input:Surface` — root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6)
-- **OUTPUT_WORLD**: `prop:is_active_output` — property BOOLEAN
 - **OUTPUT_WORLD**: `prop:target` — property ENUM
 - **ShaderNodeRadialTiling**: `input:Vector` — no handler in addon translation layer
 - **ShaderNodeRadialTiling**: `input:Sides` — no handler in addon translation layer
@@ -258,7 +253,6 @@ These features are silently ignored by the addon with no warning:
 - **TANGENT**: `prop:direction_type` — property ENUM
 - **TEX_BRICK**: `prop:offset` — property FLOAT
 - **TEX_COORD**: `prop:from_instancer` — property BOOLEAN
-- **TEX_ENVIRONMENT**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **TEX_ENVIRONMENT**: `prop:interpolation` — property ENUM
 - **TEX_ENVIRONMENT**: `prop:projection` — property ENUM
 - **TEX_GABOR**: `input:Vector` — no handler in addon translation layer
@@ -271,7 +265,7 @@ These features are silently ignored by the addon with no warning:
 - **TEX_IES**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320) in _fold_light_scalar; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **TEX_IES**: `prop:mode` — property ENUM
 - **TEX_IMAGE**: `prop:extension` — property ENUM
-- **TEX_IMAGE**: `prop:interpolation` — property ENUM
+- **TEX_IMAGE**: `prop:interpolation` — property ENUM; pkg321 probe `img_interp` leaves the CPU render identical: dropped, reported at runtime (#1215)
 - **TEX_IMAGE**: `prop:projection` — property ENUM
 - **TEX_IMAGE**: `prop:projection_blend` — property FLOAT
 - **TEX_SKY**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6)
@@ -733,19 +727,19 @@ These features are silently ignored by the addon with no warning:
 | LAYER_WEIGHT | input:Normal | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value |
 | LIGHT_FALLOFF | input:Strength | DROPPED-SILENT | no handler in addon translation layer |
 | LIGHT_FALLOFF | input:Smooth | DROPPED-SILENT | no handler in addon translation layer |
-| MAP_RANGE | input:Value | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS |
-| MAP_RANGE | input:From Min | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS |
-| MAP_RANGE | input:From Max | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS |
-| MAP_RANGE | input:To Min | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS |
-| MAP_RANGE | input:To Max | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS |
-| MAP_RANGE | input:Steps | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS |
-| MAP_RANGE | input:Vector | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS |
-| MAP_RANGE | input:From Min[From_Min_FLOAT3] | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS |
-| MAP_RANGE | input:From Max[From_Max_FLOAT3] | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS |
-| MAP_RANGE | input:To Min[To_Min_FLOAT3] | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS |
-| MAP_RANGE | input:To Max[To_Max_FLOAT3] | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS |
-| MAP_RANGE | input:Steps[Steps_FLOAT3] | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS |
-| MAP_RANGE | prop:clamp | DROPPED-SILENT | property BOOLEAN |
+| MAP_RANGE | input:Value | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False) |
+| MAP_RANGE | input:From Min | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False) |
+| MAP_RANGE | input:From Max | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False) |
+| MAP_RANGE | input:To Min | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False) |
+| MAP_RANGE | input:To Max | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False) |
+| MAP_RANGE | input:Steps | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False) |
+| MAP_RANGE | input:Vector | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False) |
+| MAP_RANGE | input:From Min[From_Min_FLOAT3] | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False) |
+| MAP_RANGE | input:From Max[From_Max_FLOAT3] | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False) |
+| MAP_RANGE | input:To Min[To_Min_FLOAT3] | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False) |
+| MAP_RANGE | input:To Max[To_Max_FLOAT3] | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False) |
+| MAP_RANGE | input:Steps[Steps_FLOAT3] | DROPPED-SILENT | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False) |
+| MAP_RANGE | prop:clamp | SUPPORTED |  |
 | MAP_RANGE | prop:data_type | DROPPED-SILENT | property ENUM |
 | MAP_RANGE | prop:interpolation_type | SUPPORTED |  |
 | MAPPING | input:Vector | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; data-type-gated (accepted: POINT, VECTOR) -- other variants and configuration-specific restrictions (e.g. non-uniform VECTOR factor_mode) are not claimed by this socket-only matrix; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): vtype not in ('POINT', 'VECTOR') | not _socket_is_const(scl_in, (1.0, 1.0, 1.0)) | not _socket_is_const(rot_in, (0.0, 0.0, 0.0)) | vtype == 'POINT' and (not _socket_is_const(loc_in, (0.0, 0.0, 0.0))) |
@@ -805,12 +799,12 @@ These features are silently ignored by the addon with no warning:
 | OUTPUT_MATERIAL | input:Surface | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6) |
 | OUTPUT_MATERIAL | input:Volume | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6) |
 | OUTPUT_MATERIAL | input:Displacement | APPROXIMATED | root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6); partial: only a Displacement node is honoured (as bump); any other linked node is ignored silently (get_displacement_bump_inputs: `!= 'DISPLACEMENT'` -> return) (#1101 finding 3) |
-| OUTPUT_MATERIAL | input:Thickness | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| OUTPUT_MATERIAL | input:Thickness | SUPPORTED | pkg328 probe `o_thickness`: Cycles ignores the socket (bit-identical A/B) and so does Astroray |
 | OUTPUT_MATERIAL | prop:is_active_output | SUPPORTED |  |
-| OUTPUT_MATERIAL | prop:target | DROPPED-SILENT | property ENUM |
-| OUTPUT_WORLD | input:Surface | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| OUTPUT_MATERIAL | prop:target | SUPPORTED |  |
+| OUTPUT_WORLD | input:Surface | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6) |
 | OUTPUT_WORLD | input:Volume | APPROXIMATED | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6); partial: only Volume Scatter / Principled Volume are honoured; Volume Absorption and others are dropped silently (setup_world `volume_node.type in {...}`) (#1101 finding 3) |
-| OUTPUT_WORLD | prop:is_active_output | DROPPED-SILENT | property BOOLEAN |
+| OUTPUT_WORLD | prop:is_active_output | SUPPORTED |  |
 | OUTPUT_WORLD | prop:target | DROPPED-SILENT | property ENUM |
 | CURVE_RGB | input:Factor | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
 | CURVE_RGB | input:Color | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
@@ -864,7 +858,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_CHECKER | input:Color2 | SUPPORTED |  |
 | TEX_CHECKER | input:Scale | SUPPORTED |  |
 | TEX_COORD | prop:from_instancer | DROPPED-SILENT | property BOOLEAN |
-| TEX_ENVIRONMENT | input:Vector | DROPPED-SILENT | root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| TEX_ENVIRONMENT | input:Vector | APPROXIMATED | pkg321 probe `env_vector` moves the CPU render (consumed) |
 | TEX_ENVIRONMENT | prop:interpolation | DROPPED-SILENT | property ENUM |
 | TEX_ENVIRONMENT | prop:projection | DROPPED-SILENT | property ENUM |
 | TEX_GABOR | input:Vector | DROPPED-SILENT | no handler in addon translation layer |
@@ -881,7 +875,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_IES | prop:mode | DROPPED-SILENT | property ENUM |
 | TEX_IMAGE | input:Vector | APPROXIMATED | op-VM / vector-input path (pkg219/pkg223) |
 | TEX_IMAGE | prop:extension | DROPPED-SILENT | property ENUM |
-| TEX_IMAGE | prop:interpolation | DROPPED-SILENT | property ENUM |
+| TEX_IMAGE | prop:interpolation | DROPPED-SILENT | property ENUM; pkg321 probe `img_interp` leaves the CPU render identical: dropped, reported at runtime (#1215) |
 | TEX_IMAGE | prop:projection | DROPPED-SILENT | property ENUM |
 | TEX_IMAGE | prop:projection_blend | DROPPED-SILENT | property FLOAT |
 | TEX_MAGIC | input:Vector | SUPPORTED |  |

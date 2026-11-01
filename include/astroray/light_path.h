@@ -99,6 +99,20 @@ HD inline float light_path_output(unsigned char o, const PathContext& c) {
     }
 }
 
+// #1178/#1198 — Astroray's bounce class of a sampled scatter (0 diffuse, 1 glossy,
+// 2 transmission), shared by both backends. Cycles path_state_next (path_state.h:174-217,
+// v5.2.0) reads the SAMPLED closure's label: a transmission (here the geometric side test)
+// counts as transmission; a singular (delta) reflection as glossy; otherwise
+// LABEL_DIFFUSE / LABEL_GLOSSY decide. `label` is the sampler's BSDF_LABEL_* (gpu_types.h);
+// a sampler that reports none falls back to the material class `materialGlossy`.
+HD inline int bounce_class(bool transmitted, bool singular, unsigned label, bool materialGlossy) {
+    if (transmitted) return 2;
+    if (singular) return 1;
+    if (label & BSDF_LABEL_DIFFUSE) return 0;
+    if (label & BSDF_LABEL_GLOSSY) return 1;
+    return materialGlossy ? 1 : 0;
+}
+
 // Cycles path_state_next for a surface bounce. lobeCat is Astroray's bounce class
 // (0 diffuse, 1 glossy, 2 transmission: the pkg201 per-type bounce-limit
 // classifier, shared by both backends). A transmission ray carries no diffuse/

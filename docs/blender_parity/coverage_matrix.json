@@ -253,7 +253,8 @@
     "socket_or_prop": "input:Anisotropy",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `a_anisotropy` leaves the CPU render identical: dropped, reported at runtime (#1131)",
-    "socket_id": "Anisotropy"
+    "socket_id": "Anisotropy",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -262,7 +263,8 @@
     "socket_or_prop": "input:Rotation",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `a_rotation` leaves the CPU render identical: dropped, reported at runtime (#1131)",
-    "socket_id": "Rotation"
+    "socket_id": "Rotation",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -271,7 +273,8 @@
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `n_anisotropic` leaves the CPU render identical: dropped, reported at runtime (#1129)",
-    "socket_id": "Normal"
+    "socket_id": "Normal",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -280,7 +283,8 @@
     "socket_or_prop": "input:Tangent",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `t_anisotropic` leaves the CPU render identical: dropped, reported at runtime (#1130)",
-    "socket_id": "Tangent"
+    "socket_id": "Tangent",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -297,7 +301,8 @@
     "bl_idname": "ShaderNodeBsdfAnisotropic",
     "socket_or_prop": "prop:distribution",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM; pkg321 probe `e_anisotropic_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)"
+    "notes": "property ENUM; pkg321 probe `e_anisotropic_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node_output",
@@ -333,7 +338,8 @@
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `n_diffuse` leaves the CPU render identical: dropped, reported at runtime (#1129)",
-    "socket_id": "Normal"
+    "socket_id": "Normal",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -387,7 +393,8 @@
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `n_glass` leaves the CPU render identical: dropped, reported at runtime (#1129)",
-    "socket_id": "Normal"
+    "socket_id": "Normal",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -422,7 +429,8 @@
     "bl_idname": "ShaderNodeBsdfGlass",
     "socket_or_prop": "prop:distribution",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM; pkg321 probe `e_glass_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)"
+    "notes": "property ENUM; pkg321 probe `e_glass_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node_output",
@@ -610,7 +618,8 @@
     "socket_or_prop": "input:Random Color",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `hair_random_color` leaves the CPU render identical: dropped, reported at runtime (#1128)",
-    "socket_id": "Random Color"
+    "socket_id": "Random Color",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -619,7 +628,8 @@
     "socket_or_prop": "input:Random Roughness",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `hair_random_roughness` leaves the CPU render identical: dropped, reported at runtime (#1128)",
-    "socket_id": "Random Roughness"
+    "socket_id": "Random Roughness",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -628,7 +638,8 @@
     "socket_or_prop": "input:Random",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `hair_random` leaves the CPU render identical: dropped, reported at runtime (#1128)",
-    "socket_id": "Random"
+    "socket_id": "Random",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -761,7 +772,8 @@
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `n_metallic` leaves the CPU render identical: dropped, reported at runtime (#1129)",
-    "socket_id": "Normal"
+    "socket_id": "Normal",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -770,7 +782,8 @@
     "socket_or_prop": "input:Tangent",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `t_metallic` leaves the CPU render identical: dropped, reported at runtime (#1130)",
-    "socket_id": "Tangent"
+    "socket_id": "Tangent",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -939,7 +952,8 @@
     "socket_or_prop": "input:Subsurface IOR",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `e_principled_subsurface_ior` leaves the CPU render identical: dropped, reported at runtime (#1133)",
-    "socket_id": "Subsurface IOR"
+    "socket_id": "Subsurface IOR",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -993,7 +1007,8 @@
     "socket_or_prop": "input:Tangent",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `t_principled` leaves the CPU render identical: dropped, reported at runtime (#1130)",
-    "socket_id": "Tangent"
+    "socket_id": "Tangent",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -1047,7 +1062,8 @@
     "socket_or_prop": "input:Coat Normal",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `n_principled_coat` leaves the CPU render identical: dropped, reported at runtime (#1130)",
-    "socket_id": "Coat Normal"
+    "socket_id": "Coat Normal",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -1118,7 +1134,8 @@
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "prop:distribution",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM; pkg321 probe `e_principled_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)"
+    "notes": "property ENUM; pkg321 probe `e_principled_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -1126,7 +1143,8 @@
     "bl_idname": "ShaderNodeBsdfPrincipled",
     "socket_or_prop": "prop:subsurface_method",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM; pkg321 probe `e_principled_subsurface_method` leaves the CPU render identical: dropped, reported at runtime (#1133)"
+    "notes": "property ENUM; pkg321 probe `e_principled_subsurface_method` leaves the CPU render identical: dropped, reported at runtime (#1133)",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node_output",
@@ -1216,7 +1234,8 @@
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `n_refraction` leaves the CPU render identical: dropped, reported at runtime (#1129)",
-    "socket_id": "Normal"
+    "socket_id": "Normal",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -1233,7 +1252,8 @@
     "bl_idname": "ShaderNodeBsdfRefraction",
     "socket_or_prop": "prop:distribution",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM; pkg321 probe `e_refraction_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)"
+    "notes": "property ENUM; pkg321 probe `e_refraction_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node_output",
@@ -1269,7 +1289,8 @@
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `n_sheen` leaves the CPU render identical: dropped, reported at runtime (#1129)",
-    "socket_id": "Normal"
+    "socket_id": "Normal",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -1286,7 +1307,8 @@
     "bl_idname": "ShaderNodeBsdfSheen",
     "socket_or_prop": "prop:distribution",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM; pkg321 probe `e_sheen_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)"
+    "notes": "property ENUM; pkg321 probe `e_sheen_distribution` leaves the CPU render identical: dropped, reported at runtime (#1132)",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node_output",
@@ -1375,7 +1397,8 @@
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
     "notes": "pkg321 probe `n_translucent` leaves the CPU render identical: dropped, reported at runtime (#1129)",
-    "socket_id": "Normal"
+    "socket_id": "Normal",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -1669,7 +1692,8 @@
     "socket_or_prop": "input:Normal",
     "classification": "DROPPED-SILENT",
     "notes": "Height/Scale approximated as a bump perturbation via the pkg223b bump machinery (pkg257); Midlevel is read but mathematically inert for a gradient-based bump; Normal and displacement_method/space are read only to emit the DISPLACEMENT warning, never consumed; pkg321 probe `disp_normal` leaves the CPU render identical: dropped, reported at runtime (#1129)",
-    "socket_id": "Normal"
+    "socket_id": "Normal",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -2090,7 +2114,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Value",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)",
     "socket_id": "Value"
   },
   {
@@ -2099,7 +2123,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Min",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)",
     "socket_id": "From Min"
   },
   {
@@ -2108,7 +2132,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Max",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)",
     "socket_id": "From Max"
   },
   {
@@ -2117,7 +2141,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Min",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)",
     "socket_id": "To Min"
   },
   {
@@ -2126,7 +2150,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Max",
     "classification": "SUPPORTED",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)",
     "socket_id": "To Max"
   },
   {
@@ -2135,7 +2159,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Steps",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)",
     "socket_id": "Steps"
   },
   {
@@ -2144,7 +2168,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Vector",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)",
     "socket_id": "Vector"
   },
   {
@@ -2153,7 +2177,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Min[From_Min_FLOAT3]",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)",
     "socket_id": "From_Min_FLOAT3"
   },
   {
@@ -2162,7 +2186,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:From Max[From_Max_FLOAT3]",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)",
     "socket_id": "From_Max_FLOAT3"
   },
   {
@@ -2171,7 +2195,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Min[To_Min_FLOAT3]",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)",
     "socket_id": "To_Min_FLOAT3"
   },
   {
@@ -2180,7 +2204,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:To Max[To_Max_FLOAT3]",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)",
     "socket_id": "To_Max_FLOAT3"
   },
   {
@@ -2189,7 +2213,7 @@
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "input:Steps[Steps_FLOAT3]",
     "classification": "DROPPED-SILENT",
-    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS",
+    "notes": "op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): interp not in MAP_RANGE_OPS | getattr(node, 'clamp', False)",
     "socket_id": "Steps_FLOAT3"
   },
   {
@@ -2197,8 +2221,8 @@
     "feature": "MAP_RANGE",
     "bl_idname": "ShaderNodeMapRange",
     "socket_or_prop": "prop:clamp",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
@@ -2830,8 +2854,8 @@
     "feature": "OUTPUT_MATERIAL",
     "bl_idname": "ShaderNodeOutputMaterial",
     "socket_or_prop": "input:Thickness",
-    "classification": "DROPPED-SILENT",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in convert_node_material, get_displacement_bump_inputs; context-blind row: credited only where these methods consume it (#1101 finding 6)",
+    "classification": "SUPPORTED",
+    "notes": "pkg328 probe `o_thickness`: Cycles ignores the socket (bit-identical A/B) and so does Astroray",
     "socket_id": "Thickness"
   },
   {
@@ -2847,15 +2871,15 @@
     "feature": "OUTPUT_MATERIAL",
     "bl_idname": "ShaderNodeOutputMaterial",
     "socket_or_prop": "prop:target",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
     "feature": "OUTPUT_WORLD",
     "bl_idname": "ShaderNodeOutputWorld",
     "socket_or_prop": "input:Surface",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6)",
     "socket_id": "Surface"
   },
@@ -2873,8 +2897,8 @@
     "feature": "OUTPUT_WORLD",
     "bl_idname": "ShaderNodeOutputWorld",
     "socket_or_prop": "prop:is_active_output",
-    "classification": "DROPPED-SILENT",
-    "notes": "property BOOLEAN"
+    "classification": "SUPPORTED",
+    "notes": ""
   },
   {
     "category": "shader_node",
@@ -3757,8 +3781,8 @@
     "feature": "TEX_ENVIRONMENT",
     "bl_idname": "ShaderNodeTexEnvironment",
     "socket_or_prop": "input:Vector",
-    "classification": "DROPPED-SILENT",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6)",
+    "classification": "APPROXIMATED",
+    "notes": "pkg321 probe `env_vector` moves the CPU render (consumed)",
     "socket_id": "Vector"
   },
   {
@@ -3968,7 +3992,8 @@
     "bl_idname": "ShaderNodeTexImage",
     "socket_or_prop": "prop:interpolation",
     "classification": "DROPPED-SILENT",
-    "notes": "property ENUM"
+    "notes": "property ENUM; pkg321 probe `img_interp` leaves the CPU render identical: dropped, reported at runtime (#1215)",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -4219,7 +4244,8 @@
     "bl_idname": "ShaderNodeTexSky",
     "socket_or_prop": "prop:ground_albedo",
     "classification": "DROPPED-SILENT",
-    "notes": "property FLOAT; pkg321 probe `s_ground_albedo` leaves the CPU render identical: dropped, reported at runtime (#1135)"
+    "notes": "property FLOAT; pkg321 probe `s_ground_albedo` leaves the CPU render identical: dropped, reported at runtime (#1135)",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -5118,7 +5144,8 @@
     "socket_or_prop": "input:Color Attribute",
     "classification": "DROPPED-SILENT",
     "notes": "mapped to glass IOR=1.0 (volume not fully implemented); pkg321 probe `v_color_attribute` leaves the CPU render identical: dropped, reported at runtime (#1134)",
-    "socket_id": "Color Attribute"
+    "socket_id": "Color Attribute",
+    "reported_at_runtime": true
   },
   {
     "category": "shader_node",
@@ -6017,7 +6044,8 @@
     "socket_or_prop": "output:Normal",
     "classification": "DROPPED-SILENT",
     "notes": "output refused by the op-VM compiler (VMCompileError, reported by the addon); pkg321 probe `m_geometry_normal` leaves the CPU render identical: dropped, reported at runtime (#989)",
-    "socket_id": "Normal"
+    "socket_id": "Normal",
+    "reported_at_runtime": true
   },
   {
     "category": "input_node",

@@ -228,9 +228,13 @@ def principled_volume_from_material(material):
         return None
     out = None
     for n in nt.nodes:
-        if n.type == "OUTPUT_MATERIAL" and getattr(n, "is_active_output", True):
+        if (n.type == "OUTPUT_MATERIAL" and getattr(n, "is_active_output", True)
+                and getattr(n, "target", "ALL") in ("ALL", "CYCLES")):       # pkg328: not an EEVEE-only output
             out = n
             break
+    if out is None:   # pkg328: Cycles falls back to the first output it can use
+        out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"
+                    and getattr(n, "target", "ALL") in ("ALL", "CYCLES")), None)
     if out is None:
         return None
     vol_in = out.inputs.get("Volume")

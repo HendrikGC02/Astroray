@@ -90,6 +90,9 @@ public:
         const float qc = pickB ? qB : qA, qo = pickB ? qA : qB;
         BSDFSample s = c.sample(r, wo, g);
         if (s.pdf <= 0.0f) return s;
+        // #1178: the bounce is labelled by the picked closure (Cycles path_state_next reads
+        // the sampled closure's label), not by this node's isGlossy() (true if ANY child is).
+        if (s.label == BSDF_LABEL_NONE) s.label = c.isGlossy() ? BSDF_LABEL_GLOSSY : BSDF_LABEL_DIFFUSE;
         s.f = s.f * wc;
         if (s.isDelta) { s.pdf *= qc; return s; }
         if (wo_ > 0.0f) s.f = s.f + o.eval(r, wo, s.wi) * wo_;
@@ -122,6 +125,7 @@ public:
         const float qc = pickB ? qB : qA, qo = pickB ? qA : qB;
         BSDFSampleSpectral s = c.sampleSpectral(r, wo, g, l);
         if (s.pdf <= 0.0f) return s;
+        if (s.label == BSDF_LABEL_NONE) s.label = c.isGlossy() ? BSDF_LABEL_GLOSSY : BSDF_LABEL_DIFFUSE;  // #1178
         s.f_spectral = s.f_spectral * wc;
         if (s.isDelta) { s.pdf *= qc; return s; }
         if (wo_ > 0.0f) s.f_spectral = s.f_spectral + o.evalSpectral(r, wo, s.wi, l) * wo_;
@@ -250,8 +254,8 @@ public:
 // but picks a leaf in one flat draw, q_i = w_i [BSDF] / sum (Cycles' flat pick; equal
 // to the CPU's product of local picks for Mix trees, an unbiased alternative for
 // nested Add). Emission is evaluated where the path hits (intersect stage) from the
-// leaf-0 material, so constant-weight emission is baked into its Principled emission
-// and an emitter under a per-texel Fac is not lowered. `reason` names why a tree is
+// leaf-0 material, so constant-weight emission is baked into its principled block
+// (read for every material type, #1180) and an emitter under a per-texel Fac is not lowered. `reason` names why a tree is
 // not lowered (the GPU then renders leaves[0] alone, reported by the addon).
 struct ClosureTreeLowering {
     static constexpr int kMaxLeaves = 8;
@@ -357,11 +361,8 @@ inline ClosureTreeLowering lowerClosureTree(const ClosureNodeMaterial& root) {
         }
     }
     if (first < 0) return out;
-    if (out.emission.x > 0.0f || out.emission.y > 0.0f || out.emission.z > 0.0f) {
-        const MaterialClosureGraph g = out.leaves[first]->closureGraph();
-        if (!(g.count() >= 1 && g.closure(0).type == MaterialClosureType::Principled))
-            fail("emission with a non-Principled first BSDF");
-    }
+    // (#1180: tree emission rides leaf 0's principled block for every leaf type, so a
+    // non-Principled first BSDF with emission lowers too.)
     // Leaf `first` uploads at the tree's own id: make it leaf 0.
     if (first != 0) {
         std::swap(out.leaves[0], out.leaves[first]);

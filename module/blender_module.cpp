@@ -707,6 +707,11 @@ public:
         textureManager.setTextureMappingMatrix(name, m);
         invalidateWavefrontMaterials();  // #981 / pkg315: texture edit, material domain
     }
+    // #1153: whether the GPU differences this texture as a procedural Bump Height.
+    bool gpuBumpHeightSupported(const std::string& name) {
+        auto tex = textureManager.getTexture(name);
+        return tex && astroray::gpuLowersBumpHeight(*tex);
+    }
     // pkg219b op-VM builder forwarders.
     void createProgramTexture(const std::string& name, const std::string& coordMode) {
         textureManager.createProgramTexture(name, coordMode);
@@ -4246,6 +4251,9 @@ PYBIND11_MODULE(astroray, m) {
              "euler parity. Image textures sample at (M*coord).xy.")
         .def("set_texture_uv_layer", &PyRenderer::setTextureUVLayerName,
              "name"_a, "layer_name"_a)
+        .def("gpu_bump_height_supported", &PyRenderer::gpuBumpHeightSupported, "name"_a,
+             "#1153: True when the GPU differences this texture as a procedural Bump Height "
+             "(Noise / Wave / Voronoi in Object / Generated coordinates, directly or as op-VM inputs).")
         .def("create_program_texture", &PyRenderer::createProgramTexture,
              "name"_a, "coord_mode"_a = "UV",
              "pkg219b: register a per-texel op-VM chain (Color Ramp / Mix / Math "

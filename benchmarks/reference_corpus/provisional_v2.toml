@@ -51,22 +51,6 @@ issue = "#947"
 reason = "motion-blurred vane too narrow (0.35-0.42 of Cycles)"
 
 [[row]]
-scene = "v2_textures_opvm"
-backend = "gpu"
-roi = "sphere_MixShaderProg"
-channels = ["r", "g", "b", "L"]
-issue = "#1174"
-reason = "Mix Shader program sphere: CPU fixed by #1170 (closure composition; the CPU rows now pass vs Cycles), GPU still reads ~0.86 of Cycles (2026-10-25 sweep on ecd36567)"
-
-[[row]]
-scene = "v2_textures_opvm"
-backend = "gpu_cpu"
-roi = "sphere_MixShaderProg"
-channels = ["r", "g", "b", "L"]
-issue = "#1174"
-reason = "GPU/CPU 0.8625 / 0.8667 / 0.8669 / 0.8654 (r/g/b/L) at seed 278 on ecd36567: #1170 fixed the CPU program-Fac mix, the GPU closure tree still lags on this sphere (both backends read 0.85 of Cycles before, so the twin rows passed)"
-
-[[row]]
 scene = "v2_thin_film_metals"
 backend = "cpu"
 roi = "sphere_Ti160"

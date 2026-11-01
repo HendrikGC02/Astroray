@@ -262,7 +262,8 @@ public:
     float                     bumpMapDistance() const override { return bumpDistance_; }
     int bumpCorrectionMode() const override {
         return bumpClass_ | (bumpCorrection_ ? astroray::bumpcorr::kCorrectionBit : 0) |
-               (bumpSetsSdN_ ? astroray::bumpcorr::kSetsSdNBit : 0);
+               (bumpSetsSdN_ ? astroray::bumpcorr::kSetsSdNBit : 0) |
+               (coatFollows_ ? 0 : astroray::bumpcorr::kCoatOnSdNBit);  // #1153
     }
 };
 

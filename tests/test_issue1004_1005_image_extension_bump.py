@@ -377,9 +377,7 @@ def _coat_quad(bump, use_gpu, coat_follows=False):
     return np.asarray(render_image(r, samples=128, max_depth=1, apply_gamma=False), np.float32)
 
 
-@pytest.mark.parametrize("use_gpu", [False, pytest.param(True, marks=pytest.mark.xfail(
-    strict=True, reason="#1153: the GPU closure-graph coat still shades on the bumped normal"))],
-    ids=["cpu", "gpu"])
+@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])  # GPU: #1153
 def test_bump_on_principled_normal_leaves_the_coat_smooth(use_gpu):
     """#1005: Cycles shades the coat on Coat Normal, whose unlinked default is sd->N
     (svm/closure.h; LINK_NORMAL), so a Bump into Principled Normal does not move the
@@ -392,12 +390,13 @@ def test_bump_on_principled_normal_leaves_the_coat_smooth(use_gpu):
     assert abs(bumped[c].mean() / flat[c].mean() - 1.0) < 0.05, (bumped[c].mean(), flat[c].mean())
 
 
-def test_coat_follows_a_bump_that_cycles_routes_through_sd_n():
+@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])  # GPU: #1153
+def test_coat_follows_a_bump_that_cycles_routes_through_sd_n(use_gpu):
     """#1005 review: an Output Displacement bump sets sd->N in Cycles (svm_node_set_normal)
     and a Coat Normal wired to the same node bumps the coat too. coat_follows_bump=1 keeps
     the coat on the perturbed normal, so its highlight moves off the sun like the base."""
-    flat = _coat_quad(False, False)
-    bumped = _coat_quad(True, False, coat_follows=True)
+    flat = _coat_quad(False, use_gpu)
+    bumped = _coat_quad(True, use_gpu, coat_follows=True)
     c = (slice(10, 22), slice(10, 22))
     assert bumped[c].mean() < 0.5 * flat[c].mean(), (bumped[c].mean(), flat[c].mean())
 

@@ -30,6 +30,7 @@
 #include "astroray/gpu_types.h"
 #include "astroray/gpu_materials.h"
 #include "astroray/sampling/wavefront_rng_device.h"
+#include "astroray/volume/majorant_grid.h"   // #1032: kVolumeMaxSteps (shared with the CPU)
 #include "../profile.h"
 #include "../gpu_spectral_tables.h"
 
@@ -161,6 +162,133 @@ __device__ inline GSampledSpectrum gridBlackbody(const GGridMedium& m, float T,
         s.v[i] = astroray::volume::bbNormalizedPlanck(wl.lambda[i], T, lut)
                  * intensity * tint.v[i];
     return s;
+}
+
+// #1032 — device twin of volume::DDAMajorantIterator (pkg267; pbrt-v4 §11.4.2
+// DDAMajorantIterator, Apache-2.0) over GGridMedium's uploaded majorant grid.
+// o/d are the index-space ray keeping the world t (majorant_grid.h header).
+struct GMajorantDDA {
+    float tMin, tMax;
+    float nextT[3], deltaT[3];
+    int step[3], limit[3], voxel[3];
+
+    __device__ GMajorantDDA(const GGridMedium& m, const float o[3], const float d[3],
+                            float t0, float t1)
+        : tMin(t0), tMax(t1)
+    {
+        for (int a = 0; a < 3; ++a) {
+            const float diag = m.majBoundsMax[a] - m.majBoundsMin[a];
+            const float ro = (o[a] - m.majBoundsMin[a]) / diag;
+            float rd = d[a] / diag;
+            const int res = m.majRes[a];
+            const float gi = ro + t0 * rd;
+            voxel[a] = min(max(int(gi * res), 0), res - 1);
+            deltaT[a] = 1.f / (fabsf(rd) * res);
+            if (rd == -0.f) rd = 0.f;
+            if (rd >= 0.f) {
+                nextT[a] = t0 + (float(voxel[a] + 1) / res - gi) / rd;
+                step[a] = 1;
+                limit[a] = res;
+            } else {
+                nextT[a] = t0 + (float(voxel[a]) / res - gi) / rd;
+                step[a] = -1;
+                limit[a] = -1;
+            }
+        }
+    }
+    // Next piece [s0,s1] with supervoxel max density `maj`; false when done.
+    __device__ bool next(const GGridMedium& m, float& s0, float& s1, float& maj)
+    {
+        if (tMin >= tMax) return false;
+        const int bits = ((nextT[0] < nextT[1]) << 2) + ((nextT[0] < nextT[2]) << 1) +
+                         ((nextT[1] < nextT[2]));
+        const int ax = (0x0A66 >> (bits * 2)) & 3;   // cmpToAxis {2,1,2,1,2,2,0,0}, 2 bits each
+        const float tExit = fminf(tMax, nextT[ax]);
+        s0 = tMin;
+        s1 = tExit;
+        maj = m.majorant[voxel[0] + m.majRes[0] * (voxel[1] + m.majRes[1] * voxel[2])];
+        tMin = tExit;
+        if (nextT[ax] > tMax) tMin = tMax;
+        voxel[ax] += step[ax];
+        if (voxel[ax] == limit[ax]) tMin = tMax;
+        nextT[ax] += deltaT[ax];
+        return true;
+    }
+};
+
+// volume::walkGridMajorants twin: majorant pieces of grid medium m on [s0,s1]
+// (inside its AABB), f(t0, t1, D·supervoxel max + add); the DDA runs over the
+// index block grown by half a voxel (nearest-voxel reach), σ̄ = add outside it,
+// and a sliver the DDA leaves at the block face takes the global majorant.
+// Without an uploaded majorant grid: one piece at the global majorant.
+template <class F>
+__device__ bool gpuWalkGridMajorants(const GGridMedium& m, const GVec3& o, const GVec3& d,
+                                     float s0, float s1, float add, F&& f)
+{
+    if (!m.majorant) return f(s0, s1, gridExtinctionMajorant(m) + add);
+    const float* M = m.worldToIndex;
+    const float oi[3] = {M[0] * o.x + M[1] * o.y + M[2]  * o.z + M[3],
+                         M[4] * o.x + M[5] * o.y + M[6]  * o.z + M[7],
+                         M[8] * o.x + M[9] * o.y + M[10] * o.z + M[11]};
+    const float di[3] = {M[0] * d.x + M[1] * d.y + M[2]  * d.z,
+                         M[4] * d.x + M[5] * d.y + M[6]  * d.z,
+                         M[8] * d.x + M[9] * d.y + M[10] * d.z};
+    float c0 = s0, c1 = s1;
+    for (int a = 0; a < 3 && c0 <= c1; ++a) {
+        const float lo = m.majBoundsMin[a] - 0.5f, hi = m.majBoundsMax[a] + 0.5f;
+        if (fabsf(di[a]) < 1e-12f) {
+            if (oi[a] < lo || oi[a] > hi) c1 = c0 - 1.f;
+            continue;
+        }
+        float tn = (lo - oi[a]) / di[a], tf = (hi - oi[a]) / di[a];
+        if (tn > tf) { const float tmp = tn; tn = tf; tf = tmp; }
+        c0 = fmaxf(c0, tn);
+        c1 = fminf(c1, tf);
+    }
+    if (!(c0 < c1)) return f(s0, s1, add);
+    if (c0 > s0 && !f(s0, c0, add)) return false;
+    GMajorantDDA it(m, oi, di, c0, c1);
+    float p0, p1, maj, cur = c0;
+    while (it.next(m, p0, p1, maj)) {
+        if (p1 > p0 && !f(p0, p1, m.densityScale * maj + add)) return false;
+        cur = fmaxf(cur, p1);
+    }
+    if (cur < c1 && !f(cur, c1, gridExtinctionMajorant(m) + add)) return false;
+    if (c1 < s1 && !f(c1, s1, add)) return false;
+    return true;
+}
+
+// volume::walkSegmentMajorants twin over the AABB media of c_wfGridVolume:
+// one grid => its supervoxel pieces + D of each overlapping homogeneous
+// medium; two or more grids => Σ global majorants (#842 overlap rule).
+template <class F>
+__device__ void gpuWalkSegmentMajorants(const GVec3& o, const GVec3& d, float t0, float t1,
+                                        F&& f)
+{
+    float cursor = t0;
+    while (cursor < t1) {
+        int grid = -1, nGrid = 0;
+        float sum = 0.f, hom = 0.f, segEnd = t1;
+        for (int k = 0; k < c_wfGridVolume.count; ++k) {
+            const GGridMedium& m = c_wfGridVolume.media[k];
+            float s0, s1;
+            if (!gpu_gridAabbOverlap(m, o, d, cursor, t1, s0, s1)) continue;
+            if (s0 > cursor) { segEnd = fminf(segEnd, s0); continue; }
+            if (!(s1 > cursor)) continue;
+            segEnd = fminf(segEnd, s1);
+            sum += gridExtinctionMajorant(m);
+            if (m.heterogeneous) { grid = k; ++nGrid; }
+            else hom += gridExtinctionMajorant(m);
+        }
+        if (nGrid == 1) {
+            if (!gpuWalkGridMajorants(c_wfGridVolume.media[grid], o, d, cursor, segEnd, hom, f))
+                return;
+        } else if (!f(cursor, segEnd, sum)) {
+            return;
+        }
+        if (!(segEnd > cursor)) return;
+        cursor = segEnd;
+    }
 }
 
 }  // namespace
@@ -364,12 +492,14 @@ __device__ int gpu_gridVolumeTrackOverlap(uint32_t mask, const GVec3& o, const G
 // Per-λ ratio-tracking transmittance (device twin of
 // ratioTrackingTransmittanceSpectral): Tr(λ) *= σ_n(λ)/σ̄ at tentative
 // collisions shared by all lanes; RR on the max lane below 0.05.
+// #1032 `local`: track at the supervoxel majorants (CPU `local` twin).
 __device__ GSampledSpectrum gpu_gridVolumeTransmittance(int mi, const GVec3& o,
                                                         const GVec3& d, float tMin,
                                                         float tMax,
                                                         const GSampledWavelengths& wl,
                                                         uint32_t rpix, uint32_t rsmp,
-                                                        uint64_t rsd, uint32_t salt)
+                                                        uint64_t rsd, uint32_t salt,
+                                                        bool local)
 {
     const GGridMedium& m = c_wfGridVolume.media[mi];
     GSampledSpectrum sUnit, aUnit;
@@ -381,8 +511,40 @@ __device__ GSampledSpectrum gpu_gridVolumeTransmittance(int mi, const GVec3& o,
             Tr.v[i] = __expf(-m.densityScale * (sUnit.v[i] + aUnit.v[i]) * len);
         return Tr;
     }
-    const float sigBar = gridExtinctionMajorant(m);
     uint32_t draw = 0;
+    if (local && m.majorant) {
+        int steps = 0;
+        gpuWalkGridMajorants(m, o, d, tMin, tMax, 0.f, [&](float s0, float s1, float sb) {
+            if (!(sb > 0.f)) return true;
+            for (float t = s0;;) {
+                float xi = gpu_freeflightUniform(rpix, rsmp, rsd,
+                                                 salt + (draw++ & G_WF_GRIDSHADOW_DRAW_MASK));
+                const float tn = t - __logf(fmaxf(1e-20f, 1.f - xi)) / sb;
+                if (tn >= s1) return true;
+                // Step cap (majorant_grid.h kVolumeMaxSteps; Cycles VOLUME_MAX_STEPS):
+                // also keeps the 17-bit draw counter far from wrapping.
+                if (!(tn > t) || ++steps > astroray::volume::kVolumeMaxSteps) {
+                    Tr = GSampledSpectrum(0.f);
+                    return false;
+                }
+                t = tn;
+                const float dens = gridDensityAt(m, o + d * t);
+                for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                    Tr.v[i] *= fmaxf(sb - dens * (sUnit.v[i] + aUnit.v[i]), 0.f) / sb;
+                const float mx = Tr.maxValue();
+                if (mx < 0.05f) {
+                    if (gpu_freeflightUniform(rpix, rsmp, rsd,
+                                              salt + (draw++ & G_WF_GRIDSHADOW_DRAW_MASK)) > mx) {
+                        Tr = GSampledSpectrum(0.f);
+                        return false;
+                    }
+                    Tr = Tr * (1.f / fmaxf(mx, 1e-20f));
+                }
+            }
+        });
+        return Tr;
+    }
+    const float sigBar = gridExtinctionMajorant(m);
     float t = tMin;
     for (;;) {
         float xi = gpu_freeflightUniform(rpix, rsmp, rsd,
@@ -573,6 +735,135 @@ __device__ inline bool segInsideAabb(const GGridMedium& m, const GVec3& P)
              P.y > m.aabbMax[1] || P.z < m.aabbMin[2] || P.z > m.aabbMax[2]);
 }
 
+// #1032 — volume::sampleSegmentDirectTracked twin (Miller et al. 2019 §5-6;
+// Cycles v5.2.0 shade_volume.h VolumeSampleReservoir :1011,
+// volume_scatter_probability :1315, volume_integrate_step_scattering :1411,
+// volume_direct_scatter_mis :1559, Apache-2.0; research
+// .astroray_plan/docs/issue1032-tracked-segment-direct-research.md). One-sample
+// MIS on the lit [a,b] inside the hull from a0: equiangular about `anchor` vs
+// the tracked scatter collision, 1/2 each. Both walk the null-collision chain
+// at the local majorants; Tr = Π σ_n(λ)/σ̄ before t (collisions in [a0,a) are
+// forced null). Distance pdf / shared exponentials = Π p_n · σ̄ · p_s with p_s
+// the hero average of σ_s/(σ_s+σ_n); the distance strategy keeps one scatter
+// candidate by reservoir (W_k = Π p_n · p_s,k; Cycles :1352, :1155-1160) and
+// carries ΣW. Deliberate divergence (as the CPU): Cycles uses this VSPG
+// reservoir on primary rays only (:1616); we use it at every bounce.
+struct GSegTracked { float t, w; GSampledSpectrum Tr; };
+
+// uS/uT: unit σ_s / σ_t of each medium of c_wfGridVolume (hoisted by the caller).
+__device__ GSegTracked gpuSampleSegmentDirectTracked(const GVec3& o, const GVec3& d, float a0,
+                                                     float a, float b, bool hasAnchor,
+                                                     const GVec3& anchor,
+                                                     const GSampledWavelengths& wl,
+                                                     const GSampledSpectrum* uS,
+                                                     const GSampledSpectrum* uT,
+                                                     GSegRng& rng)
+{
+    GSegTracked out{0.f, 0.f, GSampledSpectrum(1.f)};
+    if (!(b > a) || !isfinite(b)) return out;
+    const float tc = (anchor - o).dot(d);
+    const float D = fmaxf((anchor - (o + d * tc)).length(), 1e-4f);
+    const float thA = atan2f(a - tc, D);
+    const float thB = atan2f(b - tc, D);
+    const bool eqOk = hasAnchor && thB - thA > 1e-7f;
+    auto pdfEq = [&](float t) {
+        if (!eqOk || t < a || t > b) return 0.f;
+        const float dt = t - tc;
+        return D / ((thB - thA) * (D * D + dt * dt));
+    };
+    const bool pickEq = eqOk && gpu_rng_uniform(&rng) >= 0.5f;
+    float tEq = b;
+    if (pickEq) {
+        tEq = tc + D * tanf(thA + gpu_rng_uniform(&rng) * (thB - thA));
+        if (!(tEq >= a && tEq <= b) || !isfinite(tEq)) return out;
+    }
+    GSampledSpectrum sigS, sigT;
+    auto sigmaAt = [&](float t) {   // summed coefficients of the media at o + d·t
+        const GVec3 P = o + d * t;
+        sigS = GSampledSpectrum(0.f);
+        sigT = GSampledSpectrum(0.f);
+        for (int k = 0; k < c_wfGridVolume.count; ++k) {
+            const GGridMedium& m = c_wfGridVolume.media[k];
+            if (!segInsideAabb(m, P)) continue;
+            const float dens = gridDensityAt(m, P);
+            if (dens <= 0.f) continue;
+            sigS += uS[k] * dens;
+            sigT += uT[k] * dens;
+        }
+    };
+    auto scatterProb = [&](float sb) {
+        GSampledSpectrum ratio;
+        for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
+            const float c = sigS.v[i] + fmaxf(sb - sigT.v[i], 0.f);
+            ratio.v[i] = c > 0.f ? sigS.v[i] / c : 0.f;
+        }
+        return gpu_heroAverage(ratio, wl);
+    };
+    GSampledSpectrum Tr(1.f), trHit(1.f);
+    float pNull = 1.f, lastSb = 0.f, wSum = 0.f, tHit = -1.f, pdHit = 0.f;
+    // One uniform, rescaled per candidate (Cycles VolumeSampleReservoir::add_sample :1019).
+    float rRes = pickEq ? 0.f : gpu_rng_uniform(&rng);
+    bool dead = false;
+    int steps = 0;
+    gpuWalkSegmentMajorants(o, d, a0, pickEq ? tEq : b, [&](float s0, float s1, float sb) {
+        lastSb = sb;
+        if (!(sb > 0.f)) return true;
+        for (float t = s0;;) {
+            const float tn = t - __logf(fmaxf(1e-20f, 1.f - gpu_rng_uniform(&rng))) / sb;
+            if (tn >= s1) return true;
+            // Step cap (majorant_grid.h kVolumeMaxSteps; Cycles VOLUME_MAX_STEPS):
+            // <= 3 draws/step keeps the 17-bit GSegRng counter far from wrapping.
+            if (!(tn > t) || ++steps > astroray::volume::kVolumeMaxSteps) {
+                dead = true;
+                return false;
+            }
+            t = tn;
+            sigmaAt(t);
+            const float ps = scatterProb(sb);
+            const bool lit = t >= a;
+            if (!pickEq && lit && ps > 0.f) {
+                const float wk = pNull * ps;
+                wSum += wk;
+                const float thresh = wk / wSum;
+                if (rRes <= thresh || wSum == wk) {
+                    tHit = t; pdHit = wk * sb; trHit = Tr;
+                    rRes /= thresh;
+                } else {
+                    rRes = (rRes - thresh) / (1.f - thresh);
+                }
+                rRes = fminf(fmaxf(rRes, 0.f), 1.f);
+            }
+            for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
+                Tr.v[i] *= fmaxf(sb - sigT.v[i], 0.f) / sb;
+            if (lit) pNull *= 1.f - ps;
+            // RR on the ratio-tracking weight: the equiangular estimate dies,
+            // the reservoir only stops taking candidates.
+            const float q = Tr.maxValue();
+            if (q < 0.05f) {
+                if (!(q > 0.f) || gpu_rng_uniform(&rng) > q) { dead = pickEq; return false; }
+                Tr = Tr * (1.f / q);
+            }
+        }
+    });
+    if (dead) return out;
+    if (pickEq) {
+        sigmaAt(tEq);
+        const float pd = (lastSb > 0.f) ? pNull * lastSb * scatterProb(lastSb) : 0.f;
+        const float pe = pdfEq(tEq);
+        out.t = tEq;
+        if (!(pe > 0.f)) return out;
+        out.w = 2.f * pe / (pe * pe + pd * pd);
+        out.Tr = Tr;
+    } else {
+        if (!(tHit >= 0.f) || !(pdHit > 0.f)) return out;   // no candidate on [a,b]
+        const float pe = pdfEq(tHit);
+        out.t = tHit;
+        out.w = (eqOk ? 2.f * pdHit / (pdHit * pdHit + pe * pe) : 1.f / pdHit) * wSum;
+        out.Tr = trHit;
+    }
+    return out;
+}
+
 }  // namespace
 
 __device__ void gpu_volumeSegmentDirect(
@@ -588,24 +879,36 @@ __device__ void gpu_volumeSegmentDirect(
     if (cap <= 0 || (numLights + numDed) <= 0 || !(totalLightPower > 0.f)) return;
     const float segStart = a;  // pkg296: Tr(P) starts where the media do (camera clip)
     const float segT = b;      // #961: the light is picked for the ray segment (o, d, b)
+    float hullA = a;
+    bool anyGrid = false;
+    GSampledSpectrum uS[G_WF_MAX_GRID_MEDIA], uT[G_WF_MAX_GRID_MEDIA];   // #1032: once per call
     if (kind == 0) {
         // boundedSegmentDirect: hull of the media on [a,b]; distance rate =
-        // Σ_k per-λ σ_t majorant (exact for one homogeneous medium).
+        // Σ_k per-λ σ_t majorant (exact for one homogeneous medium). #1032:
+        // with a grid on the hull the distance strategy is the tracked
+        // collision (gpuSampleSegmentDirectTracked); a homogeneous-only hull
+        // keeps the #925 truncated exponential (Cycles v5.2.0
+        // volume_integrate_homogeneous :1703, chosen at :1961).
         float lo = 3.4e38f, hi = 0.f;
         rate = GSampledSpectrum(0.f);
         for (int k = 0; k < c_wfGridVolume.count; ++k) {
             const GGridMedium& m = c_wfGridVolume.media[k];
+            uS[k] = GSampledSpectrum(0.f);
+            uT[k] = GSampledSpectrum(0.f);
             float t0, t1;
             if (!gpu_gridAabbOverlap(m, o, d, a, b, t0, t1)) continue;
             lo = fminf(lo, t0);
             hi = fmaxf(hi, t1);
-            GSampledSpectrum sU, aU;
-            gridCoeffs(m, wl, sU, aU);
-            rate += (sU + aU) * (m.densityScale * m.maxDensity);
+            GSampledSpectrum aU;
+            gridCoeffs(m, wl, uS[k], aU);
+            uT[k] = uS[k] + aU;
+            rate += uT[k] * (m.densityScale * m.maxDensity);
+            anyGrid = anyGrid || m.heterogeneous;
         }
         if (!(hi > lo)) return;
         a = lo;
         b = hi;
+        hullA = lo;
     }
     GSegRng rng{rpix, rsmp, rsd, gpu_segSalt(bounce, kind), 0u};
     float mr = 0.f;
@@ -648,12 +951,23 @@ __device__ void gpu_volumeSegmentDirect(
     const bool hasAnchor = anc.valid && anc.lightPdf > 0.f && anc.geomDist > 0.f &&
                            anc.geomDist < 1e18f;
     const GVec3 anchor = hasAnchor ? anc.origin + anc.wi * anc.geomDist : o;
-    const GSegDistance ds = segSampleDistance(o, d, a, b, hasAnchor, anchor, rate, rng);
+    // Distance on [a,b] + Tr from the segment start to it. #1032 kind 0 with a
+    // grid: the tracked walk's ratio-tracking Tr (from the hull entry).
+    GSampledSpectrum TrP(1.f);
+    GSegDistance ds;
+    const bool tracked = kind == 0 && anyGrid;
+    if (tracked) {
+        const GSegTracked ts =
+            gpuSampleSegmentDirectTracked(o, d, hullA, a, b, hasAnchor, anchor, wl, uS, uT, rng);
+        ds = GSegDistance{ts.t, ts.w};
+        TrP = ts.Tr;
+    } else {
+        ds = segSampleDistance(o, d, a, b, hasAnchor, anchor, rate, rng);
+    }
     if (!(ds.w > 0.f)) return;
     const GVec3 P = o + d * ds.t;
 
-    // Medium at P: component count + Tr from the segment start to t.
-    GSampledSpectrum TrP(1.f);
+    // Medium at P: component count (+ Tr for a homogeneous-only hull).
     int n = 0;
     if (kind == 1) {
         n = 1;
@@ -663,7 +977,7 @@ __device__ void gpu_volumeSegmentDirect(
             const GGridMedium& m = c_wfGridVolume.media[k];
             if (segInsideAabb(m, P) && gridDensityAt(m, P) > 0.f) ++n;
         }
-        if (n > 0)
+        if (n > 0 && !tracked)
             for (int k = 0; k < c_wfGridVolume.count; ++k) {
                 float s0, s1;
                 if (gpu_gridAabbOverlap(c_wfGridVolume.media[k], o, d, segStart, ds.t, s0, s1))

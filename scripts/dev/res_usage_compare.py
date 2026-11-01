@@ -11,7 +11,8 @@ HasProgram, HasNormalPerturb, HasAdd>.
 Gate (exit 1 on failure):
   * every function that is not a HasTexture=true shade specialisation must be byte-identical (REG, STACK, LOCAL,
     every CONSTANT bank) to the baseline, except functions that exist only in NEW (reported, informational);
-  * a HasTexture=true shade specialisation must keep REG <= --reg-cap (default 254; or its baseline if higher) and STACK growth
+  * a HasTexture=true shade specialisation, and every stageShadowKernel (reaches the sampler via the textured-emitter
+    NEE leg, see main()), must keep REG <= --reg-cap (default 254; or its baseline if higher) and STACK growth
     <= --stack-cap bytes (default 64) and must not gain LOCAL bytes.
 ptxas spill stores are only in the nvcc ``-Xptxas -v`` build log; LOCAL growth is the proxy checked here.
 """
@@ -68,6 +69,14 @@ def main():
             continue
         bools = shade_bools(fn)
         textured = bool(bools and len(bools) > 1 and bools[1])
+        # stageShadowKernel reaches the image-texture sampler through the textured-emitter NEE leg
+        # (stage_advance.cu gpu_emissionTexelAtLightSample, gated by the RUNTIME flag c_wfEmissionTex, not a
+        # template bool), so every instantiation links wf_sampleImageFiltered. pkg234 measured b26e8bb6: four
+        # of five identical; <false,false,false,true> (HwOcc) REG 102 -> 117, same 2 blocks/SM at 256 threads,
+        # and an interleaved GPU A/B vs main (cornell 1024^2 128spp OptiX, min-of-6): untextured -0.08 %,
+        # Closest-textured +0.45 % (evidence/ab_shadow.log). So they take the textured-class budget.
+        if "stageShadowKernel" in fn:
+            textured = True
         if not textured:
             if b != n:
                 bad.append(f"CHANGED  (must be identical) {fn[:150]}: {b} -> {n}")
@@ -79,7 +88,7 @@ def main():
             if n["LOCAL"] > b["LOCAL"]:
                 bad.append(f"LOCAL+{n['LOCAL'] - b['LOCAL']}  {fn[:150]}")
             if b != n:
-                info.append(f"textured shade {''.join('1' if x else '0' for x in bools)}: REG {b['REG']} -> {n['REG']}"
+                info.append(f"textured {''.join('1' if x else '0' for x in bools) if bools else fn[:60]}: REG {b['REG']} -> {n['REG']}"
                             f" STACK {b['STACK']} -> {n['STACK']} CONST {b['CONST']} -> {n['CONST']}")
     print(f"{len(base)} baseline vs {len(new)} candidate functions")
     for line in info:

@@ -11757,12 +11757,12 @@
       }
     }
   },
-  "created": "2026-11-01T18:29:18+00:00",
+  "created": "2026-11-01T20:49:50+00:00",
   "evidence": {
     "audit": {
       "results": {
         "path": "docs/blender_parity/evidence/gate_b/candidate_v2/audit_results.json",
-        "sha256": "c0491aa8ded0135765d80e48186c8c1eba21fde169e26578c04e19e800521108"
+        "sha256": "f9c143242da3d08dd08dc50c05a7c556a8ab3cccebacf70a6788cb4e35dc5974"
       },
       "sample": {
         "path": "benchmarks/reference_corpus/audit_sample_candidate_v2.json",

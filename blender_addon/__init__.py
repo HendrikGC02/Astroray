@@ -5282,7 +5282,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
             scalar_programs = self._scalar_program_params(node, renderer, sources)
             alpha_program = self._principled_alpha_program(node, renderer)
             if alpha_program is not None:
-                scalar_programs['alpha_program'], spec['native_params']['alpha'] = alpha_program
+                if alpha_program[0] is not None:
+                    scalar_programs['alpha_program'] = alpha_program[0]
+                spec['native_params']['alpha'] = alpha_program[1]
             if scalar_programs:
                 spec['scalar_programs'] = scalar_programs
                 # pkg293: the source sockets, so a Mix Shader around this node
@@ -5395,11 +5397,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
     def _principled_alpha_program(self, node, renderer):
         """#1242: a linked Principled Alpha becomes a per-hit graph program driving the native
         transparent lobe (CPU PrincipledPlugin::substituted / shadowAlpha; GPU graph-eval slot
-        GRAPH_SLOT_ALPHA). Returns (program name, constant alpha) or None (unlinked, constant-
-        foldable, everywhere-opaque image alpha, or an unrepresentable chain, which the graph
-        builder reports). The constant is what the GPU's per-material paths read (NEE shadow
-        transmittance, the alpha-pass gates): the image's mean coverage for a bare Image Alpha,
-        else 0.5. Cycles: a Principled alpha is a Transparent closure weighted 1 - alpha
+        GRAPH_SLOT_ALPHA). Returns None (Alpha unlinked) or (program name or None, constant alpha).
+        The constant is what the GPU's per-material paths read (NEE shadow transmittance, the
+        alpha-pass gates) and the whole value when there is no program: the image's mean coverage
+        for a bare Image Alpha (1.0 when the image is opaque everywhere: the unlinked material,
+        bit for bit), 0.5 for any other chain, the folded value or the socket default when the
+        chain cannot be a program (put_float would read 0.0 there: an invisible surface).
+        Cycles: a Principled alpha is a Transparent closure weighted 1 - alpha
         (kernel/svm/closure.h svm_node_closure_bsdf)."""
         sock = node.inputs.get('Alpha')
         if sock is None or not getattr(sock, 'is_linked', False):
@@ -5411,14 +5415,19 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return None
         direct = src.type == 'TEX_IMAGE' and out_name == 'Alpha' and getattr(src, 'image', None) is not None
         if direct and self._image_alpha_is_flat(src.image):
-            return None   # alpha 1 everywhere: the unlinked material, bit for bit
-        if not hasattr(renderer, 'create_graph_program_texture'):
+            return None, 1.0   # alpha 1 everywhere
+        prog = None
+        if hasattr(renderer, 'create_graph_program_texture'):
+            prog = self._build_graph_program(sock, node, 'Alpha', renderer, allow_leaf=True)
+        else:
             self._warn_shader_fallback('BSDF_PRINCIPLED', "Alpha is linked but the engine has no graph "
                                        "programs; the constant Alpha is used")
-            return None
-        prog = self._build_graph_program(sock, node, 'Alpha', renderer, allow_leaf=True)
         if prog is None:
-            return None
+            try:
+                folded = self._eval_float_socket_node(src, out_name)
+            except (AttributeError, KeyError, TypeError, ValueError):
+                folded = None
+            return None, float(folded if folded is not None else sock.default_value)
         hint = self._image_alpha_means().get(src.image.name, 1.0) if direct else 0.5
         self._warn_shader_fallback(
             'BSDF_PRINCIPLED', "per-texel Alpha is exact for camera and indirect rays; the GPU's "

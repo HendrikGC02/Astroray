@@ -4024,8 +4024,8 @@
     "feature": "TEX_IMAGE",
     "bl_idname": "ShaderNodeTexImage",
     "socket_or_prop": "output:Alpha",
-    "classification": "DROPPED-SILENT",
-    "notes": "no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)",
+    "classification": "APPROXIMATED",
+    "notes": "output consumed by the node handler (pkg320)",
     "socket_id": "Alpha"
   },
   {

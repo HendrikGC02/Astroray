@@ -42,25 +42,22 @@ issue = "#1004"
 reason = "#1004 Linear bump / normal map fixed. pkg327 Phase B pinned lower b (spectral, Mitsuba-confirmed; GPU 0.940). 12/16 at seed 278, build e302ca1: only the right ROI fails and reads dim, r 0.935 g 0.913 b 0.851 L 0.922 (5-seed GPU L 0.96, all seeds dim; CPU right is 0.98-0.995 on four of five seeds)"
 
 [[row]]
-scene = "prod_shader_stack"
-backend = "cpu"
-kind = "parity"
-issue = "#995"
-reason = "#995 fixed (per-hit closure mix, Add sum, emission + BSDF continue): 0/16 -> 4/16, L lit_front 0.989 right 0.965 lower 0.894 upper_left 0.933 (seed 278). Residual = emission inside the glass seen through it: Astroray's BTDF keeps the pbrt-v4 radiance factor 1/eta^2 (ggx_glass_energy.h), Cycles omits it; with glass IOR 1 the same stack is 15/16 within 1 % of Cycles. Physics divergence for owner review; #1165 (CPU seed 278, vs main 18b4c053): 4/16 -> 5/16, L right 0.965 lower 0.899 upper_left 0.929"
-
-[[row]]
-scene = "prod_shader_stack"
-backend = "gpu"
-kind = "parity"
-issue = "#995"
-reason = "#995 fixed on GPU (closure tree: 4 closures, graph-program Facs, baked emission): 0/16 -> 4/16, L lit_front 0.990 right 0.966 lower 0.895 upper_left 0.926 (seed 278, build 765ecb83), within 1 % of CPU. Same residual as CPU: the 1/eta^2 radiance factor for emission inside the glass (owner question, see the CPU row)"
-
-[[row]]
 scene = "prod_light_path"
 backend = "gpu"
 kind = "parity"
 issue = "#1199"
 reason = "#991 fixed as on CPU; glass_ball_centre in band (#1038 delta-glass tint). pkg327 Phase B pinned floor_near r (spectral, Mitsuba-confirmed; GPU 0.988, already in band on GPU). 17/20 at seed 278, build e302ca1: only floor_far g 1.027 / b 1.021 / L 1.025 remain (GPU/CPU 1.007 without Light Path), a GPU-only gap, #1199"
+
+# ---- Cycles reference variants (#995, owner 2026-10-31) -------------------------------------------------------
+# `mc_tolerance.py` passes the control to the Cycles legs ONLY (reference EXR and band sigma) as render_leg `--attrib-spec`;
+# the Astroray legs render the .blend as authored. The EXR's receipt (n read from the scene, scale) is the sidecar
+# production/refs/<scene>_cycles.json, and gates_production.toml names the variant on the scene (`reference_variant`).
+[[reference_control]]
+scene = "prod_shader_stack"
+issue = "#995"
+kind = "emission_backface_scale"
+material = "ShaderStack"
+reason = "Astroray keeps the radiance 1/eta^2 on light crossing the glass boundary (pbrt-v4 radiance mode, Veach thesis 5.2) and Cycles has none, so emission inside the glass reads 1/n^2 darker in Astroray. The reference scales the Emission strength by 1/n^2 on back-facing (inside-the-shell) hits, n = the Glass BSDF IOR. Front-face emission and every other channel stay as Cycles renders them"
 
 # ---- silent drops (silent_drop_audit.py) --------------------------------------------------------------------
 # None. pkg320 (#1039, #1088) deleted the six rows the scanner gap produced: prod_attributes and prod_light_path

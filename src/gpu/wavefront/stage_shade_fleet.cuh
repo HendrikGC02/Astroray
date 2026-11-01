@@ -12,6 +12,8 @@
 //    899b09bf, 724da915, a16e7145). Scene specialisation (pkg300 Phase 2) is the
 //    fix: compiling out unused material types shrinks the tree.
 // Full inlining of all 128 variants doubled the build (1189 s vs ~460 s).
+// #1206: the fleet compiles no caustic-toggle code (shadePathSlotImpl CausticGate=false);
+// launchStageShadeBucketed routes a render with a toggle off to the part kernels.
 // Budget after Cycles kernel/device/cuda/config.h (GPU_KERNEL_MAX_REGISTERS via
 // __launch_bounds__, Apache-2.0); the sweep is in
 // .astroray_plan/docs/pkg300-shade-counter-attribution.md.
@@ -42,7 +44,9 @@ __global__ void BUDGET stageShadeFleetKernel_##P( \
     if (bucket >= G_WF_NUM_MAT_TYPES) return; \
     if (pos >= shade_counts[bucket]) return; \
     int idx = shade_queues[bucket * capacity + pos]; \
-    bool alive = shadePathSlotImpl<true, (P != 0)>( \
+    /* #1206: CausticGate=false (last argument); the launcher keeps toggle-off renders off the fleet. */ \
+    bool alive = shadePathSlotImpl<true, (P != 0), false, false, false, false, false, false, \
+                                   false, false>( \
         idx, state, hitBufs, tlas, instances, blas, bvhNodes, prims, tris, spheres, \
         motionVerts, materials, lights, numLights, totalLightPower, dedLights, numDed, \
         lightTree, max_depth, nee_f, nee_i, shadow_queue, shadow_count, capacity, \

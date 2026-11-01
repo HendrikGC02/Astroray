@@ -1097,6 +1097,11 @@ struct GHitRecord {
     int   primId;     // index into d_prims[] — set by gpu_bvh_hit
     bool  frontFace;
     bool  isDelta;
+    // #1206: Cycles caustic toggles at this vertex (lightpath::CAUSTIC_GATE_* bits, 0 = none;
+    // CPU twin HitRecord::causticGate). Sits in padding. Set by the wavefront shade stage and
+    // read only while a toggle is off (stage_advance_device.cuh gpu_causticGated), so it has
+    // no initializer: the default path stores nothing.
+    unsigned char causticGate;
 };
 
 // ---------------------------------------------------------------------------
@@ -1166,6 +1171,9 @@ struct GNEEOcclusion {
 // the material class, Material::isGlossy / gpu_material_is_glossy). Shared by the CPU
 // BSDFSample/BSDFSampleSpectral (raytracer.h) and GBSDFSample below.
 enum : unsigned char { BSDF_LABEL_NONE = 0, BSDF_LABEL_DIFFUSE = 4, BSDF_LABEL_GLOSSY = 8 };
+// #1206: HitRecord::causticGate / GHitRecord::causticGate bits (lightpath::caustic_gate): the
+// Cycles caustic toggles drop reflective (glossy / singular reflection) or refractive closures.
+enum : unsigned char { CAUSTIC_GATE_REFLECT = 1, CAUSTIC_GATE_REFRACT = 2 };
 
 struct GBSDFSample {
     GVec3 wi;

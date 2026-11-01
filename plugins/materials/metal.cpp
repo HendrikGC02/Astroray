@@ -66,7 +66,14 @@ public:
     std::string getGPUTypeName() const override { return "metal"; }
     float getRoughness() const override { return roughness_; }
 
+    // #1206: Cycles drops a conductor closure when reflective caustics are off and the incoming
+    // ray is DIFFUSE (svm/closure.h CLOSURE_BSDF_*_CONDUCTOR / glossy, __CAUSTICS_TRICKS__).
+    static bool gated(const HitRecord& rec) {
+        return (rec.causticGate & CAUSTIC_GATE_REFLECT) != 0;
+    }
+
     Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+        if (gated(rec)) return Vec3(0);
         if (roughness_ <= kNearDeltaThreshold) {
             Vec3 perfectRefl = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             float deviation = (wi - perfectRefl).length();
@@ -107,6 +114,7 @@ public:
     astroray::SampledSpectrum evalSpectral(
             const HitRecord& rec, const Vec3& wo, const Vec3& wi,
             const astroray::SampledWavelengths& lambdas) const override {
+        if (gated(rec)) return astroray::SampledSpectrum(0.0f);
         if (roughness_ <= kNearDeltaThreshold) {
             Vec3 perfectRefl = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             float deviation = (wi - perfectRefl).length();
@@ -148,6 +156,14 @@ public:
 
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;
+        s.label = BSDF_LABEL_GLOSSY;  // #1204: a conductor is a glossy / singular closure
+        if (gated(rec)) {             // #1206: closure dropped, the path ends here
+            s.wi = rec.normal;
+            s.f = Vec3(0);
+            s.pdf = 0.0f;
+            s.isDelta = false;
+            return s;
+        }
         if (roughness_ <= kNearDeltaThreshold) {
             s.wi = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             s.f = albedo_;
@@ -181,7 +197,7 @@ public:
     }
 
     float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        if (roughness_ <= kNearDeltaThreshold) return 0;
+        if (gated(rec) || roughness_ <= kNearDeltaThreshold) return 0;
         Vec3 h = (wo + wi).normalized();
         float NdotH = std::max(rec.normal.dot(h), 0.001f);
         float HdotV = std::max(h.dot(wo), 0.001f);

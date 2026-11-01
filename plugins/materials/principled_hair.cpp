@@ -176,6 +176,7 @@ public:
 
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample bs{Vec3(0, 1, 0), Vec3(0), 0.0f, false};
+        bs.label = BSDF_LABEL_GLOSSY;  // #1204: Cycles bsdf_hair_chiang_sample, LABEL_GLOSSY
         if (rec.hair_v < 0.0f) return bs;
         Vec3 wi = sampleDir(rec, wo, gen);
         bs.wi = wi;
@@ -192,6 +193,7 @@ public:
             astroray::SampledWavelengths& lambdas) const override {
         BSDFSampleSpectral bss;
         bss.isDelta = false;
+        bss.label = BSDF_LABEL_GLOSSY;  // #1204
         if (rec.hair_v < 0.0f) { bss.wi = Vec3(0, 1, 0); bss.pdf = 0.0f; return bss; }
         Vec3 wi = sampleDir(rec, wo, gen);
         bss.wi = wi;

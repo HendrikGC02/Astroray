@@ -2413,10 +2413,10 @@ __device__ inline bool gpu_pr_glassHalfVector(const GPrincipledLobe& L, const GH
 // pdf_reflect = average(R) / average(R + T); twin of principled.cpp glassReflectProb
 // (film glass: R = rescaled thin-film F, T = (1-R) x sqrt(base_color)). Blender v5.2.0
 // intern/cycles/kernel/closure/bsdf_microfacet.h:274-328,768,847 (BSD-3-Clause).
-// #1200 perf: force-inlined. The #1200 tint grew this body past the inliner's threshold, so it
-// became a call at every site main 000cd943 inlined (the pdf in NEE / MIS / shade_pdf, and the
-// sampler inside stageShadeFleetKernel_1): each call made the register-saturated shade code
-// save its live registers (+700..816 B shadePathSlot frames, white glass 1.025x).
+// #1200 perf: force-inlined at the pdf sites (gpu_pr_transmissionPdf in NEE / MIS / shade_pdf),
+// where main 000cd943 inlined it: the #1200 tint grew it past the inliner's threshold, and as a
+// call it made the register-saturated shade code save its live registers (+700..816 B
+// shadePathSlot frames). The sampler uses gpu_pr_glassReflectProbSampler below.
 __device__ __forceinline__ float gpu_pr_glassReflectProb(const GPrincipledClosure& c,
                                                          const GPrincipledLobe& L, bool entering,
                                                          float cosHO, float F) {
@@ -2435,6 +2435,18 @@ __device__ __forceinline__ float gpu_pr_glassReflectProb(const GPrincipledClosur
     GVec3 T = gvec3_max((GVec3(1.f) - Fr) * tt, GVec3(0.f));
     float r = R.x + R.y + R.z, s = r + T.x + T.y + T.z;
     return (s > 0.f) ? r / s : F;
+}
+// The sampler's copy (gpu_pr_chooseAndSampleDir), placed per TU as main 000cd943's compiler
+// placed it: a call in the bucketed / reference TUs (inlined into shadePathSlot it grew the
+// bucketed kernels' STACK by +520..792 B, bump 1.011x, glass_tex 1.012x at bc049fac), inlined in
+// the fleet kernels (a call there cost white glass ~2 %; stage_shade_fleet.cuh defines the
+// macro; the pkg300 gpu_shade_noinline.h pattern).
+#ifndef ASTRORAY_GLASS_SAMPLER_NOINLINE
+#define ASTRORAY_GLASS_SAMPLER_NOINLINE __noinline__
+#endif
+__device__ ASTRORAY_GLASS_SAMPLER_NOINLINE inline float gpu_pr_glassReflectProbSampler(
+        const GPrincipledClosure& c, const GPrincipledLobe& L, bool entering, float cosHO, float F) {
+    return gpu_pr_glassReflectProb(c, L, entering, cosHO, F);
 }
 // #1162: smooth (delta) film glass, twin of principled.cpp deltaFilmF / deltaFilmFSpectral
 // (Cycles v5.2.0 bsdf_microfacet.h:795-917 singular branch: pR = avg(R)/avg(R+T) :847,
@@ -3128,7 +3140,7 @@ __device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GPrincipledClos
         GVec3 wm = gpu_pr_sampleGgxVNDF(rec, wo, L.roughness, rng);
         float HdotO = wo.dot(wm);
         float F = gpu_pr_fresnelDielectric(fabsf(HdotO), etaI, etaT);
-        if (gpu_rng_uniform(rng) < gpu_pr_glassReflectProb(c, L, rec.frontFace, fabsf(HdotO), F)) {
+        if (gpu_rng_uniform(rng) < gpu_pr_glassReflectProbSampler(c, L, rec.frontFace, fabsf(HdotO), F)) {
             ds.wi = (wm * (2.f * HdotO) - wo).normalized();
             ds.ok = ds.wi.dot(rec.normal) > 0.f;
         } else {

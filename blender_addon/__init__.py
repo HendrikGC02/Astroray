@@ -4173,12 +4173,16 @@ class CustomRaytracerRenderEngine(RenderEngine):
 
     def _image_has_translucent_pixels(self, bpy_image):
         """True when any texel has alpha != 1. Scanned once per image per conversion
-        pass; an opaque image keeps its plain texture name."""
+        pass; an opaque image keeps its plain texture name. An image without an alpha
+        plane (Image.depth 24 / 96 bits) is never scanned."""
         cache = getattr(self, '_image_alpha_scan', None)
         if cache is None:
             cache = self._image_alpha_scan = {}
         if bpy_image.name not in cache:
             try:
+                if getattr(bpy_image, 'depth', 32) in (24, 96):
+                    cache[bpy_image.name] = False
+                    return False
                 if not bpy_image.has_data:
                     bpy_image.reload()
                 buf = np.empty(len(bpy_image.pixels), dtype=np.float32)
@@ -4196,16 +4200,27 @@ class CustomRaytracerRenderEngine(RenderEngine):
         when the node's Alpha output is linked (scene/shader_nodes.cpp:449-457,
         kernel/svm/image.h:28-31; unassociate_alpha is false for data spaces and
         Channel Packed / None). Premultiplied images are not touched at load but are
-        un-premultiplied the same way. Returns '' (straight RGB as stored), 'premul'
+        un-premultiplied the same way. Returns '' (RGB as stored), 'premul'
         (Straight, Alpha unlinked: Color = RGB*alpha) or 'unpremul' (Premultiplied,
         Alpha linked: Color = RGB/alpha where alpha is neither 0 nor 1).
-        ``alpha_linked`` None means the caller has no node: stored RGB is kept."""
+        ``alpha_linked`` None means the caller has no node: stored RGB is kept.
+
+        Cycles reads a file-backed image from disk (blender/util.h image_is_builtin), not
+        from Blender's buffer, and Blender keeps a Straight-mode float buffer premultiplied
+        (probed 5.2: a 16-bit PNG or an EXR set to Straight reads back RGB*alpha), so that
+        buffer already holds Cycles' associated colour and follows the Premultiplied rule.
+        Packed / generated / edited images are read from the buffer as is."""
         if alpha_linked is None:
             return ''
         mode = getattr(bpy_image, 'alpha_mode', None)
         cs_name = getattr(getattr(bpy_image, 'colorspace_settings', None), 'name', '')
         if cs_name in ('Non-Color', 'Raw'):
             return ''
+        if (mode == 'STRAIGHT' and getattr(bpy_image, 'is_float', False)
+                and not getattr(bpy_image, 'packed_file', None)
+                and getattr(bpy_image, 'source', 'FILE') not in ('GENERATED', 'MOVIE')
+                and not getattr(bpy_image, 'is_dirty', False)):
+            mode = 'PREMUL'
         if mode == 'STRAIGHT' and not alpha_linked:
             variant = 'premul'
         elif mode == 'PREMUL' and alpha_linked:

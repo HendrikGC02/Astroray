@@ -97,6 +97,10 @@ PROBE_VERDICT = {
     # pkg234 (#1215): Image Texture Interpolation is honoured (Linear / Cubic / Smart); the render moves and nothing is named.
     "img_interp": ("moves", ""),
     "img_interp_float": ("moves", ""), "img_interp_cubic": ("moves", ""),
+    # #1238: the Image Texture Alpha link changes Color (Cycles associates alpha at load, un-premultiplies when linked);
+    # a data colour space has no association, so its link is inert (tests/test_i1238_image_alpha_association.py).
+    "img_alpha": ("moves", ""), "img_alpha_premul": ("moves", ""), "img_alpha_exr": ("moves", ""),
+    "img_alpha_float": ("moves", ""), "img_alpha_genfloat": ("moves", ""), "img_alpha_data": ("inert", ""),
 }
 
 

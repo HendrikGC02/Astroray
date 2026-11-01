@@ -8,6 +8,7 @@ owner-signed number; until it is signed, b2/b3 fail.  Pure python/numpy, no Blen
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -202,33 +203,85 @@ def test_proposal_threshold_is_clamped_at_zero():
 # ---------------------------------------------------------------- thresholds
 
 
+CEILINGS = {"CPU": 0.7, "GPU": 0.6}
+GOOD_SIGNED = {"cpu": 0.40, "gpu": 0.35, "owner": "owner", "pr": 1, "date": "2026-11-02"}
+
+
+def _git(root: Path, *args: str) -> None:
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=root, check=True, capture_output=True)
+
+
+def _threshold_repo(root: Path, signed, *, commit: bool = True, proposed=None) -> Path:
+    """A throwaway git repo holding a threshold file; ``commit=False`` leaves the signed bytes uncommitted."""
+    path = root / C.THRESHOLD_PATH
+    path.parent.mkdir(parents=True)
+    body = {"schema": C.THRESHOLD_SCHEMA, "proposed": proposed or {"cpu": 0.4, "gpu": 0.4}, "signed": signed}
+    _git(root, "init", "-q")
+    if not commit:
+        path.write_text(json.dumps({**body, "signed": None}))
+        _git(root, "add", "-A")
+        _git(root, "commit", "-qm", "unsigned")
+    path.write_text(json.dumps(body))
+    if commit:
+        _git(root, "add", "-A")
+        _git(root, "commit", "-qm", "sign")
+    return root
+
+
 def test_threshold_unsigned_keeps_b2_b3_red(tmp_path):
-    (tmp_path / "docs/blender_parity/evidence/gate_b").mkdir(parents=True)
-    path = tmp_path / C.THRESHOLD_PATH
-    path.write_text(json.dumps({"schema": C.THRESHOLD_SCHEMA, "proposed": {"cpu": 0.4, "gpu": 0.4}, "signed": None}))
-    t = C.load_b_threshold(tmp_path)
+    t = C.load_b_threshold(_threshold_repo(tmp_path, None), CEILINGS)
     assert t["signed"] is False and t["min"] == {"CPU": None, "GPU": None} and t["proposed"]["CPU"] == 0.4
     res = C._score_subcheck(0.99, "CPU", t)
-    assert res["pass"] is False and res["min"] is None and res["signed"] is False
+    assert res["pass"] is False and res["min"] is None and res["signed"] is False and "not signed" in res["reason"]
 
 
 def test_threshold_signed_is_the_bound(tmp_path):
-    (tmp_path / "docs/blender_parity/evidence/gate_b").mkdir(parents=True)
-    (tmp_path / C.THRESHOLD_PATH).write_text(json.dumps({
-        "schema": C.THRESHOLD_SCHEMA, "proposed": {"cpu": 0.4, "gpu": 0.4},
-        "signed": {"cpu": 0.40, "gpu": 0.35, "owner": "owner", "pr": 1}}))
-    t = C.load_b_threshold(tmp_path)
-    assert t["signed"] and t["min"] == {"CPU": 0.4, "GPU": 0.35}
+    t = C.load_b_threshold(_threshold_repo(tmp_path, GOOD_SIGNED), CEILINGS)
+    assert t["signed"] and t["min"] == {"CPU": 0.4, "GPU": 0.35} and t["reason"] == ""
     assert C._score_subcheck(0.40, "CPU", t)["pass"] is True
     assert C._score_subcheck(0.39, "CPU", t)["pass"] is False
     assert C._score_subcheck(0.35, "GPU", t)["pass"] is True
 
 
+@pytest.mark.parametrize("edit,why", [
+    ({"owner": ""}, "owner"), ({"owner": "   "}, "owner"), ({"owner": None}, "owner"),
+    ({"cpu": 0}, "cpu"), ({"cpu": -0.1}, "cpu"), ({"cpu": "0.4"}, "cpu"), ({"gpu": True}, "gpu"), ({"gpu": float("nan")}, "gpu"),
+    ({"cpu": 0.71}, "exceeds the CPU measured ceiling"), ({"gpu": 0.61}, "exceeds the GPU measured ceiling"),
+    ({"pr": "1"}, "pr"), ({"pr": True}, "pr"), ({"pr": None}, "pr"), ({"date": ""}, "date"), ({"date": None}, "date")])
+def test_signed_threshold_with_a_bad_field_is_unsigned(tmp_path, edit, why):
+    t = C.load_b_threshold(_threshold_repo(tmp_path, {**GOOD_SIGNED, **edit}), CEILINGS)
+    assert t["signed"] is False and t["min"] == {"CPU": None, "GPU": None} and why in t["reason"]
+    assert C._score_subcheck(0.99, "CPU", t)["pass"] is False
+
+
+def test_signed_threshold_missing_a_field_is_unsigned(tmp_path):
+    for field in ("owner", "pr", "date", "cpu", "gpu"):
+        root = tmp_path / field
+        root.mkdir()
+        t = C.load_b_threshold(_threshold_repo(root, {k: v for k, v in GOOD_SIGNED.items() if k != field}), CEILINGS)
+        assert t["signed"] is False, field
+
+
+def test_signed_threshold_must_equal_its_committed_version(tmp_path):
+    (tmp_path / "repo").mkdir()
+    t = C.load_b_threshold(_threshold_repo(tmp_path / "repo", GOOD_SIGNED, commit=False), CEILINGS)
+    assert t["signed"] is False and "differs from its committed HEAD version" in t["reason"]
+    non_git = tmp_path / "plain"
+    (non_git / C.THRESHOLD_PATH).parent.mkdir(parents=True)
+    (non_git / C.THRESHOLD_PATH).write_text(json.dumps({"schema": C.THRESHOLD_SCHEMA, "signed": GOOD_SIGNED}))
+    t = C.load_b_threshold(non_git, CEILINGS)
+    assert t["signed"] is False and "not committed" in t["reason"]
+
+
+def test_signed_threshold_needs_a_ceiling_to_pass_b2_b3(tmp_path):
+    root = _threshold_repo(tmp_path, GOOD_SIGNED)
+    assert C.load_b_threshold(root, {"CPU": None, "GPU": 0.6})["signed"] is False        # ceiling unavailable
+    display = C.load_b_threshold(root)                                                    # no ceilings: display only
+    assert display["signed"] and display["ceiling_checked"] is False
+    assert C._score_subcheck(0.99, "CPU", display)["pass"] is False
+
+
 def test_threshold_without_owner_or_file_is_unsigned(tmp_path):
-    assert C.load_b_threshold(tmp_path)["signed"] is False
-    (tmp_path / "docs/blender_parity/evidence/gate_b").mkdir(parents=True)
-    (tmp_path / C.THRESHOLD_PATH).write_text(json.dumps({
-        "schema": C.THRESHOLD_SCHEMA, "signed": {"cpu": 0.4, "gpu": 0.4}}))
     assert C.load_b_threshold(tmp_path)["signed"] is False
 
 

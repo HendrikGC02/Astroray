@@ -1054,25 +1054,69 @@ def _named_node_checks(uses: Mapping[str, set[str]], matrix: Mapping[str, str],
     return checks
 
 
-def load_b_threshold(repo_root: Path | None) -> dict[str, Any]:
-    """The owner-signed row (b) threshold (pkg328).  ``signed`` is False until the owner records a number in the
-    PR; an unsigned or unreadable file keeps b2/b3 red.  ``min`` is None while unsigned."""
-    out: dict[str, Any] = {"signed": False, "min": {"CPU": None, "GPU": None}, "proposed": {"CPU": None, "GPU": None}}
+def _number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def load_b_threshold(repo_root: Path | None, ceilings: Mapping[str, float | None] | None = None) -> dict[str, Any]:
+    """The owner-signed row (b) threshold (pkg328).  ``signed`` is False until the owner records a number in the PR; an
+    unsigned, unreadable or invalid file keeps b2/b3 red and ``reason`` says why.  ``min`` is None while unsigned.
+
+    A threshold counts as signed only when: ``owner`` is a non-empty string; ``cpu``/``gpu`` are numbers with
+    0 < value <= that backend's measured ceiling; ``pr`` is an int and ``date`` a non-empty string; and the file is
+    byte-identical to its committed version at HEAD.  ``ceilings`` are the matrix ceilings per backend; without them
+    (display callers only) ``ceiling_checked`` is False and ``_score_subcheck`` refuses to pass."""
+    out: dict[str, Any] = {"signed": False, "reason": "", "ceiling_checked": ceilings is not None,
+                           "min": {"CPU": None, "GPU": None}, "proposed": {"CPU": None, "GPU": None}}
     if repo_root is None:
+        out["reason"] = "no repository root"
         return out
+    path = Path(repo_root) / THRESHOLD_PATH
     try:
-        data = json.loads((Path(repo_root) / THRESHOLD_PATH).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        raw = path.read_bytes()
+        data = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError):
+        out["reason"] = "threshold file missing or unreadable"
         return out
     if not isinstance(data, Mapping) or data.get("schema") != THRESHOLD_SCHEMA:
+        out["reason"] = "threshold file has the wrong schema"
         return out
     for key, backend in (("cpu", "CPU"), ("gpu", "GPU")):
         v = (data.get("proposed") or {}).get(key)
-        out["proposed"][backend] = float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+        out["proposed"][backend] = float(v) if _number(v) else None
     signed = data.get("signed")
-    if isinstance(signed, Mapping) and signed.get("owner") and all(
-            isinstance(signed.get(k), (int, float)) and not isinstance(signed.get(k), bool) for k in ("cpu", "gpu")):
-        out.update({"signed": True, "min": {"CPU": float(signed["cpu"]), "GPU": float(signed["gpu"])}})
+    if not isinstance(signed, Mapping):
+        out["reason"] = "threshold not signed by the owner"
+        return out
+    problems = []
+    if not (isinstance(signed.get("owner"), str) and signed["owner"].strip()):
+        problems.append("owner is not a non-empty string")
+    if not (isinstance(signed.get("pr"), int) and not isinstance(signed.get("pr"), bool)):
+        problems.append("pr is not an integer")
+    if not (isinstance(signed.get("date"), str) and signed["date"].strip()):
+        problems.append("date is missing")
+    for key, backend in (("cpu", "CPU"), ("gpu", "GPU")):
+        v = signed.get(key)
+        if not _number(v) or not v > 0:
+            problems.append(f"{key} is not a positive number")
+        elif ceilings is not None:
+            ceiling = ceilings.get(backend)
+            if not _number(ceiling):
+                problems.append(f"{backend} measured ceiling is unavailable")
+            elif v > ceiling + 1e-12:
+                problems.append(f"{key} {v} exceeds the {backend} measured ceiling {ceiling:.6f}")
+    if not problems:
+        try:
+            relative = path.resolve().relative_to(Path(repo_root).resolve()).as_posix()
+            head = subprocess.run(["git", "show", f"HEAD:{relative}"], cwd=repo_root, capture_output=True, check=True).stdout
+            if head != raw:
+                problems.append("threshold file differs from its committed HEAD version")
+        except (OSError, ValueError, subprocess.SubprocessError):
+            problems.append("threshold file is not committed at HEAD")
+    if problems:
+        out["reason"] = "signed threshold rejected: " + "; ".join(problems)
+        return out
+    out.update({"signed": True, "min": {"CPU": float(signed["cpu"]), "GPU": float(signed["gpu"])}})
     return out
 
 
@@ -1081,9 +1125,10 @@ def _score_subcheck(score: float | None, backend: str, threshold: Mapping[str, A
     if threshold is None:
         return {"pass": score is not None and score >= SCORE_MIN, "score": score, "min": SCORE_MIN}
     minimum = threshold["min"][backend]
-    return {"pass": bool(threshold["signed"] and minimum is not None and score is not None and score >= minimum),
+    trusted = bool(threshold["signed"] and threshold.get("ceiling_checked", True))
+    return {"pass": bool(trusted and minimum is not None and score is not None and score >= minimum),
             "score": score, "min": minimum, "signed": bool(threshold["signed"]),
-            "proposed": threshold["proposed"][backend]}
+            "proposed": threshold["proposed"][backend], "reason": threshold.get("reason", "")}
 
 
 def evaluate_subchecks(uses: Mapping[str, set[str]], matrix: Mapping[str, str],
@@ -1982,7 +2027,6 @@ def _build_report_audited(frozen: Mapping[str, Any], matrix: Mapping[str, str], 
     zeroed by failing audit witnesses, the proposal and the owner-signed threshold."""
     ledger = list(verified.get("use_ledger", [])) if hash_locked else []
     audit = verified.get("audit") or {}
-    threshold = load_b_threshold(repo_root)
     if integrity_errors or not hash_locked or not audit:
         stub = {k: {"pass": False} for k in ("b1_input_manifest_ratified", "b2_cpu_score", "b3_gpu_score",
                                              "b4_zero_silent_drops", "b5_named_node_checks", "b6_nonzero_links_evidence")}
@@ -1992,6 +2036,7 @@ def _build_report_audited(frozen: Mapping[str, Any], matrix: Mapping[str, str], 
     zeroed = {b: audit_zeroed(audit, b) for b in ("CPU", "GPU")}
     scores = score_audited(ledger, matrix, zeroed)
     proposal = audit_proposal(ledger, matrix, audit)
+    threshold = load_b_threshold(repo_root, {b: proposal[b]["ceiling"] for b in ("CPU", "GPU")})
     drops = silent_drops(uses, matrix)
     named = audit_named_node_checks(uses, scores, audit)
     subchecks = {
@@ -2027,7 +2072,7 @@ def _build_report_audited(frozen: Mapping[str, Any], matrix: Mapping[str, str], 
                                           "CPU": _witness_status(results, w["id"], "CPU"),
                                           "GPU": _witness_status(results, w["id"], "GPU")}
                                 for w in audit["sample"]["witnesses"]}},
-        "threshold": {"signed": threshold["signed"], "min": threshold["min"], "proposed_by_this_report": {
+        "threshold": {"signed": threshold["signed"], "reason": threshold["reason"], "min": threshold["min"], "proposed_by_this_report": {
             b: proposal[b]["proposed_threshold"] for b in ("CPU", "GPU")}},
         "proposal": proposal,
         "subchecks": subchecks,
@@ -2249,7 +2294,8 @@ def build_report(frozen: Mapping[str, Any], snapshot: Mapping[str, Any],
     subchecks = evaluate_subchecks(uses, matrix, evidence, repo_root, frozen,
                                    computed["cpu"], computed["gpu"],
                                    fixture_mode, hash_locked, allowed_cases,
-                                   threshold=None if fixture_mode else load_b_threshold(repo_root))
+                                   threshold=None if fixture_mode else load_b_threshold(
+                                       repo_root, {b: s.score for b, s in score_audited(ledger or [], matrix, None).items()}))
 
     if integrity_errors:
         return _unmeasured_report(pop, uses, matrix, subchecks,

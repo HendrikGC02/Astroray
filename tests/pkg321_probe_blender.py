@@ -182,6 +182,13 @@ PROBES = {
     "img_alpha_float": dict(scene="sphere", node="ShaderNodeTexImage", custom="img_alpha_float"),
     "img_alpha_genfloat": dict(scene="sphere", node="ShaderNodeTexImage", custom="img_alpha_genfloat"),
     "img_alpha_data": dict(scene="sphere", node="ShaderNodeTexImage", custom="img_alpha_data"),
+    # #1242: the Image Texture Alpha OUTPUT. mixfac: Mix Factor from Alpha (A) vs the constant 0.5 (B); cutout: a leaf card
+    # whose Principled Alpha is the image alpha (A) vs unlinked (B); opaque: an image with no alpha plane, Alpha into
+    # Principled Alpha (A) vs unlinked (B) - nothing may change; none: alpha mode None, Alpha is 1 (A) vs a constant 1 (B).
+    "img_alpha_mixfac": dict(scene="sphere", node="ShaderNodeTexImage", custom="img_alpha_mixfac"),
+    "img_alpha_none": dict(scene="sphere", node="ShaderNodeTexImage", custom="img_alpha_none"),
+    "img_alpha_opaque": dict(scene="sphere", node="ShaderNodeTexImage", custom="img_alpha_opaque"),
+    "img_alpha_cutout": dict(scene="card", node="ShaderNodeTexImage", custom="img_alpha_cutout"),
     "mr_clamp_const": dict(scene="sphere", node="ShaderNodeMapRange", custom="mr_clamp_const"),
     "mr_clamp_linked": dict(scene="sphere", node="ShaderNodeMapRange", custom="mr_clamp_linked"),
 }
@@ -298,7 +305,7 @@ def build_scene(kind, out_dir):
     scene = bpy.context.scene
     _configure(scene)
     info = {"obj": None}
-    if kind in ("sphere", "hair", "volsphere"):
+    if kind in ("sphere", "hair", "volsphere", "card"):
         _world(0.25 if kind != "volsphere" else 0.6)
         _sun(4.0 if kind != "volsphere" else 0.0)
     if kind == "sphere":
@@ -307,6 +314,17 @@ def build_scene(kind, out_dir):
         for p in o.data.polygons:
             p.use_smooth = True
         info["obj"] = o
+        _camera((0, -3.4, 0), (math.pi / 2, 0, 0))
+    elif kind == "card":
+        # #1242: a 2x2 card facing the camera (UV 0..1) in front of a grey backdrop that catches its shadow.
+        bpy.ops.mesh.primitive_plane_add(size=6.0, location=(0, 1.0, 0), rotation=(math.pi / 2, 0, 0))
+        back = bpy.context.active_object
+        bm = bpy.data.materials.new("keep_backdrop")
+        bm.use_nodes = True
+        bm.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.5, 0.5, 0.5, 1)
+        back.data.materials.append(bm)
+        bpy.ops.mesh.primitive_plane_add(size=2.0, location=(0, 0, 0), rotation=(math.pi / 2, 0, 0))
+        info["obj"] = bpy.context.active_object
         _camera((0, -3.4, 0), (math.pi / 2, 0, 0))
     elif kind == "volsphere":
         bpy.ops.mesh.primitive_uv_sphere_add(radius=0.9, location=(0, 0, 0), segments=32, ring_count=16)
@@ -645,6 +663,64 @@ def _img_alpha_probe(kind):
     return build
 
 
+def _cutout_texture(out_dir, name, with_alpha=True):
+    """#1242: 16x16 sRGB PNG, random leaf colours, alpha a 4x4-texel checker of 0 and 1 (coverage 0.5, no filtered edges)."""
+    rng = np.random.RandomState(5)
+    rgb = rng.uniform(0.15, 0.9, (16, 16, 3)).astype(np.float32)
+    yy, xx = np.mgrid[0:16, 0:16]
+    alpha = (((yy // 4) + (xx // 4)) % 2 == 0).astype(np.float32)
+    return _png_image(out_dir, name, rgb, "sRGB", alpha if with_alpha else None)
+
+
+def _img_alpha_out_probe(kind):
+    def build(variant, out_dir, notes):
+        """#1242, see PROBES. All Closest."""
+        if kind == "cutout":
+            mat = bpy.data.materials.new("probe_%s" % variant)
+            mat.use_nodes = True
+            nt = mat.node_tree
+            nt.nodes.clear()
+            out = nt.nodes.new("ShaderNodeOutputMaterial")
+            pr = nt.nodes.new("ShaderNodeBsdfPrincipled")
+            nt.links.new(pr.outputs["BSDF"], out.inputs["Surface"])
+            sink = pr.inputs["Alpha"]
+        else:
+            mat, nt, out, d = _diffuse_mat("probe_%s" % variant)
+            sink = None
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        tex.image = _cutout_texture(out_dir, "i1242_" + kind, with_alpha=kind != "opaque")
+        tex.interpolation = "Closest"
+        if kind == "none":
+            tex.image.alpha_mode = "NONE"
+        notes.append("alpha_mode=%s depth=%d" % (tex.image.alpha_mode, tex.image.depth))
+        if kind == "cutout":
+            nt.links.new(tex.outputs["Color"], pr.inputs["Base Color"])
+            if variant != "B":
+                nt.links.new(tex.outputs["Alpha"], sink)
+        elif kind == "opaque":
+            p = nt.nodes.new("ShaderNodeBsdfPrincipled")
+            nt.links.new(tex.outputs["Color"], p.inputs["Base Color"])
+            if variant != "B":
+                nt.links.new(tex.outputs["Alpha"], p.inputs["Alpha"])
+            nt.links.new(p.outputs["BSDF"], out.inputs["Surface"])
+        else:
+            mix = nt.nodes.new("ShaderNodeMix")
+            mix.data_type = "RGBA"
+            mix.inputs["A"].default_value = (0.9, 0.1, 0.1, 1)
+            mix.inputs["B"].default_value = (0.1, 0.1, 0.9, 1)
+            if kind == "none":
+                mix.inputs["Factor"].default_value = 1.0     # A: Alpha (ignored -> 1); B: the constant 1
+                if variant != "B":
+                    nt.links.new(tex.outputs["Alpha"], mix.inputs["Factor"])
+            else:
+                mix.inputs["Factor"].default_value = 0.5
+                if variant != "B":
+                    nt.links.new(tex.outputs["Alpha"], mix.inputs["Factor"])
+            nt.links.new(mix.outputs["Result"], d.inputs["Color"])
+        return mat
+    return build
+
+
 def _mr_clamp(linked):
     def build(variant, out_dir, notes):
         """Map Range: From 0..0.5 -> To 0..0.25. Value 0.9 (constant, or a Noise Fac linked): clamp on caps at 0.25, off gives up to 0.45."""
@@ -673,6 +749,8 @@ MATERIAL_BUILDERS = {"out_thickness": _out_thickness, "out_target": _out_target,
                      "img_alpha": _img_alpha_probe("png"), "img_alpha_premul": _img_alpha_probe("gen_premul"),
                      "img_alpha_exr": _img_alpha_probe("exr"), "img_alpha_float": _img_alpha_probe("exr_straight"),
                      "img_alpha_genfloat": _img_alpha_probe("gen_float"), "img_alpha_data": _img_alpha_probe("data"),
+                     "img_alpha_mixfac": _img_alpha_out_probe("mixfac"), "img_alpha_none": _img_alpha_out_probe("none"),
+                     "img_alpha_opaque": _img_alpha_out_probe("opaque"), "img_alpha_cutout": _img_alpha_out_probe("cutout"),
                      "mr_clamp_const": _mr_clamp(False), "mr_clamp_linked": _mr_clamp(True)}
 
 
@@ -792,7 +870,7 @@ def run_probe(pid, p, out_dir, scene_info):
             obj = scene_info["obj"]
             obj.data.materials.clear()
             obj.data.materials.append(mat)
-            for old in [m for m in bpy.data.materials if m is not mat]:   # convert_materials walks every datablock
+            for old in [m for m in bpy.data.materials if m is not mat and not m.name.startswith("keep_")]:   # convert_materials walks every datablock
                 bpy.data.materials.remove(old)
         t0 = time.time()
         pix[variant], warns[variant] = render(scene, out_dir, f"{pid}_{variant}")

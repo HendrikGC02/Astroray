@@ -115,10 +115,15 @@ class PrincipledPlugin : public Material {
     // metallic F82 tint, transmission tint) sees the texel. GPU twin: the
     // HasProgram base-colour override in stage_advance_device.cuh.
     std::shared_ptr<Texture> baseColorProgram_;
+    // #1242 - per-texel Alpha (image Alpha output / any chain), a graph program. alpha_ stays the
+    // constant coverage hint the GPU's per-material paths read (NEE shadow, alpha-pass gates);
+    // substituted() and shadowAlpha() evaluate the program per hit. GPU twin: GRAPH_SLOT_ALPHA
+    // read by the HasProgram override in stage_advance_device.cuh.
+    std::shared_ptr<Texture> alphaProgram_;
 
     bool hasScalarProgram() const {
         return roughnessProgram_ || metallicProgram_ ||
-               transmissionProgram_ || iorProgram_ || baseColorProgram_;
+               transmissionProgram_ || iorProgram_ || baseColorProgram_ || alphaProgram_;
     }
 
     PrincipledPlugin substituted(const HitRecord& rec, const Vec3& wo) const {
@@ -133,6 +138,8 @@ class PrincipledPlugin : public Material {
             c.ior_ = std::max(1.0f, iorProgram_->value(rec, wo).x);
             cauchyAB(c.ior_, invAbbe_, c.cauchyA_, c.cauchyB_);
         }
+        if (alphaProgram_)
+            c.alpha_ = std::clamp(alphaProgram_->value(rec, wo).x, 0.0f, 1.0f);   // ctor clamp
         if (baseColorProgram_) {
             // Unclamped, like the constant base_color the ctor reads.
             c.baseColor_ = baseColorProgram_->value(rec, wo);
@@ -144,7 +151,7 @@ class PrincipledPlugin : public Material {
         // refraction + collapse in sampleSpectral).
         c.dispersive_ = (c.transmission_ > 1e-4f) && (invAbbe_ > 0.0f);
         c.roughnessProgram_ = c.metallicProgram_ =
-            c.transmissionProgram_ = c.iorProgram_ = c.baseColorProgram_ = nullptr;
+            c.transmissionProgram_ = c.iorProgram_ = c.baseColorProgram_ = c.alphaProgram_ = nullptr;
         return c;
     }
 
@@ -2334,7 +2341,13 @@ public:
     // (1-alpha) rather than unconditionally blocked (Material::shadowAlpha
     // doc-comment, include/raytracer.h). alpha_ is the same value the
     // camera-ray delta-transparent lobe already uses (pkg178 PR-6).
-    float shadowAlpha(const HitRecord& /*rec*/) const override { return alpha_; }
+    float shadowAlpha(const HitRecord& rec) const override {
+        // #1242: per hit with an Alpha program (the view direction only matters to a
+        // shading-input chain; closure_mix.h reads it the same way).
+        if (alphaProgram_)
+            return std::clamp(alphaProgram_->value(rec, -rec.incomingDirection).x, 0.0f, 1.0f);
+        return alpha_;
+    }
     // pkg187 — wavelength-dependent IOR via the OpenPBR Cauchy fit (cauchyAB).
     // Non-dispersive → the flat d-line IOR, so SMS/MNEE (mesh_attempt.h keys off
     // iorAt) and every other caller are byte-identical to today. Consumed by the
@@ -2395,6 +2408,7 @@ public:
             case astroray::svm::SCALAR_TRANSMISSION: transmissionProgram_ = prog; break;
             case astroray::svm::SCALAR_IOR:          iorProgram_ = prog;          break;
             case astroray::svm::SCALAR_BASE_COLOR:   baseColorProgram_ = prog;    break;
+            case astroray::svm::SCALAR_ALPHA:        alphaProgram_ = prog;        break;
             default: break;
         }
     }
@@ -2405,6 +2419,7 @@ public:
             case astroray::svm::SCALAR_TRANSMISSION: return transmissionProgram_;
             case astroray::svm::SCALAR_IOR:          return iorProgram_;
             case astroray::svm::SCALAR_BASE_COLOR:   return baseColorProgram_;
+            case astroray::svm::SCALAR_ALPHA:        return alphaProgram_;
             default: return nullptr;
         }
     }

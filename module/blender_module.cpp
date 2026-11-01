@@ -935,6 +935,8 @@ public:
                 {"ior_program",          astroray::svm::SCALAR_IOR},
                 // #988 — per-texel Base Color on the native Principled (any texture).
                 {"base_color_texture",   astroray::svm::SCALAR_BASE_COLOR},
+                // #1242 - per-texel Principled Alpha (a graph program; PrincipledPlugin only).
+                {"alpha_program",        astroray::svm::SCALAR_ALPHA},
             };
             for (const auto& sp : scalarProgs) {
                 if (auto tex = getTexture(sp.first))

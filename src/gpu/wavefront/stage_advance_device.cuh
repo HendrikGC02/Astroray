@@ -2712,6 +2712,20 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                     matScalarOv.mat.closures[0].color = c;
                 }
             }
+            // #1242 - per-texel Principled Alpha (CPU twin: PrincipledPlugin::substituted). The
+            // uploaded alpha stays the constant coverage hint the NEE shadow / alpha-pass gates
+            // read; this hit's transparent lobe weight is the program value (ctor clamp).
+            if (gp[astroray::sgraph::GRAPH_SLOT_ALPHA] >= 0 &&
+                gpu_closure_graph_is_principled(materials[rec.materialId])) {
+                const float a = go[astroray::sgraph::GRAPH_OUT_ALPHA * gst + idx];
+                if (!isnan(a)) {
+                    if (!anyOverride) {
+                        matScalarOv.mat = materials[rec.materialId];
+                        anyOverride = true;
+                    }
+                    matScalarOv.mat.principled.alpha = fminf(fmaxf(a, 0.0f), 1.0f);
+                }
+            }
         }
         if (anyOverride) matPtr = &matScalarOv.mat;
     }

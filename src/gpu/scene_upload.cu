@@ -443,7 +443,9 @@ static UvGate classifyUvGate(const std::shared_ptr<Material>& mtl) {
          scalarMtl->scalarProgram(astroray::svm::SCALAR_TRANSMISSION) ||
          scalarMtl->scalarProgram(astroray::svm::SCALAR_IOR) ||
          // #988 — textured Principled Base Color (image / 2D bake input).
-         scalarMtl->scalarProgram(astroray::svm::SCALAR_BASE_COLOR));
+         scalarMtl->scalarProgram(astroray::svm::SCALAR_BASE_COLOR) ||
+         // #1242 — per-texel Principled Alpha (a graph program reading the hit UV).
+         scalarMtl->scalarProgram(astroray::svm::SCALAR_ALPHA));
     // pkg242 Phase 0 -- UV-less fallback contract. The CPU Triangle ALWAYS
     // defines (uv0,uv1,uv2): authored layer 0 when present, else the
     // implicit default domain uv0=(0,0),uv1=(1,0),uv2=(0,1)
@@ -2100,6 +2102,13 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             }
             r.materialScalarProgId.push_back(sProgId);
             r.materialScalarTexId.push_back(sTexId);
+        }
+        // #1242 — Principled Alpha: a graph program only (no op-VM scalar slot). The graph kernel
+        // writes it to GRAPH_OUT_ALPHA; the shade override reads it (stage_advance_device.cuh).
+        if (auto gpt = std::dynamic_pointer_cast<GraphProgramTexture>(
+                m->scalarProgram(astroray::svm::SCALAR_ALPHA))) {
+            graphSlots[astroray::sgraph::GRAPH_SLOT_ALPHA] = uploadGraphProgram(gpt.get());
+            if (graphSlots[astroray::sgraph::GRAPH_SLOT_ALPHA] >= 0) r.hasProgram = true;
         }
         // #995 -- the closure tree's per-texel Mix Facs: graph programs on this
         // material's fac slots (the graph kernel writes graphOut rows GRAPH_OUT_FAC0+k).

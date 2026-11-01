@@ -297,6 +297,11 @@ _FAC_VARIANT_TYPES = frozenset(('TEX_CHECKER', 'TEX_BRICK'))
 
 def _push_texture_output(node, out_name, socket, builder):
     ntype = getattr(node, 'type', None)
+    if ntype == 'TEX_IMAGE' and out_name == 'Alpha':
+        # #1242: the Image Texture Alpha output is its own scalar (Cycles kernel/svm/image.h
+        # svm_node_tex_image stores f.w separately), not the Color RGB. The 'alpha' input
+        # variant loads the image's alpha plane as a grey texture.
+        return builder.push_tex(node, 'alpha')
     if ntype == 'TEX_VORONOI' and out_name == 'Color':
         # #944: Voronoi Color = hashed cell colour (svm/voronoi.h); the default
         # load is Distance (grey). A 'color' input variant loads the Color form.

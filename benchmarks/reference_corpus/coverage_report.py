@@ -112,6 +112,7 @@ INPUT_MANIFEST_SCHEMA_V5 = "pkg278.coverage_input_manifest.v5"
 REPORT_SCHEMA = "pkg278.coverage_report.v1"
 REPORT_SCHEMA_V2 = "pkg278.coverage_report.v2"
 SCORER_VERSION = 2
+AUDIT_STATUSES = ("PASS", "FAIL", "NO-EFFECT", "ERROR")
 AUDIT_SAMPLE_SCHEMA = "pkg328.audit_sample.v1"
 AUDIT_RESULTS_SCHEMA = "pkg328.audit_results.v1"
 AUDIT_WELCH = {"alpha": 0.05, "tile": 8, "delta_rel": 0.01}   # row (c)'s Welch-1b (gate_manifest.GATE_C_WELCH)
@@ -1759,8 +1760,10 @@ def load_production_evidence(sidecar_dir: Path, repo_root: Path) -> tuple[dict[s
 # An audit sample of witnesses (the candidate_v2 subset of witness_candidates_v5.json plus one Metallic, Principled
 # and Sky witness) is rendered on CPU and GPU against Cycles at N independent seeds and judged ONLY by
 # ``mc_compare.welch_verdict`` (Welch-1b: 8 px tiles, Holm alpha 0.05, bias margin 1 % of the tile mean).  A FAILing
-# witness zeroes every identity it covers on that backend; a NO-EFFECT or ERROR witness is recorded and neither
-# credits nor zeroes.  The threshold is the measured ceiling minus a margin, signed by the owner (THRESHOLD_PATH).
+# witness zeroes every identity it covers on that backend.  A witness whose control shows no effect credits nothing
+# either: FAIL when only Astroray's control is inert (Cycles' moved), NO-EFFECT when the oracle cannot confirm the node
+# matters; both zero the identities they cover.  An ERROR or missing backend leg zeroes them AND makes the report
+# unmeasured (never a pass).  The threshold is the measured ceiling minus a margin, signed by the owner (THRESHOLD_PATH).
 
 def matrix_credit(classification: str) -> float:
     return {SUPPORTED: SCORE_SUPPORTED, APPROXIMATED: SCORE_APPROXIMATION}.get(classification, SCORE_UNPROVEN)
@@ -1809,10 +1812,30 @@ def load_audit(ref: Any, repo_root: Path, expected_scenes: Iterable[str]) -> tup
     return {"sample": sample, "results": results}, errors
 
 
+def audit_leg_status(effect: Mapping[str, Any], welch_pass: bool) -> str:
+    """One witness leg's status from its control effect in each engine and the Welch-1b verdict.
+
+    Both controls move the image: the verdict decides (PASS/FAIL).  Only Astroray's control is inert while Cycles'
+    moves: FAIL (Astroray ignores a node Cycles honours).  Cycles' control is inert: NO-EFFECT (no oracle; recorded)."""
+    def moved(engine: str) -> bool:
+        leg = effect.get(engine) if isinstance(effect, Mapping) else None
+        return isinstance(leg, Mapping) and leg.get("ok") is True
+    if moved("astroray") and moved("cycles"):
+        return "PASS" if welch_pass else "FAIL"
+    return "FAIL" if moved("cycles") else "NO-EFFECT"
+
+
+def _effects_moved(leg: Mapping[str, Any]) -> bool:
+    return all(isinstance(leg.get("effect", {}).get(e), Mapping) and leg["effect"][e].get("ok") is True
+               for e in ("astroray", "cycles"))
+
+
 def _witness_status(results: Mapping[str, Any], witness_id: str, backend: str, drop_seed: int | None = None) -> str:
     leg = (results.get("witnesses", {}).get(witness_id) or {}).get(backend) or {}
     status = str(leg.get("status") or "ERROR")
-    if drop_seed is not None and status in ("PASS", "FAIL"):
+    if status not in AUDIT_STATUSES:
+        status = "ERROR"
+    if drop_seed is not None and status in ("PASS", "FAIL") and _effects_moved(leg):  # only the Welch verdict varies by seed
         jackknife = leg.get("jackknife_pass") or []
         if drop_seed < len(jackknife):
             status = "PASS" if jackknife[drop_seed] else "FAIL"
@@ -1820,10 +1843,10 @@ def _witness_status(results: Mapping[str, Any], witness_id: str, backend: str, d
 
 
 def audit_zeroed(audit: Mapping[str, Any], backend: str, drop_seed: int | None = None) -> dict[str, list[str]]:
-    """identity -> ids of the FAILing witnesses that cover it on ``backend``."""
+    """identity -> ids of the witnesses that cover it on ``backend`` and do not PASS (FAIL, NO-EFFECT, ERROR)."""
     zeroed: dict[str, list[str]] = {}
     for w in audit["sample"]["witnesses"]:
-        if _witness_status(audit["results"], w["id"], backend, drop_seed) == "FAIL":
+        if _witness_status(audit["results"], w["id"], backend, drop_seed) != "PASS":
             for identity in w["identities"]:
                 zeroed.setdefault(identity, []).append(w["id"])
     return zeroed
@@ -1843,7 +1866,7 @@ def score_audited(ledger: Iterable[Mapping[str, Any]], matrix: Mapping[str, str]
         for backend in ("CPU", "GPU"):
             bad = zeroed[backend].get(key)
             if bad and credit > 0:
-                per[backend] = (0.0, f"zeroed by failing audit witness {sorted(bad)}")
+                per[backend] = (0.0, f"zeroed by non-passing audit witness {sorted(bad)}")
             else:
                 per[backend] = (credit, "matrix credit" if credit > 0 else "dropped-silent or absent from the matrix")
         use_scores.append(UseScore(key=key, scenes=scenes, weight=weight, cpu=per["CPU"][0], gpu=per["GPU"][0],
@@ -1855,6 +1878,13 @@ def score_audited(ledger: Iterable[Mapping[str, Any]], matrix: Mapping[str, str]
         out[backend] = BackendScore(backend=backend, score=(numerator / denominator) if denominator else None,
                                     numerator=numerator, denominator=denominator, use_scores=use_scores)
     return out
+
+
+def audit_incomplete(audit: Mapping[str, Any]) -> list[str]:
+    """Witness legs that ERRORed or are missing: the audit is incomplete, so the report cannot be green."""
+    return [f"{w['id']} [{b}]: {(audit['results'].get('witnesses', {}).get(w['id']) or {}).get(b, {}).get('reason') or 'ERROR or missing leg'}"
+            for w in audit["sample"]["witnesses"] for b in ("CPU", "GPU")
+            if _witness_status(audit["results"], w["id"], b) == "ERROR"]
 
 
 def audit_proposal(ledger: list[Mapping[str, Any]], matrix: Mapping[str, str], audit: Mapping[str, Any]) -> dict[str, Any]:
@@ -1937,13 +1967,17 @@ def _build_report_audited(frozen: Mapping[str, Any], matrix: Mapping[str, str], 
     }
     if not scanner_ok:
         return _unmeasured_report(pop, uses, matrix, subchecks, f"gate (b) not scored: {scanner_reason}", [])
-    green = all(v["pass"] for v in subchecks.values()) and pop["gate_eligible"]
-    status = "green" if green else ("provisional" if not pop["gate_eligible"] else "red")
+    incomplete = audit_incomplete(audit)
+    green = all(v["pass"] for v in subchecks.values()) and pop["gate_eligible"] and not incomplete
+    status = ("unmeasured" if incomplete else "green" if green else
+              ("provisional" if not pop["gate_eligible"] else "red"))
     results = audit["results"]
     return {
         "schema": REPORT_SCHEMA_V2, "scorer_version": SCORER_VERSION, "scoring_mode": "audited_matrix",
         "status": status, "blocked": False,
-        "reason": "" if green else "one or more subchecks failed or population not ratified",
+        "reason": (f"audit incomplete: {len(incomplete)} witness leg(s) errored or are missing" if incomplete else
+                   "" if green else "one or more subchecks failed or population not ratified"),
+        "audit_incomplete": incomplete,
         "integrity_errors": integrity_errors,
         "scanner_issue_823": {"required": REQUIRED_SCANNER_ISSUE, "integrated": True, "reason": ""},
         "population": pop, "exercised_use_count": len(uses),
@@ -2081,7 +2115,7 @@ def audit_judge(sample: Mapping[str, Any], out_dir: Path, backend: str) -> dict[
         a, c = astro[:, roi[0], roi[1]], cyc[:, roi[0], roi[1]]
         verdict = MCC.welch_verdict(a, c, **AUDIT_WELCH)
         loo = [bool(MCC.welch_verdict(np.delete(a, k, 0), np.delete(c, k, 0), **AUDIT_WELCH)["pass"]) for k in range(len(a))]
-        status = "NO-EFFECT" if not all(e["ok"] for e in effect.values()) else ("PASS" if verdict["pass"] else "FAIL")
+        status = audit_leg_status(effect, bool(verdict["pass"]))
         out[w["id"]] = {"status": status, "effect": effect,
                         "welch": {k: bool(verdict[k]) if k == "pass" else _scalar(verdict[k])
                                   for k in ("pass", "n_tests", "n_reject_holm", "min_p", "max_rel_bias_rejected", "mean_rel_diff")},

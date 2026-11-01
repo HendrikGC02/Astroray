@@ -44,8 +44,10 @@ Credit is the static matrix per identity (`coverage_report.matrix_credit`). The 
 Each witness is rendered on CPU and GPU (and Cycles) with the frozen settings: four seed-7 legs (baseline and control, both engines) for
 the effect check, and 8 independent baseline seeds per engine (278, 1301, 2711, 4177, 6113, 7919, 9371, 11027) at the scene's own
 spp. **The verdict is `mc_compare.welch_verdict(astroray_stack, cycles_stack, alpha=0.05, tile=8, delta_rel=0.01)` over the witness ROI
-rectangle** (Welch-1b, the row (c) predicate, called as is). A witness whose control does not change the image in both engines is
-NO-EFFECT (recorded, neither credits nor zeroes; none occurred). A FAIL zeroes every identity the witness covers on that backend.
+rectangle** (Welch-1b, the row (c) predicate, called as is). A FAIL zeroes every identity the witness covers on that backend. A
+witness whose control is inert in Astroray but moves the image in Cycles is a FAIL; one whose control is inert in both engines (or in
+Cycles) is NO-EFFECT, recorded and credits nothing, so its identities are zeroed too. An ERROR or missing backend leg zeroes them and
+makes the report `unmeasured` (never a pass). None of NO-EFFECT or ERROR occurred in this run.
 GPU legs ran under `gpu_locked_run.py` (4153 s).
 
 ## Witnesses (Holm-rejected tiles / tests)

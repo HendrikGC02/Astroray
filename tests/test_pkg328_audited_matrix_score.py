@@ -35,12 +35,21 @@ LEDGER = [  # weights: A 3 scenes -> 3, B 2 -> 2, D 1 -> 1, E 1 -> 1, F 3 -> 3
 DENOM = 3 + 2 + 1 + 1 + 3
 
 
+def _leg(status: str) -> dict:
+    """A stored witness leg consistent with ``status`` under the item-1 rules."""
+    ok = {"ok": True}
+    effect = {"PASS": {"astroray": ok, "cycles": ok}, "FAIL": {"astroray": ok, "cycles": ok},
+              "NO-EFFECT": {"astroray": {"ok": False}, "cycles": {"ok": False}}}.get(status)
+    if effect is None:
+        return {"status": status, "reason": "legs missing"}
+    return {"status": status, "effect": effect, "welch": {"pass": status == "PASS"}, "jackknife_pass": [status == "PASS"] * 4}
+
+
 def _audit(statuses: dict[str, dict[str, str]], witnesses: list[dict] | None = None) -> dict:
     witnesses = witnesses or [{"id": "w_noise", "identities": [A, B]}, {"id": "w_diffuse", "identities": [D]}]
     return {"sample": {"witnesses": witnesses},
             "results": {"n_seeds": 4, "witnesses": {
-                wid: {b: {"status": st, "jackknife_pass": [st != "FAIL"] * 4} for b, st in per.items()}
-                for wid, per in statuses.items()}}}
+                wid: {b: _leg(st) for b, st in per.items()} for wid, per in statuses.items()}}}
 
 
 def _zeroed(audit):
@@ -77,11 +86,37 @@ def test_failing_witness_zeroes_only_its_identities_on_its_backend():
 
 
 @pytest.mark.parametrize("status", ["NO-EFFECT", "ERROR"])
-def test_no_effect_or_error_witness_neither_credits_nor_zeroes(status):
+def test_no_effect_or_error_witness_credits_nothing(status):
     audit = _audit({"w_noise": {"CPU": status, "GPU": status}, "w_diffuse": {"CPU": "PASS", "GPU": "PASS"}})
-    assert _zeroed(audit) == {"CPU": {}, "GPU": {}}
+    assert set(_zeroed(audit)["CPU"]) == {A, B} and set(_zeroed(audit)["GPU"]) == {A, B}
     s = C.score_audited(LEDGER, MATRIX, _zeroed(audit))
-    assert s["CPU"].score == C.score_audited(LEDGER, MATRIX, None)["CPU"].score
+    assert s["CPU"].score == pytest.approx((1.0 * 1 + 3) / DENOM)   # same as a FAIL: A and B zeroed
+
+
+def test_a_missing_backend_leg_is_an_error_that_zeroes_and_marks_the_audit_incomplete():
+    audit = _audit({"w_noise": {"CPU": "PASS"}, "w_diffuse": {"CPU": "PASS", "GPU": "PASS"}})   # w_noise has no GPU leg
+    assert C._witness_status(audit["results"], "w_noise", "GPU") == "ERROR"
+    assert set(_zeroed(audit)["GPU"]) == {A, B} and _zeroed(audit)["CPU"] == {}
+    assert [i.split(" [")[0] for i in C.audit_incomplete(audit)] == ["w_noise"]
+    assert C.audit_incomplete(_audit({"w_noise": {"CPU": "NO-EFFECT", "GPU": "PASS"}, "w_diffuse": {"CPU": "PASS", "GPU": "PASS"}})) == []
+
+
+@pytest.mark.parametrize("astroray,cycles,welch_pass,expected", [
+    (True, True, True, "PASS"), (True, True, False, "FAIL"),
+    (False, True, True, "FAIL"),        # Cycles' control moves the image, Astroray's does not: Astroray ignores the node
+    (False, True, False, "FAIL"),
+    (False, False, True, "NO-EFFECT"),  # neither engine shows an effect: nothing to judge
+    (True, False, True, "NO-EFFECT")])  # no Cycles effect: the oracle cannot confirm the node matters
+def test_leg_status_rules(astroray, cycles, welch_pass, expected):
+    effect = {"astroray": {"ok": astroray}, "cycles": {"ok": cycles}}
+    assert C.audit_leg_status(effect, welch_pass) == expected
+
+
+def test_jackknife_never_flips_an_effect_decided_status():
+    audit = _audit({"w_noise": {"CPU": "PASS", "GPU": "PASS"}, "w_diffuse": {"CPU": "PASS", "GPU": "PASS"}})
+    leg = audit["results"]["witnesses"]["w_noise"]["CPU"]
+    leg.update(status="FAIL", effect={"astroray": {"ok": False}, "cycles": {"ok": True}}, jackknife_pass=[True] * 4)
+    assert C._witness_status(audit["results"], "w_noise", "CPU", 1) == "FAIL"
 
 
 def test_a_dropped_identity_stays_zero_even_without_a_failing_witness():
@@ -169,7 +204,8 @@ def test_gate_manifest_row_b_bound_follows_the_threshold_file():
 # ---------------------------------------------------------------- Welch-1b judge uses mc_compare.welch_verdict
 
 
-def _write_legs(root: Path, w: dict, seeds, rng, *, bias: float, effect: bool):
+def _write_legs(root: Path, w: dict, seeds, rng, *, bias: float, effect: bool | str):
+    """``effect``: True (both controls move the image), False (neither) or an engine name (only that one)."""
     h, wd = 48, 64
     for engine, leg_dir in (("astroray", "cpu"), ("cycles", "cycles")):
         for s in seeds:
@@ -184,7 +220,7 @@ def _write_legs(root: Path, w: dict, seeds, rng, *, bias: float, effect: bool):
     for name in ("astroray", "cycles"):
         base = np.full((h, wd, 3), 0.4, np.float32)
         ctrl = base.copy()
-        if effect:
+        if effect is True or effect == name:
             ctrl[mask > 0] = 0.1
         np.save(wdir / f"{name}.npy", base)
         np.save(wdir / f"{name}_control.npy", ctrl)
@@ -234,6 +270,14 @@ def test_judge_records_no_effect_without_crediting(tmp_path):
     sample = _sample(seeds)
     _write_legs(tmp_path, sample["witnesses"][0], seeds, np.random.default_rng(7), bias=0.05, effect=False)
     assert C.audit_judge(sample, tmp_path, "CPU")["scn/Obj/Node"]["status"] == "NO-EFFECT"
+
+
+def test_judge_fails_when_only_astroray_s_control_is_inert(tmp_path):
+    seeds = (11, 12, 13, 14, 15, 16, 17, 18)
+    sample = _sample(seeds)
+    _write_legs(tmp_path, sample["witnesses"][0], seeds, np.random.default_rng(8), bias=0.0, effect="cycles")
+    out = C.audit_judge(sample, tmp_path, "CPU")["scn/Obj/Node"]
+    assert out["welch"]["pass"] and out["status"] == "FAIL"        # the verdict alone would pass
 
 
 def test_judge_reports_missing_legs_as_error(tmp_path):

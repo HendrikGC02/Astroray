@@ -1891,7 +1891,8 @@ def audit_proposal(ledger: list[Mapping[str, Any]], matrix: Mapping[str, str], a
     """Ceiling, measured S and the PROPOSED (unsigned) threshold per backend.
 
     margin = seed-to-seed spread of S over the witness legs + one witness's weight, where
-    * spread = max - min of S recomputed with each of the N seeds dropped in turn (leave-one-seed-out Welch verdicts);
+    * spread = max - min over the measured S (all N seeds) and the S recomputed with each of the N seeds dropped in turn
+      (leave-one-seed-out Welch verdicts), so a witness that fails at N seeds but passes every (N-1)-subset still counts;
     * one witness's weight = the largest share of the denominator any single witness would zero on its own.
     """
     ceiling = score_audited(ledger, matrix, None)
@@ -1905,7 +1906,7 @@ def audit_proposal(ledger: list[Mapping[str, Any]], matrix: Mapping[str, str], a
         loo = [score_audited(ledger, matrix, {b: audit_zeroed(audit, b, k) for b in ("CPU", "GPU")})[backend].score
                for k in range(seeds)]
         single = max((sum(credited.get(i, 0.0) for i in w["identities"]) for w in audit["sample"]["witnesses"]), default=0.0)
-        spread = (max(loo) - min(loo)) if loo else 0.0
+        spread = max([measured, *loo]) - min([measured, *loo])
         one_weight = single / denominator if denominator else 0.0
         c = ceiling[backend].score
         out[backend] = {"ceiling": c, "measured": measured, "loo_scores": loo, "seed_spread": spread,

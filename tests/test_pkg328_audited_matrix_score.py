@@ -177,6 +177,20 @@ def test_proposal_margin_is_seed_spread_plus_one_witness_weight():
     assert p["CPU"]["measured"] == pytest.approx(ceiling)
 
 
+def test_spread_includes_the_measured_full_seed_score():
+    """A witness that fails with all 8 seeds but passes every 7-seed subset: the leave-one-out scores alone show no spread."""
+    audit = _audit({"w_noise": {"CPU": "PASS", "GPU": "PASS"}, "w_diffuse": {"CPU": "PASS", "GPU": "PASS"}})
+    leg = audit["results"]["witnesses"]["w_diffuse"]["CPU"]
+    leg.update(status="FAIL", welch={"pass": False})                 # fails at 4 seeds, passes every 3-seed subset
+    leg["jackknife_pass"] = [True] * 4
+    p = C.audit_proposal(LEDGER, MATRIX, audit)
+    ceiling = (3 + 1 + 1 + 3) / DENOM
+    assert p["CPU"]["loo_scores"] == [pytest.approx(ceiling)] * 4
+    assert p["CPU"]["measured"] == pytest.approx(ceiling - 1.0 / DENOM)
+    assert p["CPU"]["seed_spread"] == pytest.approx(1.0 / DENOM)
+    assert p["CPU"]["proposed_threshold"] == pytest.approx(ceiling - 1.0 / DENOM - 4.0 / DENOM)
+
+
 def test_proposal_threshold_is_clamped_at_zero():
     audit = _audit({"w_noise": {"CPU": "PASS", "GPU": "PASS"}, "w_diffuse": {"CPU": "PASS", "GPU": "PASS"}})
     audit["results"]["witnesses"]["w_noise"]["CPU"]["jackknife_pass"][0] = False

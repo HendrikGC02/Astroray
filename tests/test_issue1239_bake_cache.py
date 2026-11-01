@@ -165,8 +165,12 @@ def _mapping_on_mapped(r):
     r.set_texture_mapping_matrix("cm", [float(x) * 1.5 for x in MAP_BEFORE])
 
 
-@pytest.mark.parametrize("mutate", [_mapping, _uv_transform, _mapping_on_mapped])
-def test_in_place_texture_edit_is_not_served_stale(mutate):
+# The legacy UV transform never moves the procedural point p (the evaluators read p), so
+# on a procedural it changes nothing visible: its version bump is still checked below.
+@pytest.mark.parametrize("mutate,visible", [(_mapping, True), (_uv_transform, False),
+                                            (_mapping_on_mapped, True)],
+                         ids=["_mapping", "_uv_transform", "_mapping_on_mapped"])
+def test_in_place_texture_edit_is_not_served_stale(mutate, visible):
     """The dangerous failure: a cached bake outliving an in-place edit."""
     r, _ = _scene()
     before = _render(r)
@@ -174,7 +178,8 @@ def test_in_place_texture_edit_is_not_served_stale(mutate):
     after = _render(r)
     i = _info(r)
     assert i["gpu_bake_misses"] >= 1, f"{mutate.__name__}: edited texture served from the bake cache: {i}"
-    _differs(after, before)
+    if visible:
+        _differs(after, before)
     again = _render(r)
     _same(after, again)
     fresh, _ = _scene(mutate=mutate)
@@ -184,9 +189,9 @@ def test_in_place_texture_edit_is_not_served_stale(mutate):
 def test_revert_after_edit_returns_the_original_image():
     r, _ = _scene()
     before = _render(r)
-    r.set_texture_uv_transform("c", 2.0, 2.0, 0.1, 0.1, 0.3)
-    _render(r)
-    r.set_texture_uv_transform("c", 1.0, 1.0, 0.0, 0.0, 0.0)
+    r.set_texture_mapping_matrix("c", [3, 0, 0, 0.1, 0, 2, 0, 0, 0, 0, 1, 0])
+    _differs(_render(r), before)
+    r.set_texture_mapping_matrix("c", [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])
     back = _render(r)
     assert _info(r)["gpu_bake_misses"] >= 1       # the version moved on twice: no ABA hit
     _same(back, before)

@@ -7712,6 +7712,36 @@ class CustomRaytracerRenderEngine(RenderEngine):
                     **frame_kw,
                 )
 
+    @staticmethod
+    def _bake_exr_world_hdri(image):
+        """#1216: write a Blender float image (an EXR world) to a temp Radiance .hdr.
+        ``image.pixels`` is the scene-linear float buffer Cycles samples (Non-Color
+        stays raw), so no colour transform is applied; rows are bottom-up and the
+        .hdr is top-down. Returns the temp path, or None if Blender cannot read it."""
+        import sky_bake
+        path = None
+        try:
+            w, h = image.size
+            ch = image.channels
+            if w <= 0 or h <= 0 or ch < 3:
+                return None
+            buf = np.empty(w * h * ch, dtype=np.float32)
+            image.pixels.foreach_get(buf)
+            rgb = buf.reshape(h, w, ch)[::-1, :, :3]
+            rgb = np.nan_to_num(rgb, nan=0.0, posinf=65504.0, neginf=0.0)
+            fd, path = tempfile.mkstemp(prefix="astroray_exr_", suffix=".hdr")
+            os.close(fd)
+            sky_bake.write_hdr(path, rgb)
+            return path
+        except Exception as e:  # noqa: BLE001 - unreadable image -> caller degrades
+            print(f"EXR HDRI conversion failed ({e})")
+            if path is not None:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+            return None
+
     def setup_world(self, scene, renderer):
         world = scene.world
         if not world:
@@ -7732,6 +7762,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         #   - BACKGROUND.Color (linked or not) → color tint, follows Mix/RGB nodes
         #   - MAPPING.Rotation (X, Y, Z)      → baked XYZ Euler rotation matrix
         hdri_path = None
+        hdri_image = None         # #1216: the TEX_ENVIRONMENT image datablock (EXR conversion)
         strength = 1.0
         rx = 0.0
         ry = 0.0
@@ -7752,6 +7783,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         for node in node_tree.nodes:
             if node.type == 'TEX_ENVIRONMENT' and node.image:
                 hdri_path = _abspath_for(node.image, node.image.filepath)
+                hdri_image = node.image
             elif node.type == 'TEX_SKY':
                 sky_node = node
             elif node.type == 'BACKGROUND':
@@ -8015,36 +8047,53 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # world. Cycles renders missing images pink; fall back to a magenta
         # constant background and record a DEGRADED entry so the missing file
         # surfaces once per render.
-        if hdri_path and not os.path.exists(hdri_path):
+        # #1216: an unreadable environment file (corrupt, or a format the engine's
+        # stb_image loader lacks) takes the same path.
+        def magenta_world(why):
             self._degradation_report().degraded("world HDRI", hdri_path)
             renderer.set_background_color([1.0, 0.0, 1.0])
-            print(f"Missing HDRI file: {hdri_path} (magenta fallback)")
+            print(f"{why}: {hdri_path} (magenta fallback)")
+
+        if hdri_path and not os.path.exists(hdri_path):
+            magenta_world("Missing HDRI file")
             return
+
+        # #1216: the engine loads through stb_image, which has no EXR. Convert an
+        # .exr world through Blender's image API to a temp Radiance .hdr.
+        load_path = hdri_path
+        exr_temp_path = None
+        if hdri_path and hdri_image is not None and hdri_path.lower().endswith('.exr'):
+            exr_temp_path = self._bake_exr_world_hdri(hdri_image)
+            if exr_temp_path is None:
+                magenta_world("Failed to read EXR HDRI")
+                return
+            load_path = exr_temp_path
 
         # Try loading HDRI first.
         # pkg63: pass full XYZ rotation + RGB color tint; blender_convention=True
         # bakes the Astroray->Blender coord-swap into the rotation matrix.
         if hdri_path and os.path.exists(hdri_path):
             success = renderer.load_environment_map(
-                hdri_path, strength,
+                load_path, strength,
                 rx, ry, rz,
                 tint[0], tint[1], tint[2],
                 True,  # blender_convention
             )
             # pkg256: no persistent artifact — remove the baked temp sky HDRI
             # once the loader has consumed it (Key design decision 4).
-            if sky_temp_path is not None:
-                try:
-                    os.unlink(sky_temp_path)
-                except OSError:
-                    pass
+            for temp_path in (sky_temp_path, exr_temp_path):
+                if temp_path is not None:
+                    try:
+                        os.unlink(temp_path)
+                    except OSError:
+                        pass
             if success:
                 print(f"Loaded HDRI: {hdri_path} "
                       f"(strength={strength}, rot=({rx:.2f},{ry:.2f},{rz:.2f}), "
                       f"tint=({tint[0]:.2f},{tint[1]:.2f},{tint[2]:.2f}))")
                 return
-            else:
-                print(f"Failed to load HDRI: {hdri_path}")
+            magenta_world("Failed to load HDRI")
+            return
 
         # Fallback: solid background color.
         # pkg139: strength == 0.0 is artist intent for a black background, not

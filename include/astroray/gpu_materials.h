@@ -2782,8 +2782,11 @@ __device__ inline GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrin
     switch (L.kind) {
         case GPR_SUBSURFACE:  // approximate SSS = Lambert (D2=a)
         case GPR_DIFFUSE: {
-            if (nl <= 0.f || nv <= 0.f) return GVec3(0.f);
+            // #1227: Cycles bsdf_diffuse_eval tests only the light side (Cycles @ Blender v5.2.0
+            // kernel/closure/bsdf_diffuse.h:38-49). CPU twin principled.cpp evalLobeRGBAt.
+            if (nl <= 0.f) return GVec3(0.f);
             if (L.roughness <= 1e-4f) return L.weight * (nl / M_PI_F);  // Lambert
+            if (nv <= 0.f) return GVec3(0.f);
             GPrincipledEON e = gpu_pr_eonSetup(fminf(fmaxf(L.roughness, 0.f), 1.f), nl, nv, wi.dot(wo));
             return GVec3(L.weight.x * gpu_pr_eonChannel(e, L.color.x),
                          L.weight.y * gpu_pr_eonChannel(e, L.color.y),
@@ -2860,8 +2863,8 @@ __device__ inline float gpu_pr_pdfLobe(const GPrincipledClosure& c, const GPrinc
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
     switch (L.kind) {
         case GPR_SUBSURFACE:
-        case GPR_DIFFUSE:
-            return (nl > 0.f && nv > 0.f) ? nl / M_PI_F : 0.f;
+        case GPR_DIFFUSE:  // #1227: Lambert pdf = eval, light side only (bsdf_diffuse.h:38-49)
+            return (nl > 0.f && (nv > 0.f || L.roughness <= 1e-4f)) ? nl / M_PI_F : 0.f;
         case GPR_SHEEN: {  // Cycles bsdf_sheen_sample: *pdf = val
             if (nl <= 0.f || nv <= 0.f) return 0.f;
             GVec3 T, B;
@@ -2917,8 +2920,9 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClos
     switch (L.kind) {
         case GPR_SUBSURFACE:  // approximate SSS = Lambert (D2=a)
         case GPR_DIFFUSE: {
-            if (nl <= 0.f || nv <= 0.f) return GSampledSpectrum(0.f);
+            if (nl <= 0.f) return GSampledSpectrum(0.f);  // #1227 (see gpu_pr_evalLobe)
             if (L.roughness <= 1e-4f) return wSpec * (nl / M_PI_F);  // Lambert
+            if (nv <= 0.f) return GSampledSpectrum(0.f);
             GPrincipledEON e = gpu_pr_eonSetup(fminf(fmaxf(L.roughness, 0.f), 1.f), nl, nv, wi.dot(wo));
             GSampledSpectrum cSpec = gpu_rgbToSampledSpectrum(L.color, wl, GSPEC_RGB_ALBEDO);
             GSampledSpectrum out(0.f);

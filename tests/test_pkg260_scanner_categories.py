@@ -130,10 +130,12 @@ def test_image_property_category_rows_present(matrix_rows):
 
 # #996 / #872: a fresh regeneration finds the two reads the addon gained after pkg260 (the Image
 # Texture node's `extension` -> load_blender_image, and `colorspace_settings` for the sRGB/linear
-# decision); the other four stay unread.
+# decision); the other four stay unread. pkg234 (#1215): `interpolation` joins them -- the addon now
+# passes the node's Interpolation to set_texture_interpolation, so three stay unread.
 IMAGE_PROPERTY_SUPPORTED = {
     ("image_property", "Image", "", "colorspace_settings.name"),
     ("image_property", "ShaderNodeTexImage", "ShaderNodeTexImage", "extension"),
+    ("image_property", "ShaderNodeTexImage", "ShaderNodeTexImage", "interpolation"),
 }
 
 

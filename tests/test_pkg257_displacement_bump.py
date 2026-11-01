@@ -197,6 +197,7 @@ class _RecordingRenderer:
     def set_material_spectral_profile(self, *a, **k): pass
     def clear_material_spectral_profile(self, *a, **k): pass
     def set_texture_extension(self, *a, **k): pass  # #1004: the addon tags every image texture
+    def set_texture_interpolation(self, *a, **k): pass  # pkg234: likewise
 
 
 def _displacement_node(height_link=None, midlevel=0.5, scale=1.0, normal_link=None):

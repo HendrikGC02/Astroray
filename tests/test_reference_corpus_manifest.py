@@ -504,8 +504,14 @@ PKG328_PROOF_PENDING = frozenset({
     "ShaderNodeOutputWorld|prop:is_active_output",
     "ShaderNodeTexEnvironment|input:Vector",
 })
+# pkg234 (#1215): Image Texture Interpolation is honoured (probe `img_interp`; Cycles-tracking probes img_interp_float/
+# img_interp_cubic); the frozen textures_mapping cards do not tag it. Shrink-only as above.
+PKG234_PROOF_PENDING = frozenset({
+    "ShaderNodeTexImage|prop:interpolation",
+    "ShaderNodeTexImage|interpolation",
+})
 PROOF_PENDING_BASELINE = (PROOF_PENDING_BASELINE | PKG320_PROOF_PENDING | PKG321_PROOF_PENDING | I1117_PROOF_PENDING
-                          | PKG326_PROOF_PENDING | PKG328_PROOF_PENDING)
+                          | PKG326_PROOF_PENDING | PKG328_PROOF_PENDING | PKG234_PROOF_PENDING)
 
 
 def _proof_pending() -> dict:

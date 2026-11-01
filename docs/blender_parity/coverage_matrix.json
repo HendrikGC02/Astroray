@@ -3991,9 +3991,8 @@
     "feature": "TEX_IMAGE",
     "bl_idname": "ShaderNodeTexImage",
     "socket_or_prop": "prop:interpolation",
-    "classification": "DROPPED-SILENT",
-    "notes": "property ENUM; pkg321 probe `img_interp` leaves the CPU render identical: dropped, reported at runtime (#1215)",
-    "reported_at_runtime": true
+    "classification": "APPROXIMATED",
+    "notes": "pkg321 probe `img_interp` moves the CPU render (consumed)"
   },
   {
     "category": "shader_node",
@@ -6009,7 +6008,7 @@
     "feature": "ShaderNodeTexImage",
     "bl_idname": "ShaderNodeTexImage",
     "socket_or_prop": "interpolation",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {

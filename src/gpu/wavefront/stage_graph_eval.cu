@@ -77,8 +77,11 @@ struct GpuGraphSvc {
     __device__ bool tex_coord(uint32_t ref, const GVec3& c, GVec3& o) const {
         const int texId = c_wfGraphBinding.texRefs[ref];
         if (texId < 0) return false;
-        o = gpu_sampleImageTexture(c_wfTexBinding.textures[texId], c_wfTexBinding.texelBuf,
-                                   c.x, c.y);
+        // pkg234: Closest inline, Linear / Cubic through the out-of-line wrapper.
+        const GImageTexture& tdesc = c_wfTexBinding.textures[texId];
+        o = tdesc.interpolation == G_IMG_CLOSEST
+                ? gpu_sampleImageTextureClosest(tdesc, c_wfTexBinding.texelBuf, c.x, c.y)
+                : wf_sampleImageFiltered(texId, c.x, c.y);
         return true;
     }
     __device__ bool geom(unsigned char, GVec3& o) const {   // GEOM_UV

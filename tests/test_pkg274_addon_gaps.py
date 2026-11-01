@@ -187,6 +187,9 @@ class _RecordingRenderer:
     def set_texture_extension(self, name, ext):  # #1004: the addon tags every image texture
         pass
 
+    def set_texture_interpolation(self, name, interp):  # pkg234: likewise
+        pass
+
 
 class _FakeImage:
     def __init__(self, name, filepath, packed_file=None, **extra):

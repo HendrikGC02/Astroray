@@ -162,6 +162,10 @@ def _texture_extension(r, m):
     r.set_texture_extension("t981", "MIRROR")
 
 
+def _texture_interpolation(r, m):   # pkg234: a 2x2 texture magnified on the quad turns smooth
+    r.set_texture_interpolation("t981", "Linear")
+
+
 def _texture_swap(r, m):
     r.load_texture("t981b", _tex_image(flip=True), 2, 2, "UV")
     new = r.create_material("lambertian", [0.5, 0.5, 0.5], {"texture": "t981b"})
@@ -189,7 +193,7 @@ EDITS = [
     (_add_sphere, True), (_add_triangle, True), (_add_bulk, True),
     (_add_emissive_geometry, True), (_move_object, True), (_material_rebind, True),
     (_add_point_light, True), (_tree_sampler, False), (_texture_mapping, True),
-    (_texture_extension, False), (_texture_swap, True), (_environment, True),
+    (_texture_extension, False), (_texture_interpolation, True), (_texture_swap, True), (_environment, True),
     (_object_name, False), (_caustic_caster, False),
 ]
 

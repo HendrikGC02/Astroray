@@ -1228,6 +1228,19 @@ __device__ int intersectPathSlot(
 // its pre-pkg186 REG/STACK footprint (the three signature params cost +24 B stack).
 extern __constant__ GWavefrontTextureBinding c_wfTexBinding;
 
+// pkg234 - filtered (non-Closest) Image Texture fetch for the wavefront shade sites. The body
+// (Linear 4 taps / Cubic 16 taps) lives OUT of line, in its own frame, so the REG:254-saturated
+// shade kernels keep their footprint: every site branches
+//   tdesc.interpolation == G_IMG_CLOSEST ? gpu_sampleImageTextureClosest(...) : wf_sampleImageFiltered(...)
+// and the not-taken call only needs already-live scalars (memory noinline-runtime-flag-avoids-shade-spill).
+// Scalars in, a by-value GVec3 out, and it reads c_wfTexBinding itself: it must NEVER take a pointer
+// or reference to a caller local (memory pointer-params-on-fused-shade-path-cost-4pct). Literal
+// __noinline__, not ASTRORAY_SHADE_NOINLINE, so the p0 force-inline TU keeps it out of line too.
+static __device__ __noinline__ inline GVec3 wf_sampleImageFiltered(int texId, float u, float v)
+{
+    return gpu_sampleImageTexture(c_wfTexBinding.textures[texId], c_wfTexBinding.texelBuf, u, v);
+}
+
 // pkg219b — op-VM program binding in constant memory (see GWavefrontProgramBinding
 // in astroray/shader_vm.h). Set once per frame by setWavefrontProgramBinding; read
 // only inside `if constexpr (HasProgram)`. The <false> fleet kernel never reads it.
@@ -1351,7 +1364,9 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_progInputTe
         float mv = m[4]*uu + m[5]*vv + m[7];
         uu = mu; vv = mv;
     }
-    return {gpu_sampleImageTexture(tdesc, c_wfTexBinding.texelBuf, uu, vv), true};
+    return {tdesc.interpolation == G_IMG_CLOSEST
+                ? gpu_sampleImageTextureClosest(tdesc, c_wfTexBinding.texelBuf, uu, vv)
+                : wf_sampleImageFiltered(texId, uu, vv), true};   // pkg234
 }
 
 // #1007 — a program / base-colour input in the <HasProgram=true> kernel. A
@@ -1466,7 +1481,9 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GProgInputTexel gpu_emissionTex
             float mv = m[4]*uu + m[5]*vv + m[7];
             uu = mu; vv = mv;
         }
-        return {gpu_sampleImageTexture(tdesc, c_wfTexBinding.texelBuf, uu, vv), true};
+        return {tdesc.interpolation == G_IMG_CLOSEST
+                    ? gpu_sampleImageTextureClosest(tdesc, c_wfTexBinding.texelBuf, uu, vv)
+                    : wf_sampleImageFiltered(texId, uu, vv), true};   // pkg234
     }
     return gpu_progInputTexel(point, primId, prims, tris, texId);
 }
@@ -2813,8 +2830,10 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                             float mv = m[4]*uu + m[5]*vv + m[7];
                             uu = mu; vv = mv;
                         }
-                        texColor = gpu_sampleImageTexture(
-                            tdesc, c_wfTexBinding.texelBuf, uu, vv);
+                        // pkg234: Closest stays inline; Linear / Cubic take the out-of-line wrapper.
+                        texColor = tdesc.interpolation == G_IMG_CLOSEST
+                            ? gpu_sampleImageTextureClosest(tdesc, c_wfTexBinding.texelBuf, uu, vv)
+                            : wf_sampleImageFiltered(texId, uu, vv);
                         haveTex = true;
                     }
                 }

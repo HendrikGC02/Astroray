@@ -382,6 +382,19 @@ public:
         if (it != imageTextures.end())
             if (auto img = std::dynamic_pointer_cast<ImageTexture>(it->second)) img->setExtension(mode);
     }
+    // pkg234: Blender Image Texture interpolation. Smart is Cycles' bicubic as well (Cycles
+    // kernel/device/cpu/image.h interp(): every non-Closest, non-Linear mode takes interp_cubic),
+    // so it maps to G_IMG_CUBIC. Image textures only.
+    void setTextureInterpolation(const std::string& name, const std::string& interp) {
+        int mode;
+        if (interp == "Closest") mode = G_IMG_CLOSEST;
+        else if (interp == "Linear") mode = G_IMG_LINEAR;
+        else if (interp == "Cubic" || interp == "Smart") mode = G_IMG_CUBIC;
+        else throw std::runtime_error("set_texture_interpolation: unknown interpolation '" + interp + "'");
+        auto it = imageTextures.find(name);
+        if (it != imageTextures.end())
+            if (auto img = std::dynamic_pointer_cast<ImageTexture>(it->second)) img->setInterpolation(mode);
+    }
     // pkg219a: full 3-D Mapping matrix (top 3x4 rows, row-major) composed by the
     // addon with mathutils.Matrix.LocRotScale (exact Blender euler parity).
     void setTextureMappingMatrix(const std::string& name,
@@ -707,6 +720,10 @@ public:
     void setTextureExtension(const std::string& name, const std::string& ext) {
         textureManager.setTextureExtension(name, ext);
         invalidateWavefrontMaterials();  // #981 / pkg315: texture edit, material domain
+    }
+    void setTextureInterpolation(const std::string& name, const std::string& interp) {
+        textureManager.setTextureInterpolation(name, interp);
+        invalidateWavefrontMaterials();  // #981 / pkg315: texture edit, material domain (pkg234)
     }
     void setTextureMappingMatrix(const std::string& name,
                                  const std::vector<float>& m) {
@@ -4271,6 +4288,10 @@ PYBIND11_MODULE(astroray, m) {
              "name"_a, "extension"_a,
              "#1004: Image Texture extension (REPEAT / EXTEND / CLIP / MIRROR) for "
              "samples outside [0,1]; Cycles kernel/device/cpu/image.h semantics.")
+        .def("set_texture_interpolation", &PyRenderer::setTextureInterpolation,
+             "name"_a, "interpolation"_a,
+             "pkg234: Image Texture interpolation (Closest / Linear / Cubic / Smart; Smart is "
+             "Cubic, as in Cycles). Untagged textures stay Closest.")
         .def("set_texture_mapping_matrix", &PyRenderer::setTextureMappingMatrix,
              "name"_a, "matrix"_a,
              "pkg219a: apply a full 3-D Blender Mapping node transform (top 3x4 "

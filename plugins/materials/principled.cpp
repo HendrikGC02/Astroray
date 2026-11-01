@@ -172,6 +172,8 @@ class PrincipledPlugin : public Material {
         float ior = 1.5f;
         float sel = 0.0f;      // scalar selection weight; Σ sel = W
         bool isDelta = false;  // smooth glass → excluded from continuous eval/pdf sums
+        // #1206: Transmission lobe with one caustic toggle gated (CAUSTIC_GATE_* side to drop).
+        unsigned char gate = 0;
         float sheenA = 0.0f;   // Sheen: LTC aInv (view-dependent, fetched at assembly)
         float sheenB = 0.0f;   // Sheen: LTC bInv
         // pkg178 PR-4b: anisotropy (specular/metallic only; 0 → isotropic).
@@ -1088,6 +1090,15 @@ class PrincipledPlugin : public Material {
             ? astroray::bumpcorr::ensureValidSpecularReflection(rec.svmNormal, wo, rec.normal) : rec.normal;
         const float nvG = glossOwnN ? std::clamp(glossN.dot(wo), 1e-4f, 1.0f) : nv;
         auto glossLobe = [&](Lobe& L) { L.ownN = glossOwnN; L.N = glossN; };
+        // #1206: Cycles caustic toggles (svm/closure.h CLOSURE_BSDF_PRINCIPLED_ID, v5.2.0
+        // :257-470). With the incoming ray DIFFUSE and reflective caustics off, the coat,
+        // metallic and specular closures are not created (coat / specular also skip their
+        // layering attenuation; metallic still scales the rest by 1 - metallic); the glass
+        // closure loses its reflection tint, and with refractive off its transmission tint
+        // (generalized_schlick_setup), dropped outright when both are off.
+        const unsigned char cg = rec.causticGate;
+        const bool dropRefl = (cg & CAUSTIC_GATE_REFLECT) != 0;
+        const bool dropRefr = (cg & CAUSTIC_GATE_REFRACT) != 0;
         Vec3 weight(1.0f, 1.0f, 1.0f);  // running weight (W₀ = 1)
         // pkg194 Item 1 — running per-λ layering weight (mirrors `weight`). `usp`
         // upsamples one reflectance colour; layering transmissions are achromatic
@@ -1153,26 +1164,29 @@ class PrincipledPlugin : public Material {
             const float nvC = coatOwnN ? nvCoat : nvG;
             float sView = generalizedSchlickS(nvC, coatIor_);
             float Fview = f0c + (1.0f - f0c) * sView;
-            Lobe L;
-            L.kind = LobeKind::Coat;
-            L.weight = weight * coatWeight_;
-            L.color = Vec3(f0c);
-            L.roughness = coatRoughness_;
-            L.ior = coatIor_;
-            L.ownN = coatOwnN || glossOwnN;
-            L.N = coatOwnN ? coatN : glossN;
-            L.sel = std::max(luminance(weight * coatWeight_) * Fview, 1e-4f);
-            if (lam) L.weightSpec = weightSp * coatWeight_;
-            lobes.push_back(L);
-            Vec3 coatAlb = ggxLayeringAlbedo(Vec3(f0c), coatRoughness_, nvC, coatIor_) * coatWeight_;
-            float layT = layeringScale(weight, coatAlb);
-            weight = weight * layT;
+            if (!dropRefl) {  // #1206
+                Lobe L;
+                L.kind = LobeKind::Coat;
+                L.weight = weight * coatWeight_;
+                L.color = Vec3(f0c);
+                L.roughness = coatRoughness_;
+                L.ior = coatIor_;
+                L.ownN = coatOwnN || glossOwnN;
+                L.N = coatOwnN ? coatN : glossN;
+                L.sel = std::max(luminance(weight * coatWeight_) * Fview, 1e-4f);
+                if (lam) L.weightSpec = weightSp * coatWeight_;
+                lobes.push_back(L);
+                Vec3 coatAlb = ggxLayeringAlbedo(Vec3(f0c), coatRoughness_, nvC, coatIor_) * coatWeight_;
+                float layT = layeringScale(weight, coatAlb);
+                weight = weight * layT;
+                if (lam) weightSp = weightSp * layT;
+            }
             Vec3 beer = coatBeerFactor(nvC);  // chromatic coat-tint Beer absorption
             weight = weight * beer;
-            if (lam) weightSp = weightSp * layT * usp(beer);
+            if (lam) weightSp = weightSp * usp(beer);
         }
         // 4. Metallic (GGX + F82-tint). closure weight = metallic·weight.
-        if (metallic_ > 1e-4f) {
+        if (metallic_ > 1e-4f && !dropRefl) {  // #1206: closure dropped, weight still scaled below
             Lobe L;
             L.kind = LobeKind::Metallic;
             L.weight = weight * metallic_;
@@ -1187,6 +1201,8 @@ class PrincipledPlugin : public Material {
             // the layer weight only.
             if (lam) L.weightSpec = weightSp * metallic_;
             lobes.push_back(L);
+        }
+        if (metallic_ > 1e-4f) {
             weight = weight * (1.0f - metallic_);
             if (lam) weightSp = weightSp * (1.0f - metallic_);
         }
@@ -1204,7 +1220,7 @@ class PrincipledPlugin : public Material {
                 astroray::SampledSpectrum RpS, TpS;
                 if (lam) thinGlassFresnelSpectral(nvG, *lam, RpS, TpS);
                 Vec3 baseW = weight * transmission_;
-                if (luminance(Rp) > 1e-6f) {
+                if (luminance(Rp) > 1e-6f && !dropRefl) {  // #1206
                     Lobe L;
                     L.kind = LobeKind::ThinGlassReflect;
                     glossLobe(L);  // #1154
@@ -1216,7 +1232,7 @@ class PrincipledPlugin : public Material {
                     if (lam) L.weightSpec = weightSp * transmission_ * RpS;
                     lobes.push_back(L);
                 }
-                if (luminance(Tp) > 1e-6f) {
+                if (luminance(Tp) > 1e-6f && !dropRefr) {  // #1206
                     // alpha_reflect = roughness² (Cycles passes sqr(roughness)); the
                     // transmit alpha is Kulla-Conty-roughened; near-specular → delta.
                     float aReflect = roughness_ * roughness_;
@@ -1233,9 +1249,10 @@ class PrincipledPlugin : public Material {
                     if (lam) L.weightSpec = weightSp * transmission_ * TpS;
                     lobes.push_back(L);
                 }
-            } else {
+            } else if (!(dropRefl && dropRefr)) {  // #1206: both gated drops the closure
                 Lobe L;
                 L.kind = LobeKind::Transmission;
+                L.gate = cg;  // one side gated: that side's eval is zero (evalLobeRGB/Spectral)
                 L.weight = weight * transmission_;
                 glossLobe(L);  // #1154
                 L.color = baseColor_;
@@ -1265,8 +1282,9 @@ class PrincipledPlugin : public Material {
             weight = weight * (1.0f - transmission_);
             if (lam) weightSp = weightSp * (1.0f - transmission_);
         }
-        // 6. Specular dielectric (generalized-Schlick, exponent = -ior).
-        if (luminance(weight) > 1e-4f) {
+        // 6. Specular dielectric (generalized-Schlick, exponent = -ior). #1206: dropped with its
+        //    layering attenuation when reflective caustics are gated.
+        if (luminance(weight) > 1e-4f && !dropRefl) {
             // #940: specular_ior_level re-derives the layer IOR from the scaled f0
             // (Cycles svm/closure.h principled "Apply IOR adjustment", Apache-2.0);
             // the Fresnel exponent and bsdf->ior use this eta, not ior_. With ior_,
@@ -1365,7 +1383,8 @@ class PrincipledPlugin : public Material {
             if (lam) L.weightSpec = weightSp * usp(baseColor_) * (1.0f - subsurfaceWeight_);
             lobes.push_back(L);
         }
-        if (lobes.empty()) {  // degenerate guard (e.g. metallic=1 pathological)
+        if (lobes.empty() && !cg) {  // degenerate guard (e.g. metallic=1 pathological); #1206:
+            // a caustic gate that dropped every closure leaves a black BSDF, as in Cycles
             Lobe L;
             L.kind = LobeKind::Diffuse;
             L.weight = baseColor_;
@@ -1416,7 +1435,16 @@ class PrincipledPlugin : public Material {
     // ==================================================================
     // Per-lobe evaluators (the four contract methods).
     // ==================================================================
+    // #1206: a half-gated glass lobe has no eval on the dropped side (Cycles zeroes that tint in
+    // generalized_schlick_setup). The sampling pdf is kept, so MIS stays consistent.
+    static bool sideGated(const Lobe& L, const HitRecord& rec, const Vec3& wo, const Vec3& wi) {
+        if (!L.gate) return false;
+        const bool transmitted = rec.normal.dot(wo) * rec.normal.dot(wi) < 0.0f;
+        return (L.gate & (transmitted ? CAUSTIC_GATE_REFRACT
+                                      : CAUSTIC_GATE_REFLECT)) != 0;
+    }
     Vec3 evalLobeRGB(const Lobe& L, const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
+        if (sideGated(L, rec, wo, wi)) return Vec3(0);
         return L.ownN ? evalLobeRGBAt(L, lobeFrame(rec, L.N), wo, wi) : evalLobeRGBAt(L, rec, wo, wi);
     }
     Vec3 evalLobeRGBAt(const Lobe& L, const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
@@ -2386,6 +2414,7 @@ public:
     astroray::SampledSpectrum evalLobeSpectral(const Lobe& L, const HitRecord& rec,
                                                const Vec3& wo, const Vec3& wi,
                                                const astroray::SampledWavelengths& lam) const {
+        if (sideGated(L, rec, wo, wi)) return astroray::SampledSpectrum(0.0f);
         return L.ownN ? evalLobeSpectralAt(L, lobeFrame(rec, L.N), wo, wi, lam)
                       : evalLobeSpectralAt(L, rec, wo, wi, lam);
     }
@@ -2594,6 +2623,7 @@ public:
             // f/pdf = through/q_j exactly as before (pure glass: q_j = 1 and the
             // mixture is the single lobe, so this is numerically unchanged).
             const Lobe& L = lobes[ds.lobe];
+            if (sideGated(L, rec, wo, s.wi)) return s;  // #1206: one-lobe estimate, exact
             float qj = L.sel / W;
             Vec3 tint = ds.walkReflected ? specularTint_ : sqrtColor(baseColor_);
             Vec3 through = L.weight * tint * ds.walkRadiance;
@@ -2673,6 +2703,7 @@ public:
             // normalised tint × magnitude, matching the delta spectral branch.
             // pkg265 Phase 10: non-delta, full-mixture pdf (see the RGB twin).
             const Lobe& L = lobes[ds.lobe];
+            if (sideGated(L, rec, wo, ds.wi)) return bss;  // #1206
             float qj = L.sel / W;
             Vec3 tint = ds.walkReflected ? specularTint_ : sqrtColor(baseColor_);
             Vec3 rgb = L.weight * tint * ds.walkRadiance;

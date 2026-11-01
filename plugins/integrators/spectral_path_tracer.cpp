@@ -587,6 +587,7 @@ private:
                 const float w = astroray::photon::emitPhoton(L, gen, o, d, lambda);
                 if (!(w > 0.0f)) continue;
                 bool passedCaster = false;
+                bool lastReflect = false;   // #1206: the caster event next to the receiver was R / TIR
                 if (prismPath) {
                     // Explicit 2-face prism (mirrors light_tracer_caustic.cpp:238-275).
                     // #959: the same Fresnel roulette as the general loop below; a
@@ -601,10 +602,10 @@ private:
                     Vec3 d1;
                     const float T1 = astroray::photon::peFresnelTransmit(d.dot(n1), 1.0f / ior);
                     if (!(u01(gen) < T1 && refract(d, n1, 1.0f / ior, d1))) {
-                        if (!reflective) continue;
                         d = (d - n1 * (2.0f * d.dot(n1))).normalized();
                         o = p1 + d * eps;
                         passedCaster = true;
+                        lastReflect = true;
                     } else {
                         Vec3 n2;
                         float t2 = nearestCaster(tris, p1 + d1 * 1e-4f, d1, n2);
@@ -613,10 +614,10 @@ private:
                         Vec3 d2;
                         const float T2 = astroray::photon::peFresnelTransmit(d1.dot(n2), ior);
                         if (!(u01(gen) < T2 && refract(d1, n2, ior, d2))) {
-                            if (!reflective) continue;
                             d = (d1 - n2 * (2.0f * d1.dot(n2))).normalized();
                             o = p2 + d * eps;
                             passedCaster = true;
+                            lastReflect = true;
                         } else {
                             HitRecord rec;
                             if (!bvh->hit(Ray(p2 + d2 * eps, d2), eps, std::numeric_limits<float>::max(), rec))
@@ -666,12 +667,10 @@ private:
                         const float T = astroray::photon::peFresnelTransmit(d.dot(nf), eta);
                         if (u01(gen) < T && refract(d, nf, eta, nd)) {
                             d = nd;
+                            lastReflect = false;
                         } else {
-                            // Reflective caustics off: drop every reflected photon
-                            // (TIR too), as pathTraceSpectral's caustic gate drops the
-                            // delta reflection after a diffuse vertex.
-                            if (!reflective) break;
                             d = (d - nf * (2.0f * d.dot(nf))).normalized();
+                            lastReflect = true;
                         }
                         passedCaster = true;
                         o = rec.point + d * eps;
@@ -679,7 +678,10 @@ private:
                         continue;
                     }
                     // pkg111: REMOVED `rec.normal.y > 0.7f` — deposit on ANY diffuse receiver.
-                    if (passedCaster) deposit(rec, d, lambda, w);
+                    // #1206: reflective caustics off drops the photon only when its last
+                    // caster event reflected, as pathTraceSpectral gates only the bounce
+                    // after a diffuse vertex (TIR inside the glass stays).
+                    if (passedCaster && (reflective || !lastReflect)) deposit(rec, d, lambda, w);
                     break;
                 }
             }

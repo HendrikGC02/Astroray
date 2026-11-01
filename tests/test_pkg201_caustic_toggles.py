@@ -3,10 +3,11 @@
 """pkg201 Stage 3 (Finding E) — native caustic-toggle honour (CPU + GPU).
 
 Cycles' caustics_reflective / caustics_refractive drop a specular/refractive
-closure once the path already has a diffuse ancestor, so a diffuse->specular->light
-caustic path is culled when the toggle is off. Astroray mirrors this with a sticky
-`hadDiffuseAncestor` flag (CPU local / GPU SoA) + a runtime cull in
-pathTraceSpectral / shadePathSlot, gated behind a __constant__ c_wfCausticGate.
+closure when the incoming ray is DIFFUSE (the previous bounce was diffuse), so a
+diffuse->specular->light caustic path is culled when the toggle is off. Astroray
+mirrors this with HitRecord::causticGate (CPU lpc.flags / GPU ray_vis_diffuse SoA),
+read by the materials, plus a delta-sample cull in pathTraceSpectral / shadePathSlot,
+gated behind a __constant__ c_wfCausticGate (#1206; test_issue1204_1206_path_flags.py).
 
 Robust invariants (independent of how strong the path-traced caustic is):
   1. Default (both toggles on) is INERT — byte-identical (CPU) / within GPU noise.

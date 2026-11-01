@@ -548,6 +548,9 @@ def _gate_b_graph(repo_root: Path, case: dict):
 #   lights_only      {keep: [sun|area|world]} every other lamp / the world is switched off (lighting-component calibration)
 #   world_hdri       {path}             world Environment Texture image -> this file (an attribution HDRI, e.g. a smoothed sun)
 #   world_flat_white {level?}           world Background -> white, strength = old strength x HDRI solid-angle-mean luminance
+#   principled_inputs {material, inputs: {socket: value | null}}  set Principled inputs (null: unlink only), e.g.
+#                                       Coat Weight 0 or Normal null for a coat-off / bump-off GPU/CPU bisect (#1220)
+#   bump_correction_off {material}      Material Settings > Bump Map Correction off (#1220 bisect)
 # Not evidence-only: the production corpus applies this one to the Cycles reference leg (#995, owner 2026-10-31):
 #   emission_backface_scale {material}  Cycles only: Emission Strength x 1/n^2 on back-facing hits (emission inside the glass
 #                                       shell), n read from the material's Glass BSDF. Astroray keeps the radiance 1/eta^2
@@ -615,7 +618,7 @@ def _attrib_control(bpy, spec, engine=None):
             tree.links.new(mul.outputs["Value"], n.inputs["Strength"])
         receipt.update({"ior": ior, "scale": scale, "emission_nodes": [n.name for n in emit],
                         "strength_front": strengths})
-    elif kind in ("albedo_grey", "albedo_const", "lambertian"):
+    elif kind in ("albedo_grey", "albedo_const", "lambertian", "principled_inputs"):
         mat = bpy.data.materials.get(spec.get("material"))
         nodes = list(_principled_nodes(mat.node_tree)) if mat is not None and mat.node_tree else []
         if not nodes:
@@ -626,12 +629,26 @@ def _attrib_control(bpy, spec, engine=None):
                 for name, value in (("Roughness", 1.0), ("Specular IOR Level", 0.0), ("Coat Weight", 0.0),
                                     ("Sheen Weight", 0.0), ("Transmission Weight", 0.0), ("Metallic", 0.0)):
                     changed += _set_input(tree, node.inputs[name], value)
+            elif kind == "principled_inputs":
+                for name, value in spec["inputs"].items():
+                    sock = node.inputs[name]
+                    if value is None:
+                        changed += sock.is_linked
+                        for link in list(sock.links):
+                            tree.links.remove(link)
+                    else:
+                        changed += _set_input(tree, sock, value)
             else:
                 rgb = [float(spec["level"])] * 3 if kind == "albedo_grey" else [float(c) for c in spec["rgb"]]
                 changed += _set_input(tree, node.inputs["Base Color"], (*rgb, 1.0))
         if not changed:
             raise ValueError(f"pkg327 {kind} on {spec['material']!r} would be a no-op")
         receipt["principled_nodes"] = [n.name for _, n in nodes]
+    elif kind == "bump_correction_off":
+        mat = bpy.data.materials.get(spec.get("material"))
+        if mat is None or not mat.cycles.use_bump_map_correction:
+            raise ValueError(f"bump_correction_off on {spec.get('material')!r} would be a no-op")
+        mat.cycles.use_bump_map_correction = False
     elif kind == "lights_only":
         keep = set(spec["keep"])
         off = []
@@ -736,7 +753,7 @@ def main():
                         "(bounce-cap A/B renders); default: as authored")
     p.add_argument("--attrib-spec", default="",
                    help="pkg327: JSON list of attribution controls (albedo_grey / albedo_const / lambertian / "
-                        "world_hdri / world_flat_white), applied before the render and receipted on a PKG327_ATTRIB line")
+                        "principled_inputs / bump_correction_off / world_hdri / world_flat_white), applied before the render and receipted on a PKG327_ATTRIB line")
     p.add_argument("--print-build", action="store_true",
                    help="pkg323: print the loaded Astroray build id and module/addon hashes, then exit")
     p.add_argument("--report-only", action="store_true",

@@ -12,8 +12,8 @@
 
 ## Summary
 
-- **SUPPORTED**: 331 features
-- **APPROXIMATED**: 103 features
+- **SUPPORTED**: 329 features
+- **APPROXIMATED**: 105 features
 - **DROPPED-SILENT**: 303 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 737 features
@@ -800,9 +800,9 @@ These features are silently ignored by the addon with no warning:
 | OUTPUT_MATERIAL | input:Thickness | SUPPORTED | pkg328 probe `o_thickness`: Cycles ignores the socket (bit-identical A/B) and so does Astroray |
 | OUTPUT_MATERIAL | prop:is_active_output | SUPPORTED |  |
 | OUTPUT_MATERIAL | prop:target | SUPPORTED |  |
-| OUTPUT_WORLD | input:Surface | SUPPORTED | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6) |
+| OUTPUT_WORLD | input:Surface | APPROXIMATED | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6); partial: only a Background linked directly to Surface is selected; an unlinked or Mix/Add/Emission Surface still uses every Background, and Environment / Sky textures are never filtered by the active output (setup_world) (#1101 finding 3) |
 | OUTPUT_WORLD | input:Volume | APPROXIMATED | root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6); partial: only Volume Scatter / Principled Volume are honoured; Volume Absorption and others are dropped silently (setup_world `volume_node.type in {...}`) (#1101 finding 3) |
-| OUTPUT_WORLD | prop:is_active_output | SUPPORTED |  |
+| OUTPUT_WORLD | prop:is_active_output | APPROXIMATED | only Background nodes are filtered by the active output; Environment / Sky textures in an inactive output tree still render (setup_world) |
 | OUTPUT_WORLD | prop:target | DROPPED-SILENT | property ENUM |
 | CURVE_RGB | input:Factor | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
 | CURVE_RGB | input:Color | SUPPORTED | op-VM compiler dispatch (#823): per-socket AST evidence from shader_vm_compiler._compile_socket_value; guarded reads credited only where the guard holds for every enabled configuration the compiler accepts (#996): not getattr(builder, 'supports_curves', False) | node.type == 'CURVE_FLOAT' |
@@ -856,7 +856,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_CHECKER | input:Color2 | SUPPORTED |  |
 | TEX_CHECKER | input:Scale | SUPPORTED |  |
 | TEX_COORD | prop:from_instancer | DROPPED-SILENT | property BOOLEAN |
-| TEX_ENVIRONMENT | input:Vector | APPROXIMATED | pkg321 probe `env_vector` moves the CPU render (consumed) |
+| TEX_ENVIRONMENT | input:Vector | APPROXIMATED | pkg328 probe `env_vector`: the Rotation of a Mapping node in the world tree moves the CPU render and matches Cycles; the socket itself is never read, so a Vector linked to anything else (Vector Rotate / Math, Object coords) is dropped without a warning |
 | TEX_ENVIRONMENT | prop:interpolation | DROPPED-SILENT | property ENUM |
 | TEX_ENVIRONMENT | prop:projection | DROPPED-SILENT | property ENUM |
 | TEX_GABOR | input:Vector | DROPPED-SILENT | no handler in addon translation layer |

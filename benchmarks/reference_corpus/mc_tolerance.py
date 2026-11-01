@@ -134,6 +134,14 @@ def scene_entry(manifest: dict, sid: str) -> dict:
     return e
 
 
+def reference_controls(sid: str) -> list[dict]:
+    """#995: ``[[reference_control]]`` rows of the suite's hand-maintained file for scene ``sid`` -- render_leg controls
+    applied to the Cycles legs ONLY (reference and band sigma), so the Astroray legs render the scene as authored."""
+    if not KNOWN.is_file():
+        return []
+    return [r for r in tomllib.loads(KNOWN.read_text(encoding="utf-8")).get("reference_control", []) if r["scene"] == sid]
+
+
 def use_suite(name: str) -> None:
     """Point the module-level manifest/reference/gates/provisional paths at a SUITES entry (CLI only)."""
     global MANIFEST, REFS, GATES, KNOWN, GATE_C, LABEL, BLESS, REF_LEG
@@ -186,6 +194,9 @@ def render(sid: str, leg: str, seed: int, spp: int, stem: Path, threads: int = 8
     if res_percent is not None:
         cmd += ["--res-percent", str(res_percent)]
     cmd += list(extra)  # pkg327: e.g. ("--attrib-spec", json)
+    ctl = reference_controls(base) if leg in ("cycles", "cycles_gpu") and "--attrib-spec" not in extra else []
+    if ctl:  # #995: the Cycles reference variant (README "Reference variant")
+        cmd += ["--attrib-spec", json.dumps([{k: r[k] for k in ("kind", "material")} for r in ctl])]
     env = dict(os.environ, OMP_NUM_THREADS=str(threads))
     stem.parent.mkdir(parents=True, exist_ok=True)
     for _ in range(3):  # Blender 5.2 rarely dies in BKE_image_render_write_exr (no sentinel printed): retry a crash
@@ -266,8 +277,17 @@ def exr_path(sid: str) -> Path:
 def reference(sid: str, manifest: dict, work: Path, render_it: bool, seed: int) -> np.ndarray:
     if render_it or not exr_path(sid).is_file():  # variants have no Phase 1 reference
         entry = scene_entry(manifest, sid)
-        ref = render(sid, REF_LEG, seed, entry["v2"]["spp_reference"], work / f"{sid}_{REF_LEG}_ref", timeout=3600)
+        stem = work / f"{sid}_{REF_LEG}_ref"
+        ref = render(sid, REF_LEG, seed, entry["v2"]["spp_reference"], stem, timeout=3600)
         write_exr(exr_path(sid), ref)
+        ctl = reference_controls(sid)
+        if ctl:  # provenance next to the EXR: the control, its receipt (n, scale) and why
+            log = stem.with_suffix(".log").read_text(encoding="utf-8", errors="replace")
+            receipt = next(json.loads(ln[len("PKG327_ATTRIB "):]) for ln in log.splitlines() if ln.startswith("PKG327_ATTRIB "))
+            exr_path(sid).with_suffix(".json").write_text(json.dumps(
+                {"reference": exr_path(sid).name, "engine": "Cycles CPU", "seed": seed, "spp": entry["v2"]["spp_reference"],
+                 "blender": entry["v2"]["blender_version"], "variant": [{k: r[k] for k in ("issue", "reason")} for r in ctl],
+                 "receipt": receipt}, indent=1) + "\n", encoding="utf-8", newline="\n")
         return ref
     return read_exr(exr_path(sid))
 
@@ -355,7 +375,10 @@ def write_toml(results: dict, manifest: dict, seeds, blender_version: str, base:
               f"gate_c = {str(sid in GATE_C).lower()}"]
         if sid in VARIANTS:
             L += [f'base = "{VARIANTS[sid]["base"]}"', f'camera = "{VARIANTS[sid]["camera"]}"']
-        L += [f'reference = "{exr_path(sid).relative_to(REPO).as_posix()}"', ""]
+        L += [f'reference = "{exr_path(sid).relative_to(REPO).as_posix()}"']
+        for c in reference_controls(sid):  # #995: the reference is a Cycles variant, not the .blend as authored
+            L.append(f'reference_variant = "{c["kind"]} on {c["material"]} ({c["issue"]}): {c["reason"]}"')
+        L.append("")
         for r in build_rois(e, results[sid]):
             L += [f'[[scenes."{sid}".roi]]', f'name = "{r["name"]}"', f"rect = {_arr(r['rect'], '{:.4f}')}",
                   f"cycles_mean = {_arr(r['cycles_mean'])}",

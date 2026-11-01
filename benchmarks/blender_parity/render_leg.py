@@ -580,6 +580,11 @@ def _gate_b_graph(repo_root: Path, case: dict):
 #   lights_only      {keep: [sun|area|world]} every other lamp / the world is switched off (lighting-component calibration)
 #   world_hdri       {path}             world Environment Texture image -> this file (an attribution HDRI, e.g. a smoothed sun)
 #   world_flat_white {level?}           world Background -> white, strength = old strength x HDRI solid-angle-mean luminance
+# Not evidence-only: the production corpus applies this one to the Cycles reference leg (#995, owner 2026-10-31):
+#   emission_backface_scale {material}  Cycles only: Emission Strength x 1/n^2 on back-facing hits (emission inside the glass
+#                                       shell), n read from the material's Glass BSDF. Astroray keeps the radiance 1/eta^2
+#                                       on light crossing the dielectric boundary; Cycles has no such factor, so this
+#                                       puts the reference on Astroray's radiance convention. Front-face emission is untouched.
 def _principled_nodes(tree, seen=None):
     seen = set() if seen is None else seen
     if tree is None or tree.name in seen:
@@ -611,12 +616,38 @@ def _set_input(tree, sock, value):
     return was_linked or before != after
 
 
-def _attrib_control(bpy, spec):
+def _attrib_control(bpy, spec, engine=None):
     import numpy as np
 
     kind = spec["kind"]
     receipt = {"kind": kind, **{k: v for k, v in spec.items() if k != "kind"}}
-    if kind in ("albedo_grey", "albedo_const", "lambertian"):
+    if kind == "emission_backface_scale":
+        if engine != "CYCLES":
+            raise ValueError("emission_backface_scale is a Cycles reference-leg control; the Astroray legs render as authored")
+        mat = bpy.data.materials.get(spec.get("material"))
+        tree = mat.node_tree if mat is not None else None
+        glass = [n for n in tree.nodes if n.bl_idname == "ShaderNodeBsdfGlass"] if tree else []
+        emit = [n for n in tree.nodes if n.bl_idname == "ShaderNodeEmission"] if tree else []
+        iors = {round(float(n.inputs["IOR"].default_value), 6) for n in glass}
+        if len(iors) != 1 or any(n.inputs["IOR"].is_linked for n in glass) or not emit or any(n.inputs["Strength"].is_linked for n in emit):
+            raise ValueError(f"emission_backface_scale on {spec.get('material')!r}: needs one constant glass IOR and unlinked Emission strengths")
+        ior = iors.pop()
+        scale = 1.0 / (ior * ior)
+        strengths = [float(n.inputs["Strength"].default_value) for n in emit]
+        for n in emit:
+            geo = tree.nodes.new("ShaderNodeNewGeometry")
+            mad = tree.nodes.new("ShaderNodeMath")  # Backfacing * (scale - 1) + 1: 1 on front-face hits, 1/n^2 on back-face hits
+            mad.operation = "MULTIPLY_ADD"
+            mad.inputs[1].default_value, mad.inputs[2].default_value = scale - 1.0, 1.0
+            mul = tree.nodes.new("ShaderNodeMath")
+            mul.operation = "MULTIPLY"
+            mul.inputs[1].default_value = float(n.inputs["Strength"].default_value)
+            tree.links.new(geo.outputs["Backfacing"], mad.inputs[0])
+            tree.links.new(mad.outputs["Value"], mul.inputs[0])
+            tree.links.new(mul.outputs["Value"], n.inputs["Strength"])
+        receipt.update({"ior": ior, "scale": scale, "emission_nodes": [n.name for n in emit],
+                        "strength_front": strengths})
+    elif kind in ("albedo_grey", "albedo_const", "lambertian"):
         mat = bpy.data.materials.get(spec.get("material"))
         nodes = list(_principled_nodes(mat.node_tree)) if mat is not None and mat.node_tree else []
         if not nodes:
@@ -820,7 +851,7 @@ def main():
 
         graph = _gate_b_graph(repo_root, gate_b_case) if gate_b_case else None
         if args.attrib_spec:
-            print("PKG327_ATTRIB " + json.dumps([_attrib_control(bpy, c) for c in json.loads(args.attrib_spec)]), flush=True)
+            print("PKG327_ATTRIB " + json.dumps([_attrib_control(bpy, c, args.engine) for c in json.loads(args.attrib_spec)]), flush=True)
 
         control = None
         role = None

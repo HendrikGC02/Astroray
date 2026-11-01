@@ -103,6 +103,7 @@ Pins are per channel, calibrated on 5 seeds (278 1301 2711 4177 6113, build `e30
 - wood `grain_center` r is pinned to its seed mean with the unexplained 1.2-point remainder stated in the pin; it is not a claim that the whole shift is spectral.
 - light_path `floor_near` r is pinned although its 8-seed mean passes: the 1.8-point shift fills 90 % of the 0.020 floor band, so seed draws fall outside it about two times in five (CPU seed 278 reads 0.975).
 - car_paint `upper_flake` b is pinned on CPU only: GPU reads 0.981 against CPU 0.961 (the #1220 twin gap), so the GPU leg stays on Cycles.
+- wood `grain_left` b (proxy Ms/Mr 0.969, A/C 0.969) was left unpinned because it passed; the GPU bump-twin fixes (#1220, #1156, #1214) moved the GPU onto the CPU shift and it failed at seed 278 (0.974), so it is pinned with the pins re-calibrated on that build.
 - Luminance is never pinned. wood `grain_center` L (0.970 at seed 278, 5-seed CPU mean 0.980) therefore still fails the CPU gate at the gate seed.
 
 ## Evidence and reproduction

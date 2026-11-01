@@ -118,11 +118,11 @@ ids: `v2_light_tree`, `v2_media`, `v2_dispersion_caustics`, `v2_sky_sun`,
     copied into `gates_production.toml`. Re-pin on an engine change that moves the channel; never widen a tolerance.
   - **Pinned channels (pkg327 Phase B; mean CPU / GPU; source
     `.astroray_plan/docs/pkg327-chroma-residual-attribution.md`, artefact
-    `.astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json`):**
-    `prod_curves_geometry` inner_backface r (0.856 / 0.852); `prod_wood` grain_center r (0.973 / 0.985) and b
-    (0.940 / 0.949), grain_right b (0.937 / 0.939), lower b (0.947 / 0.954); `prod_car_paint` lit_front b
-    (0.927 / 0.936), upper_flake b (0.961 / CPU only); `prod_pbr_group` lower b (0.925 / 0.940); `prod_light_path`
-    floor_near r (0.981 / 0.988). Not pinned: wood grain_left b (passes), GPU-only twin gaps (car_paint GPU
+    `.astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json`; GPU means re-calibrated on the bump-twin build 7acd80bf, CPU means unchanged):**
+    `prod_curves_geometry` inner_backface r (0.856 / 0.852); `prod_wood` grain_center r (0.973 / 0.984) and b
+    (0.940 / 0.948), grain_left b (0.979 / 0.980; added with the GPU bump-twin fixes, when the GPU converged onto the CPU shift and failed at seed 278), grain_right b (0.937 / 0.938), lower b (0.947 / 0.949); `prod_car_paint` lit_front b
+    (0.927 / 0.931), upper_flake b (0.961 / CPU only); `prod_pbr_group` lower b (0.925 / 0.931); `prod_light_path`
+    floor_near r (0.981 / 0.988). Not pinned: GPU-only twin gaps (car_paint GPU
     limb_grazing and lower_shadowed, #1220; light_path GPU floor_far, #1199).
 
 ## volumes_mesh (pkg296) -- mesh-bounded volumes

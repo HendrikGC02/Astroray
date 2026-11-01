@@ -2176,7 +2176,8 @@ def build_report(frozen: Mapping[str, Any], snapshot: Mapping[str, Any],
     computed = compute(uses, matrix, evidence, repo_root, fixture_mode, ledger, allowed_cases)
     subchecks = evaluate_subchecks(uses, matrix, evidence, repo_root, frozen,
                                    computed["cpu"], computed["gpu"],
-                                   fixture_mode, hash_locked, allowed_cases)
+                                   fixture_mode, hash_locked, allowed_cases,
+                                   threshold=None if fixture_mode else load_b_threshold(repo_root))
 
     if integrity_errors:
         return _unmeasured_report(pop, uses, matrix, subchecks,

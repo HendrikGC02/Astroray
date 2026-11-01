@@ -130,8 +130,9 @@ def test_gpu_photon_split_matches_path_tracing():
 
 @pytest.mark.skipif(not _gpu_ok(), reason="CUDA GPU not available")
 def test_gpu_photon_split_matches_path_tracing_reflective_caustics_off():
-    # Reflective caustics off: the photon loop drops reflected photons (TIR too), as the
-    # path tracer's caustic gate drops the reflection after the receiver (Terra #959 review).
+    # Reflective caustics off: the photon loop drops a photon whose last caster event
+    # reflected, as the path tracer gates only the bounce after the receiver (#1206); a
+    # TIR inside the glass (T r T) stays in both.
     _check_split(True, 4096, (1, 2), 0.03, reflective=False)
 
 

@@ -196,6 +196,7 @@ __global__ void kEmitSceneCaustic(
     GVec3 d(pd.x, pd.y, pd.z);
 
     bool passedCaster = false;
+    bool lastReflect = false;   // #1206: the caster event next to the receiver was R / TIR
     const float eps = 1e-3f;
 
     for (int bounce = 0; bounce < maxDepth; ++bounce) {
@@ -224,9 +225,10 @@ __global__ void kEmitSceneCaustic(
             if (pc_jitter(cell, (200u + (unsigned int)bounce) ^ seed) < T &&
                 pc_refract(d, nf, eta, nd)) {
                 d = nd;
+                lastReflect = false;
             } else {
-                if (!reflective) return;   // reflective caustics off: the PT gate drops these too
                 d = (d - nf * (2.0f * d.dot(nf))).normalized();           // R / TIR
+                lastReflect = true;
             }
             passedCaster = true;
             o = rec.point + d * eps;
@@ -235,7 +237,9 @@ __global__ void kEmitSceneCaustic(
 
         // Diffuse receiver: deposit only on an L S+ D path (CPU :461). pkg286: no
         // receiver cosine — the photon hit density already carries it.
-        if (passedCaster) {
+        // #1206: reflective caustics off drops the photon only when its last caster event
+        // reflected, as the path tracer gates only the bounce after a diffuse vertex.
+        if (passedCaster && (reflective || !lastReflect)) {
             GVec3 cmf = pc_cieCmf(lambda);
             const float f = w;
             out[cell].position    = rec.point;

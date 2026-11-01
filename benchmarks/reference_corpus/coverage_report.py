@@ -1854,7 +1854,43 @@ def load_audit(ref: Any, repo_root: Path, expected_scenes: Iterable[str]) -> tup
             errors.append(f"audit witness {w.get('id')!r} is not in a frozen scene")
         if w["id"] not in results["witnesses"]:
             errors.append(f"audit witness {w.get('id')!r} has no result")
+    errors += _audit_results_consistency(sample, results)
     return {"sample": sample, "results": results}, errors
+
+
+def _audit_results_consistency(sample: Mapping[str, Any], results: Mapping[str, Any]) -> list[str]:
+    """Cross-check every stored witness leg: known status, status = the rules applied to the stored effect + Welch
+    verdict, and one jackknife verdict per seed.  A missing leg is allowed here (it scores as ERROR, never a pass)."""
+    errors: list[str] = []
+    n_seeds = results.get("n_seeds")
+    if not (isinstance(n_seeds, int) and not isinstance(n_seeds, bool) and n_seeds > 0):
+        errors.append("audit results n_seeds is not a positive integer")
+        return errors
+    if isinstance(sample.get("seeds"), list) and len(sample["seeds"]) != n_seeds:
+        errors.append("audit results n_seeds does not match the frozen sample's seeds")
+    for wid, legs in results["witnesses"].items():
+        for backend in ("CPU", "GPU"):
+            leg = legs.get(backend) if isinstance(legs, Mapping) else None
+            if leg is None:
+                continue
+            tag = f"audit witness {wid!r} [{backend}]"
+            status = leg.get("status") if isinstance(leg, Mapping) else None
+            if status not in AUDIT_STATUSES:
+                errors.append(f"{tag} has unknown status {status!r}")
+                continue
+            if status == "ERROR":
+                continue
+            welch = leg.get("welch")
+            if not isinstance(welch, Mapping) or not isinstance(welch.get("pass"), bool) or not isinstance(leg.get("effect"), Mapping):
+                errors.append(f"{tag} lacks the effect / Welch verdict its status {status} rests on")
+                continue
+            expected = audit_leg_status(leg["effect"], welch["pass"])
+            if status != expected:
+                errors.append(f"{tag} status {status} contradicts its stored effect and Welch verdict ({expected})")
+            jackknife = leg.get("jackknife_pass")
+            if not isinstance(jackknife, list) or len(jackknife) != n_seeds or not all(isinstance(j, bool) for j in jackknife):
+                errors.append(f"{tag} jackknife_pass does not have {n_seeds} boolean entries")
+    return errors
 
 
 def audit_leg_status(effect: Mapping[str, Any], welch_pass: bool) -> str:

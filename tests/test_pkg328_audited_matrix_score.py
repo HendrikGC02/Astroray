@@ -428,3 +428,45 @@ def test_load_audit_rejects_a_tampered_or_unbound_file(tmp_path):
     sp.write_text(json.dumps({**sample, "extra": 1}))                # sample edited after the freeze
     _, errors = C.load_audit(ref, tmp_path, ["s1"])
     assert any("hash does not match" in e for e in errors)
+
+
+def _audit_files(tmp_path, legs, *, sample_extra=None, n_seeds=4):
+    sample = {"schema": C.AUDIT_SAMPLE_SCHEMA, "witnesses": [{"id": "w", "scene_id": "s1", "identities": [A]}], **(sample_extra or {})}
+    sp = tmp_path / "sample.json"
+    sp.write_text(json.dumps(sample))
+    rp = tmp_path / "results.json"
+    rp.write_text(json.dumps({"schema": C.AUDIT_RESULTS_SCHEMA, "sample_sha256": C.sha256_file(sp), "welch": C.AUDIT_WELCH,
+                              "n_seeds": n_seeds, "witnesses": {"w": legs}}))
+    return {"sample": {"path": "sample.json", "sha256": C.sha256_file(sp)},
+            "results": {"path": "results.json", "sha256": C.sha256_file(rp)}}
+
+
+def test_load_audit_accepts_consistent_legs_and_a_missing_or_errored_leg(tmp_path):
+    legs = {"CPU": _leg("PASS"), "GPU": _leg("FAIL")}
+    assert C.load_audit(_audit_files(tmp_path, legs), tmp_path, ["s1"])[1] == []
+    assert C.load_audit(_audit_files(tmp_path, {"CPU": _leg("NO-EFFECT")}), tmp_path, ["s1"])[1] == []   # missing GPU leg: scored as ERROR
+    assert C.load_audit(_audit_files(tmp_path, {"CPU": {"status": "ERROR", "reason": "x"}}), tmp_path, ["s1"])[1] == []
+
+
+@pytest.mark.parametrize("mutate,why", [
+    (lambda leg: leg.update(status="MAYBE"), "unknown status"),
+    (lambda leg: leg.update(status="FAIL"), "contradicts"),                        # stored welch.pass is True, both effects moved
+    (lambda leg: leg["welch"].update(**{"pass": False}), "contradicts"),           # PASS but the verdict failed
+    (lambda leg: leg["effect"]["astroray"].update(ok=False), "contradicts"),       # PASS although Astroray's control is inert
+    (lambda leg: leg.update(jackknife_pass=[True] * 3), "jackknife_pass"),
+    (lambda leg: leg.update(jackknife_pass=[1, 1, 1, 1]), "jackknife_pass"),
+    (lambda leg: leg.pop("jackknife_pass"), "jackknife_pass"),
+    (lambda leg: leg.pop("welch"), "lacks the effect / Welch verdict"),
+    (lambda leg: leg.pop("effect"), "lacks the effect / Welch verdict")])
+def test_load_audit_rejects_inconsistent_legs(tmp_path, mutate, why):
+    leg = _leg("PASS")
+    mutate(leg)
+    _, errors = C.load_audit(_audit_files(tmp_path, {"CPU": leg, "GPU": _leg("PASS")}), tmp_path, ["s1"])
+    assert any(why in e for e in errors), errors
+
+
+def test_load_audit_rejects_a_seed_count_the_sample_does_not_have(tmp_path):
+    ref = _audit_files(tmp_path, {"CPU": _leg("PASS")}, sample_extra={"seeds": [1, 2, 3]})
+    assert any("n_seeds does not match" in e for e in C.load_audit(ref, tmp_path, ["s1"])[1])
+    assert any("n_seeds is not a positive" in e for e in
+               C.load_audit(_audit_files(tmp_path, {}, n_seeds=0), tmp_path, ["s1"])[1])

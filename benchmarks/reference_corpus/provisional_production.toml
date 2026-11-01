@@ -8,51 +8,38 @@
 # matching addon Python; Cycles 5.2.0 LTS references.
 # Re-measured by lane aq-nodes (#988 #989 #994) on build 0d626f94 against bands re-blessed from 5 seeds on
 # that build (the new lobes raise Astroray's variance).
-# [[divergence]] rows (Astroray physically right, Cycles differs; owner 2026-09-29) pin an ROI against
-# Astroray's own mean. None is needed yet: every failure below is an Astroray gap, not a Cycles quirk.
+# [[divergence]] rows (Astroray physically right, Cycles differs; owner 2026-09-29) pin channels of an ROI against
+# Astroray's own seed mean (pkg327 Phase B: per channel, never per ROI; `arbitration` = the independent-renderer artefact
+# that reproduces the shift; `legs` limits the pin to a backend). The rows are at the end of this file.
 
 # ---- parity ------------------------------------------------------------------------------------------------
 [[row]]
 scene = "prod_car_paint"
-backend = "cpu"
-kind = "parity"
-issue = "#1005"
-reason = "#1005: procedural flake Bump now applied on CPU and the coat keeps sd->N (the ~2x overshoot was the bump reaching the coat): 3/16 -> 13/16; residual B-channel deficit also present without the bump (lit_front B 0.93x, upper_flake B 0.97x, lower_shadowed G 1.03x); #1165 (+1 bounce, CPU seed 278, MinGW staged build vs main 18b4c053): 13/16 -> 12/16, lit_front L 0.962 B 0.924, lower_shadowed B 0.950, upper_flake B 0.972"
-
-[[row]]
-scene = "prod_car_paint"
 backend = "gpu"
 kind = "parity"
-issue = "#1005"
-reason = "#1005: procedural Bump Height applied on CPU only; the GPU bump path samples images (reported, #1153): lit_front B 0.78x, limb_grazing B 0.80x, upper_flake B 1.21x (2/16)"
+issue = "#1220"
+reason = "#1220: car_paint CPU/GPU twin gap (GPU 9/16 at seed 278, build e302ca1). Fails: limb_grazing r 0.956 b 0.926 L 0.965; lower_shadowed r 1.032 g 1.057 b 0.963 L 1.042. pkg327 Phase B pinned lit_front b (spectral, Mitsuba-confirmed, CPU 0.927 / GPU 0.936); upper_flake b is pinned on CPU only (GPU reads 0.981, the +3 % twin gap of #1220), so GPU upper_flake stays on Cycles and passes. The limb_grazing/lower_shadowed b shifts are not pinned: GPU 0.926/0.963 against 0.869/0.866 in the Mitsuba proxy and CPU in band"
 
 [[row]]
 scene = "prod_wood"
 backend = "cpu"
 kind = "parity"
-issue = "#993"
-reason = "#1006 + #881 fixed (Object coords object-local, Noise matches Cycles: ring/band layout now as Cycles, 4/16 -> 7/16); residual is the Roughness chain hitting VM_MAX_SLOTS (#993): flattened to grey: too-glossy sparkly specular + sun highlight Cycles does not show; procedural Bump now applied on CPU (#1005; bump effect matches Cycles within ~1 % at 256 spp): B-channel deficit grain_center B 0.95x, lower B 0.95x, grain_right B 0.94x (12/16); #1165 (CPU seed 278, vs main 18b4c053): 12/16 -> 13/16, grain_center B 0.948, grain_right B 0.931, lower B 0.952"
-
-[[row]]
-scene = "prod_wood"
-backend = "gpu"
-kind = "parity"
-issue = "#993"
-reason = "#1006 + #881 fixed, GPU tracks CPU; procedural Bump applied on CPU only, reported on GPU (#1153). Only B is out: grain_center B 0.96x, grain_right B 0.91x, lower B 0.93x (12/16 at e1d9c77f)"
+issue = "#1222"
+reason = "#1222: pkg327 Phase B pinned grain_center r and b, grain_right b and lower b (spectral, Mitsuba-confirmed). 15/16 at seed 278, build e302ca1: only grain_center L 0.970 (tol 0.026) fails. L stays on Cycles (not a pin candidate); the 5-seed CPU mean is 0.980, in band, so seed 278 is a low draw (r 0.958, g 0.978; CPU per-seed L 0.970 0.979 1.000 0.984 0.965)"
 
 [[row]]
 scene = "prod_pbr_group"
 backend = "cpu"
 kind = "parity"
 issue = "#1004"
-reason = "#1004 root cause was Image Texture extension REPEAT (fixed: tile layout now matches); image Bump now steps the input UV and differences the Linear height, Normal Map read Linear (#1004): 9/16 -> 11/16, centre 0.99x; at 1024 spp every ROI L is 0.975-0.995x, the seed-278 right ROI reads 0.94x (MC tail) and lower B 0.91x is pre-existing; #1165 (CPU seed 278, vs main 18b4c053): 11/16 -> 14/16, right B 0.926, lower B 0.925"
+reason = "#1004 root cause was Image Texture extension REPEAT (fixed: tile layout now matches); image Bump now steps the input UV and differences the Linear height, Normal Map read Linear (#1004). pkg327 Phase B pinned lower b (spectral, Mitsuba-confirmed; CPU 0.925). 12/16 at seed 278, build e302ca1: only the right ROI fails, r 1.182 g 1.280 b 1.286 L 1.234 - a seed-278 outlier (the other four seeds read right L 0.98-0.995, b 0.93-0.98), no pinned channel involved"
 
 [[row]]
 scene = "prod_pbr_group"
 backend = "gpu"
 kind = "parity"
 issue = "#1004"
-reason = "#1004 Linear bump / normal map: 7/16 -> 11/16, centre 1.005x, right B 1.42x gone; right now reads dim (L 0.91x, B 0.84x; CPU same seed L 0.94x, converged 0.975x) and lower B 0.92x (11/16 at e1d9c77f)"
+reason = "#1004 Linear bump / normal map fixed. pkg327 Phase B pinned lower b (spectral, Mitsuba-confirmed; GPU 0.940). 12/16 at seed 278, build e302ca1: only the right ROI fails and reads dim, r 0.935 g 0.913 b 0.851 L 0.922 (5-seed GPU L 0.96, all seeds dim; CPU right is 0.98-0.995 on four of five seeds)"
 
 [[row]]
 scene = "prod_shader_stack"
@@ -70,31 +57,10 @@ reason = "#995 fixed on GPU (closure tree: 4 closures, graph-program Facs, baked
 
 [[row]]
 scene = "prod_light_path"
-backend = "cpu"
-kind = "parity"
-issue = "#1199"
-reason = "#991 fixed (hidden emitter 0.07x -> 1.00, shadow-transparent glass, Ray Length floor tint); bands re-blessed on b4e15d06. #1038 glass terms fixed (#1103 tint; delta-glass spectral tint 2026-10-25: glass_ball_centre r 0.954 -> 0.981, plain Glass 7-seed 0.971 -> 0.996). Residual 19/20 is NOT glass: floor_near r 0.975 (plain-Glass variant 7-seed mean 0.981 +- 0.001, g/b 1.006/0.996; floor away from the ball), #1199"
-
-[[row]]
-scene = "prod_light_path"
 backend = "gpu"
 kind = "parity"
 issue = "#1199"
-reason = "#991 fixed as on CPU; glass_ball_centre in band (main f477f024 r 0.978, #1038 delta-glass tint 1.005; the old r 1.095 / 14/20 predates #1103). 17/20; residual is NOT glass: floor_far g 1.027 / b 1.021 / L 1.025 (GPU/CPU 1.007 without Light Path), #1199"
-
-[[row]]
-scene = "prod_curves_geometry"
-backend = "cpu"
-kind = "parity"
-issue = "#1141"
-reason = "pkg322 landed Pointiness (CPU 0/16 -> 13/16 channels in band); residual inner_backface R 0.85 (mean of 8 seeds 0.853): saturated R=0.05 albedo loses red after >=2 spectral bounces (not Backfacing, #1141); outer_front G/B 0.98/0.96 is the low draw of an 8-seed mean 0.988/0.974 (sd 0.012); #1165 (CPU seed 278, vs main 18b4c053): 12/16 -> 15/16, inner_backface R 0.833"
-
-[[row]]
-scene = "prod_curves_geometry"
-backend = "gpu"
-kind = "parity"
-issue = "#1141"
-reason = "pkg322 landed Pointiness (GPU 3/16 -> 15/16 channels in band); residual inner_backface R 0.85 (tol 0.067): same saturated-albedo multi-bounce cause as CPU (#1141)"
+reason = "#991 fixed as on CPU; glass_ball_centre in band (#1038 delta-glass tint). pkg327 Phase B pinned floor_near r (spectral, Mitsuba-confirmed; GPU 0.988, already in band on GPU). 17/20 at seed 278, build e302ca1: only floor_far g 1.027 / b 1.021 / L 1.025 remain (GPU/CPU 1.007 without Light Path), a GPU-only gap, #1199"
 
 # ---- silent drops (silent_drop_audit.py) --------------------------------------------------------------------
 # None. pkg320 (#1039, #1088) deleted the six rows the scanner gap produced: prod_attributes and prod_light_path
@@ -102,3 +68,69 @@ reason = "pkg322 landed Pointiness (GPU 3/16 -> 15/16 channels in band); residua
 # and prod_shader_stack (#955: the Add Shader branch reads both shader inputs, so the matrix now credits them
 # APPROXIMATED; the unreported Add Shader approximation is the audit's `approximated_unreported` bucket, and #955
 # stays open for the real GPU gap).
+
+# ---- documented divergences (pkg327 Phase B) -----------------------------------------------------------------
+# Spectral transport of a saturated albedo under coloured light: a grey albedo removes each shift (`albedo_grey`), and
+# Mitsuba 3 spectral reproduces it on the smooth-HDRI proxies of the same ROIs. `channels` are pinned to the Astroray
+# 5-seed mean (278 1301 2711 4177 6113, build e302ca1, 64 spp) with pin_tol = max(0.02, 3*sigma*sqrt(1.2)); the other
+# channels of the ROI stay on Cycles. Calibration: `mc_tolerance.py --suite production --legs cpu gpu` (see README.md).
+# Attribution: .astroray_plan/docs/pkg327-chroma-residual-attribution.md ("Per-channel verdicts"); arbitration artefact:
+# .astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json. Proxy figures: Mitsuba spectral/rgb (Ms/Mr) and
+# Astroray/Cycles (A/C) on the proxy of the same ROI, smooth HDRI.
+
+[[divergence]]
+scene = "prod_curves_geometry"
+roi = "inner_backface"
+channels = ["r"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+reason = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). r: a saturated cyan albedo (r 0.05) loses red after >=2 spectral bounces, the #1141 mechanism. Grey albedo reads 1.002. Smooth-HDRI proxy arb_chroma_bowl_stage inner_backface r: Ms/Mr 0.747, A/C 0.755; the production ROI is diluted to 0.58 of the proxy deficit. 5-seed mean CPU 0.856, GPU 0.852. Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+
+[[divergence]]
+scene = "prod_wood"
+roi = "grain_center"
+channels = ["r", "b"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+reason = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 1.000, proxy arb_chroma_hero_wood grain_center b Ms/Mr 0.924 A/C 0.925 (5-seed CPU 0.940, GPU 0.949). r: proxy Ms/Mr 0.983 A/C 0.984 confirms 1.7 of the 2.8-point 8-seed CPU shift (5-seed CPU 0.973, GPU 0.985); the 1.2-point remainder is 2.4 sigma and unexplained, so the r pin is the seed mean, not a claim that the whole shift is spectral. Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+
+[[divergence]]
+scene = "prod_wood"
+roi = "grain_right"
+channels = ["b"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+reason = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 0.993, proxy arb_chroma_hero_wood grain_right b Ms/Mr 0.902 A/C 0.901 (5-seed CPU 0.937, GPU 0.939). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+
+[[divergence]]
+scene = "prod_wood"
+roi = "lower"
+channels = ["b"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+reason = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 0.994, proxy arb_chroma_hero_wood lower b Ms/Mr 0.917 A/C 0.915 (5-seed CPU 0.947, GPU 0.954). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+
+[[divergence]]
+scene = "prod_car_paint"
+roi = "lit_front"
+channels = ["b"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+reason = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 0.995, proxy arb_chroma_hero_car lit_front b Ms/Mr 0.912 A/C 0.912 (5-seed CPU 0.927, GPU 0.936). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+
+[[divergence]]
+scene = "prod_car_paint"
+roi = "upper_flake"
+channels = ["b"]
+legs = ["cpu"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+reason = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b, CPU only: grey albedo 0.995, proxy arb_chroma_hero_car upper_flake b Ms/Mr 0.937 A/C 0.935 (5-seed CPU 0.961). GPU reads 0.981 (the +3 % car_paint CPU/GPU twin gap, #1220), so the GPU leg stays on Cycles instead of pinning a GPU-only gap. Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+
+[[divergence]]
+scene = "prod_pbr_group"
+roi = "lower"
+channels = ["b"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+reason = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 0.997, proxy arb_chroma_hero_pbr lower b Ms/Mr 0.912 A/C 0.912 (5-seed CPU 0.925, GPU 0.940). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+
+[[divergence]]
+scene = "prod_light_path"
+roi = "floor_near"
+channels = ["r"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+reason = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). r: grey albedo 0.997, proxy arb_chroma_patches light_path_floor r Ms/Mr 0.987 A/C 0.986 confirms 1.4 of the 1.8-point 8-seed shift (remainder 0.4, 1.6 sigma). The 5-seed mean (CPU 0.981, GPU 0.988) sits at 95 % of the 0.020 Cycles band, so about two seed draws in five fall outside it (CPU seed 278 reads 0.975). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."

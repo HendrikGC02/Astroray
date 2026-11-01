@@ -147,10 +147,12 @@ cluster reads CPU ≈ GPU.
 
 - [x] Control kinds + proxies + attribution legs (Phase A; `--attrib-spec` controls in `render_leg.py`, `arb_chroma_*` proxies, `arbitration/attribution.py`)
 - [x] Attribution doc (`.astroray_plan/docs/pkg327-chroma-residual-attribution.md`)
-- [ ] Per-channel pins for confirmed channels, issues for unconfirmed ones, tests, row (g) re-run (Phase B)
+- [x] Per-channel pins for confirmed channels (no unconfirmed channels: all ten reproduced), tests, row (g) re-run (Phase B): CPU 2/8 -> 5/8, GPU 2/8 -> 4/8 at seed 278, build `e302ca1`; `tests/test_pkg327_channel_divergence.py`, `mc_tolerance.roi_reference`, `[[divergence]]` rows with `channels`/`arbitration`/`legs`
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- A pin to the seed mean is only as good as its calibration build: the committed `cpu_mean`/`gpu_mean` of the unpinned ROIs date from base commit e42e2abf and are stale (curves inner_backface r read 0.143 there, 0.026 now). A whole-ROI pin added in the future must be re-calibrated on the build it gates, which is why Phase B copies fresh means for the pinned ROIs only.
+- Luminance is not independent of its channels: pinning r and b leaves L on Cycles, and a low gate-seed draw of L can still fail (wood CPU grain_center L). Decide the L policy before pinning the next ROI.
+- The gate seed is one draw: pbr_group CPU `right` reads L 1.234 at seed 278 and 0.98-0.995 on the other four seeds, so a CPU row can fail on a single-seed outlier no pin addresses.

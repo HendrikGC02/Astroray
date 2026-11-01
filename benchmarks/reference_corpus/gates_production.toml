@@ -3,6 +3,8 @@
 # tol = max(0.02, 3*sqrt(sigma_cycles^2 + sigma_astroray^2)); GPU/CPU tol floor 0.05; sigmas from the
 # seed-to-seed scatter at spp_gate. Channels/luminance with Cycles mean < 0.01 are excluded (tol = 0).
 # Vectors are [r, g, b, luminance]. Provisional rows live in provisional_production.toml. Re-bless rule: README.md.
+# ROIs with expected_divergence + pin_channels (pkg327 Phase B) pin only those channels (and pin_legs, default both) to
+# cpu_mean/gpu_mean +- *_pin_tol; every other channel stays on cycles_mean +- *_tol. Rules: README.md.
 
 [meta]
 blender = "5.2.0 LTS"
@@ -106,12 +108,15 @@ cycles_sigma = [0.0067, 0.0072, 0.0084, 0.0065]
 cpu_sigma = [0.0139, 0.0188, 0.0061, 0.0108]
 gpu_sigma = [0.0201, 0.0169, 0.0131, 0.0184]
 cpu_tol = [0.0462, 0.0603, 0.0312, 0.0379]
-cpu_pin_tol = [0.0455, 0.0617, 0.0200, 0.0357]
+cpu_pin_tol = [0.0569, 0.0325, 0.0241, 0.0453]
 gpu_tol = [0.0635, 0.0552, 0.0466, 0.0586]
-gpu_pin_tol = [0.0660, 0.0557, 0.0429, 0.0605]
+gpu_pin_tol = [0.0224, 0.0440, 0.0412, 0.0285]
 gpu_cpu_tol = [0.0732, 0.0758, 0.0500, 0.0641]
-cpu_mean = [0.628836, 0.0696976, 0.0433592, 0.186669]
-gpu_mean = [0.633107, 0.0709089, 0.0434542, 0.18845]
+cpu_mean = [0.615241, 0.0786179, 0.0516119, 0.190754]
+gpu_mean = [0.628072, 0.0792169, 0.0520701, 0.193943]
+expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 0.995, proxy arb_chroma_hero_car lit_front b Ms/Mr 0.912 A/C 0.912 (5-seed CPU 0.927, GPU 0.936). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+pin_channels = ["b"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
 
 [[scenes."prod_car_paint".roi]]
 name = "limb_grazing"
@@ -154,12 +159,16 @@ cycles_sigma = [0.0087, 0.0033, 0.0039, 0.0056]
 cpu_sigma = [0.0088, 0.0061, 0.0077, 0.0055]
 gpu_sigma = [0.0081, 0.0072, 0.0049, 0.0069]
 cpu_tol = [0.0371, 0.0207, 0.0259, 0.0237]
-cpu_pin_tol = [0.0289, 0.0200, 0.0253, 0.0200]
+cpu_pin_tol = [0.0200, 0.0323, 0.0200, 0.0208]
 gpu_tol = [0.0356, 0.0238, 0.0200, 0.0268]
-gpu_pin_tol = [0.0266, 0.0237, 0.0200, 0.0228]
+gpu_pin_tol = [0.0419, 0.0280, 0.0257, 0.0287]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
-cpu_mean = [0.681277, 0.206087, 0.138748, 0.302251]
-gpu_mean = [0.681623, 0.206955, 0.139561, 0.303004]
+cpu_mean = [0.605249, 0.173654, 0.112439, 0.260991]
+gpu_mean = [0.620004, 0.177484, 0.114688, 0.26703]
+expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b, CPU only: grey albedo 0.995, proxy arb_chroma_hero_car upper_flake b Ms/Mr 0.937 A/C 0.935 (5-seed CPU 0.961). GPU reads 0.981 (the +3 % car_paint CPU/GPU twin gap, #1220), so the GPU leg stays on Cycles instead of pinning a GPU-only gap. Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+pin_channels = ["b"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+pin_legs = ["cpu"]
 
 [scenes."prod_curves_geometry"]
 blend = "benchmarks/reference_corpus/production/prod_curves_geometry.blend"
@@ -212,12 +221,15 @@ cycles_sigma = [0.0049, 0.0081, 0.0086, 0.0080]
 cpu_sigma = [0.0276, 0.0190, 0.0167, 0.0202]
 gpu_sigma = [0.0217, 0.0202, 0.0109, 0.0194]
 cpu_tol = [0.0842, 0.0621, 0.0562, 0.0653]
-cpu_pin_tol = [0.0908, 0.0625, 0.0548, 0.0665]
+cpu_pin_tol = [0.0485, 0.0200, 0.0271, 0.0200]
 gpu_tol = [0.0668, 0.0653, 0.0415, 0.0631]
-gpu_pin_tol = [0.0714, 0.0664, 0.0358, 0.0639]
+gpu_pin_tol = [0.0831, 0.0503, 0.0383, 0.0493]
 gpu_cpu_tol = [0.1055, 0.0833, 0.0597, 0.0842]
-cpu_mean = [0.143053, 0.194716, 0.153948, 0.180789]
-gpu_mean = [0.145719, 0.197841, 0.15519, 0.18368]
+cpu_mean = [0.0264523, 0.243745, 0.298882, 0.201529]
+gpu_mean = [0.026335, 0.245267, 0.299865, 0.202664]
+expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). r: a saturated cyan albedo (r 0.05) loses red after >=2 spectral bounces, the #1141 mechanism. Grey albedo reads 1.002. Smooth-HDRI proxy arb_chroma_bowl_stage inner_backface r: Ms/Mr 0.747, A/C 0.755; the production ROI is diluted to 0.58 of the proxy deficit. 5-seed mean CPU 0.856, GPU 0.852. Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+pin_channels = ["r"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
 
 [[scenes."prod_curves_geometry".roi]]
 name = "outer_left"
@@ -303,12 +315,15 @@ cycles_sigma = [0.0032, 0.0032, 0.0029, 0.0031]
 cpu_sigma = [0.0041, 0.0048, 0.0048, 0.0044]
 gpu_sigma = [0.0051, 0.0045, 0.0041, 0.0043]
 cpu_tol = [0.0200, 0.0200, 0.0200, 0.0200]
-cpu_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_pin_tol = [0.0200, 0.0213, 0.0200, 0.0200]
 gpu_tol = [0.0200, 0.0200, 0.0200, 0.0200]
 gpu_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
-cpu_mean = [0.722753, 0.440736, 0.550104, 0.508589]
-gpu_mean = [0.728553, 0.443483, 0.554605, 0.512112]
+cpu_mean = [0.724134, 0.44162, 0.551421, 0.50961]
+gpu_mean = [0.729395, 0.44421, 0.554924, 0.512834]
+expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). r: grey albedo 0.997, proxy arb_chroma_patches light_path_floor r Ms/Mr 0.987 A/C 0.986 confirms 1.4 of the 1.8-point 8-seed shift (remainder 0.4, 1.6 sigma). The 5-seed mean (CPU 0.981, GPU 0.988) sits at 95 % of the 0.020 Cycles band, so about two seed draws in five fall outside it (CPU seed 278 reads 0.975). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+pin_channels = ["r"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
 
 [[scenes."prod_light_path".roi]]
 name = "floor_far"
@@ -469,12 +484,15 @@ cycles_sigma = [0.0121, 0.0134, 0.0138, 0.0126]
 cpu_sigma = [0.0102, 0.0065, 0.0126, 0.0081]
 gpu_sigma = [0.0083, 0.0069, 0.0098, 0.0058]
 cpu_tol = [0.0474, 0.0446, 0.0561, 0.0450]
-cpu_pin_tol = [0.0336, 0.0214, 0.0416, 0.0268]
+cpu_pin_tol = [0.0382, 0.0200, 0.0258, 0.0283]
 gpu_tol = [0.0440, 0.0451, 0.0507, 0.0416]
-gpu_pin_tol = [0.0274, 0.0226, 0.0323, 0.0200]
+gpu_pin_tol = [0.0350, 0.0489, 0.0270, 0.0386]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
-cpu_mean = [0.282403, 0.0683164, 0.0238251, 0.110619]
-gpu_mean = [0.286148, 0.0692841, 0.0239961, 0.11212]
+cpu_mean = [0.2242, 0.0589511, 0.022034, 0.0914177]
+gpu_mean = [0.229051, 0.0600139, 0.0223845, 0.0932343]
+expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 0.997, proxy arb_chroma_hero_pbr lower b Ms/Mr 0.912 A/C 0.912 (5-seed CPU 0.925, GPU 0.940). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+pin_channels = ["b"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
 
 [scenes."prod_shader_stack"]
 blend = "benchmarks/reference_corpus/production/prod_shader_stack.blend"
@@ -569,12 +587,15 @@ cycles_sigma = [0.0029, 0.0026, 0.0019, 0.0027]
 cpu_sigma = [0.0074, 0.0094, 0.0085, 0.0084]
 gpu_sigma = [0.0110, 0.0058, 0.0071, 0.0058]
 cpu_tol = [0.0238, 0.0292, 0.0260, 0.0264]
-cpu_pin_tol = [0.0244, 0.0308, 0.0278, 0.0275]
+cpu_pin_tol = [0.0537, 0.0418, 0.0312, 0.0449]
 gpu_tol = [0.0342, 0.0200, 0.0222, 0.0200]
-gpu_pin_tol = [0.0362, 0.0200, 0.0234, 0.0200]
+gpu_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
-cpu_mean = [0.539177, 0.272818, 0.0821945, 0.315683]
-gpu_mean = [0.529722, 0.266324, 0.0791511, 0.308809]
+cpu_mean = [0.474172, 0.240062, 0.0766443, 0.278035]
+gpu_mean = [0.480011, 0.242873, 0.077337, 0.281337]
+expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 1.000, proxy arb_chroma_hero_wood grain_center b Ms/Mr 0.924 A/C 0.925 (5-seed CPU 0.940, GPU 0.949). r: proxy Ms/Mr 0.983 A/C 0.984 confirms 1.7 of the 2.8-point 8-seed CPU shift (5-seed CPU 0.973, GPU 0.985); the 1.2-point remainder is 2.4 sigma and unexplained, so the r pin is the seed mean, not a claim that the whole shift is spectral. Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+pin_channels = ["r", "b"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
 
 [[scenes."prod_wood".roi]]
 name = "grain_left"
@@ -601,12 +622,15 @@ cycles_sigma = [0.0027, 0.0028, 0.0027, 0.0027]
 cpu_sigma = [0.0262, 0.0215, 0.0147, 0.0230]
 gpu_sigma = [0.0129, 0.0100, 0.0136, 0.0101]
 cpu_tol = [0.0790, 0.0650, 0.0448, 0.0695]
-cpu_pin_tol = [0.0861, 0.0707, 0.0482, 0.0756]
+cpu_pin_tol = [0.0346, 0.0311, 0.0266, 0.0293]
 gpu_tol = [0.0396, 0.0312, 0.0416, 0.0315]
-gpu_pin_tol = [0.0425, 0.0330, 0.0447, 0.0333]
+gpu_pin_tol = [0.0597, 0.0545, 0.0528, 0.0560]
 gpu_cpu_tol = [0.0877, 0.0712, 0.0600, 0.0754]
-cpu_mean = [0.588022, 0.291911, 0.0821423, 0.339719]
-gpu_mean = [0.65089, 0.327619, 0.0928771, 0.379398]
+cpu_mean = [0.676266, 0.351165, 0.107635, 0.402699]
+gpu_mean = [0.675822, 0.351518, 0.107792, 0.402868]
+expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 0.993, proxy arb_chroma_hero_wood grain_right b Ms/Mr 0.902 A/C 0.901 (5-seed CPU 0.937, GPU 0.939). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+pin_channels = ["b"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
 
 [[scenes."prod_wood".roi]]
 name = "lower"
@@ -617,9 +641,13 @@ cycles_sigma = [0.0050, 0.0054, 0.0054, 0.0053]
 cpu_sigma = [0.0100, 0.0098, 0.0074, 0.0097]
 gpu_sigma = [0.0081, 0.0107, 0.0171, 0.0095]
 cpu_tol = [0.0336, 0.0337, 0.0273, 0.0330]
-cpu_pin_tol = [0.0329, 0.0324, 0.0242, 0.0317]
+cpu_pin_tol = [0.0434, 0.0306, 0.0265, 0.0335]
 gpu_tol = [0.0286, 0.0359, 0.0537, 0.0326]
-gpu_pin_tol = [0.0266, 0.0351, 0.0561, 0.0312]
+gpu_pin_tol = [0.0365, 0.0269, 0.0200, 0.0294]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0558, 0.0500]
-cpu_mean = [0.291402, 0.15019, 0.0478104, 0.17282]
-gpu_mean = [0.294103, 0.152424, 0.0490812, 0.175084]
+cpu_mean = [0.270228, 0.13711, 0.0433568, 0.158642]
+gpu_mean = [0.271137, 0.138054, 0.0437003, 0.159535]
+expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 0.994, proxy arb_chroma_hero_wood lower b Ms/Mr 0.917 A/C 0.915 (5-seed CPU 0.947, GPU 0.954). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+pin_channels = ["b"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+

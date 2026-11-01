@@ -119,6 +119,44 @@ def test_jackknife_never_flips_an_effect_decided_status():
     assert C._witness_status(audit["results"], "w_noise", "CPU", 1) == "FAIL"
 
 
+# ---------------------------------------------------------------- b6: nonzero uses link evidence
+
+
+def _b6_fixture(statuses, *, digests=True, variant_of_f="v-f"):
+    ledger = [{"identity": A, "variants": [{"scene_id": "s1", "variant_digest": "v-a"}], "scene_ids": ["s1"]},
+              {"identity": F, "variants": [{"scene_id": "s1", "variant_digest": variant_of_f}], "scene_ids": ["s1"]}]
+    witnesses = [{"id": "w_a", "scene_id": "s1", "variant_digest": "v-a", "identities": [A]},
+                 {"id": "w_f", "scene_id": "s1", "variant_digest": "v-f", "identities": [F]}]
+    audit = _audit(statuses, witnesses)
+    audit["results"]["stack_sha256"] = {b: ({"s1/cpu": "x", "s1/gpu": "x", "s1/cycles": "y"} if digests else {})
+                                        for b in ("CPU", "GPU")}
+    return ledger, audit
+
+
+def _b6(ledger, audit):
+    return C.audit_links_evidence(ledger, C.score_audited(ledger, MATRIX, _zeroed(audit)), audit)
+
+
+def test_b6_passes_only_when_every_nonzero_use_has_a_passing_witness_with_stack_digests():
+    ok = {w: {"CPU": "PASS", "GPU": "PASS"} for w in ("w_a", "w_f")}
+    ledger, audit = _b6_fixture(ok)
+    assert _b6(ledger, audit)["pass"] is True and _b6(ledger, audit)["unlinked_count"] == {"CPU": 0, "GPU": 0}
+    ledger, audit = _b6_fixture(ok, digests=False)                   # no recorded evidence artifact
+    assert _b6(ledger, audit)["pass"] is False
+    ledger, audit = _b6_fixture(ok, variant_of_f="other")            # a witness for a different variant of the same identity
+    res = _b6(ledger, audit)
+    assert res["pass"] is False and res["unlinked_count"] == {"CPU": 1, "GPU": 1} and "no PASSing audit witness" in res["reason"]
+
+
+def test_b6_is_false_for_uses_no_witness_covers_and_a_zeroed_use_needs_no_link():
+    ledger, audit = _b6_fixture({"w_a": {"CPU": "FAIL", "GPU": "PASS"}, "w_f": {"CPU": "PASS", "GPU": "PASS"}})
+    res = _b6(ledger, audit)
+    assert res["unlinked_count"] == {"CPU": 0, "GPU": 0} and res["pass"]     # A scores 0 on CPU: nothing to link there
+    ledger.append({"identity": D, "variants": [{"scene_id": "s1", "variant_digest": "v-d"}], "scene_ids": ["s1"]})
+    res = _b6(ledger, audit)
+    assert res["pass"] is False and res["unlinked_count"] == {"CPU": 1, "GPU": 1}
+
+
 def test_a_dropped_identity_stays_zero_even_without_a_failing_witness():
     s = C.score_audited(LEDGER, MATRIX, None)
     assert {u.key: u.cpu for u in s["CPU"].use_scores}[E] == 0.0

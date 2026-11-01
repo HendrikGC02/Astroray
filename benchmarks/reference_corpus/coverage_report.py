@@ -1936,6 +1936,43 @@ def audit_named_node_checks(uses: Mapping[str, set[str]], scores: Mapping[str, B
     return checks
 
 
+def audit_links_evidence(ledger: Iterable[Mapping[str, Any]], scores: Mapping[str, BackendScore],
+                         audit: Mapping[str, Any]) -> dict[str, Any]:
+    """b6 in audited mode (pkg278: every nonzero classification links its per-backend, per-variant evidence artifact).
+
+    An (identity, scene, variant) use with nonzero credit on a backend is linked iff a PASSing audit witness on that backend
+    names that identity in that scene and variant digest AND the results carry the frozen seed-stack digests of that
+    scene's Astroray and Cycles legs.  A sampled audit covers only the witnesses' own variants, so every other nonzero use
+    is unlinked and b6 is False until the owner redefines b6 for the sampled model or a witness exists per use."""
+    results = audit["results"]
+    linked: dict[str, set[tuple[str, str, str]]] = {"CPU": set(), "GPU": set()}
+    for w in audit["sample"]["witnesses"]:
+        for backend in ("CPU", "GPU"):
+            digests = (results.get("stack_sha256") or {}).get(backend) or {}
+            if (_witness_status(results, w["id"], backend) == "PASS"
+                    and digests.get(f"{w.get('scene_id')}/{backend.lower()}") and digests.get(f"{w.get('scene_id')}/cycles")):
+                linked[backend].update((identity, str(w.get("scene_id")), str(w.get("variant_digest")))
+                                       for identity in [*w.get("identities", []), *w.get("also_covers", [])])
+    credit = {(b, u.key): (u.cpu if b == "CPU" else u.gpu) for b in ("CPU", "GPU") for u in scores[b].use_scores}
+    unlinked: dict[str, list[str]] = {"CPU": [], "GPU": []}
+    nonzero = {"CPU": 0, "GPU": 0}
+    for row in ledger:
+        key = str(row["identity"])
+        for backend in ("CPU", "GPU"):
+            if credit[(backend, key)] <= 0.0:
+                continue
+            for variant in row.get("variants") or []:
+                nonzero[backend] += 1
+                if (key, variant["scene_id"], variant["variant_digest"]) not in linked[backend]:
+                    unlinked[backend].append(f"{key} @ {variant['scene_id']}")
+    total = sum(len(v) for v in unlinked.values())
+    return {"pass": total == 0, "nonzero_uses": nonzero, "unlinked_count": {b: len(v) for b, v in unlinked.items()},
+            "reason": ("" if total == 0 else
+                       f"{total} nonzero (identity, scene, variant) use(s) have no PASSing audit witness with linked seed stacks "
+                       "on that backend; the sampled audit links only its own witnesses' variants"),
+            "unlinked_examples": {b: v[:10] for b, v in unlinked.items()}}
+
+
 def _build_report_audited(frozen: Mapping[str, Any], matrix: Mapping[str, str], uses: Mapping[str, set[str]],
                           verified: Mapping[str, Any], pop: dict[str, Any], repo_root: Path,
                           scanner_ok: bool, scanner_reason: str, integrity_errors: list[str],
@@ -1963,7 +2000,7 @@ def _build_report_audited(frozen: Mapping[str, Any], matrix: Mapping[str, str], 
         "b3_gpu_score": _score_subcheck(scores["GPU"].score, "GPU", threshold),
         "b4_zero_silent_drops": {"pass": not drops, "drops": drops},
         "b5_named_node_checks": {"pass": all(c["pass"] for c in named.values()), "checks": named},
-        "b6_nonzero_links_evidence": {"pass": True, "unlinked": []},
+        "b6_nonzero_links_evidence": audit_links_evidence(ledger, scores, audit),
     }
     if not scanner_ok:
         return _unmeasured_report(pop, uses, matrix, subchecks, f"gate (b) not scored: {scanner_reason}", [])

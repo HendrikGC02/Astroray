@@ -768,6 +768,20 @@
       "classification": "SUPPORTED",
       "feature": "MAP_RANGE",
       "socket_or_prop": "prop:clamp"
+    },
+    {
+      "bl_idname": "ShaderNodeTexImage",
+      "category": "shader_node",
+      "classification": "APPROXIMATED",
+      "feature": "TEX_IMAGE",
+      "socket_or_prop": "prop:interpolation"
+    },
+    {
+      "bl_idname": "ShaderNodeTexImage",
+      "category": "image_property",
+      "classification": "SUPPORTED",
+      "feature": "ShaderNodeTexImage",
+      "socket_or_prop": "interpolation"
     }
   ],
   "world_sky": [

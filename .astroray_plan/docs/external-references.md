@@ -244,3 +244,4 @@ When in doubt, ask before adding a dependency.
 - Cycles Principled emission x alpha (svm/closure.h), emission + BSDF path continuation (shade_surface.h), Apache-2.0: [#1180 / #1186 research](issue1180-1186-emission-research.md).
 - Miller/Georgiev/Jarosz 2019 null-scattering path integral (TOG 38(4) 44, DOI 10.1145/3306346.3323025) + Cycles v5.2.0 shade_volume.h VolumeSampleReservoir / volume_direct_scatter_mis (Apache-2.0), tracked-collision segment direct light at pkg267 local majorants: [#1032 research](issue1032-tracked-segment-direct-research.md).
 - Cycles closure labels + path_state_next bounce classification (kernel/types.h, integrator/path_state.h, Apache-2.0): [#1178/#1198 research](issue1178-sampled-lobe-label-research.md).
+- Cycles path_state_next visibility reset + transmission DIFFUSE/GLOSSY, svm/closure.h caustic toggles on the previous bounce (Apache-2.0): [#1204/#1206 research](issue1204-1206-path-flags-caustic-gate-research.md).

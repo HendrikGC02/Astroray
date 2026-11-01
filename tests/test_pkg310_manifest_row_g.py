@@ -1,7 +1,8 @@
 """Stage 0 acceptance-manifest row (g): pkg310 production node score (owner 2026-10-06).
 
 Pure Python, synthetic evidence: renders are painted from the committed pkg310 band file
-(each ROI at its Cycles/pinned mean, so the real ``mc_tolerance.score_material`` is in band) and
+(each ROI at its Cycles/pinned mean, so the real ``mc_tolerance.score_material_mean`` is in band) for every
+gate seed (owner 2026-11-02, #986: the row scores the MEAN of ``meta.gate_seeds``) and
 logs carry a hand-built sentinel report.  Nothing here renders or needs Blender/GPU.
 
     OMP_NUM_THREADS=8 pytest tests/test_pkg310_manifest_row_g.py -v
@@ -21,34 +22,35 @@ from benchmarks.reference_corpus import mc_tolerance as MC
 from benchmarks.reference_corpus import silent_drop_audit as AUDIT
 from scripts import gate_manifest as GM
 
-GATES = tomllib.loads((MC.CORPUS / "gates_production.toml").read_text(encoding="utf-8"))["scenes"]
+_DOC = tomllib.loads((MC.CORPUS / "gates_production.toml").read_text(encoding="utf-8"))
+GATES, SEEDS = _DOC["scenes"], _DOC["meta"]["gate_seeds"]
 MANIFEST = json.loads((MC.PROD / "manifest.json").read_text(encoding="utf-8"))["scenes"]
 USES = json.loads((MC.PROD / "node_uses.json").read_text(encoding="utf-8"))["scenes"]
 MATRIX = AUDIT.load_matrix()
 MODULE_SHA = hashlib.sha256(b"module").hexdigest()
 
 
-def _image(sid: str, backend: str, skew: tuple[str, str, float] | None = None) -> np.ndarray:
-    """A render whose every ROI mean equals its reference mean (ratio 1); ``skew`` = (roi, channel, factor)."""
+def _image(sid: str, backend: str, skew: tuple[str, str, float] | None = None, factor: float = 1.0) -> np.ndarray:
+    """A render whose every ROI mean equals its reference mean (ratio 1) times ``factor``; ``skew`` = (roi, channel, factor)."""
     g = GATES[sid]
     w, h = g["res"]
     img = np.full((h, w, 3), 0.001, dtype=np.float32)
     for roi in g["roi"]:
         den = MC.roi_reference(roi, backend.lower())[0]
         x0, y0, x1, y1 = roi["rect"]
-        patch = np.array(den[:3], dtype=np.float32)
+        patch = np.array(den[:3], dtype=np.float32) * np.float32(factor)
         if skew and skew[0] == roi["name"]:
             patch = patch * (skew[2] if skew[1] == "all" else 1.0)
         img[round(y0 * h):round(y1 * h), round(x0 * w):round(x1 * w)] = patch
     return img
 
 
-def _log(sid: str, backend: str, *, report_all: bool, build_id: str = "test-build", **over) -> str:
+def _log(sid: str, backend: str, *, report_all: bool, build_id: str = "test-build", seed: int = SEEDS[0], **over) -> str:
     g = GATES[sid]
     report = {"corpus_scene": sid, "blend_sha256": MANIFEST[sid]["sha256"], "build_id": build_id,
               "requested_device": backend.lower(), "effective_device": backend.lower(),
               "engine": "CUSTOM_RAYTRACER", "res_x": g["res"][0], "res_y": g["res"][1],
-              "samples": g["spp_gate"], "resolved_seed": g["seed"], "animated_seed": False,
+              "samples": g["spp_gate"], "resolved_seed": seed, "animated_seed": False,
               "blender_version": "5.2.0 LTS", "module_sha256": MODULE_SHA}
     report.update(over)
     info = {"adaptive": False, "denoise": False, "samples": g["spp_gate"]}
@@ -62,15 +64,19 @@ def _log(sid: str, backend: str, *, report_all: bool, build_id: str = "test-buil
     return "\n".join(lines) + "\n"
 
 
-def _work_dir(tmp_path: Path, *, skew=None, report_all=True, **log_over) -> Path:
-    """A PKG310_WORK-style dir. ``skew``: {(sid, BACKEND): (roi, 'all', factor)}."""
+def _work_dir(tmp_path: Path, *, skew=None, factors=None, report_all=True, **log_over) -> Path:
+    """A PKG310_WORK-style dir, one render + log per gate seed. ``skew``: {(sid, BACKEND): (roi, 'all', factor)} on every
+    seed; ``factors``: {(sid, BACKEND): {seed: scale}} scales one seed's whole render."""
     work = tmp_path / "work"
     work.mkdir(parents=True)
     for sid in GATES:
         for backend in ("CPU", "GPU"):
-            stem = work / f"{sid}_{backend.lower()}_s{GATES[sid]['seed']}"
-            np.save(stem.with_suffix(".npy"), _image(sid, backend, (skew or {}).get((sid, backend))))
-            stem.with_suffix(".log").write_text(_log(sid, backend, report_all=report_all, **log_over), encoding="utf-8")
+            for seed in SEEDS:
+                stem = work / f"{sid}_{backend.lower()}_s{seed}"
+                f = (factors or {}).get((sid, backend), {}).get(seed, 1.0)
+                np.save(stem.with_suffix(".npy"), _image(sid, backend, (skew or {}).get((sid, backend)), f))
+                stem.with_suffix(".log").write_text(
+                    _log(sid, backend, report_all=report_all, seed=seed, **log_over), encoding="utf-8")
     return work
 
 
@@ -168,6 +174,54 @@ def test_6_of_8_on_both_backends_is_green_and_validates(tmp_path):
     assert row["value"]["cpu_pass"] == 6 and row["value"]["gpu_pass"] == 6
     assert row["status"] == "green"
     assert GM.validate_manifest(manifest) == []
+
+
+def test_gate_seeds_are_the_pinned_eight_and_every_scene_carries_n_gate():
+    assert SEEDS == [278, 1301, 2711, 4177, 6113, 7919, 9371, 11027] and SEEDS[:5] == _DOC["meta"]["mc_seeds"]
+    assert all(g["n_gate"] == 8 for g in GATES.values())
+
+
+def test_row_scores_the_seed_mean_not_a_single_render(tmp_path):
+    """Every wood CPU render is 50 % off Cycles, in opposite directions: each alone is far out of band, their mean is
+    exact, so the row passes the material.  The same renders all at 1.5x fail it (the control)."""
+    alt = {s: 1.5 if i % 2 == 0 else 0.5 for i, s in enumerate(SEEDS)}
+    row, _ = GM.compute_row("g", _row(_evidence(tmp_path / "alt", factors={("prod_wood", "CPU"): alt})), GM.ROW_SPEC["g"], GM.REPO_ROOT)
+    assert row["value"]["cpu_pass"] == 8 and row["value"]["gpu_pass"] == 8
+    biased = {s: 1.5 for s in SEEDS}
+    row, _ = GM.compute_row("g", _row(_evidence(tmp_path / "bias", factors={("prod_wood", "CPU"): biased})), GM.ROW_SPEC["g"], GM.REPO_ROOT)
+    assert row["value"]["cpu_pass"] == 7 and row["value"]["gpu_pass"] == 8
+
+
+def test_instrument_records_every_seed_the_seed_list_and_n(tmp_path):
+    payload = json.loads(_evidence(tmp_path).read_text(encoding="utf-8"))
+    assert payload["settings"]["seeds"] == SEEDS and payload["settings"]["n_seeds"] == 8
+    assert len(payload["records"]) == 8 * 2 * len(SEEDS)
+    assert {r["seed"] for r in payload["records"]} == set(SEEDS)
+
+
+def test_missing_seed_render_fails_the_adapter(tmp_path):
+    work = _work_dir(tmp_path)
+    (work / f"prod_marble_gpu_s{SEEDS[-1]}.npy").unlink()
+    with pytest.raises(ValueError, match="missing production render artifact"):
+        GM.adapt_g_instrument(work, tmp_path / "ev" / "instrument.json")
+
+
+def test_dropped_seed_record_or_edited_seed_list_is_red(tmp_path):
+    path = _evidence(tmp_path)
+    _rewrite(path, lambda p: p["records"].remove(next(r for r in p["records"] if r["seed"] == SEEDS[3])))
+    status, why, _ = _status(path)
+    assert status == "red" and any("cover every material" in r for r in why)
+    path2 = _evidence(tmp_path / "again")
+    _rewrite(path2, lambda p: p["settings"].update(seeds=SEEDS[:5], n_seeds=5))
+    status, why, _ = _status(path2)
+    assert status == "red" and any("gate seeds" in r for r in why)
+
+
+def test_record_with_a_seed_outside_the_gate_set_is_red(tmp_path):
+    path = _evidence(tmp_path)
+    _rewrite(path, lambda p: p["records"][0].update(seed=279))
+    status, why, _ = _status(path)
+    assert status == "red" and any("invalid kind/material/backend/seed" in r for r in why)
 
 
 def test_5_of_8_on_either_backend_is_red(tmp_path):

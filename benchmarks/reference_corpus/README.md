@@ -135,6 +135,22 @@ ids: `v2_light_tree`, `v2_media`, `v2_dispersion_caustics`, `v2_sky_sun`,
     tolerance widened; the scene's bands were re-measured from the regenerated reference (5 seeds, Cycles + Astroray).
     Refresh: `mc_tolerance.py --suite production --scenes prod_shader_stack --legs cycles cpu gpu --reference
     --work-dir W --gates <scratch.toml>` (GPU leg under `gpu_locked_run.py`), then copy that scene's block.
+  - **Row (g) gate = the 8-seed mean (owner 2026-11-02, #986).** The Stage 0 exit-gate row (g) scores, per ROI channel,
+    the MEAN over `meta.gate_seeds` (278 1301 2711 4177 6113 7919 9371 11027) of the per-render ROI means, over the same
+    denominator as the single-render gate, against bands generated into `gates_production.toml` next to the single-render
+    ones (`n_gate = 8` per scene): `cpu_mean_tol` / `gpu_mean_tol` = `max(0.02, 3*sqrt(sigma_den^2 + sigma_a^2/N))`,
+    `sigma_den = sigma_cycles*sqrt(spp_gate/spp_reference)` (the denominator is ONE 1024 spp Cycles render, so its relative
+    standard error is the 64 spp Cycles scatter / 4; plain-MC scaling, an upper bound for Cycles' stratified sampler);
+    `*_mean_pin_tol` = `max(0.02, 3*sigma_a*sqrt(1/N + 1/n_pin))` (n_pin = 5, the seeds behind the `*_mean` pins; the
+    pin seeds are a subset of the gate seeds, so the formula is conservative); `gpu_cpu_mean_tol` =
+    `max(0.05, 3*sqrt((sigma_cpu^2 + sigma_gpu^2)/N))`. The 0.02 floor is unchanged. The seeds are >= 1023 apart, more than
+    the 300 tiles of a 320x240 frame (16 px), so no two share a CPU `mt19937(seed + tile)` stream
+    (`mc_tolerance.seed_streams_disjoint`). **The gate instrument is `report_tools.py production` (N/8) and
+    `gate_manifest.py --adapt-g` (row (g)): both score `mc_tolerance.score_material_mean` on the eight renders per leg and
+    fail closed on a missing seed.** `tests/test_production_corpus.py` is NOT the gate: it stays a fast seed-278
+    regression tripwire on the single-render bands (one render per leg, so a sweep does not pay 8x). Regenerate the mean
+    keys after a band re-bless with `mc_tolerance.py --suite production --add-mean-bands` (a full `--suite production`
+    regeneration emits them too).
 
 ## volumes_mesh (pkg296) -- mesh-bounded volumes
 

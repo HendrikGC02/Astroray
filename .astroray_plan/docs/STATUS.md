@@ -1,6 +1,55 @@
 # Astroray Status
 
-## 2026-11-01 (midday) CURRENT — batch merged, main restaged, (e) and (g) re-measured (Opus 5.5 lead)
+## 2026-11-02 CURRENT — two batches merged, (g) moves to an 8-seed mean, (b) threshold signed, Filter Glossy found (Opus 5.5 lead)
+
+**Merged since 11-01 midday:**
+- #1221: EXR world maps load (#1216).
+- #1223: pkg327 Phase B pins.
+- #1225: shader_stack reference at 1/n² (#995).
+- #1234: batch 11-01b. #1204/#1206 path flags and caustic gate; #1220/#1156/#1214 GPU bump twins.
+- #1235: pkg328 Phase 2 audited-matrix score.
+- #1241 (1f190827): batch 11-01c. pkg234 image interpolation (#1215), #1229 GPU emitter cards, #1239 bake cache, #1236/#1237 attribution.
+  - Sweep: 6170 passed. The 6 failures are known: #1213 ×4 and pkg64 pins ×2.
+
+**#1243 (gates, open):**
+- Row (g) is scored on the mean of 8 decorrelated seeds (owner 11-02, #986).
+- #1226 audit fix.
+- Scanner review receipt for pkg234's credit (blind Opus ACCEPT; 3 non-blocking findings on #1233).
+- Owner-signed (b) threshold.
+
+**Gates:**
+- (b) **RED.** S is CPU 0.478 / GPU 0.465 against the owner-signed threshold of 0.676 / 0.665.
+  - #1226 was an audit harness bug: the 1/n² control was missing. Its two Noise witnesses now pass. S does not move, because the failing Noise witnesses #1227, #1228 and #1232 zero the same identities.
+  - The largest witness (#1231) is Filter Glossy; see below.
+- (g) **RED** on the 8-seed mean at 629a270e: CPU 4/8, GPU 4/8. On seed 278 alone it read 7/8 and 5/8.
+  - Both legs pass light_path, marble, shader_stack and wood. Both fail attributes, car_paint, curves and pbr_group.
+  - Every failure is chromatic, at 2–6 %. The single-seed bands were absorbing them.
+  - Unowned failures: attributes `instance1_lower` r (+3.6 % CPU, +4.8 % GPU), car_paint CPU r/b, pbr_group CPU `lower` r and GPU `centre` (+2.5 %).
+  - Re-measure after pkg329, then file whatever is left.
+- (e) Three blind raters re-rated the 13 issues filed on 11-01 (`%LOCALAPPDATA%\astroray-evidence\2026-11-02\gate-e\`). Highs: #1226, #1231 and #1238.
+  - Open highs now: #1200 (lane), #1231 (pkg329), #1238 (fixed on a lane, next batch) and #1242 (filed 11-02, unrated, likely high).
+  - #1226 closes with #1243.
+
+**Findings:**
+- **#1231 → pkg329.** Astroray never implemented Cycles' Filter Glossy, which is default-on (1.0): it stored the value and never read it.
+  - The (b) witness passes against Cycles 0/6720 with Filter Glossy off; as authored, 1749 tiles were rejected.
+  - pkg201 item C was parked on 08-29 and is now un-parked as pkg329.
+  - CPU result: the witness passes as authored, 0/6720, and 327 related tests pass.
+  - GPU: built and gated (REG unchanged, STACK +8..+72 B); verification is running.
+  - With Filter Glossy at 0, output matches to float rounding, not bit-for-bit (codegen; accepted).
+- **#1238** (image alpha association) is fixed in the addon only, within 0.3 % of Cycles on six probes.
+- **#1242** filed: the image Alpha output is never delivered, so cutouts render opaque.
+
+**Lanes:**
+- pkg329: GPU verification and perf.
+- #1200: glass film tint perf. The main glass kernel is fixed, but the bucketed kernels grew 520-792 B of stack; a textured-glass A/B decides.
+- #1238: done, waiting for the next batch.
+
+**Owner actions:**
+- Close #1229 and #1239, which #1241 fixed (one-line `Closes` lists close only the first issue).
+- Delete the merged lane branches (`git branch -D` and `git push origin --delete`): batch/2026-11-01b, batch/2026-11-01c, lane/path-flags-1204-1206, lane/gpu-bump-twins, lane/shader-stack-1n2-ref, lane/opvm-gpu-cards-1229, lane/pkg234-filtering, lane/gpu-floorfar-1236, lane/pbr-firefly-1237.
+
+## 2026-11-01 (midday) — batch merged, main restaged, (e) and (g) re-measured (Opus 5.5 lead)
 
 **Merged:**
 - #1219, batch b4e7cbf0: #1032, #1153, #1174, #1178/#1198, #1180/#1186, and pkg328 Phase 1. Round-2 sweep 5955 passed, 9 failed; every failure attributed in the PR body:

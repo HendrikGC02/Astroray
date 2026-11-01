@@ -2758,6 +2758,7 @@ def study_render_legs(candidates: Mapping[str, Any], manifests: Mapping[str, Pat
     import shutil
 
     from benchmarks.blender_parity import harness
+    from benchmarks.reference_corpus import mc_tolerance as MT
 
     blender = harness._find_blender()
     if blender is None:
@@ -2810,6 +2811,9 @@ def study_render_legs(candidates: Mapping[str, Any], manifests: Mapping[str, Pat
                     "--gate-b-report", str(wdir / f"{name}_raw.json"), "--gate-b-control", control,
                     "--gate-b-mask-out", str(wdir / f"{name}_mask.npy"), "--engine", engine, "--device", device,
                     "--out", str(wdir / name)]
+            ctl = MT.reference_controls(w["scene_id"]) if engine == "CYCLES" else []
+            if ctl:  # #1226: the Cycles reference variant (#995) on the effect legs too, as on the Welch stacks
+                args += ["--attrib-spec", json.dumps([{k: r[k] for k in ("kind", "material")} for r in ctl])]
             ok, _combined, tail = harness._run_render_leg_script(blender, args, env, timeout)
             if not ok or not (wdir / f"{name}.npy").is_file():
                 failures[w["id"]] = f"{name} leg failed: {tail[-600:]}"

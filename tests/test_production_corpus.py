@@ -13,6 +13,9 @@ Failing materials are ``xfail(strict=True)`` tied to a GitHub issue in ``provisi
 (memory ``xfail-gated-features-must-unxfail``): the fixing PR deletes the row and the test must then pass.
 Rows the owner declared documented divergences are pinned against Astroray's own mean instead of Cycles.
 
+NOT the row (g) gate: this is the fast seed-278 regression tripwire on the single-render bands. The gate scores the mean
+of the 8 gate seeds (``gate_manifest.py --adapt-g``, ``report_tools.py production``; owner 2026-11-02, #986).
+
 Needs headless Blender 5.2 and an OpenMP-ON/OFF staged addon (``ASTRORAY_PYD_DIR``); skipped otherwise.
 GPU legs run under the GPU lock: ``python scripts/build/gpu_locked_run.py <lane> -- pytest ...``.
 """
@@ -155,6 +158,14 @@ def test_shader_stack_reference_is_the_recorded_1_over_n2_variant(monkeypatch):
     assert not any("reference_variant" in GATES["scenes"][s] for s in SCENES if s != "prod_shader_stack")
     rec = json.loads((PROD / "refs" / "prod_shader_stack_cycles.json").read_text(encoding="utf-8"))["receipt"][0]
     assert rec["ok"] and rec["ior"] == 1.45 and abs(rec["scale"] - 1 / 1.45 ** 2) < 1e-12
+
+
+def test_reference_control_found_without_selecting_the_production_suite():
+    """#1226: the pkg328 audit renders production scenes under the default (v2) suite state; the Cycles stacks must still
+    get the 1/n^2 reference variant, or the Noise Texture witnesses on prod_shader_stack fail on the reference itself."""
+    assert MC.KNOWN == CORPUS / "provisional_v2.toml"
+    assert [c["kind"] for c in MC.reference_controls("prod_shader_stack")] == ["emission_backface_scale"]
+    assert not MC.reference_controls("v2_viewport")
 
 
 def test_provisional_rows_reference_real_cases_and_issues():

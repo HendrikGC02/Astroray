@@ -33,7 +33,7 @@
       "prod_marble/cpu": "0eaf7ebc7618fc77b1d4f99e0e9e6fd3d516fa0b5b5e3418236ed55020a98ea0",
       "prod_marble/cycles": "1a00d0305b67b627109c0179c71bb92401b1ab1cc51dae4f125014a029aa271c",
       "prod_shader_stack/cpu": "629b20f3c3c1198b98d4c849b160684906a436333c0d9a216e26be6ea187bdf5",
-      "prod_shader_stack/cycles": "017526374507816877120b8217314f2fd3a1ff9f44518f99eec5b744ef93b780",
+      "prod_shader_stack/cycles": "2dc5a0dad228256086c5bfcf272f3d50fdc17114caa1eeb11d33967a412e708f",
       "prod_wood/cpu": "4590aa4688c4dcb2b7db44aca54fbb7bf698431fcff47ea134d8c25802a44f83",
       "prod_wood/cycles": "c2f75f9998dcf9bff97b0fead66832899bbc4def2a487a724aa9d86ad0e4a2c4",
       "v2_sky_sun/cpu": "ce5e32d473b6f63c674b9fcc28813845772883a1b5fb261d8ca5d68a2e5dce2e",
@@ -52,7 +52,7 @@
       "prod_curves_geometry/gpu": "762f19eff2793ab20709bf6b1441c1e9b018b9780aa3f6bd4f0f542c7eef38b8",
       "prod_marble/cycles": "1a00d0305b67b627109c0179c71bb92401b1ab1cc51dae4f125014a029aa271c",
       "prod_marble/gpu": "1ee5310a6f31d8bd16283349cbe970e70e0a3864bc7aca79e1af2b79427e2487",
-      "prod_shader_stack/cycles": "017526374507816877120b8217314f2fd3a1ff9f44518f99eec5b744ef93b780",
+      "prod_shader_stack/cycles": "2dc5a0dad228256086c5bfcf272f3d50fdc17114caa1eeb11d33967a412e708f",
       "prod_shader_stack/gpu": "010e3aa60887c205cc0eb86db080225674cfc3c42b923dba09f440867e12f733",
       "prod_wood/cycles": "c2f75f9998dcf9bff97b0fead66832899bbc4def2a487a724aa9d86ad0e4a2c4",
       "prod_wood/gpu": "2fc19f750f7e5da27e5d12b2c404f7efce541b8ebbcb73347e4326aac4cb02ee",
@@ -472,33 +472,33 @@
           },
           "cycles": {
             "ok": true,
-            "signal": 0.7252393364906311,
-            "value": 0.044176485389471054
+            "signal": 0.6650776863098145,
+            "value": 0.04095359891653061
           }
         },
         "jackknife_pass": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
         ],
         "roi_mean_ratio_rgb": [
-          0.9165598750114441,
-          0.9431830048561096,
-          0.9790783524513245
+          1.0051392316818237,
+          1.004638433456421,
+          1.0055181980133057
         ],
-        "status": "FAIL",
+        "status": "PASS",
         "welch": {
-          "max_rel_bias_rejected": 0.2335253804922104,
-          "mean_rel_diff": -0.0465368777513504,
-          "min_p": 8.951361342057876e-23,
-          "n_reject_holm": 547,
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": 0.007974439300596714,
+          "min_p": 0.004672084789825713,
+          "n_reject_holm": 0,
           "n_tests": 1587,
-          "pass": false
+          "pass": true
         }
       },
       "GPU": {
@@ -510,33 +510,33 @@
           },
           "cycles": {
             "ok": true,
-            "signal": 0.7252393364906311,
-            "value": 0.044176485389471054
+            "signal": 0.6650776863098145,
+            "value": 0.04095359891653061
           }
         },
         "jackknife_pass": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
         ],
         "roi_mean_ratio_rgb": [
-          0.913697361946106,
-          0.9411107301712036,
-          0.9761655926704407
+          1.002000093460083,
+          1.002431035041809,
+          1.0025267601013184
         ],
-        "status": "FAIL",
+        "status": "PASS",
         "welch": {
-          "max_rel_bias_rejected": 0.2304701805114746,
-          "mean_rel_diff": -0.04880870133638382,
-          "min_p": 1.7301979158907173e-22,
-          "n_reject_holm": 533,
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": 0.005711057223379612,
+          "min_p": 0.0035666848153093574,
+          "n_reject_holm": 0,
           "n_tests": 1587,
-          "pass": false
+          "pass": true
         }
       }
     },
@@ -550,33 +550,33 @@
           },
           "cycles": {
             "ok": true,
-            "signal": 0.7252393364906311,
-            "value": 0.0770639181137085
+            "signal": 0.6650776863098145,
+            "value": 0.06120612472295761
           }
         },
         "jackknife_pass": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
         ],
         "roi_mean_ratio_rgb": [
-          0.9165598750114441,
-          0.9431830048561096,
-          0.9790783524513245
+          1.0051392316818237,
+          1.004638433456421,
+          1.0055181980133057
         ],
-        "status": "FAIL",
+        "status": "PASS",
         "welch": {
-          "max_rel_bias_rejected": 0.2335253804922104,
-          "mean_rel_diff": -0.0465368777513504,
-          "min_p": 8.951361342057876e-23,
-          "n_reject_holm": 547,
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": 0.007974439300596714,
+          "min_p": 0.004672084789825713,
+          "n_reject_holm": 0,
           "n_tests": 1587,
-          "pass": false
+          "pass": true
         }
       },
       "GPU": {
@@ -588,33 +588,33 @@
           },
           "cycles": {
             "ok": true,
-            "signal": 0.7252393364906311,
-            "value": 0.0770639181137085
+            "signal": 0.6650776863098145,
+            "value": 0.06120612472295761
           }
         },
         "jackknife_pass": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
         ],
         "roi_mean_ratio_rgb": [
-          0.913697361946106,
-          0.9411107301712036,
-          0.9761655926704407
+          1.002000093460083,
+          1.002431035041809,
+          1.0025267601013184
         ],
-        "status": "FAIL",
+        "status": "PASS",
         "welch": {
-          "max_rel_bias_rejected": 0.2304701805114746,
-          "mean_rel_diff": -0.04880870133638382,
-          "min_p": 1.7301979158907173e-22,
-          "n_reject_holm": 533,
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": 0.005711057223379612,
+          "min_p": 0.0035666848153093574,
+          "n_reject_holm": 0,
           "n_tests": 1587,
-          "pass": false
+          "pass": true
         }
       }
     },

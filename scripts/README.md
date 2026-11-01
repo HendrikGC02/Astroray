@@ -17,6 +17,7 @@ new reusable script, register it here in the same commit.
 | Lead-only serial CUDA/addon build queue for multi-worktree sessions (FIFO, own lock, clears dead locks; lanes never build) | `python scripts/build/lead_build_queue.py <lane>[:addon-cuda]` |
 | CUDA build under the shared GPU lock (main-checkout lock path, launcher-free/no sccache; the lead-session pattern) | `python scripts/build/gpu_locked_build.py <tree> scripts/build/build_cuda_nosccache.bat <who>` |
 | Build engine in an agent worktree (VS generator; what `hardware-verifier` / `package-implementer` / `tests/test_hw_verifier_buildenv.py` invoke) | repo-root `build_cuda_worktree.bat` |
+| cuobjdump REG/STACK/CONSTANT/LOCAL gate between a baseline and a candidate engine build (pkg234: untextured shade specialisations byte-identical, textured ones REG <= 254 and STACK +64 B at most; baseline = `cuobjdump -res-usage main.pyd > base.txt` saved BEFORE editing) | `python scripts/dev/res_usage_compare.py BASE NEW` (.pyd or saved .txt; exit 1 on failure) |
 | Build-integrity guard (header-hash stamp, <5 s host-only ABI canary, cuobjdump CUDA-arch gate) invoked by all three build wrappers | `scripts/build/build_guard.py` (pkg183) |
 | Build/package/install the Blender addon | `scripts/build/build_blender_addon.py` (default backend: `cuda`); pkg319 DLL-closure audit runs by default (`--no-check-closure` to skip, `--closure-only [STAGE_DIR]` standalone) |
 | One-command Blender dev loop (build → install → smoke) | `scripts/dev_addon.ps1` |

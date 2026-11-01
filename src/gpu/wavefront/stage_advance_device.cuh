@@ -215,6 +215,11 @@ extern __constant__ int c_wfDielectricCapPass;
 // skip the caustic-cull block entirely → the fleet kernel stays byte-identical.
 extern __constant__ int c_wfCausticGate[2];
 
+// pkg329 - Cycles Filter Glossy kernel value 1/blur_glossy (0 = off; setWavefrontFilterGlossy).
+// Off (this static default and the engine default) keeps shadePathSlot from reading or writing
+// state.min_ray_pdf, and rec.glossyAlphaFloor stays 0 (every alpha site returns its old alpha).
+extern __constant__ float c_wfFilterGlossy;
+
 // pkg224 — progressive (hash-Owen Sobol') sampler opt-in. Published once per
 // frame by cuda_wavefront_render (setWavefrontSamplerMode). 0 = PCG32 white
 // noise (this static default, and every render that leaves the sampler on
@@ -1980,10 +1985,11 @@ __device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_coatN_sample_spectral(
         const GPrincipledLobe& L = lobes[ds.lobe];
         if (L.kind == GPR_TRANSPARENT || L.kind == GPR_THINGLASS_TRANSMIT)
             s.f = L.weight;
-        else if (ds.deltaRefract)
-            s.f = L.weight * gpu_pr_sqrtColor(c.color) * (ds.eta * ds.eta * ds.pdfInternal);
+        else if (ds.deltaRefract)  // #1200: gpu_principled_sample twin (pdfInternal = 1 - F)
+            s.f = L.weight * gpu_pr_glassTint(c, true, 1.f - ds.pdfInternal, L.ior) *
+                  (ds.eta * ds.eta * ds.pdfInternal);
         else
-            s.f = L.weight * c.specularTint * ds.pdfInternal;
+            s.f = L.weight * gpu_pr_glassTint(c, false, ds.pdfInternal, L.ior) * ds.pdfInternal;
         s.pdf = (L.sel / W) * ds.pdfInternal;
         s.isDelta = true;
         rec.isDelta = true;
@@ -2384,6 +2390,11 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     rec.primId     = hitBufs.hit_prim_id[idx];
     rec.frontFace  = hitBufs.hit_front_face[idx] != 0;
     rec.isDelta    = hitBufs.hit_is_delta[idx] != 0;
+    // pkg329: Filter Glossy blur of this vertex's glossy closures, before any eval / NEE / sample
+    // (Cycles surface_shader.h:189-213; CPU twin pathTraceSpectral rec.glossyAlphaFloor).
+    if (c_wfFilterGlossy != 0.f)
+        rec.glossyAlphaFloor = astroray::lightpath::filter_glossy_alpha_floor(
+            c_wfFilterGlossy, state.min_ray_pdf[idx]);
     // #1206: Cycles caustic toggles at this vertex (svm/closure.h gates on the incoming ray's
     // DIFFUSE visibility; CPU twin pathTraceSpectral rec.causticGate). The gated entry points
     // (gpu_causticGated) drop the closures. Both toggles on never reads the SoA flag, and
@@ -3254,6 +3265,10 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // scatter); the pass instead parks its cumulative hit distance (see pass_dist).
     if (!tp) {
         state.path_bsdf_pdf[idx] = bss.pdf;
+        // pkg329: Cycles min_ray_pdf (shade_surface.h:608-612; a delta sample counts x 1e6).
+        if (c_wfFilterGlossy != 0.f)
+            state.min_ray_pdf[idx] = fminf(state.min_ray_pdf[idx],
+                astroray::lightpath::filter_glossy_ray_pdf(bss.pdf, bss.isDelta));
         // #851: the normal NEE used at this vertex, for the next hit's tree MIS pdf.
         state.path_mis_nx[idx] = rec.normal.x;
         state.path_mis_ny[idx] = rec.normal.y;

@@ -134,6 +134,10 @@ public:
         // is still measured from the camera.
         int  transparentDepth = 0;
         const int maxTransparent = renderer_->getMaxTransparentBounces();
+        // pkg329: Filter Glossy (pathTraceSpectral twin, astroray/light_path.h).
+        const float filterGlossyKernel =
+            astroray::lightpath::filter_glossy_kernel(renderer_->getFilterGlossy());
+        float minRayPdf = std::numeric_limits<float>::max();
         Vec3 vertexOrigin = pathRay.origin;
         bool passPrev = false;
 
@@ -213,6 +217,8 @@ public:
             }
 
             if (!rec.material) break;
+            rec.glossyAlphaFloor =  // pkg329 (pathTraceSpectral twin)
+                astroray::lightpath::filter_glossy_alpha_floor(filterGlossyKernel, minRayPdf);
 
             // Emission (camera ray or post-specular bounce only).
             astroray::SampledSpectrum Le = grHitEmission(rec, lambdas, grHitG);
@@ -382,7 +388,11 @@ public:
             // state, credits no cryptomatte and spends no bounce (pathTraceSpectral twin).
             const bool transparentPass = astroray::lightpath::is_transparent_pass(
                 bss.isDelta, wo.dot(bss.wi), rec.material->shadowAlpha(rec) < 1.0f);
-            if (!transparentPass) wasSpecular = bss.isDelta;
+            if (!transparentPass) {
+                wasSpecular = bss.isDelta;
+                minRayPdf = std::min(minRayPdf,  // pkg329 (pathTraceSpectral twin)
+                                     astroray::lightpath::filter_glossy_ray_pdf(bss.pdf, bss.isDelta));
+            }
 
             // pkg87b: Cryptomatte accumulation at BSDF shade point (before throughput update).
             if (renderer_->getCryptomatteEnabled() && cryptoObjRanks && cryptoMatRanks &&

@@ -401,8 +401,8 @@ MATRIX: list[Row] = [
     Row("blur_glossy", ("blur_glossy",), "firefly", "2", p_blur_glossy,
         variant_a=(("cycles.blur_glossy", 0.0),),
         variant_b=(("cycles.blur_glossy", 10.0),),
-        note="sharp glossy highlight; filter-glossy 0 vs 10. NOTE: renderer.filterGlossy "
-             "is stored but never read in src/gpu/ — expected GPU HONEST-FAIL."),
+        note="sharp glossy highlight; filter-glossy 0 vs 10. pkg329: both backends blur "
+             "glossy closures seen after a rough bounce (Cycles min_ray_pdf floor)."),
 
     # ---- Stage 3: film + sampling + seed ----
     Row("film_exposure", ("film_exposure",), "closed_box", "3", p_exposure_scale,

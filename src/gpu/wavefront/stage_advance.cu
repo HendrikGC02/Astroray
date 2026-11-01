@@ -61,6 +61,7 @@ __constant__ int c_wfBounceLimit[3] = { -1, -1, -1 };
 __constant__ int c_wfTransparentLimit = kWfTransparentOff;   // #1033
 __constant__ int c_wfDielectricCapPass = 0;                  // pkg325
 __constant__ int c_wfCausticGate[2] = { 1, 1 };
+__constant__ float c_wfFilterGlossy = 0.f;                   // pkg329 (1/blur_glossy, 0 = off)
 __constant__ int c_wfSamplerMode = 0;
 __constant__ int c_hasHair = 0;
 __constant__ int c_wfEmissionTex = 0;
@@ -853,6 +854,8 @@ __global__ void stageVolumeScatterKernel(
     // and path_mis_n*/path_mis_dt (written by intersect) hold the NEE segment.
     state.env_nee_sampled_prev[idx] = 2;
     state.path_bsdf_pdf[idx] = phasePdf;
+    // pkg329: Cycles min_ray_pdf takes the phase pdf at a volume scatter (shade_volume.h:2668).
+    if (c_wfFilterGlossy != 0.f) state.min_ray_pdf[idx] = fminf(state.min_ray_pdf[idx], phasePdf);
     state.rng_dimension[idx] = rng.dimension();
     int next_bounce = bounce + 1;
     state.bounce[idx] = next_bounce;
@@ -991,6 +994,13 @@ void setWavefrontCausticGate(bool reflective, bool refractive)
     const int gate[2] = { reflective ? 1 : 0, refractive ? 1 : 0 };
     cudaMemcpyToSymbol(c_wfCausticGate, gate, sizeof(gate));
     g_causticGateActive = !reflective || !refractive;
+}
+
+// pkg329 - publish Filter Glossy as the kernel value (see gpu_wavefront_state.h).
+void setWavefrontFilterGlossy(float blurGlossy)
+{
+    const float k = astroray::lightpath::filter_glossy_kernel(blurGlossy);
+    cudaMemcpyToSymbol(c_wfFilterGlossy, &k, sizeof(k));
 }
 
 // pkg224 — publish the progressive-sampler mode into the __constant__

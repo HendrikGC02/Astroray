@@ -2287,6 +2287,8 @@ std::vector<float> cuda_wavefront_render(
     // makes the shade kernel's caustic-cull block a no-op (byte-identical).
     setWavefrontCausticGate(renderer.getUseReflectiveCaustics(),
                             renderer.getUseRefractiveCaustics());
+    // pkg329 - Cycles Filter Glossy. 0 (the engine default) keeps the min_ray_pdf SoA untouched.
+    setWavefrontFilterGlossy(renderer.getFilterGlossy());
     // pkg224 — progressive (hash-Owen Sobol') sampler opt-in. false (the
     // default) leaves WavefrontRNG::Uniform() on the PCG32 path → byte-identical.
     setWavefrontSamplerMode(renderer.getUseProgressiveSampler());

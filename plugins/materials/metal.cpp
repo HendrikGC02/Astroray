@@ -48,6 +48,15 @@ class MetalPlugin : public Material {
                     astroray::ggxDarkeningChannel(albedo_.z, E, Eavg));
     }
 
+    // pkg329: Filter Glossy. The roughness this hit shades with: alpha = max(roughness^2,
+    // rec.glossyAlphaFloor) (Cycles bsdf_microfacet_blur, bsdf_microfacet.h:1095-1101), so a
+    // blurred near-delta conductor becomes rough. Energy compensation keeps roughness_ (Cycles
+    // does not redo it after the blur, bsdf.h:670). Floor 0 returns roughness_ exactly.
+    float shadeRoughness(const HitRecord& rec) const {
+        return rec.glossyAlphaFloor > roughness_ * roughness_ ? std::sqrt(rec.glossyAlphaFloor)
+                                                               : roughness_;
+    }
+
 public:
     explicit MetalPlugin(const astroray::ParamDict& p)
         : albedo_(p.getVec3("albedo", Vec3(0.8f))),
@@ -74,7 +83,8 @@ public:
 
     Vec3 eval(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const {
         if (gated(rec)) return Vec3(0);
-        if (roughness_ <= kNearDeltaThreshold) {
+        const float re = shadeRoughness(rec);  // pkg329
+        if (re <= kNearDeltaThreshold) {
             Vec3 perfectRefl = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             float deviation = (wi - perfectRefl).length();
             return (deviation < 0.1f) ? albedo_ * std::exp(-deviation * 100.0f) : Vec3(0);
@@ -89,11 +99,11 @@ public:
         float NdotL = rawNdotL;
         float NdotV = rawNdotV;
 
-        float a = roughness_ * roughness_, a2 = a * a;
+        float a = re * re, a2 = a * a;
         float denom = NdotH * NdotH * (a2 - 1) + 1;
         float D = a2 / (M_PI * denom * denom + 0.001f);
         Vec3 F = fresnelSchlick(wo.dot(h), albedo_);
-        float k = (roughness_ + 1) * (roughness_ + 1) / 8;
+        float k = (re + 1) * (re + 1) / 8;
         float G = (NdotL / (NdotL * (1 - k) + k)) * (NdotV / (NdotV * (1 - k) + k));
         Vec3 singleScatter = F * D * G / (4 * NdotV + 0.001f);
         // pkg160: multiplicative Kulla & Conty compensation, replacing an
@@ -115,7 +125,8 @@ public:
             const HitRecord& rec, const Vec3& wo, const Vec3& wi,
             const astroray::SampledWavelengths& lambdas) const override {
         if (gated(rec)) return astroray::SampledSpectrum(0.0f);
-        if (roughness_ <= kNearDeltaThreshold) {
+        const float re = shadeRoughness(rec);  // pkg329
+        if (re <= kNearDeltaThreshold) {
             Vec3 perfectRefl = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             float deviation = (wi - perfectRefl).length();
             float factor = (deviation < 0.1f) ? std::exp(-deviation * 100.0f) : 0.0f;
@@ -127,14 +138,14 @@ public:
         Vec3 h = (wo + wi).normalized();
         float NdotH = std::max(rec.normal.dot(h), 0.001f);
         float NdotL = rawNdotL, NdotV = rawNdotV;
-        float a = roughness_ * roughness_, a2 = a * a;
+        float a = re * re, a2 = a * a;
         float denom = NdotH * NdotH * (a2 - 1) + 1;
         float D = a2 / (float(M_PI) * denom * denom + 0.001f);
         // Per-wavelength Schlick Fresnel: F0 is the albedo spectrum; scale by (1-cosTheta)^5 term.
         astroray::SampledSpectrum F0 = albedo_spec_.sample(lambdas);
         float fresnelPow5 = std::pow(1.0f - std::clamp(h.dot(wo), 0.0f, 1.0f), 5.0f);
         astroray::SampledSpectrum F = F0 + (astroray::SampledSpectrum(1.0f) - F0) * fresnelPow5;
-        float k = (roughness_ + 1) * (roughness_ + 1) / 8;
+        float k = (re + 1) * (re + 1) / 8;
         float G = (NdotL / (NdotL * (1 - k) + k)) * (NdotV / (NdotV * (1 - k) + k));
         astroray::SampledSpectrum singleScatter = F * (D * G / (4 * NdotV + 0.001f));
         // pkg160: same multiplicative Kulla & Conty compensation as eval(),
@@ -164,7 +175,8 @@ public:
             s.isDelta = false;
             return s;
         }
-        if (roughness_ <= kNearDeltaThreshold) {
+        const float re = shadeRoughness(rec);  // pkg329
+        if (re <= kNearDeltaThreshold) {
             s.wi = rec.normal * (2 * wo.dot(rec.normal)) - wo;
             s.f = albedo_;
             s.pdf = 1;
@@ -172,7 +184,7 @@ public:
             const_cast<HitRecord&>(rec).isDelta = true;
         } else {
             std::uniform_real_distribution<float> dist(0, 1);
-            float a = roughness_ * roughness_;
+            float a = re * re;
             float r1 = dist(gen);
             float r2 = dist(gen);
             float phi = 2 * M_PI * r1;
@@ -197,11 +209,12 @@ public:
     }
 
     float pdf(const HitRecord& rec, const Vec3& wo, const Vec3& wi) const override {
-        if (gated(rec) || roughness_ <= kNearDeltaThreshold) return 0;
+        const float re = shadeRoughness(rec);  // pkg329
+        if (gated(rec) || re <= kNearDeltaThreshold) return 0;
         Vec3 h = (wo + wi).normalized();
         float NdotH = std::max(rec.normal.dot(h), 0.001f);
         float HdotV = std::max(h.dot(wo), 0.001f);
-        float a = roughness_ * roughness_, a2 = a * a;
+        float a = re * re, a2 = a * a;
         float denom = NdotH * NdotH * (a2 - 1) + 1;
         float D = a2 / (M_PI * denom * denom + 0.001f);
         return D * NdotH / (4.0f * HdotV);

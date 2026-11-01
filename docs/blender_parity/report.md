@@ -12,9 +12,9 @@
 
 ## Summary
 
-- **SUPPORTED**: 329 features
+- **SUPPORTED**: 330 features
 - **APPROXIMATED**: 105 features
-- **DROPPED-SILENT**: 303 features ⚠️
+- **DROPPED-SILENT**: 302 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 737 features
 
@@ -24,23 +24,23 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5875)
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5875)
-- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4332, line 4473)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5965)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5965)
+- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4415, line 4556)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5875)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5875)
-- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5875)
-- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5875)
-- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5875)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5875)
-- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5875)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5875)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5875)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5965)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5965)
+- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5965)
+- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5965)
+- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5965)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5965)
+- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5965)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5965)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5965)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -56,7 +56,6 @@ These features are silently ignored by the addon with no warning:
 
 ### image_property
 
-- **Image**: `alpha_mode`
 - **Image**: `source==TILED (UDIM)`
 - **ShaderNodeTexImage**: `projection`
 
@@ -404,7 +403,7 @@ These features are silently ignored by the addon with no warning:
 | Feature | Socket/Property | Classification | Notes |
 |---------|-----------------|----------------|-------|
 | Image | colorspace_settings.name | SUPPORTED |  |
-| Image | alpha_mode | DROPPED-SILENT |  |
+| Image | alpha_mode | SUPPORTED |  |
 | Image | source==TILED (UDIM) | DROPPED-SILENT |  |
 | ShaderNodeTexImage | interpolation | SUPPORTED |  |
 | ShaderNodeTexImage | extension | SUPPORTED |  |

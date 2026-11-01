@@ -404,6 +404,11 @@ struct HitRecord {
     // Set by pathTraceSpectral from the incoming ray's DIFFUSE visibility; materials drop the
     // gated closures in eval / pdf / sample (Cycles svm/closure.h __CAUSTICS_TRICKS__).
     unsigned char causticGate = 0;
+    // pkg329: Cycles Filter Glossy at this vertex (lightpath::filter_glossy_alpha_floor, set by
+    // the integrator from the path's min_ray_pdf). Glossy microfacet closures shade with
+    // alpha = max(alpha, glossyAlphaFloor) in D / G / sample / pdf, energy compensation and
+    // layering keep the setup alpha (Cycles bsdf_blur, bsdf.h:658-686). 0 = no blur.
+    float glossyAlphaFloor = 0.0f;
     const Hittable* hitObject = nullptr;  // set by hit() for GR dispatch
     // pkg225 Stage 1 — CurveSegment (ray-thick-curve) parametrization, needed by
     // the future hair BSDF (Stage 2) for cuticle tilt / tangent-frame construction.
@@ -3704,6 +3709,7 @@ public:
     int getMaxVolumeBounces() const { return maxVolumeBounces; }
     void setTransparentBounces(int n) { maxTransparentBounces = (n < 0) ? -1 : n; }  // #1033
     int getMaxTransparentBounces() const { return maxTransparentBounces; }
+    float getFilterGlossy() const { return filterGlossy; }  // pkg329
     void setDielectricBounceCapPassthrough(bool on) { dielectricBounceCapPassthrough = on; }  // pkg325
     bool getDielectricBounceCapPassthrough() const { return dielectricBounceCapPassthrough; }
     // #1073: remaining transparent-hit budget of a shadow ray leaving a vertex whose path
@@ -4060,6 +4066,10 @@ public:
         // on), so the gate stays 0 and nothing changes.
         const bool causticGateActive =
             !useReflectiveCaustics || !useRefractiveCaustics;
+        // pkg329 — Filter Glossy: kernel 1/blur_glossy (0 = off) and the path's min_ray_pdf
+        // (Cycles path_state.h:62 FLT_MAX at start; see rec.glossyAlphaFloor below).
+        const float filterGlossyKernel = astroray::lightpath::filter_glossy_kernel(filterGlossy);
+        float minRayPdf = std::numeric_limits<float>::max();
         // pkg287 (#909): photon split chain, GPU GWavefrontPhotonSplit twin:
         // bit0 live (bounce-0 receiver), bit1 passed glass.
         unsigned photonChain = 0;
@@ -4297,6 +4307,7 @@ public:
                         wasSpecular = false;
                         lpc = astroray::lightpath::next_volume(lpc);  // #991
                         bsdfPdfPrev = phasePdf;
+                        minRayPdf = std::min(minRayPdf, phasePdf);  // pkg329 (shade_volume.h:2668)
                         misNormalPrev = Vec3(0.0f);
                         misSegPrev = true;  // #961
                         misSegO = P - dUnit * ff.t;
@@ -4419,6 +4430,7 @@ public:
                     wasSpecular = false;
                     lpc = astroray::lightpath::next_volume(lpc);  // #991
                     bsdfPdfPrev = phasePdf;
+                    minRayPdf = std::min(minRayPdf, phasePdf);  // pkg329 (shade_volume.h:2668)
                     misNormalPrev = Vec3(0.0f);
                     misSegPrev = true;  // #961
                     misSegD = woMedium * -1.0f;
@@ -4576,6 +4588,10 @@ public:
                 rec.causticGate = astroray::lightpath::caustic_gate(
                     (lpc.flags & astroray::lightpath::LPF_DIFFUSE) != 0u,
                     useReflectiveCaustics, useRefractiveCaustics);
+            // pkg329: Filter Glossy blur of this vertex's glossy closures, before any
+            // eval / pdf / sample (Cycles surface_shader.h:189-213).
+            rec.glossyAlphaFloor =
+                astroray::lightpath::filter_glossy_alpha_floor(filterGlossyKernel, minRayPdf);
 
             // Emission (gated on camera ray or post-specular bounce).
             astroray::SampledSpectrum Le_spec =
@@ -4837,6 +4853,8 @@ public:
 
             BSDFSampleSpectral bss = rec.material->sampleSpectral(rec, wo, gen, lambdas);
             if (bss.pdf <= 0.0f) break;
+            // pkg329: Cycles min_ray_pdf takes the UNGUIDED mixture pdf of the direction taken.
+            float unguidedPdf = bss.pdf;
             // pkg136: guide/BSDF one-sample MIS on non-specular vertices. With
             // probability alpha the continuation is redrawn from the SD-tree guide
             // (else the BSDF sample is kept); either way bss.pdf becomes the mixture
@@ -4859,6 +4877,7 @@ public:
                     bss.wi = wiG;
                     bss.f_spectral = rec.material->evalSpectral(rec, wo, wiG, lambdas);
                     bss.pdf = a * gpdfSa + (1.0f - a) * pbG;
+                    unguidedPdf = pbG;  // pkg329
                 } else {
                     float pgB = guideSampling_->pdfDir(gp, bss.wi.x, bss.wi.y, bss.wi.z);
                     bss.pdf = a * pgB + (1.0f - a) * bss.pdf;
@@ -4892,6 +4911,9 @@ public:
             // -> emitter still weights the BSDF leg against the NEE leg.
             if (!transparentPass) {
                 wasSpecular = bss.isDelta;
+                // pkg329: Cycles shade_surface.h:608-612 (skipped on LABEL_TRANSPARENT).
+                minRayPdf = std::min(minRayPdf,
+                                     astroray::lightpath::filter_glossy_ray_pdf(unguidedPdf, bss.isDelta));
                 // pkg120: carry this bounce's BSDF pdf so the next iteration's
                 // emissive-hit two-sided MIS can weight the BSDF leg (see above).
                 bsdfPdfPrev = bss.pdf;
@@ -5085,6 +5107,9 @@ public:
         astroray::lightpath::PathContext lpc;  // #991 (see pathTraceSpectral)
         Vec3 vertexOrigin = r.origin;  // #1033 (see pathTraceSpectral)
         bool passPrev = false;
+        // pkg329: Filter Glossy (see pathTraceSpectral).
+        const float filterGlossyKernel = astroray::lightpath::filter_glossy_kernel(filterGlossy);
+        float minRayPdf = std::numeric_limits<float>::max();
 
         for (int bounce = 0; bounce <= maxDepth + 1; ++bounce) {  // #1165 (see pathTraceSpectral)
             lastBounce = bounce;
@@ -5186,6 +5211,8 @@ public:
             rec.lightPath.depth = (unsigned short)bounce;
             rec.lightPath.rayLength = rec.t + passDist - ((bounce == 0) ? clipNear_ * clipZInv : 0.0f);  // #1033
             resolveLightPathMaterial(rec);
+            rec.glossyAlphaFloor =  // pkg329 (see pathTraceSpectral)
+                astroray::lightpath::filter_glossy_alpha_floor(filterGlossyKernel, minRayPdf);
 
             astroray::SampledSpectrum Le_spec = grHitEmission(rec, lambdas, grHitG);
             if (!Le_spec.isZero()) {
@@ -5359,7 +5386,11 @@ public:
                     bss.isDelta, wo.dot(bss.wi), rec.material->shadowAlpha(rec) < 1.0f);
                 lpc = astroray::lightpath::next_surface(lpc, cat, bss.isDelta, bss.label, transparentPass);
             }
-            if (!transparentPass) wasSpecular = bss.isDelta;  // #1033: a pass keeps the MIS state
+            if (!transparentPass) {
+                wasSpecular = bss.isDelta;  // #1033: a pass keeps the MIS state
+                minRayPdf = std::min(minRayPdf,  // pkg329 (see pathTraceSpectral)
+                                     astroray::lightpath::filter_glossy_ray_pdf(bss.pdf, bss.isDelta));
+            }
 
             Ray next(rec.point, bss.wi, ray.time, ray.screenU, ray.screenV);
             next.self = rec.hitObject;  // #1037

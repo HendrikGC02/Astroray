@@ -5992,7 +5992,7 @@
     "feature": "Image",
     "bl_idname": "",
     "socket_or_prop": "alpha_mode",
-    "classification": "DROPPED-SILENT",
+    "classification": "SUPPORTED",
     "notes": ""
   },
   {

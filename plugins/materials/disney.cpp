@@ -11,6 +11,19 @@ class DisneyPlugin : public Material {
     float sheen_, sheenTint_;
     float transmission_, ior_;
     static constexpr float kDeltaTransmissionRoughness = 0.03f;
+    // pkg329: Filter Glossy. The GGX alpha this hit shades with in D / G / sample / pdf:
+    // max(alpha, rec.glossyAlphaFloor) (Cycles bsdf_microfacet_blur, bsdf_microfacet.h:
+    // 1095-1101). Energy compensation, layering albedo and the diffuse terms keep roughness_
+    // (Cycles does not redo them after the blur, bsdf.h:670). Floor 0 = the pre-pkg329 alpha.
+    float shadeAlpha(const HitRecord& rec) const {
+        return std::max(std::max(roughness_ * roughness_, 0.0064f), rec.glossyAlphaFloor);
+    }
+    // Rough (non-delta) glass at this hit: a floor above the delta threshold's alpha makes
+    // smooth glass rough, as Cycles blurs a singular GGX glass closure.
+    bool roughGlass(const HitRecord& rec) const {
+        return roughness_ > kDeltaTransmissionRoughness ||
+               rec.glossyAlphaFloor > kDeltaTransmissionRoughness * kDeltaTransmissionRoughness;
+    }
 
     // pkg219d — optional per-texel op-VM programs driving the scalar BSDF inputs
     // (Image → Map Range → Roughness, etc.). Each is a ProgramTexture (held as the
@@ -231,7 +244,7 @@ class DisneyPlugin : public Material {
     // Ported from PBRT-v4 TrowbridgeReitzDistribution::Sample_wm (BSD-3-Clause).
     Vec3 sampleGgxVNDF(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const {
         std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-        float alpha = std::max(roughness_ * roughness_, 0.0064f);
+        float alpha = shadeAlpha(rec);
         float u1 = dist(gen), u2 = dist(gen);
 
         // Transform wo to local tangent space
@@ -304,7 +317,7 @@ class DisneyPlugin : public Material {
 
         // PBRT-v4: reflection PDF = VNDF_PDF / (4 * |HdotO|)
         // (pbrt-v4 DielectricBxDF, Walter 2007 §5.3 Jacobian).
-        return vndfPdf(rec.normal, wo, wm) / (4.0f * HdotO);
+        return vndfPdf(rec.normal, wo, wm, shadeAlpha(rec)) / (4.0f * HdotO);
     }
 
     // pkg138: rough dielectric reflection BRDF (PBRT-v4 DielectricBxDF::f
@@ -336,7 +349,7 @@ class DisneyPlugin : public Material {
         float HdotO = wo.dot(wm);
         if (HdotO <= 1e-10f) return Vec3(0);
 
-        float alpha = std::max(roughness_ * roughness_, 0.0064f);
+        float alpha = shadeAlpha(rec);
         float NdotH = wm.dot(rec.normal);
         float D = D_GTR2(NdotH, alpha);
         float G = smithG1_GGX(cosO, alpha) * smithG1_GGX(cosI, alpha);
@@ -388,7 +401,7 @@ class DisneyPlugin : public Material {
         float cosO = n.dot(wo), cosI = n.dot(wi);
         if (cosO < 0.0f) { n = -n; cosO = -cosO; cosI = -cosI; }
         if (cosO <= 1e-6f || std::abs(cosI) <= 1e-6f) return 0.0f;
-        float alpha = std::max(roughness_ * roughness_, 0.0064f);
+        float alpha = shadeAlpha(rec);
         Vec3 woLocal(wo.dot(rec.tangent), wo.dot(rec.bitangent), cosO);
         Vec3 wiLocal(wi.dot(rec.tangent), wi.dot(rec.bitangent), cosI);
         return astroray::msdiel::stochasticEvalHashed(woLocal, wiLocal, alpha,
@@ -437,7 +450,7 @@ class DisneyPlugin : public Material {
         // Discard backfacing microfacets
         if (wm.dot(wi) * cosI < 0.0f || wm.dot(wo) * cosO < 0.0f) return Vec3(0);
 
-        float alpha = std::max(roughness_ * roughness_, 0.0064f);
+        float alpha = shadeAlpha(rec);
         float D = D_GTR2(std::abs(wm.dot(rec.normal)), alpha);
         // PBRT-v4: G(wo, wi) = 1 / (1 + Lambda(wo) + Lambda(wi))
         float G = smithG1_GGX(std::abs(cosO), alpha) * smithG1_GGX(std::abs(cosI), alpha);
@@ -498,15 +511,14 @@ class DisneyPlugin : public Material {
     }
 
     // VNDF PDF including half-vector Jacobian (PBRT-v4 DielectricBxDF::PDF).
-    float vndfPdf(const Vec3& rec_normal, const Vec3& wo, const Vec3& wm) const {
+    float vndfPdf(const Vec3& rec_normal, const Vec3& wo, const Vec3& wm, float alpha) const {
         float absCosO = std::abs(wo.dot(rec_normal));
         if (absCosO <= 1e-10f) return 0.0f;
         float HdotO = std::abs(wo.dot(wm));
         float NdotH = std::abs(wm.dot(rec_normal));
         if (HdotO <= 1e-10f || NdotH <= 1e-10f) return 0.0f;
 
-        float alpha = std::max(roughness_ * roughness_, 0.0064f);
-        float D = D_GTR2(NdotH, alpha);
+        float D = D_GTR2(NdotH, alpha);  // pkg329: alpha = shadeAlpha(rec) from the caller
         float G1 = smithG1_GGX(absCosO, alpha);
         // PBRT-v4: VNDF PDF = D(wo, wm) = G1(wo) / absCosO * D(wm) * absDot(wo, wm)
         return G1 / absCosO * D * HdotO;
@@ -541,7 +553,7 @@ class DisneyPlugin : public Material {
         float etaI = entering ? 1.0f : ior_;
         float etaT = entering ? ior_ : 1.0f;
         float F = fresnelDielectric(std::abs(HdotO), etaI, etaT);
-        return transmission_ * (1.0f - F) * vndfPdf(rec.normal, wo, wm) * dwm_dwi;
+        return transmission_ * (1.0f - F) * vndfPdf(rec.normal, wo, wm, shadeAlpha(rec)) * dwm_dwi;
     }
 
 public:
@@ -662,7 +674,7 @@ public:
         Vec3 N = rec.normal;
         float NdotL = N.dot(wi);
         float NdotV = N.dot(wo);
-        if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness && NdotL * NdotV < 0.0f) {
+        if (transmission_ > 0.0f && roughGlass(rec) && NdotL * NdotV < 0.0f) {
             // pkg265 Phase 10 (lead decision on PR #778, 2026-09-09): the rough
             // glass lobe is the Heitz-2016 multiple-scattering walk (sample()), so
             // eval() is the paper's own STOCHASTIC EVALUATION of that BSDF (§8.1,
@@ -723,7 +735,7 @@ public:
         // are independent and both required.
         Vec3 diffuse = (1 / float(M_PI)) * Cdlin * FdMixed * diffuseFurnaceScale(roughness_, NdotV);
 
-        float a = std::max(roughness_ * roughness_, 0.0064f);
+        float a = shadeAlpha(rec);
         float Ds = D_GTR2(NdotH, a);
         float schlickScale = 0.8f + 0.2f * metallic_;
         Vec3 F = fresnelSchlick(LdotH, F0, schlickScale);
@@ -743,7 +755,7 @@ public:
         // roughTransmissionEval's own scale (metallic materials don't
         // transmit). Smooth glass (roughness_<=kDeltaTransmissionRoughness)
         // is unaffected -- boundary preserved per spec.
-        if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {
+        if (transmission_ > 0.0f && roughGlass(rec)) {
             // pkg265: the walk covers the dielectric REFLECTION lobe too
             // (ds.walkReflected), so the single-scatter roughReflectionEval blend is
             // dropped here and the stochastic Eq-42 estimate is added to `result`
@@ -854,7 +866,7 @@ public:
         // stochastic Eq-42 estimate as the transmission branch above (tint = white,
         // matching sample()'s `tint = w.reflected ? Vec3(1) : baseColor_`). Added
         // after the `* NdotL` because stochasticEvalHashed already returns f·|cos wi|.
-        if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {
+        if (transmission_ > 0.0f && roughGlass(rec)) {
             float sWalk = glassWalkScalar(rec, wo, wi);
             if (sWalk > 0.0f) {
                 float scale = (1.0f - metallic_) * transmission_ * sWalk;
@@ -926,7 +938,7 @@ public:
             f0 = f0 * f0;
             float fresnel = f0 + (1 - f0) * std::pow(1 - cosTheta, 5);
 
-            if (roughness_ > kDeltaTransmissionRoughness) {
+            if (roughGlass(rec)) {
                 // pkg265 (PR #778 review 2): unlike the native Principled material,
                 // the Disney glass lobe has NO thin-film / iridescence path (no
                 // filmActive / thin_film_thickness socket anywhere in this file), so
@@ -946,7 +958,7 @@ public:
                 // numpy oracle, research note §Divergence). f/pdf is set directly to
                 // the lobe throughput (1-metallic)*tint*radiance, so no eval() call
                 // and no smooth-mirror fallback are needed.
-                float alpha = std::max(roughness_ * roughness_, 0.0064f);
+                float alpha = shadeAlpha(rec);
                 Vec3 woL(wo.dot(rec.tangent), wo.dot(rec.bitangent), wo.dot(n));
                 auto rng = [&]() { return dist(gen); };
                 astroray::msdiel::WalkSample w = astroray::msdiel::sampleWalk(
@@ -1030,7 +1042,7 @@ public:
             // VNDF sampler is only paired with a matching VNDF pdf on the
             // transmission path — using it here against the NDF pdf was a
             // sample/pdf mismatch that darkened disney metal/specular reflection.
-            float a = std::max(roughness_ * roughness_, 0.0064f);
+            float a = shadeAlpha(rec);
             float r1 = dist(gen), r2 = dist(gen);
             float phi = 2.0f * float(M_PI) * r1;
             float cosTheta = std::sqrt((1.0f - r2) / (1.0f + (a * a - 1.0f) * r2));
@@ -1099,7 +1111,7 @@ public:
         float p = 0;
         if (diffWeight > 0) p += (rec.normal.dot(wi) / float(M_PI)) * (diffWeight / total) * mixScale;
         if (specWeight > 0) {
-            float a = std::max(roughness_ * roughness_, 0.0064f);
+            float a = shadeAlpha(rec);
             float NdotH = rec.normal.dot(H);
             float HdotV = H.dot(wo);
             if (NdotH > 0.0f && HdotV > 0.0f) {
@@ -1109,7 +1121,7 @@ public:
                 p += (D * NdotH / (4.0f * HdotV)) * (specWeight / total) * mixScale;
             }
         }
-        if (transmission_ > 0.0f && roughness_ > kDeltaTransmissionRoughness) {
+        if (transmission_ > 0.0f && roughGlass(rec)) {
             // pkg265: the glass lobe is sampled by the Heitz-2016 walk; add its §9
             // MIS pdf (closed-form first-bounce VNDF density + a small diffuse floor,
             // always > 0) for BOTH the reflected and transmitted directions, exactly
@@ -1120,7 +1132,7 @@ public:
             if (wo.dot(ng) < 0.0f) ng = -ng;
             Vec3 woL(wo.dot(rec.tangent), wo.dot(rec.bitangent), wo.dot(ng));
             Vec3 wiLocal(wi.dot(rec.tangent), wi.dot(rec.bitangent), wi.dot(ng));
-            float alpha = std::max(roughness_ * roughness_, 0.0064f);
+            float alpha = shadeAlpha(rec);
             p += transmission_ * astroray::msdiel::firstBouncePdf(
                                      woL, wiLocal, alpha, ior_, rec.frontFace);
         }

@@ -174,6 +174,33 @@ HD inline bool caustic_gated_delta(unsigned char gate, bool singular, bool trans
     return (gate & (transmitted ? CAUSTIC_GATE_REFRACT : CAUSTIC_GATE_REFLECT)) != 0u;
 }
 
+// pkg329 — Cycles Filter Glossy (Blender v5.2.0, intern/cycles, Apache-2.0):
+//   scene/integrator.cpp:269       kernel filter_glossy = 1 / blur_glossy (FLT_MAX when 0 = off;
+//                                  here 0 = off, so a zero kernel never blurs)
+//   kernel/integrator/path_state.h:62        min_ray_pdf = FLT_MAX at path start
+//   kernel/integrator/shade_surface.h:608-612 min_ray_pdf = fminf(unguided_bsdf_pdf, min_ray_pdf)
+//                                  after every non-transparent scatter (shade_volume.h:2668:
+//                                  the phase pdf after a volume scatter)
+//   kernel/integrator/surface_shader.h:189-213 at the next surface: blur_pdf = filter_glossy *
+//                                  min_ray_pdf; if < 1, blur_roughness = sqrt(1 - blur_pdf) / 2
+//   kernel/closure/bsdf_microfacet.h:1095-1101 alpha_{x,y} = max(blur_roughness, alpha_{x,y})
+// The camera ray keeps FLT_MAX, so camera-direct surfaces are never blurred.
+HD inline float filter_glossy_kernel(float blurGlossy) {
+    return blurGlossy > 0.0f ? 1.0f / blurGlossy : 0.0f;
+}
+// The GGX alpha floor (Cycles blur_roughness) at a surface; 0 = no blur.
+HD inline float filter_glossy_alpha_floor(float filterKernel, float minRayPdf) {
+    const float blurPdf = filterKernel * minRayPdf;
+    if (filterKernel == 0.0f || !(blurPdf < 1.0f)) return 0.0f;
+    return sqrtf(1.0f - blurPdf) * 0.5f;
+}
+// The scatter pdf min_ray_pdf takes. Cycles' singular closures report pdf (and eval)
+// x 1e6 (bsdf_microfacet.h:876-879, the reflection-only singular sample :1345-1348),
+// where Astroray's delta samples carry only the selection probability.
+HD inline float filter_glossy_ray_pdf(float pdf, bool singular) {
+    return singular ? pdf * 1e6f : pdf;
+}
+
 // Cycles' LABEL_TRANSPARENT: the straight-through delta sample (wi == -wo) of a
 // material that carries a transparent lobe (Principled Alpha < 1, which is how a
 // Transparent BSDF child is exported). `hasTransparentLobe` keeps a dielectric's

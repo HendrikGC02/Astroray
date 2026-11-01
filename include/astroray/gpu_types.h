@@ -538,6 +538,7 @@ struct GPrincipledClosure {
     // in its by-value GMaterial copy (gpu_closure_as_material `GMaterial tmp = parent`)
     // — the same STACK-leak class PR-3 documented. So both PR-4 params ride ONE float.
     // Encoding: thin_wall=false → -8 sentinel; thin_wall=true → subsurface_anisotropy.
+    // #1200: thin_wall=false on a Glass BSDF (MaterialClosure::glassBsdf) → -16.
     // Decode via gpu_pr_thinWall / gpu_pr_subsurfaceAniso (gpu_materials.h). Filled by
     // scene_upload.cu from MaterialClosure::{thinWall,subsurfaceAnisotropy}.
     float thinWallAniso = -8.f;
@@ -1184,6 +1185,11 @@ struct GHitRecord {
     // read only while a toggle is off (stage_advance_device.cuh gpu_causticGated), so it has
     // no initializer: the default path stores nothing.
     unsigned char causticGate;
+    // pkg329: Cycles Filter Glossy GGX alpha floor at this vertex (CPU twin
+    // HitRecord::glossyAlphaFloor; lightpath::filter_glossy_alpha_floor of the path's
+    // min_ray_pdf). Set by the wavefront shade stage only while Filter Glossy is on
+    // (c_wfFilterGlossy != 0); 0 = no blur, which every alpha site returns unchanged.
+    float glossyAlphaFloor = 0.f;
 };
 
 // ---------------------------------------------------------------------------

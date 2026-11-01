@@ -179,6 +179,13 @@ struct GPUWavefrontState {
     // off; both-on (default) never touches it, so fleet renders stay byte-identical.
     int*      ray_vis_diffuse = nullptr;
 
+    // pkg329 - Cycles Filter Glossy min_ray_pdf of the path (path_state.h:62 FLT_MAX at the
+    // camera ray; the min of every non-transparent scatter pdf, shade_surface.h:608-612, and
+    // of the phase pdf at a volume scatter, shade_volume.h:2668). The shade stage turns it into
+    // GHitRecord::glossyAlphaFloor. Read / written ONLY while c_wfFilterGlossy != 0
+    // (setWavefrontFilterGlossy); off (the engine default) never touches it.
+    float*    min_ray_pdf = nullptr;
+
     // #991 — Light Path state of the ray in flight (astroray/light_path.h
     // pack_state: label flags of the bounce that produced it + diffuse/glossy/
     // transmission depths). Reset to kInitialState (camera) at initPathSlot;
@@ -640,6 +647,12 @@ void setWavefrontDielectricCapPass(bool on);
 // 1=allow, 0=cull). Call ONCE per frame in cuda_wavefront_render. Both-allow (the
 // default) makes shadePathSlot skip the whole caustic-cull block → byte-identical.
 void setWavefrontCausticGate(bool reflective, bool refractive);
+
+// pkg329 - publish Cycles Filter Glossy (Renderer::getFilterGlossy, scene.cycles.blur_glossy)
+// into the __constant__ c_wfFilterGlossy as the kernel value 1/blur_glossy (0 = off,
+// lightpath::filter_glossy_kernel). Call ONCE per frame in cuda_wavefront_render. Off keeps
+// every min_ray_pdf access out of the init / shade / volume kernels.
+void setWavefrontFilterGlossy(float blurGlossy);
 
 // pkg224 — publish the progressive (hash-Owen Sobol') sampler opt-in into the
 // __constant__ c_wfSamplerMode read by WavefrontRNG::Uniform() (shade + init

@@ -11757,7 +11757,7 @@
       }
     }
   },
-  "created": "2026-11-01T16:03:32+00:00",
+  "created": "2026-11-01T18:29:18+00:00",
   "evidence": {
     "audit": {
       "results": {
@@ -11775,7 +11775,7 @@
   "input_path": "docs/blender_parity/coverage_input_v5_candidate_v2.json",
   "matrix": {
     "path": "docs\\blender_parity\\coverage_matrix.json",
-    "sha256": "efba6169d7dee1cdfb7951caae0cb7f2fc3ae77440fd79004637febd129960e9"
+    "sha256": "98432fbb36db41602dbb403def946f974d17324de698bafa70c95d3b213d3076"
   },
   "population": {
     "expected_scene_ids": [

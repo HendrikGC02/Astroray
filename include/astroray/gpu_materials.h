@@ -1692,11 +1692,12 @@ __device__ inline GVec3 gpu_pr_glassF0Tint(const GPrincipledClosure& c) {
 __device__ inline GVec3 gpu_pr_glassReflTint(const GPrincipledClosure& c) {
     return gpu_pr_glassBsdf(c) ? c.specularTint : GVec3(1.f);
 }
-// Tinted Principled glass colour (ggxglass::schlickGlassTint per channel). Out of line with
-// value args (the pkg224 pattern): the register-saturated shade kernels pay only a not-taken call.
-__device__ __noinline__ inline GVec3 gpu_pr_schlickGlassTint(GVec3 tint, GVec3 color, float ior,
-                                                             float F, bool transmit) {
-    GVec3 tt = gpu_pr_sqrtColor(color);
+// Tinted Principled glass colour (ggxglass::schlickGlassTint per channel). `tt` is the
+// constant transmit tint sqrt(base) (ignored when !transmit). Force-inlined on purpose: as a
+// __noinline__ call it made every shade kernel and the ReSTIR resolve eval save their live
+// registers around the call (+720..848 B STACK, resolve REG 166 -> 177, tinted glass 1.13x).
+__device__ __forceinline__ GVec3 gpu_pr_schlickGlassTint(const GVec3& tint, const GVec3& tt,
+                                                         float ior, float F, bool transmit) {
     float F0 = gpu_pr_F0_from_ior(ior);
     return GVec3(astroray::ggxglass::schlickGlassTint(tint.x, tt.x, F0, F, transmit),
                  astroray::ggxglass::schlickGlassTint(tint.y, tt.y, F0, F, transmit),
@@ -1709,10 +1710,11 @@ __device__ inline bool gpu_pr_glassTintVaries(const GPrincipledClosure& c) {
            !(c.specularTint.x == 1.f && c.specularTint.y == 1.f && c.specularTint.z == 1.f);
 }
 // Non-film glass colour relative to the plain dielectric F: R / F or T / (1 - F).
-__device__ inline GVec3 gpu_pr_glassTint(const GPrincipledClosure& c, bool transmit, float F,
-                                         float ior) {
-    if (!gpu_pr_glassTintVaries(c)) return transmit ? gpu_pr_sqrtColor(c.color) : c.specularTint;
-    return gpu_pr_schlickGlassTint(c.specularTint, c.color, ior, F, transmit);
+__device__ __forceinline__ GVec3 gpu_pr_glassTint(const GPrincipledClosure& c, bool transmit,
+                                                  float F, float ior) {
+    GVec3 tint = transmit ? gpu_pr_sqrtColor(c.color) : c.specularTint;
+    if (gpu_pr_glassTintVaries(c)) tint = gpu_pr_schlickGlassTint(c.specularTint, tint, ior, F, transmit);
+    return tint;
 }
 // Kulla-Conty roughened alpha for the mirrored-transmission lobe (the slide's 3.7
 // is a typo for 3.4; Cycles bsdf_thin_glass_transmission_roughness :1307). `alpha`
@@ -3815,7 +3817,7 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
                     ? gpu_cauchy_ior(mat.dispersion.b1, mat.dispersion.b2, wl.lambda[0]) : c.ior;
                 float F = rec.frontFace ? gpu_pr_fresnelDielectric(fabsf(wo.dot(rec.normal)), 1.f, ior)
                                         : gpu_pr_fresnelDielectric(fabsf(wo.dot(rec.normal)), ior, 1.f);
-                tint = gpu_pr_schlickGlassTint(c.specularTint, c.color, ior, F, refract);
+                tint = gpu_pr_schlickGlassTint(c.specularTint, tint, ior, F, refract);
             }
             s.fSpectral = gpu_pr_deltaGlassFSpectral(tint, s.f, lambdas);
             return s;

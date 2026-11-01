@@ -119,7 +119,7 @@ PKG328_ROWS = {
     ("ShaderNodeOutputMaterial", "input:Thickness"): ("SUPPORTED", "Cycles ignores it too; probe o_thickness"),
     ("ShaderNodeTexEnvironment", "input:Vector"): ("APPROXIMATED", "probe credit; probe env_vector"),
     ("ShaderNodeMapRange", "prop:clamp"): ("SUPPORTED", "scanner credit + op-VM fix; probes mr_clamp_*"),
-    ("ShaderNodeTexImage", "prop:interpolation"): ("SUPPORTED", "honoured since pkg234 (#1215); probe img_interp"),
+    ("ShaderNodeTexImage", "prop:interpolation"): ("APPROXIMATED", "honoured since pkg234 (#1215), 8-bit sRGB filtered linear-space; probe img_interp"),
     ("ShaderNodeBsdfPrincipled", "input:Coat Normal"): ("DROPPED-SILENT", "reported drop #1130; probe n_principled_coat"),
 }
 

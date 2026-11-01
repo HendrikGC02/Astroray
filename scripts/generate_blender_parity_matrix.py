@@ -3140,8 +3140,9 @@ PKG321_PROBE_CREDITS = {
     # env lookup; Mapping Location / Scale are reported as dropped), so it is approximated, not exact.
     ('ShaderNodeTexEnvironment', 'input:Vector'): ('env_vector', 'APPROXIMATED'),
     # pkg234 (#1215): every Image Texture Interpolation (Closest / Linear / Cubic / Smart) is honoured per texture on CPU and
-    # GPU; the probe moves Astroray's render. (8-bit sRGB images are still filtered linear-space, not Cycles' encoded order.)
-    ('ShaderNodeTexImage', 'prop:interpolation'): ('img_interp', 'SUPPORTED'),
+    # GPU and the probe moves Astroray's render, but 8-bit sRGB images are still filtered in linear space, not Cycles'
+    # encoded-then-decoded order (owner Phase 2 decision), so the row is APPROXIMATED, not SUPPORTED.
+    ('ShaderNodeTexImage', 'prop:interpolation'): ('img_interp', 'APPROXIMATED'),
 }
 # pkg328: Cycles ignores these too -- the Cycles leg of the probe (PKG328_ENGINE=CYCLES) renders bit-identically for
 # A and B, and so does Astroray, so the socket is faithfully "consumed as nothing". Evidence: docs/blender_parity/

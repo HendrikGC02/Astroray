@@ -12,8 +12,8 @@
 
 ## Summary
 
-- **SUPPORTED**: 332 features
-- **APPROXIMATED**: 102 features
+- **SUPPORTED**: 331 features
+- **APPROXIMATED**: 103 features
 - **DROPPED-SILENT**: 303 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 737 features
@@ -873,7 +873,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_IES | prop:mode | DROPPED-SILENT | property ENUM |
 | TEX_IMAGE | input:Vector | APPROXIMATED | op-VM / vector-input path (pkg219/pkg223) |
 | TEX_IMAGE | prop:extension | DROPPED-SILENT | property ENUM |
-| TEX_IMAGE | prop:interpolation | SUPPORTED | pkg321 probe `img_interp` moves the CPU render (consumed) |
+| TEX_IMAGE | prop:interpolation | APPROXIMATED | pkg321 probe `img_interp` moves the CPU render (consumed) |
 | TEX_IMAGE | prop:projection | DROPPED-SILENT | property ENUM |
 | TEX_IMAGE | prop:projection_blend | DROPPED-SILENT | property FLOAT |
 | TEX_MAGIC | input:Vector | SUPPORTED |  |

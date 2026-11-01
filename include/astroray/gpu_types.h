@@ -1061,6 +1061,19 @@ HD inline GVec3 gpu_sampleImageTextureLinear(const GImageTexture& tex,
 // bilinear fetches, equal in exact arithmetic. This is the 16-tap CPU form so the extension
 // handling is shared: each tap centre goes through the raw Closest fetch (the #1004 scheme).
 // One helper for CPU ImageTexture::valueCubic and the GPU sampler (identical math).
+// Per-index forms of the same formulas: the GPU sampler loops over them with no tap arrays, so
+// the out-of-line wf_sampleImageFiltered frame stays small (the shadow kernels reach it through the
+// textured-emitter path; a 16-tap unrolled body lifted their REG/STACK). gpu_imageCubicTaps below
+// is built from them, so the CPU and GPU weights are the same expressions.
+HD inline float gpu_imageCubicWeight(int i, float f) {
+    return i == 0 ? (((-1.0f / 6.0f) * f + 0.5f) * f - 0.5f) * f + (1.0f / 6.0f)
+         : i == 1 ? ((0.5f * f - 1.0f) * f) * f + (2.0f / 3.0f)
+         : i == 2 ? ((-0.5f * f + 0.5f) * f + 0.5f) * f + (1.0f / 6.0f)
+                  : (1.0f / 6.0f) * f * f * f;
+}
+HD inline float gpu_imageCubicTapCoord(int i, float floorPos, int extent) {
+    return (floorPos + (float)(i - 1) + 0.5f) / (float)extent;
+}
 struct GImageCubicTaps { float u[4], v[4], wx[4], wy[4]; };
 HD inline GImageCubicTaps gpu_imageCubicTaps(int w, int h, float u, float v) {
     GImageCubicTaps t;
@@ -1068,30 +1081,30 @@ HD inline GImageCubicTaps gpu_imageCubicTaps(int w, int h, float u, float v) {
     const float x0 = floorf(x), y0 = floorf(y);
     const float fx = x - x0, fy = y - y0;
     for (int i = 0; i < 4; ++i) {
-        t.u[i] = (x0 + (float)(i - 1) + 0.5f) / (float)w;
-        t.v[i] = (y0 + (float)(i - 1) + 0.5f) / (float)h;
+        t.u[i] = gpu_imageCubicTapCoord(i, x0, w);
+        t.v[i] = gpu_imageCubicTapCoord(i, y0, h);
+        t.wx[i] = gpu_imageCubicWeight(i, fx);
+        t.wy[i] = gpu_imageCubicWeight(i, fy);
     }
-    t.wx[0] = (((-1.0f / 6.0f) * fx + 0.5f) * fx - 0.5f) * fx + (1.0f / 6.0f);
-    t.wx[1] = ((0.5f * fx - 1.0f) * fx) * fx + (2.0f / 3.0f);
-    t.wx[2] = ((-0.5f * fx + 0.5f) * fx + 0.5f) * fx + (1.0f / 6.0f);
-    t.wx[3] = (1.0f / 6.0f) * fx * fx * fx;
-    t.wy[0] = (((-1.0f / 6.0f) * fy + 0.5f) * fy - 0.5f) * fy + (1.0f / 6.0f);
-    t.wy[1] = ((0.5f * fy - 1.0f) * fy) * fy + (2.0f / 3.0f);
-    t.wy[2] = ((-0.5f * fy + 0.5f) * fy + 0.5f) * fy + (1.0f / 6.0f);
-    t.wy[3] = (1.0f / 6.0f) * fy * fy * fy;
     return t;
 }
 
 HD inline GVec3 gpu_sampleImageTextureCubic(const GImageTexture& tex,
                                             const GVec3* texels,
                                             float u, float v) {
-    const GImageCubicTaps t = gpu_imageCubicTaps(tex.width, tex.height, u, v);
+    const float x = u * (float)tex.width - 0.5f, y = v * (float)tex.height - 0.5f;
+    const float x0 = floorf(x), y0 = floorf(y);
+    const float fx = x - x0, fy = y - y0;
     GVec3 sum(0.f, 0.f, 0.f);
+#pragma unroll 1
     for (int j = 0; j < 4; ++j) {
+        const float tv = gpu_imageCubicTapCoord(j, y0, tex.height);
         GVec3 row(0.f, 0.f, 0.f);
+#pragma unroll 1
         for (int i = 0; i < 4; ++i)
-            row += gpu_sampleImageTextureClosest(tex, texels, t.u[i], t.v[j]) * t.wx[i];
-        sum += row * t.wy[j];
+            row += gpu_sampleImageTextureClosest(tex, texels, gpu_imageCubicTapCoord(i, x0, tex.width), tv)
+                   * gpu_imageCubicWeight(i, fx);
+        sum += row * gpu_imageCubicWeight(j, fy);
     }
     return sum;
 }

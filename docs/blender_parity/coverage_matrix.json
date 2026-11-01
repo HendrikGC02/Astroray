@@ -3991,7 +3991,7 @@
     "feature": "TEX_IMAGE",
     "bl_idname": "ShaderNodeTexImage",
     "socket_or_prop": "prop:interpolation",
-    "classification": "SUPPORTED",
+    "classification": "APPROXIMATED",
     "notes": "pkg321 probe `img_interp` moves the CPU render (consumed)"
   },
   {

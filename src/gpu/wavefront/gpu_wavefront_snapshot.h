@@ -270,6 +270,12 @@ int cuda_wavefront_last_grid_uploads();
 // scene (no buildSceneArrays, no scene upload, no OptiX accel rebuild).
 // Surfaced as last_render_info()["gpu_scene_reused"].
 int cuda_wavefront_last_scene_reused();
+// #1239: procedural-bake cache activity of the most recent cuda_wavefront_render's scene
+// decision (all zero for a cache-served render): bakes served from the cache / evaluated,
+// wall ms inside the bake producer, host MB the cache holds, and 1 when a material-domain
+// update kept the device texel buffer. Surfaced as last_render_info()["gpu_bake_*"].
+void cuda_wavefront_last_bake_stats(int* hits, int* misses, double* ms, size_t* cacheBytes,
+                                    int* texelsReused);
 // pkg291 (#875): 1 when the last cuda_wavefront_render patched an in-place
 // object move into the cached device scene instead of re-flattening it.
 int cuda_wavefront_last_scene_patched();

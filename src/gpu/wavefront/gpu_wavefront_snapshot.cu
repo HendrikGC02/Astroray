@@ -1118,6 +1118,28 @@ T* wfSync(bool reuse, WfDeviceBuf& b, const std::vector<T>& src) {
     return b.count ? reinterpret_cast<T*>(b.ptr) : nullptr;
 }
 
+// #1239: upload the texel buffer from the scene's blocks (copied block by block to its
+// offset; nothing is concatenated on the host). `reuse`, or a material-domain update
+// whose blocks equal the device's (res.texelsReused), keeps the device buffer.
+GVec3* wfSyncTexels(bool reuse, WfDeviceBuf& b, const SceneUploadResult& res) {
+    if (reuse || res.texelsReused) return b.count ? reinterpret_cast<GVec3*>(b.ptr) : nullptr;
+    b.count = res.texelCount;
+    if (res.texelCount == 0) return nullptr;
+    GVec3* p = wfEnsure<GVec3>(b, res.texelCount);
+    size_t at = 0;
+    for (const TexelBlock& blk : res.texelBlocks) {
+        if (blk.count == 0) continue;
+        if (!blk.data || blk.data->size() != blk.count)
+            throw std::runtime_error("texel block has no data to upload");
+        cudaError_t e = cudaMemcpy(p + at, blk.data->data(), blk.count * sizeof(GVec3),
+                                   cudaMemcpyHostToDevice);
+        if (e != cudaSuccess)
+            throw std::runtime_error(cudaGetErrorString(e));
+        at += blk.count;
+    }
+    return p;
+}
+
 struct WfContext {
     // Scene slices.
     WfDeviceBuf nodes, prims, tris, spheres, materials, lights;
@@ -1280,7 +1302,17 @@ int cuda_wavefront_last_grid_uploads() { return s_lastGridUploads; }
 // #981: 1 when the last cuda_wavefront_render served the device scene (and OptiX
 // accel) from the cache, 0 when it re-flattened and re-uploaded.
 static int s_lastSceneReused = 0;
+static BakeStats s_lastBakeStats;     // #1239
+static int s_lastTexelsReused = 0;
 int cuda_wavefront_last_scene_reused() { return s_lastSceneReused; }
+void cuda_wavefront_last_bake_stats(int* hits, int* misses, double* ms, size_t* cacheBytes,
+                                    int* texelsReused) {
+    *hits = s_lastBakeStats.hits;
+    *misses = s_lastBakeStats.misses;
+    *ms = s_lastBakeStats.bakeMs;
+    *cacheBytes = s_lastBakeStats.cacheBytes;
+    *texelsReused = s_lastTexelsReused;
+}
 static int s_lastScenePatched = 0;  // pkg291
 static int s_lastInstanceUpdate = 0;  // #1001
 int cuda_wavefront_last_instance_update() { return s_lastInstanceUpdate; }
@@ -1874,6 +1906,7 @@ std::vector<float> cuda_wavefront_render(
     // accel stay on the device. Anything the guards cannot prove material-only
     // (or a scene version bump alongside) takes the full path below.
     bool materialUpdated = false;
+    resetBakeStats();   // #1239: bake diagnostics of this render's scene decision
     if (C.materialsInvalidated.exchange(false)) {
         std::vector<MaterialSwap> swaps;   // the rebinds this owner reported since the last render
         {
@@ -1978,7 +2011,9 @@ std::vector<float> cuda_wavefront_render(
     // binding (setWavefrontTextureBinding) — NOT threaded through the per-launch
     // signature — so the untextured fleet kernel keeps its pre-pkg186 footprint.
     GImageTexture* d_textures  = wfSync(matReuse, C.textures, res.textures);
-    GVec3*         d_texelBuf  = wfSync(matReuse, C.textureTexels, res.textureTexels);
+    s_lastBakeStats = bakeStats();   // #1239: this render's builds (reset before the decision)
+    s_lastTexelsReused = res.texelsReused ? 1 : 0;
+    GVec3*         d_texelBuf  = wfSyncTexels(matReuse, C.textureTexels, res);
     int*           d_matTexId  = wfSync(matReuse, C.materialTextureId, res.materialTextureId);
     GVec3*         d_triGen    = wfSync(reuse, C.triGenerated, res.triGenerated);  // #847
     GVec3*         d_triObj    = wfSync(reuse, C.triObjectLocal, res.triObjectLocal);  // #1006
@@ -2382,7 +2417,7 @@ std::vector<float> cuda_wavefront_render(
         release(res.nodes); release(res.prims); release(res.triangles);
         release(res.spheres); release(res.curveSegments); release(res.tlas);
         release(res.instances); release(res.blas); release(res.motionVertices);
-        release(res.textures); release(res.textureTexels); release(res.triGenerated);
+        release(res.textures); releaseTexelData(res); release(res.triGenerated);
         release(res.triObjectLocal);
         release(res.envData); release(res.envCondCdf); release(res.envCondFunc);
         release(res.envMargCdf); release(res.envMargFunc);
@@ -2401,7 +2436,7 @@ std::vector<float> cuda_wavefront_render(
     if (materialUpdated) {
         // pkg315: as the full upload does, drop the bulk texel arrays once on the device.
         res.textures.clear(); res.textures.shrink_to_fit();
-        res.textureTexels.clear(); res.textureTexels.shrink_to_fit();
+        releaseTexelData(res);   // #1239
         C.sceneCached = true;   // every material-domain upload succeeded
     }
     if (astroray::gpu_profile::enabled()) {

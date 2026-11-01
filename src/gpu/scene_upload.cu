@@ -34,6 +34,9 @@
 #include <string>    // pkg242 — procedural-bake dedup key
 #include <cstdint>   // pkg242 — uintptr_t for the transform-aware bake key
 #include <thread>    // #1229 — parallel UV procedural bake
+#include <mutex>     // #1239 — bake cache
+#include <atomic>
+#include <chrono>
 
 #define CUDA_CHECK(call) do {                                               \
     cudaError_t _e = (call);                                                \
@@ -858,6 +861,161 @@ SceneUploadResult buildTlasOnly(const Renderer& cpu) {
 }
 
 // ---------------------------------------------------------------------------
+// #1239 - procedural-bake cache that outlives one scene build.
+//
+// A UV bake is 1M CPU evaluations (~50-100 ms for Noise / Wave / warped cards, #1229),
+// and any material edit re-runs the whole producer. The bake of a texture is a pure
+// function of (the texture's state, its Mapping / UV transform, coordinate mode and
+// resolution, plus the flat-axis / object-box facts already in procBakeKey), so the
+// texels are kept across builds keyed on exactly that. Texture identity is the
+// process-unique Texture::uid + the mutation counter of the texture and of every child
+// it reads (Texture::appendContentKey), never a raw pointer (a freed texture's address
+// is reused) and never a Python id().
+//
+//  * Threads: one mutex guards the map; entries are immutable once inserted (shared_ptr
+//    to const), so concurrent builds (viewport worker + final render) read them freely.
+//    A bake runs outside the lock; if two threads bake the same key the first insert
+//    wins and both use it.
+//  * Memory: LRU bound of kCapBytes (an entry still referenced by a build in flight
+//    survives eviction through its shared_ptr), a newer content version of a texture
+//    drops that texture's older entries, and a full build prunes entries no build in
+//    the last kKeepBuilds touched (their texture is gone or no longer baked).
+// ---------------------------------------------------------------------------
+namespace {
+
+struct BakeEntry {
+    uint64_t id = 0;            // unique per entry: the identity of its TexelBlock
+    uint64_t texUid = 0;        // the baked texture
+    std::string texKey;         // its content key at bake time
+    std::vector<GVec3> texels;
+    static uint64_t nextId() {
+        static std::atomic<uint64_t> c{0};
+        return c.fetch_add(1) + 1;
+    }
+    // Mean of the baked texels (an emitter's flat fallback colour, #962). Lazy: only
+    // emitters ask, and one pass over 1M texels is ~2 ms.
+    Vec3 mean() const {
+        std::call_once(meanOnce_, [this] {
+            double sx = 0.0, sy = 0.0, sz = 0.0;
+            for (const GVec3& t : texels) { sx += t.x; sy += t.y; sz += t.z; }
+            const double n = (double)texels.size();
+            mean_ = n > 0.0 ? Vec3((float)(sx / n), (float)(sy / n), (float)(sz / n)) : Vec3(0.f);
+        });
+        return mean_;
+    }
+private:
+    mutable std::once_flag meanOnce_;
+    mutable Vec3 mean_{0.f};
+};
+
+class BakeCache {
+public:
+    static BakeCache& get() { static BakeCache c; return c; }
+
+    std::shared_ptr<const BakeEntry> find(const std::string& key) {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = map_.find(key);
+        if (it == map_.end()) return nullptr;
+        it->second.tick = ++tick_;
+        it->second.gen = gen_;
+        return it->second.e;
+    }
+
+    // Returns the entry now cached under `key` (an earlier concurrent insert wins).
+    std::shared_ptr<const BakeEntry> insert(const std::string& key, std::shared_ptr<BakeEntry> e) {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = map_.find(key);
+        if (it != map_.end()) {
+            it->second.tick = ++tick_;
+            it->second.gen = gen_;
+            return it->second.e;
+        }
+        // A new content version of a texture supersedes its older entries.
+        for (auto s = map_.begin(); s != map_.end();) {
+            if (s->second.e->texUid == e->texUid && s->second.e->texKey != e->texKey) {
+                bytes_ -= bytesOf(*s->second.e);
+                s = map_.erase(s);
+            } else {
+                ++s;
+            }
+        }
+        bytes_ += bytesOf(*e);
+        auto ins = map_.emplace(key, Slot{std::move(e), ++tick_, gen_}).first;
+        while (bytes_ > kCapBytes && map_.size() > 1) {
+            auto victim = map_.end();
+            for (auto s = map_.begin(); s != map_.end(); ++s)
+                if (s != ins && (victim == map_.end() || s->second.tick < victim->second.tick))
+                    victim = s;
+            if (victim == map_.end()) break;
+            bytes_ -= bytesOf(*victim->second.e);
+            map_.erase(victim);
+        }
+        return ins->second.e;
+    }
+
+    void beginFullBuild() {
+        std::lock_guard<std::mutex> lk(mu_);
+        ++gen_;
+    }
+    // Entries untouched by the last kKeepBuilds full builds belong to textures that left the scene.
+    void endFullBuild() {
+        std::lock_guard<std::mutex> lk(mu_);
+        for (auto s = map_.begin(); s != map_.end();) {
+            if (gen_ - s->second.gen >= kKeepBuilds) {
+                bytes_ -= bytesOf(*s->second.e);
+                s = map_.erase(s);
+            } else {
+                ++s;
+            }
+        }
+    }
+    size_t bytes() {
+        std::lock_guard<std::mutex> lk(mu_);
+        return bytes_;
+    }
+
+private:
+    struct Slot { std::shared_ptr<BakeEntry> e; uint64_t tick; uint64_t gen; };
+    static size_t bytesOf(const BakeEntry& e) { return e.texels.size() * sizeof(GVec3); }
+    static constexpr size_t kCapBytes = (size_t)512 << 20;   // ~40 UV bakes
+    static constexpr uint64_t kKeepBuilds = 4;
+    std::mutex mu_;
+    std::unordered_map<std::string, Slot> map_;
+    uint64_t tick_ = 0, gen_ = 0;
+    size_t bytes_ = 0;
+};
+
+std::atomic<int> g_bakeHits{0};
+std::atomic<int> g_bakeMisses{0};
+std::atomic<long long> g_bakeMicros{0};
+
+// Adds the wall time of one bakeProceduralTexId call to the diagnostics.
+struct BakeTimer {
+    std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+    ~BakeTimer() {
+        g_bakeMicros.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - t0).count(), std::memory_order_relaxed);
+    }
+};
+
+}  // namespace
+
+BakeStats bakeStats() {
+    BakeStats s;
+    s.hits = g_bakeHits.load();
+    s.misses = g_bakeMisses.load();
+    s.bakeMs = (double)g_bakeMicros.load() * 1e-3;
+    s.cacheBytes = BakeCache::get().bytes();
+    return s;
+}
+
+void resetBakeStats() {
+    g_bakeHits = 0;
+    g_bakeMisses = 0;
+    g_bakeMicros = 0;
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point called from cuda_renderer.cu (struct defined in gpu_scene_upload.h)
 // ---------------------------------------------------------------------------
 
@@ -879,10 +1037,14 @@ static void texGeomFlags(const SceneUploadResult& r, bool& gen, bool& obj) {
 //  producer below runs byte-for-byte as in a full build and only the geometry /
 //  light / environment parts (which a material edit cannot change) are skipped.
 //  Returns false when the replay hits something it cannot reproduce without the
-//  geometry (slot order changed, Object-coordinate bake, attribute layer).
+//  geometry (slot order changed, Generated / Object-coordinate bake, attribute layer).
+//  cachedBlocks (replay only): the texel blocks of the scene on the device; when the
+//  replay produces the same blocks the texel upload is skipped (#1239).
 static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUploadResult& r,
-                                 const std::vector<std::shared_ptr<Material>>* replayRoots) {
+                                 const std::vector<std::shared_ptr<Material>>* replayRoots,
+                                 const std::vector<TexelBlock>* cachedBlocks = nullptr) {
     bool replayBail = false;
+    if (!replayRoots) BakeCache::get().beginFullBuild();   // #1239
 
     // --- Camera (optional in pkg56 Phase B; the per-domain materials /
     // lights / environment uploaders pass nullptr because they don't need
@@ -940,6 +1102,38 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
     // are uploaded once per ImageTexture* and shared by its descriptors.
     std::unordered_map<std::string, int> texIdx;
     std::unordered_map<Texture*, int> texelOffset;
+    // #1239 - the flat texel buffer as blocks (image / bake / attribute layer) in buffer
+    // order. A full build fills every block's data; a material-domain replay fills a
+    // block only when it differs from the device's (cachedBlocks), and the texels are
+    // not concatenated on the host either way: the upload copies block by block.
+    struct PendingBlock {
+        TexelBlock blk;
+        const ImageTexture* img = nullptr;   // lazy image conversion (replay only)
+    };
+    std::vector<PendingBlock> texelBlocks;
+    size_t texelCursor = 0;
+    // texId -> the bake behind it (emitter mean, see the #962 block below)
+    std::unordered_map<int, std::shared_ptr<const BakeEntry>> bakeEntryOf;
+    auto convertImage = [](const ImageTexture* img) {
+        auto v = std::make_shared<std::vector<GVec3>>();
+        const std::vector<Vec3>& px = img->getData();
+        v->reserve(px.size());
+        for (const Vec3& c : px) v->push_back(GVec3(c.x, c.y, c.z));
+        return std::shared_ptr<const std::vector<GVec3>>(std::move(v));
+    };
+    auto addTexelBlock = [&](PendingBlock&& pb) -> int {
+        const int offset = (int)texelCursor;
+        texelCursor += pb.blk.count;
+        texelBlocks.push_back(std::move(pb));
+        return offset;
+    };
+    auto addBakeBlock = [&](const std::shared_ptr<const BakeEntry>& e) -> int {
+        PendingBlock pb;
+        pb.blk.idA = e->id | ((uint64_t)1 << 63);   // bake ids never equal an image uid
+        pb.blk.count = e->texels.size();
+        pb.blk.data = std::shared_ptr<const std::vector<GVec3>>(e, &e->texels);
+        return addTexelBlock(std::move(pb));
+    };
     // pkg219b — op-VM program dedup: one ShaderVMProgram slot per ProgramTexture*.
     std::unordered_map<Texture*, int> progIdx;
     // pkg242 — procedural-bake dedup keyed on (Texture*, Mapping matrix). The
@@ -980,12 +1174,17 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         if (oit != texelOffset.end()) {
             desc.offset = oit->second;
         } else {
-            desc.offset = (int)r.textureTexels.size();
+            PendingBlock pb;
+            pb.blk.idA = img->uid();
+            pb.blk.idB = img->contentVersion();
+            pb.blk.count = img->getData().size();
+            const size_t at = texelBlocks.size();
+            const bool onDevice = replayRoots && cachedBlocks && at < cachedBlocks->size() &&
+                                  pb.blk.sameAs((*cachedBlocks)[at]);
+            if (onDevice) pb.img = img;            // converted later only if some block differs
+            else pb.blk.data = convertImage(img);
+            desc.offset = addTexelBlock(std::move(pb));
             texelOffset[img] = desc.offset;
-            const std::vector<Vec3>& px = img->getData();
-            r.textureTexels.reserve(r.textureTexels.size() + px.size());
-            for (const Vec3& c : px)
-                r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
         }
         desc.width  = img->getWidth();
         desc.height = img->getHeight();
@@ -1031,10 +1230,15 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
     std::unordered_map<const Material*, GenFlatInfo> matGenBox;
     const GenFlatInfo* curGenBox = nullptr;
     auto bakeProceduralTexId = [&](Texture* tex) -> int {
+        BakeTimer bakeTimer;   // #1239 diagnostics
         Texture* key = tex;
         const Texture::CoordMode cmode = tex->getCoordMode();
         // pkg315: an Object-coordinate bake needs the geometry's world bbox.
         if (replayRoots && cmode == Texture::CoordMode::Object) { replayBail = true; return -1; }
+        // #1239: so does a Generated bake's flat-axis slice (#1085): the replay skips the
+        // geometry walk that finds the flat axes, and a 64^3 cube there would not match
+        // the full build's slice. A Generated procedural takes the full re-flatten.
+        if (replayRoots && cmode == Texture::CoordMode::Generated) { replayBail = true; return -1; }
         const bool uvMode  = cmode == Texture::CoordMode::UV;
         // #994: OBJECT coords (CPU: the world hit point, advanced_features.h
         // CoordMode::Object) bake as a 3D voxel over the using geometry's world
@@ -1127,58 +1331,26 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         // on every hardware thread (the CPU evaluators are const and already run
         // under the OpenMP render loop). Every UV consumer of the bake shares it.
         const int uvRes = 1024;
+        // The descriptor depends only on the bake domain; the texels are shared with
+        // the cross-render bake cache (#1239) and appended as one block below.
         GImageTexture desc;
-        desc.offset = (int)r.textureTexels.size();
         desc.width  = res;
         desc.height = res;
+        Vec3 oGmin(0.f), oGsize(0.f);   // objMode: the (slab-padded) world bbox
         if (uvMode) {
             desc.width = desc.height = uvRes;
             desc.depth = 1;  // 2D UV field → pkg186 image path verbatim
-            const size_t base = r.textureTexels.size();
-            r.textureTexels.resize(base + (size_t)uvRes * uvRes);
-            GVec3* texels = r.textureTexels.data() + base;
-            auto bakeRows = [&](int j0, int j1) {
-                for (int j = j0; j < j1; ++j) {
-                    float v = 1.0f - (j + 0.5f) / uvRes;
-                    for (int i = 0; i < uvRes; ++i) {
-                        float u = (i + 0.5f) / uvRes;
-                        // #962: full CPU UV-mode chain (Mapping, else legacy UV
-                        // transform) -- Texture::value(HitRecord) with p=(u,v,0).
-                        Vec3 c = tex->valueAtCoord(Vec2(u, v), Vec3(u, v, 0.0f));
-                        texels[(size_t)j * uvRes + i] = GVec3(c.x, c.y, c.z);
-                    }
-                }
-            };
-            const int nThreads = (int)std::max(1u, std::min(32u, std::thread::hardware_concurrency()));
-            std::vector<std::thread> pool;
-            for (int t = 1; t < nThreads; ++t)
-                pool.emplace_back(bakeRows, uvRes * t / nThreads, uvRes * (t + 1) / nThreads);
-            bakeRows(0, uvRes / nThreads);
-            for (std::thread& th : pool) th.join();
         } else if (objMode) {
             desc.depth = res;
             desc.objectCoord = 1;
-            Vec3 gmin = curObjBox->min, gsize = curObjBox->max - curObjBox->min;
+            oGmin = curObjBox->min;
+            oGsize = curObjBox->max - curObjBox->min;
             // A flat axis (plane) gets a 1e-4 slab so the device frame stays finite.
             for (int a = 0; a < 3; ++a) {
-                if (gsize[a] < 1e-4f) { gmin[a] -= 0.5e-4f; gsize[a] = 1e-4f; }
+                if (oGsize[a] < 1e-4f) { oGmin[a] -= 0.5e-4f; oGsize[a] = 1e-4f; }
             }
-            desc.genMin  = GVec3(gmin.x,  gmin.y,  gmin.z);
-            desc.genSize = GVec3(gsize.x, gsize.y, gsize.z);
-            r.textureTexels.reserve(r.textureTexels.size() + (size_t)res * res * res);
-            for (int k = 0; k < res; ++k) {
-                for (int j = 0; j < res; ++j) {
-                    for (int i = 0; i < res; ++i) {
-                        // Voxel centre in world space; the CPU Object chain is
-                        // uv = p.xy, p = hit point (then Mapping / UV transform).
-                        Vec3 p(gmin.x + gsize.x * (i + 0.5f) / res,
-                               gmin.y + gsize.y * (j + 0.5f) / res,
-                               gmin.z + gsize.z * (k + 0.5f) / res);
-                        Vec3 c = tex->valueAtCoord(Vec2(p.x, p.y), p);
-                        r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
-                    }
-                }
-            }
+            desc.genMin  = GVec3(oGmin.x,  oGmin.y,  oGmin.z);
+            desc.genSize = GVec3(oGsize.x, oGsize.y, oGsize.z);
         } else {
             desc.width = nx; desc.height = ny; desc.depth = nz;  // Generated 3D voxel
             Vec3 gmin  = tex->hasGeneratedBBox() ? tex->getGeneratedMin()
@@ -1187,33 +1359,109 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
                                                  : Vec3(1.f, 1.f, 1.f);
             desc.genMin  = GVec3(gmin.x,  gmin.y,  gmin.z);
             desc.genSize = GVec3(gsize.x, gsize.y, gsize.z);
-            r.textureTexels.reserve(r.textureTexels.size() +
-                                    (size_t)nx * ny * nz);
-            for (int k = 0; k < nz; ++k) {
-                float pz = flat[2] ? flatG[2] : (k + 0.5f) / nz;
-                for (int j = 0; j < ny; ++j) {
-                    float py = flat[1] ? flatG[1] : (j + 0.5f) / ny;
-                    for (int i = 0; i < nx; ++i) {
-                        if ((flat[0] && i > 0) || (flat[1] && j > 0) || (flat[2] && k > 0)) {
-                            // #1085: both layers of a flat axis are the same slice
-                            // (depth must stay > 1: the shade path tells a 3D bake
-                            // from a 2D UV image by depth > 1).
-                            const size_t src = ((size_t)(flat[2] ? 0 : k) * ny + (flat[1] ? 0 : j)) * nx +
-                                               (flat[0] ? 0 : i);
-                            const GVec3 dup = r.textureTexels[(size_t)desc.offset + src];
-                            r.textureTexels.push_back(dup);
-                            continue;
+        }
+        // #1239: the cross-render cache key. The texture's content identity (uid +
+        // mutation counter, children included) says WHAT was baked; the rest is what the
+        // bake folds in or depends on: Mapping / flat-axis / object-box bits (pkey minus
+        // its pointer), the legacy UV transform, the coordinate mode and the resolution.
+        std::string texKey;
+        tex->appendContentKey(texKey);
+        std::string ckey = texKey;
+        {
+            const size_t bar = pkey.find('|');
+            if (bar != std::string::npos) ckey.append(pkey, bar, std::string::npos);
+        }
+        {
+            auto bits = [&](float f) {
+                uint32_t b; std::memcpy(&b, &f, sizeof b);
+                ckey += '|'; ckey += std::to_string(b);
+            };
+            ckey += "|uvt";
+            bits(tex->getUVScale().u); bits(tex->getUVScale().v);
+            bits(tex->getUVOffset().u); bits(tex->getUVOffset().v);
+            bits(tex->getUVRotation());
+            ckey += "|cm"; ckey += std::to_string((int)cmode);
+            ckey += "|d"; ckey += std::to_string(desc.width); ckey += 'x';
+            ckey += std::to_string(desc.height); ckey += 'x'; ckey += std::to_string(desc.depth);
+        }
+        BakeCache& cache = BakeCache::get();
+        std::shared_ptr<const BakeEntry> entry = cache.find(ckey);
+        if (entry) {
+            g_bakeHits.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            g_bakeMisses.fetch_add(1, std::memory_order_relaxed);
+            auto fresh = std::make_shared<BakeEntry>();
+            fresh->id = BakeEntry::nextId();
+            fresh->texUid = tex->uid();
+            fresh->texKey = texKey;
+            std::vector<GVec3>& texels = fresh->texels;
+            if (uvMode) {
+                texels.resize((size_t)uvRes * uvRes);
+                GVec3* out = texels.data();
+                auto bakeRows = [&](int j0, int j1) {
+                    for (int j = j0; j < j1; ++j) {
+                        float v = 1.0f - (j + 0.5f) / uvRes;
+                        for (int i = 0; i < uvRes; ++i) {
+                            float u = (i + 0.5f) / uvRes;
+                            // #962: full CPU UV-mode chain (Mapping, else legacy UV
+                            // transform) -- Texture::value(HitRecord) with p=(u,v,0).
+                            Vec3 c = tex->valueAtCoord(Vec2(u, v), Vec3(u, v, 0.0f));
+                            out[(size_t)j * uvRes + i] = GVec3(c.x, c.y, c.z);
                         }
-                        float px = flat[0] ? flatG[0] : (i + 0.5f) / nx;
-                        // #962: CPU Generated chain (uv = g.xy, p = g).
-                        Vec3 c = tex->valueAtCoord(Vec2(px, py), Vec3(px, py, pz));
-                        r.textureTexels.push_back(GVec3(c.x, c.y, c.z));
+                    }
+                };
+                const int nThreads = (int)std::max(1u, std::min(32u, std::thread::hardware_concurrency()));
+                std::vector<std::thread> pool;
+                for (int t = 1; t < nThreads; ++t)
+                    pool.emplace_back(bakeRows, uvRes * t / nThreads, uvRes * (t + 1) / nThreads);
+                bakeRows(0, uvRes / nThreads);
+                for (std::thread& th : pool) th.join();
+            } else if (objMode) {
+                texels.reserve((size_t)res * res * res);
+                for (int k = 0; k < res; ++k) {
+                    for (int j = 0; j < res; ++j) {
+                        for (int i = 0; i < res; ++i) {
+                            // Voxel centre in world space; the CPU Object chain is
+                            // uv = p.xy, p = hit point (then Mapping / UV transform).
+                            Vec3 p(oGmin.x + oGsize.x * (i + 0.5f) / res,
+                                   oGmin.y + oGsize.y * (j + 0.5f) / res,
+                                   oGmin.z + oGsize.z * (k + 0.5f) / res);
+                            Vec3 c = tex->valueAtCoord(Vec2(p.x, p.y), p);
+                            texels.push_back(GVec3(c.x, c.y, c.z));
+                        }
+                    }
+                }
+            } else {
+                texels.reserve((size_t)nx * ny * nz);
+                for (int k = 0; k < nz; ++k) {
+                    float pz = flat[2] ? flatG[2] : (k + 0.5f) / nz;
+                    for (int j = 0; j < ny; ++j) {
+                        float py = flat[1] ? flatG[1] : (j + 0.5f) / ny;
+                        for (int i = 0; i < nx; ++i) {
+                            if ((flat[0] && i > 0) || (flat[1] && j > 0) || (flat[2] && k > 0)) {
+                                // #1085: both layers of a flat axis are the same slice
+                                // (depth must stay > 1: the shade path tells a 3D bake
+                                // from a 2D UV image by depth > 1).
+                                const size_t src = ((size_t)(flat[2] ? 0 : k) * ny + (flat[1] ? 0 : j)) * nx +
+                                                   (flat[0] ? 0 : i);
+                                const GVec3 dup = texels[src];
+                                texels.push_back(dup);
+                                continue;
+                            }
+                            float px = flat[0] ? flatG[0] : (i + 0.5f) / nx;
+                            // #962: CPU Generated chain (uv = g.xy, p = g).
+                            Vec3 c = tex->valueAtCoord(Vec2(px, py), Vec3(px, py, pz));
+                            texels.push_back(GVec3(c.x, c.y, c.z));
+                        }
                     }
                 }
             }
+            entry = cache.insert(ckey, std::move(fresh));
         }
+        desc.offset = addBakeBlock(entry);
         int texId = (int)r.textures.size();
         procBakeIdx[pkey] = texId;
+        bakeEntryOf[texId] = entry;
         r.textures.push_back(desc);
         return texId;
     };
@@ -1703,14 +1951,10 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             if (texId >= 0 && emitTex) {
                 Vec3 avg = emitTex->average();
                 if (!std::dynamic_pointer_cast<ImageTexture>(emitTex)) {
-                    const GImageTexture& d = r.textures[texId];
-                    const size_t n = (size_t)d.width * d.height * (d.depth > 1 ? d.depth : 1);
-                    double sx = 0.0, sy = 0.0, sz = 0.0;
-                    for (size_t k = 0; k < n; ++k) {
-                        const GVec3& t = r.textureTexels[(size_t)d.offset + k];
-                        sx += t.x; sy += t.y; sz += t.z;
-                    }
-                    if (n > 0) avg = Vec3((float)(sx / n), (float)(sy / n), (float)(sz / n));
+                    // #1239: the bake entry caches this mean (one pass over its texels).
+                    const auto be = bakeEntryOf.find(texId);
+                    if (be != bakeEntryOf.end() && !be->second->texels.empty())
+                        avg = be->second->mean();
                 }
                 r.materials[id].baseColor = GVec3(avg.x, avg.y, avg.z);
                 r.materials[id].emissionIntensity = tel->getIntensity();
@@ -2100,9 +2344,26 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
 
     // pkg315: the material-only replay ends here — everything below is the
     // geometry / light / environment domain, which a material edit cannot change.
+    // #1239: hand the blocks to the result. A replay whose blocks equal the device's
+    // keeps the device buffer (texelsReused); otherwise every block carries its data.
+    auto finishTexels = [&](bool replay) {
+        bool same = replay && cachedBlocks && cachedBlocks->size() == texelBlocks.size();
+        for (size_t i = 0; same && i < texelBlocks.size(); ++i)
+            same = texelBlocks[i].blk.sameAs((*cachedBlocks)[i]);
+        r.texelBlocks.clear();
+        r.texelBlocks.reserve(texelBlocks.size());
+        for (PendingBlock& pb : texelBlocks) {
+            if (same) pb.blk.data.reset();
+            else if (!pb.blk.data && pb.img) pb.blk.data = convertImage(pb.img);
+            r.texelBlocks.push_back(std::move(pb.blk));
+        }
+        r.texelCount = texelCursor;
+        r.texelsReused = same;
+    };
     if (replayRoots) {
         if (replayBail) return false;
         texGeomFlags(r, r.hasGenBake, r.hasObjCoord);
+        finishTexels(true);
         return true;
     }
 
@@ -2461,8 +2722,12 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         auto& v = r.attrCorners[k];
         const float m = r.attrMissing[k];
         v.resize(r.triangles.size() * 3, GVec3(m, m, m));
-        const int offset = (int)r.textureTexels.size();
-        r.textureTexels.insert(r.textureTexels.end(), v.begin(), v.end());
+        PendingBlock pb;
+        pb.blk.idA = ~(uint64_t)0;            // never equals a bake or image identity
+        pb.blk.idB = (uint64_t)k;
+        pb.blk.count = v.size();
+        pb.blk.data = std::make_shared<const std::vector<GVec3>>(std::move(v));
+        const int offset = addTexelBlock(std::move(pb));
         for (auto& d : r.textures)
             if (d.attrLayer == (int)k) d.offset = offset;
         std::vector<GVec3>().swap(v);
@@ -2471,6 +2736,8 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         fprintf(stderr, "[#990] DEGRADED: shading attributes on instanced meshes read 0 "
                         "on GPU (object-space BLAS triangles; the addon flattens objects "
                         "whose materials read attributes)\n");
+    finishTexels(false);   // #1239
+    BakeCache::get().endFullBuild();
 
     // --- #847: per-vertex Generated coords ---
     // Only read by the Generated 3D-bake fetch (depth > 1) and the #1007 per-hit
@@ -2555,7 +2822,7 @@ bool buildMaterialDomain(const Renderer& cpu, const SceneUploadResult& cached,
     for (const auto& rt : roots)
         if (!rt) return false;   // a slot material was released without a recorded swap
 
-    if (!buildSceneArraysImpl(cpu, nullptr, out, &roots)) return false;
+    if (!buildSceneArraysImpl(cpu, nullptr, out, &roots, &cached.texelBlocks)) return false;
 
     // Guards: anything the geometry arrays on the device depend on must be unchanged.
     if (out.materials.size() != cached.materials.size() ||
@@ -2589,9 +2856,13 @@ bool buildMaterialDomain(const Renderer& cpu, const SceneUploadResult& cached,
     }
     if (out.hasGenBake != cached.hasGenBake || out.hasObjCoord != cached.hasObjCoord)
         return false;                                      // triGenerated / triObjectLocal upload
-    if (out.hasEmissionTexture || out.hasEmissionTextureRequested ||
-        cached.hasEmissionTexture || cached.hasEmissionTextureRequested)
-        return false;                                      // textured emitters keep the full path
+    // #1239: a textured emitter no longer forces the full path. What the geometry / light
+    // arrays take from it is the flat mean colour and intensity, both compared above for
+    // emissive slots, and emissionFlatPrims, a geometry fact the replay keeps. Only the
+    // fetch bit flipping (a texture appearing or vanishing behind an unchanged mean) is
+    // left to the full path.
+    if (out.hasEmissionTexture != cached.hasEmissionTexture)
+        return false;
     return true;
 }
 
@@ -2606,7 +2877,9 @@ void adoptMaterialDomain(SceneUploadResult& dst, SceneUploadResult&& src) {
     dst.hasHair = src.hasHair;
     dst.hasDispersive = src.hasDispersive;
     dst.textures = std::move(src.textures);
-    dst.textureTexels = std::move(src.textureTexels);
+    dst.texelBlocks = std::move(src.texelBlocks);   // #1239
+    dst.texelCount = src.texelCount;
+    dst.texelsReused = src.texelsReused;
     dst.materialTextureId = std::move(src.materialTextureId);
     dst.hasTexture = src.hasTexture;
     dst.hasEmissionTexture = src.hasEmissionTexture;

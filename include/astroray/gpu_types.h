@@ -687,7 +687,7 @@ static_assert(G_TREE_MAX_LEAVES <= 8, "GClosureTree::bsdfMask holds one bit per 
 // CPU sampler bit-for-bit and needs no cudaArray/format/lifetime machinery.
 //
 // Storage (decision layout): every uploaded image's texels are concatenated into
-// ONE flat device buffer (see SceneUploadResult::textureTexels); each texture is
+// ONE flat device buffer (see SceneUploadResult::texelBlocks); each texture is
 // an {offset,width,height} slice into it. Index-based addressing avoids a
 // device-pointer-inside-a-descriptor and per-texture cudaMalloc churn, so it maps
 // straight onto the wavefront's grow-only wfUpload(vector) path.

@@ -176,6 +176,13 @@ def test_cpu_closest_tagged_and_untagged_are_todays_nearest_fetch(ext):
         a = untagged.sample_named_texture("t234", float(u), float(v))
         b = tagged.sample_named_texture("t234", float(u), float(v))
         assert a == b, (ext, u, v)
+        if ext == "EXTEND":
+            # (1 - v) * h on an exact texel edge is a rounding tie the compiled engine (main's build too, measured:
+            # u=0, v=1/3 picks the other row) resolves differently from numpy float32; Closest is unchanged code,
+            # so those points assert only tagged == untagged above.
+            x = (1.0 - min(max(float(v), 0.0), 1.0)) * H3
+            if abs(x - round(x)) < 1e-5:
+                continue
         assert np.array_equal(np.array(a, np.float32), engine_closest(ext, u, v).astype(np.float32)), (ext, u, v, a)
 
 
@@ -229,8 +236,11 @@ _IMG2 = np.array([[[0.9, 0.1, 0.1], [0.1, 0.9, 0.1]],
 _RES, _SPP = 64, 64
 # CPU-vs-GPU: mean |8x8 block mean difference| over the frame. The block mean averages the independent MC /
 # spectral-sampling noise of the two backends; texture-filter differences (a wrong tap) are structured.
-TWIN_BAND = 0.012
-NOT_INERT = 0.02          # Linear vs Closest, per backend, same block metric
+# Measured on b26e8bb6 (sm_120, 64x64 @ 64 spp, all 4 extensions x Closest/Linear/Cubic + program / graph / sphere sites):
+# CPU-vs-GPU block diff max 2.6e-4 (sphere emitter; every other site <= 9e-5), so the band is ~4x that.
+TWIN_BAND = 0.001
+# Linear vs Closest per backend: smallest case used 0.042 (REPEAT base), 0.073 program/graph, 0.236 sphere emitter.
+NOT_INERT = 0.02
 
 
 def _blocks(im):
@@ -581,5 +591,5 @@ def test_srgb_probe_moves_and_differs_from_cycles_by_the_filter_order_term(legs,
     rel = lambda x, y: float((x[hit] - y[hit]).mean() / y[hit].mean())          # noqa: E731
     measured = rel(ast_a, cyc_a) - rel(ast_b, cyc_b)
     predicted = _order_term(uv, cyc_b)
-    assert predicted < -0.02, predicted                                         # the term is real on this texture
+    assert predicted > 0.02, predicted          # real on this texture: linear-space filtering is BRIGHTER than Cycles' encoded-space
     assert abs(measured - predicted) <= 0.25 * abs(predicted), (measured, predicted)

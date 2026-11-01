@@ -31,15 +31,15 @@ reason = "#1222: pkg327 Phase B pinned grain_center r and b, grain_right b and l
 scene = "prod_pbr_group"
 backend = "cpu"
 kind = "parity"
-issue = "#1156"
-reason = "#1156: pbr_group right ROI. 12/16 at seed 278 (bump-twin build, same as e302ca1): only the right ROI fails, r 1.182 g 1.280 b 1.286 L 1.234 - a seed-278 outlier (5-seed CPU/Cycles right L 1.037; the other four seeds read right L 0.98-0.995) with no pinned channel involved. pkg327 Phase B pinned lower b (spectral, Mitsuba-confirmed; CPU 0.925). The right ROI is the heavy-tail one: 5-seed GPU/CPU 0.941 with SE 0.049"
+issue = "#1237"
+reason = "#1237: pbr_group right ROI, 12/16 at seed 278 (build 000cd943): r 1.182 g 1.280 b 1.286 L 1.234 from ONE camera sample, luminance 1397 at pixel (194,145) (+0.243 of the ROI mean; without it L 0.992). Traced, a legitimate rare path: first hit on a normal-map tile edge (roughness 0.25), environment NEE into the HDRI sun, power-heuristic weight 0.950 (light pdf 43.1, BSDF pdf 9.85; Cycles light_sample_mis_weight_nee, the reference has no clamp). The 1024 spp Cycles reference has same-class events at (196,145) and (198,146) at a matching rate, about 1 per 20 renders at 64 spp in this ROI. 12-seed CPU right L median 0.983. The rows above the glint line read 0.966 of Cycles on CPU and GPU alike, about 1.2 points of it the nearest-sampled base / metal / roughness images (Cycles Closest A/B; pkg234). pkg327 Phase B pinned lower b (spectral, Mitsuba-confirmed; CPU 0.925)"
 
 [[row]]
 scene = "prod_pbr_group"
 backend = "gpu"
 kind = "parity"
-issue = "#1156"
-reason = "#1156: pbr_group right ROI. 12/16 at seed 278 (bump-twin build): only the right ROI fails and reads dim, r 0.939 g 0.938 b 0.874 L 0.937 (5-seed GPU/Cycles right r 0.967 g 0.985 b 0.934 L 0.975, up from L 0.96 before the #1156/#1214 fixes; CPU right is 0.98-0.995 on four of five seeds). pkg327 Phase B pinned lower b (spectral, Mitsuba-confirmed; GPU 0.931)"
+issue = "#1237"
+reason = "#1237: pbr_group right ROI, 12/16 at seed 278 (build 000cd943): r 0.939 g 0.938 b 0.874 L 0.937, the lowest of 12 seeds (12-seed GPU right L mean 0.980 sd 0.021; CPU median 0.983), a seed draw rather than a twin gap: 8 seeds x 256 spp GPU/CPU right L 1.021 (heavy tail, about 2 % noise), sun only 1.000, area only 1.001, world only 1.013, and the e302ca1 per-pixel glint-line ratios (0.90-1.44) do not reproduce. The ROI sits low on both backends: the rows above the glint line read 0.968 (GPU) / 0.966 (CPU) of Cycles, about 1.2 points of it the nearest-sampled base / metal / roughness images (Cycles Closest A/B; pkg234). pkg327 Phase B pinned lower b (spectral, Mitsuba-confirmed; GPU 0.931)"
 
 [[row]]
 scene = "prod_light_path"

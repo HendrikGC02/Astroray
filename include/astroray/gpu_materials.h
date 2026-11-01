@@ -1692,16 +1692,37 @@ __device__ inline GVec3 gpu_pr_glassF0Tint(const GPrincipledClosure& c) {
 __device__ inline GVec3 gpu_pr_glassReflTint(const GPrincipledClosure& c) {
     return gpu_pr_glassBsdf(c) ? c.specularTint : GVec3(1.f);
 }
-// Tinted Principled glass colour (ggxglass::schlickGlassTint per channel). `tt` is the
-// constant transmit tint sqrt(base) (ignored when !transmit). Force-inlined on purpose: as a
-// __noinline__ call it made every shade kernel and the ReSTIR resolve eval save their live
-// registers around the call (+720..848 B STACK, resolve REG 166 -> 177, tinted glass 1.13x).
+// Tinted Principled glass Fresnel colour R = mix(saturate(F0 x tint), 1, s) per channel
+// (ggxglass::schlickGlassTint, Cycles generalized_schlick_fresnel). `tt` is the constant
+// transmit tint sqrt(base). Force-inlined: as a __noinline__ call it made every shade kernel
+// and the ReSTIR resolve eval save their live registers (+720..848 B STACK, resolve REG 166 ->
+// 177). #1200 perf: one reciprocal replaces the per-channel divides, so it agrees with the
+// CPU's schlickGlassTint to float rounding, not bit for bit (tinted glass only).
+__device__ __forceinline__ GVec3 gpu_pr_schlickGlassR(const GVec3& tint, float F0, float F) {
+    const float s = astroray::ggxglass::saturate((F - F0) / (1.0f - F0));
+    const GVec3 f0 = gvec3_min(gvec3_max(tint * F0, GVec3(0.f)), GVec3(1.f));
+    return f0 + (GVec3(1.f) - f0) * s;
+}
+// Colour relative to the plain dielectric F: R / F (reflect) or tt x (1 - R) / (1 - F).
 __device__ __forceinline__ GVec3 gpu_pr_schlickGlassTint(const GVec3& tint, const GVec3& tt,
                                                          float ior, float F, bool transmit) {
-    float F0 = gpu_pr_F0_from_ior(ior);
-    return GVec3(astroray::ggxglass::schlickGlassTint(tint.x, tt.x, F0, F, transmit),
-                 astroray::ggxglass::schlickGlassTint(tint.y, tt.y, F0, F, transmit),
-                 astroray::ggxglass::schlickGlassTint(tint.z, tt.z, F0, F, transmit));
+    const float F0 = gpu_pr_F0_from_ior(ior);
+    const GVec3 R = gpu_pr_schlickGlassR(tint, F0, F);
+    if (!transmit) return (F > 0.f) ? R * (1.f / F) : GVec3(1.f);
+    if (1.f - F > 1e-6f) return tt * (GVec3(1.f) - R) * (1.f / (1.f - F));
+    const GVec3 f0 = gvec3_min(gvec3_max(tint * F0, GVec3(0.f)), GVec3(1.f));
+    return tt * (GVec3(1.f) - f0) * (1.f / (1.f - F0));
+}
+// pdf_reflect = sum(R) / sum(R + tt x (1 - R)) for tinted Principled glass: the same ratio as
+// reflectProb(F, avg(R / F), avg(T / (1 - F))) with the F and (1 - F) factors cancelled
+// (2 divides instead of 8; F <= 0 keeps reflectProb's r = 0).
+__device__ __forceinline__ float gpu_pr_schlickGlassReflectProb(const GVec3& tint, const GVec3& tt,
+                                                                float ior, float F) {
+    const GVec3 R = gpu_pr_schlickGlassR(tint, gpu_pr_F0_from_ior(ior), F);
+    const GVec3 T = tt * (GVec3(1.f) - R);
+    const float r = (F > 0.f) ? R.x + R.y + R.z : 0.f;
+    const float s = r + T.x + T.y + T.z;
+    return (s > 0.f) ? r / s : F;
 }
 // True for tinted Principled glass, whose non-film colour depends on F (else it is the
 // constant tint: R = F x reflection_tint exactly when f0 = F0).
@@ -2401,9 +2422,10 @@ __device__ __forceinline__ float gpu_pr_glassReflectProb(const GPrincipledClosur
                                                          float cosHO, float F) {
     GVec3 tt = gpu_pr_sqrtColor(c.color);
     if (!gpu_pr_filmActive(c)) {
-        GVec3 rt = gpu_pr_glassTint(c, false, F, L.ior);  // #1200
-        tt = gpu_pr_glassTint(c, true, F, L.ior);
-        return astroray::ggxglass::reflectProb(F, (rt.x + rt.y + rt.z) / 3.f, (tt.x + tt.y + tt.z) / 3.f);
+        if (gpu_pr_glassTintVaries(c))  // #1200: tinted Principled glass
+            return gpu_pr_schlickGlassReflectProb(c.specularTint, tt, L.ior, F);
+        return astroray::ggxglass::reflectProb(  // main 000cd943 arithmetic, unchanged
+            F, (c.specularTint.x + c.specularTint.y + c.specularTint.z) / 3.f, (tt.x + tt.y + tt.z) / 3.f);
     }
     float etap = entering ? L.ior : (1.f / L.ior);
     float filmIor = entering ? c.thinFilmIor : c.thinFilmIor / L.ior;

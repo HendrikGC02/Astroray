@@ -24,8 +24,8 @@ reason = "#1220: car_paint CPU/GPU twin gap (GPU 9/16 at seed 278, build e302ca1
 scene = "prod_wood"
 backend = "cpu"
 kind = "parity"
-issue = "#993"
-reason = "#993 (closed, no open cause): pkg327 Phase B pinned grain_center r and b, grain_right b and lower b (spectral, Mitsuba-confirmed). 15/16 at seed 278, build e302ca1: only grain_center L 0.970 (tol 0.026) fails. L stays on Cycles (not a pin candidate); the 5-seed CPU mean is 0.980, in band, so seed 278 is a low draw (r 0.958, g 0.978; CPU per-seed L 0.970 0.979 1.000 0.984 0.965)"
+issue = "#1222"
+reason = "#1222: pkg327 Phase B pinned grain_center r and b, grain_right b and lower b (spectral, Mitsuba-confirmed). 15/16 at seed 278, build e302ca1: only grain_center L 0.970 (tol 0.026) fails. L stays on Cycles (not a pin candidate); the 5-seed CPU mean is 0.980, in band, so seed 278 is a low draw (r 0.958, g 0.978; CPU per-seed L 0.970 0.979 1.000 0.984 0.965)"
 
 [[row]]
 scene = "prod_pbr_group"

@@ -185,6 +185,10 @@ private:
         // evalSpectralExt/sampleSpectralExt so blackbody / measured-SPD lamps
         // emit correctly outside 380-780 nm. No new estimator (CLAUDE.md §6).
         const LightList& lights = renderer_->getLights();
+        // pkg329: Filter Glossy (pathTraceSpectral twin, astroray/light_path.h).
+        const float filterGlossyKernel =
+            astroray::lightpath::filter_glossy_kernel(renderer_->getFilterGlossy());
+        float minRayPdf = std::numeric_limits<float>::max();
 
         for (int bounce = 0; bounce <= maxDepth + 1; ++bounce) {  // #1165 (pathTraceSpectral twin)
             lastBounce = bounce;
@@ -273,6 +277,8 @@ private:
             }
 
             if (!rec.material) break;
+            rec.glossyAlphaFloor =  // pkg329 (pathTraceSpectral twin)
+                astroray::lightpath::filter_glossy_alpha_floor(filterGlossyKernel, minRayPdf);
 
             // Emission. In NEE mode this is the two-sided MIS w_B leg (mirrors
             // pathTraceSpectral raytracer.h:2496-2527); in naive mode it is the
@@ -388,6 +394,8 @@ private:
             BSDFSampleSpectral bss = rec.material->sampleSpectralExt(rec, wo, gen, lambdas);
             if (bss.pdf <= 0.0f) break;
             wasSpecular = bss.isDelta;
+            minRayPdf = std::min(minRayPdf,  // pkg329 (pathTraceSpectral twin)
+                                 astroray::lightpath::filter_glossy_ray_pdf(bss.pdf, bss.isDelta));
             // pkg195 Stage A: carry this bounce's BSDF pdf for the next iteration's
             // two-sided-MIS lamp/emissive legs (mirrors pathTraceSpectral:2599).
             bsdfPdfPrev = bss.pdf;

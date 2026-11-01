@@ -24,23 +24,23 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 6048)
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 6048)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 6064)
 - **TEX_BRICK**: socket `Offset` (addon __init__.py line 4440, line 4581)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 6048)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 6048)
-- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 6048)
-- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 6048)
-- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 6048)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 6048)
-- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 6048)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 6048)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 6048)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 6064)
 
 ## DROPPED-SILENT Features (Failure Mode)
 

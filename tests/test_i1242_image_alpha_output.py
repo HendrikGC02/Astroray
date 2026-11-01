@@ -164,7 +164,21 @@ def test_principled_alpha_from_an_image_becomes_a_graph_program(monkeypatch):
     assert prog in r.graphs and any("::out=alpha" in n for n in r.graphs[prog]), r.graphs
     # the constant the GPU's per-material paths read is the image's mean coverage
     assert spec["native_params"]["alpha"] == pytest.approx(float(_A.mean()))
-    assert any("Alpha" in m for m in eng._degradation_report().messages())      # GPU shadow constant is reported
+    # a bare Image Alpha link is read per occluder hit by the GPU's shadow rays: no constant-shadow warning
+    assert not any("Alpha" in m for m in eng._degradation_report().messages())
+
+
+def test_a_warped_image_alpha_keeps_the_gpu_shadow_warning(monkeypatch):
+    """Only a bare, natively-mapped image Alpha is sampled by the GPU's shadow rays (scene_upload.cu
+    isBareImageProgram); an image sampled at a warped (non-affine) coordinate is not, and says so."""
+    eng = _bare_engine(monkeypatch)
+    plain = _img_node(_Img("plain.png"))
+    warp = Node("VECT_MATH", operation="CROSS_PRODUCT", inputs=[Sock("Vector", [0.0] * 3)])
+    warped = Node("TEX_IMAGE", inputs=[Sock("Vector", [0.0] * 3, Link(warp, "Vector"))], image=_Img("warp.png"),
+                  extension="REPEAT", interpolation="Closest", name="Warped",
+                  outputs={"Alpha": P._Socket(linked_to=object())})
+    assert eng._image_coordinates_are_native(plain) is True
+    assert eng._image_coordinates_are_native(warped) is False
 
 
 def test_principled_alpha_from_a_chain_uses_the_half_coverage_hint(monkeypatch):

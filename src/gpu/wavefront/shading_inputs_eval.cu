@@ -143,6 +143,48 @@ __device__ __noinline__ GVec3 gpu_attrTexel(int texId, GVec3 point, int primId,
     return out;
 }
 
+// #1242 - per-hit Principled Alpha of a bare Image Texture Alpha link, for the transparent-shadow
+// walk (gpu_shadow_transmittance reaches it through the extern declaration in gpu_nee.cuh). The
+// occluder's UV is rebuilt exactly as the shade path's gpu_progInputTexel does (barycentrics
+// recomputed from the world hit point, Ericson Real-Time Collision Detection 3.4, interpolating the
+// uploaded active-layer texcoords; then the texture's Mapping), and the grey alpha texture is read
+// with the same sampler (extension, Closest / Linear / Cubic) the camera-path alpha program uses.
+// Returns -1 when this material has no alpha texture or the hit cannot be sampled (instanced prim,
+// non-triangle, UV-less), and the caller keeps the constant coverage hint. Cycles applies transparent
+// shadows per hit through the surface shader (kernel/integrator/shade_shadow.h
+// integrate_transparent_surface_shadow, intersect_shadow.h); CPU twin PrincipledPlugin::shadowAlpha.
+__device__ __noinline__ float gpu_shadowAlphaTexel(int matId, GVec3 point, int primId,
+                                                   const GPrimitive* prims, const GTriangle* tris)
+{
+    const int* tab = c_wfTexBinding.matShadowAlphaTexId;
+    if (!tab) return -1.f;
+    const int texId = tab[matId];
+    // Instanced (pkg114 BLAS) prims: object-space triangles against a world-space point (see gpu_attrTexel).
+    if (texId < 0 || primId < 0 || primId >= c_wfEmissionFlatPrims ||
+        prims[primId].type != GPRIM_TRIANGLE)
+        return -1.f;
+    const GTriangle& t = tris[prims[primId].index];
+    if (!t.hasUV) return -1.f;
+    const GVec3 e1 = t.v1 - t.v0, e2 = t.v2 - t.v0, ep = point - t.v0;
+    const float d00 = e1.dot(e1), d01 = e1.dot(e2), d11 = e2.dot(e2);
+    const float d20 = ep.dot(e1), d21 = ep.dot(e2);
+    const float denom = d00 * d11 - d01 * d01;
+    if (fabsf(denom) <= 1e-20f) return -1.f;
+    const float b1 = (d11 * d20 - d01 * d21) / denom;
+    const float b2 = (d00 * d21 - d01 * d20) / denom;
+    const float b0 = 1.0f - b1 - b2;
+    float uu = b0 * t.uv0.x + b1 * t.uv1.x + b2 * t.uv2.x;
+    float vv = b0 * t.uv0.y + b1 * t.uv1.y + b2 * t.uv2.y;
+    const GImageTexture& tex = c_wfTexBinding.textures[texId];
+    if (tex.hasMapping) {
+        const float* m = tex.mapping;
+        const float mu = m[0] * uu + m[1] * vv + m[3];
+        const float mv = m[4] * uu + m[5] * vv + m[7];
+        uu = mu; vv = mv;
+    }
+    return fminf(fmaxf(gpu_sampleImageTexture(tex, c_wfTexBinding.texelBuf, uu, vv).x, 0.0f), 1.0f);
+}
+
 }  // namespace astroray::wavefront
 
 namespace astroray::lightpath {

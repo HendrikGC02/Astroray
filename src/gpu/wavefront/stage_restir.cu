@@ -358,17 +358,29 @@ __global__ void stageRestirPrimaryKernel(
                               /*dedLights=*/nullptr, /*numDed=*/0, GLightTreeView{});
         }
         if (!alphaPass || hitBufs.hit_valid[p] == 0) break;
-        const float alpha = gpu_shadowAlpha(materials[hitBufs.hit_material_id[p]]);
-        if (alpha >= 1.0f) break;
+        const int hitMat = hitBufs.hit_material_id[p];
+        const float alphaC = gpu_shadowAlpha(materials[hitMat]);
+        if (alphaC >= 1.0f) break;
+        // #1242: a bare Image Alpha link draws coverage from the alpha texture at this hit (the
+        // eval below still carries the constant alphaC weight); other materials draw alphaC.
+        float alpha = alphaC;
+        if (alphaC > 0.0f) {
+            const float texel = gpu_shadowAlphaTexel(
+                hitMat,
+                GVec3(hitBufs.hit_point_x[p], hitBufs.hit_point_y[p], hitBufs.hit_point_z[p]),
+                hitBufs.hit_prim_id[p], prims, tris);
+            if (texel >= 0.0f) alpha = texel;
+        }
         // Coverage draw: keep the surface with probability alpha. Its eval already
-        // carries the alpha weight (Principled weight *= alpha after the transparent
+        // carries the alpha weight (Principled weight *= alphaC after the transparent
         // lobe, gpu_materials.h), so the kept sample divides it out; a pass (probability
-        // 1 - alpha) has weight (1 - alpha) / (1 - alpha) = 1. Unbiased for both terms.
+        // 1 - alpha) has weight (1 - alpha) / (1 - alpha) = 1. Unbiased for both terms
+        // (kept: alpha * (1 / alphaC) * alphaC = alpha).
         WavefrontRNG rng = loadRNG(state, p);
         const float u = rng.Uniform();
         state.rng_dimension[p] = rng.dimension();
         if (u < alpha) {
-            const float inv = 1.0f / alpha;
+            const float inv = 1.0f / alphaC;
             state.throughput_0[p] *= inv;
             state.throughput_1[p] *= inv;
             state.throughput_2[p] *= inv;

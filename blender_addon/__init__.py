@@ -5398,8 +5398,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         """#1242: a linked Principled Alpha becomes a per-hit graph program driving the native
         transparent lobe (CPU PrincipledPlugin::substituted / shadowAlpha; GPU graph-eval slot
         GRAPH_SLOT_ALPHA). Returns None (Alpha unlinked) or (program name or None, constant alpha).
-        The constant is what the GPU's per-material paths read (NEE shadow transmittance, the
-        alpha-pass gates) and the whole value when there is no program: the image's mean coverage
+        The constant is what the GPU's per-material paths read (the alpha-pass gates; NEE shadow
+        transmittance too, except behind a bare Image Alpha link, whose shadow rays read the texture
+        per occluder hit) and the whole value when there is no program: the image's mean coverage
         for a bare Image Alpha (1.0 when the image is opaque everywhere: the unlinked material,
         bit for bit), 0.5 for any other chain, the folded value or the socket default when the
         chain cannot be a program (put_float would read 0.0 there: an invisible surface).
@@ -5429,10 +5430,25 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 folded = None
             return None, float(folded if folded is not None else sock.default_value)
         hint = self._image_alpha_means().get(src.image.name, 1.0) if direct else 0.5
-        self._warn_shader_fallback(
-            'BSDF_PRINCIPLED', "per-texel Alpha is exact for camera and indirect rays; the GPU's "
-            "shadow rays through it use the constant %.3g (CPU shadows are per hit)" % hint)
+        # A bare Image Alpha link is read per occluder hit by the GPU's shadow rays too (the engine
+        # recognises the one-texture program; scene_upload.cu isBareImageProgram): nothing degrades.
+        if not (direct and self._image_coordinates_are_native(src)):
+            self._warn_shader_fallback(
+                'BSDF_PRINCIPLED', "per-texel Alpha is exact for camera and indirect rays; the GPU's "
+                "shadow rays through it use the constant %.3g (CPU shadows are per hit)" % hint)
         return prog, float(min(max(hint, 0.0), 1.0))
+
+    @staticmethod
+    def _image_coordinates_are_native(image_node):
+        """#1242: the Image Texture samples at its own (affine) coordinates, so a graph program over it
+        is the one bare texture op (shader_graph_ir.IRBuilder.push_tex emits a computed-uv sample for
+        a warped Vector link instead)."""
+        try:
+            from . import shader_vm_compiler as svm
+        except Exception:
+            import shader_vm_compiler as svm
+        vec = svm._get_input(image_node, 'Vector')
+        return vec is None or not getattr(vec, 'is_linked', False) or svm._coord_chain_affine(vec)
 
     def _warn_scalar_programs_dropped(self, spec):
         """#846: the textured-base-colour lambertian route has no scalar slots."""

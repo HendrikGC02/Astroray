@@ -47,7 +47,36 @@ private:
     float mapping_[12] = {1.f,0.f,0.f,0.f, 0.f,1.f,0.f,0.f, 0.f,0.f,1.f,0.f};
     bool hasMapping_ = false;
 
+    // #1239 - content identity for caches that outlive one render (the GPU
+    // procedural-bake cache, scene_upload.cu). `uid` is process-unique and never
+    // reused (a raw pointer can be, after a free); `ver` counts in-place mutations.
+    // A copy is a NEW texture (fresh uid); assigning over one counts as a mutation.
+    struct Stamp {
+        static std::atomic<uint64_t>& counter() {
+            static std::atomic<uint64_t> c{0};
+            return c;
+        }
+        uint64_t uid;
+        std::atomic<uint64_t> ver{0};
+        Stamp() : uid(counter().fetch_add(1) + 1) {}
+        Stamp(const Stamp&) : uid(counter().fetch_add(1) + 1) {}
+        Stamp& operator=(const Stamp&) { ver.fetch_add(1); return *this; }
+    } stamp_;
+
 protected:
+    // Every in-place mutator calls this AFTER it has written the new state: a
+    // reader that sampled the old version while the write was in flight stores its
+    // result under the old version, which no later lookup carries.
+    void touch() { stamp_.ver.fetch_add(1, std::memory_order_release); }
+    // Composite textures append their children's keys (a bake of the composite reads them).
+    static void appendChildKeys(std::string& k, const std::vector<std::shared_ptr<Texture>>& kids) {
+        k += '(';
+        for (const auto& c : kids) {
+            if (c) c->appendContentKey(k); else k += '-';
+        }
+        k += ')';
+    }
+
     // Apply the 3x4 affine mapping matrix to a 3-D coordinate (point, w=1).
     Vec3 applyMappingPoint(const Vec3& p) const {
         return Vec3(
@@ -211,6 +240,18 @@ protected:
 
 public:
     virtual ~Texture() = default;
+    // #1239 - appends this texture's content identity to `k`: "uid.ver;" for a leaf,
+    // plus the keys of every child texture its value() reads for a composite
+    // (ProgramTexture, CoordProgramTexture, GraphProgramTexture, Checker). Two equal
+    // keys mean the same object in the same state, children included.
+    virtual void appendContentKey(std::string& k) const {
+        k += std::to_string(stamp_.uid);
+        k += '.';
+        k += std::to_string(stamp_.ver.load(std::memory_order_acquire));
+        k += ';';
+    }
+    uint64_t uid() const { return stamp_.uid; }
+    uint64_t contentVersion() const { return stamp_.ver.load(std::memory_order_acquire); }
     virtual Vec3 value(const Vec2& uv, const Vec3& p) const = 0;
     // #776 — a single representative colour for this texture, used where a
     // per-hit UV is unavailable (textured mesh-light NEE power importance in
@@ -303,13 +344,14 @@ public:
             return std::sqrt(mapping_[axis] * mapping_[axis] + mapping_[4 + axis] * mapping_[4 + axis]);
         return std::fabs(axis == 0 ? uvScale_.u : uvScale_.v);
     }
-    void setCoordMode(CoordMode mode) { coordMode = mode; }
+    void setCoordMode(CoordMode mode) { coordMode = mode; touch(); }
     // pkg115 generated-coords: object bbox baked by the exporter (see the
     // CoordMode::Generated comment above).
     void setGeneratedBBox(const Vec3& bmin, const Vec3& bsize) {
         genMin_ = bmin;
         genSize_ = bsize;
         hasGenBBox_ = true;
+        touch();
     }
     CoordMode getCoordMode() const { return coordMode; }
     // pkg190 — read-only bbox accessors so the GPU scene-upload (scene_upload.cu)
@@ -326,11 +368,13 @@ public:
         uvScale_ = Vec2(sx, sy);
         uvOffset_ = Vec2(ox, oy);
         uvRotation_ = 0.0f;
+        touch();
     }
     void setUVTransform(float sx, float sy, float ox, float oy, float rotZRad) {
         uvScale_ = Vec2(sx, sy);
         uvOffset_ = Vec2(ox, oy);
         uvRotation_ = rotZRad;
+        touch();
     }
     Vec2 getUVScale()  const { return uvScale_;  }
     Vec2 getUVOffset() const { return uvOffset_; }
@@ -350,6 +394,7 @@ public:
                 "[pkg242] warning: texture Mapping matrix is singular "
                 "(det=%.3g); the procedural coordinate field collapses to a "
                 "constant.\n", mappingLinearDet());
+        touch();
     }
     bool hasMapping() const { return hasMapping_; }
     const float* getMappingMatrix() const { return mapping_; }
@@ -377,7 +422,7 @@ public:
     Vec3 mappedPoint(const Vec3& p) const {
         return hasMapping_ ? applyMappingPoint(p) : p;
     }
-    void setUVLayerName(const std::string& name) { uvLayerName_ = name; }
+    void setUVLayerName(const std::string& name) { uvLayerName_ = name; touch(); }
     const std::string& getUVLayerName() const { return uvLayerName_; }
 
     // Spectral hook (pkg13). Default upsamples the RGB value per-call.
@@ -420,6 +465,10 @@ class CheckerTexture : public Texture {
 public:
     CheckerTexture(const Vec3& c1, const Vec3& c2, float s = 10)
         : odd(std::make_shared<SolidColor>(c1)), even(std::make_shared<SolidColor>(c2)), scale(s) {}
+    void appendContentKey(std::string& k) const override {
+        Texture::appendContentKey(k);
+        appendChildKeys(k, {odd, even});
+    }
     Vec3 value(const Vec2& uv, const Vec3& p) const override {
         // pkg115 parity fix: replace sine-product with Blender's floor-parity formula.
         // Cycles intern/cycles/kernel/svm/checker.h::svm_checker (Apache-2.0):
@@ -472,6 +521,7 @@ public:
             sum += c;
         }
         if (!data.empty()) mean_ = sum * (1.0f / static_cast<float>(data.size()));
+        touch();
     }
     Vec3 average() const override { return mean_; }  // #776 — exact pixel mean
     // pkg186 — read-only accessors so the GPU scene-upload (scene_upload.cu) can
@@ -483,7 +533,7 @@ public:
     // #1004 - Image Texture extension (GImgExt, shared with the GPU sampler).
     // Default EXTEND (clamp) keeps every untagged texture byte-identical; the
     // addon tags REPEAT / CLIP / MIRROR from the node.
-    void setExtension(int ext) { extension_ = ext; }
+    void setExtension(int ext) { extension_ = ext; touch(); }
     int getExtension() const { return extension_; }
     Vec3 value(const Vec2& uv, const Vec3&) const override {
         if (data.empty()) return Vec3(1, 0, 1);
@@ -545,8 +595,12 @@ class ProgramTexture : public Texture {
     std::vector<std::shared_ptr<Texture>> inputs_;
     astroray::svm::ShaderVMProgram program_;
 public:
-    void setProgram(const astroray::svm::ShaderVMProgram& p) { program_ = p; }
-    void addInput(const std::shared_ptr<Texture>& t) { inputs_.push_back(t); }
+    void setProgram(const astroray::svm::ShaderVMProgram& p) { program_ = p; touch(); }
+    void addInput(const std::shared_ptr<Texture>& t) { inputs_.push_back(t); touch(); }
+    void appendContentKey(std::string& k) const override {
+        Texture::appendContentKey(k);
+        appendChildKeys(k, inputs_);
+    }
     const astroray::svm::ShaderVMProgram& getProgram() const { return program_; }
     size_t numInputs() const { return inputs_.size(); }
     std::shared_ptr<Texture> getInput(size_t i) const { return inputs_[i]; }
@@ -648,6 +702,11 @@ public:
                         std::vector<std::shared_ptr<Texture>> inputs = {})
         : child_(std::move(child)), program_(p), inputs_(std::move(inputs)) {}
     // #1007: read by the GPU per-hit lowering (scene_upload.cu lowerProcTexture).
+    void appendContentKey(std::string& k) const override {
+        Texture::appendContentKey(k);
+        appendChildKeys(k, inputs_);
+        appendChildKeys(k, {child_});
+    }
     const std::shared_ptr<Texture>& child() const { return child_; }
     const astroray::svm::ShaderVMProgram& program() const { return program_; }
     size_t numInputs() const { return inputs_.size(); }
@@ -726,6 +785,10 @@ public:
             throw std::runtime_error("graph program: input kind count mismatch");
         std::string err = astroray::sgraph::validateGraphProgram(prog_, (int)inputs_.size());
         if (!err.empty()) throw std::runtime_error("graph program rejected: " + err);
+    }
+    void appendContentKey(std::string& k) const override {
+        Texture::appendContentKey(k);
+        appendChildKeys(k, inputs_);
     }
     const astroray::sgraph::GraphProgramData& getProgram() const { return prog_; }
     size_t numInputs() const { return inputs_.size(); }

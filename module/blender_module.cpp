@@ -650,6 +650,12 @@ class PyRenderer {
     bool lastRenderInfoScenePatched_ = false;  // pkg291: last GPU render patched an object move in place
     bool lastRenderInfoMaterialUpdate_ = false;  // pkg315: last GPU render re-uploaded only the material domain
     bool lastRenderInfoInstanceUpdate_ = false;  // #1001: last GPU render re-pushed only instances + rebuilt the IAS
+    // #1239: procedural-bake cache activity of the last GPU render's scene build.
+    int lastRenderInfoBakeHits_ = 0;
+    int lastRenderInfoBakeMisses_ = 0;
+    double lastRenderInfoBakeMs_ = 0.0;
+    double lastRenderInfoBakeCacheMb_ = 0.0;
+    bool lastRenderInfoTexelsReused_ = false;
     // pkg89 Phase B: IES profile cache (shared_ptr keeps profiles alive).
     std::unordered_map<std::string, std::shared_ptr<IESProfile>> iesProfiles_;
 #ifdef ASTRORAY_CUDA_ENABLED
@@ -3026,6 +3032,17 @@ public:
                     astroray::wavefront::cuda_wavefront_last_material_update() != 0;  // pkg315
                 lastRenderInfoInstanceUpdate_ =
                     astroray::wavefront::cuda_wavefront_last_instance_update() != 0;  // #1001
+                {   // #1239
+                    int bh = 0, bm = 0, tr = 0;
+                    double bms = 0.0;
+                    size_t bytes = 0;
+                    astroray::wavefront::cuda_wavefront_last_bake_stats(&bh, &bm, &bms, &bytes, &tr);
+                    lastRenderInfoBakeHits_ = bh;
+                    lastRenderInfoBakeMisses_ = bm;
+                    lastRenderInfoBakeMs_ = bms;
+                    lastRenderInfoBakeCacheMb_ = (double)bytes / (1024.0 * 1024.0);
+                    lastRenderInfoTexelsReused_ = tr != 0;
+                }
                 // camera->pixels is std::vector<Vec3>; rgb is H*W*3 floats.
                 for (size_t i = 0; i < camera->pixels.size(); ++i) {
                     camera->pixels[i] = Vec3(rgb[i * 3 + 0],
@@ -3134,6 +3151,9 @@ public:
             lastRenderInfoScenePatched_ = false;  // pkg291
             lastRenderInfoMaterialUpdate_ = false;  // pkg315
             lastRenderInfoInstanceUpdate_ = false;  // #1001
+            lastRenderInfoBakeHits_ = lastRenderInfoBakeMisses_ = 0;  // #1239
+            lastRenderInfoBakeMs_ = lastRenderInfoBakeCacheMb_ = 0.0;
+            lastRenderInfoTexelsReused_ = false;
         }
         if (callbackError) std::rethrow_exception(callbackError);
 
@@ -3197,6 +3217,14 @@ public:
         // domain (geometry / lights / env / OptiX accel served from the cache).
         d["gpu_material_domain_update"] = lastRenderInfoMaterialUpdate_;
         d["gpu_instance_update"] = lastRenderInfoInstanceUpdate_;  // #1001
+        // #1239: procedural bakes of the last GPU render's scene build - served from the
+        // cross-render bake cache, evaluated, their wall ms, the cache's host MB, and
+        // whether the device texel buffer was kept (a material edit that changed no bake).
+        d["gpu_bake_hits"] = lastRenderInfoBakeHits_;
+        d["gpu_bake_misses"] = lastRenderInfoBakeMisses_;
+        d["gpu_bake_ms"] = lastRenderInfoBakeMs_;
+        d["gpu_bake_cache_mb"] = lastRenderInfoBakeCacheMb_;
+        d["gpu_texels_reused"] = lastRenderInfoTexelsReused_;
         // pkg298: wall ms of the most recent CPU BVH build (a cached render
         // leaves it unchanged; compare get_scene_stats()["bvh_build_count"]).
         d["bvh_build_ms"] = renderer.getBvhBuildMs();

@@ -69,6 +69,7 @@ public:
     BSDFSample sample(const HitRecord& rec, const Vec3& wo, std::mt19937& gen) const override {
         BSDFSample s;
         s.isDelta = roughness_ < 0.02f;
+        s.label = BSDF_LABEL_GLOSSY;  // #1204: Cycles thin glass is a glossy / singular closure
         const_cast<HitRecord&>(rec).isDelta = s.isDelta;
 
         float cosTheta = std::abs(wo.normalized().dot(rec.normal));
@@ -96,6 +97,14 @@ public:
             s.f = tint_ * transmitProb;
             s.pdf = std::max(transmitProb, 1e-4f);
         }
+        // #1206: Cycles bsdf_thin_glass_setup drops the gated side (svm/closure.h caustic
+        // toggles). Each branch carries only its own weight, so ending it is exact.
+        if (rec.causticGate & (s.wi.dot(rec.normal) * wo.dot(rec.normal) > 0.0f
+                                   ? CAUSTIC_GATE_REFLECT
+                                   : CAUSTIC_GATE_REFRACT)) {
+            s.f = Vec3(0.0f);
+            s.pdf = 0.0f;
+        }
         return s;
     }
 
@@ -107,6 +116,7 @@ public:
         s.wi = rgb.wi;
         s.pdf = rgb.pdf;
         s.isDelta = rgb.isDelta;
+        s.label = rgb.label;
         s.f_spectral = (rgb.wi.dot(rec.normal) * wo.dot(rec.normal) > 0.0f)
             ? astroray::SampledSpectrum(rgb.f.x)
             : tintSpec_.sample(lambdas) * (rgb.f.x > 0.0f ? rgb.f.x / std::max(tint_.x, 1e-4f) : 0.0f);

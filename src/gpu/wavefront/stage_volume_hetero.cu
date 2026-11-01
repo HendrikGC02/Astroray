@@ -1115,6 +1115,8 @@ __global__ void stageVolumeHeteroScatterKernel(
     // #991 — Light Path: the continuation is a volume-scatter ray (Cycles
     // path_state_next LABEL_VOLUME_SCATTER; astroray/light_path.h).
     if (c_wfLightPath.enabled) state.lp_state[idx] = gpu_lpVolume(state.lp_state[idx]);
+    // #1206: a volume-scatter ray carries no DIFFUSE visibility (caustic gate).
+    state.ray_vis_diffuse[idx] = 0;
 
     // ---- HG phase-sampled continuation from P (throughput *= phase/pdf = 1) ----
     float phasePdf;

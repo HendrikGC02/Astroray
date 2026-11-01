@@ -2,10 +2,7 @@
 #include "advanced_features.h"
 #include "astroray/bump_correction.h"
 
-// #1004 - bump height finite-difference step for a Linear-sampled image, in texels. Cycles
-// steps Filter Width (default 0.1, scene/shader_nodes.cpp:7225, Cycles @ Blender v5.2.0 fbe62287) of the pixel
-// footprint; Astroray has no ray differentials, so the footprint unit is one texel.
-constexpr float kBumpLinearStepTexels = 0.1f;
+// kBumpLinearStepTexels (#1004 image bump step) lives in astroray/gpu_types.h, shared with the GPU (#1156).
 
 class NormalMappedPlugin : public Material {
     std::shared_ptr<Material> baseMaterial_;
@@ -124,9 +121,7 @@ class NormalMappedPlugin : public Material {
                 dPdy = Bt * h;
                 h_x = heightValue(bumpTexture_->valueDisplaced(rec, Vec3(0), dPdx));
                 h_y = heightValue(bumpTexture_->valueDisplaced(rec, Vec3(0), dPdy));
-            } else if (bcm == Texture::CoordMode::UV && bumpImg &&
-                       bumpTexture_->uvInputAxisLength(0) > 1e-8f &&
-                       bumpTexture_->uvInputAxisLength(1) > 1e-8f) {
+            } else if (bcm == Texture::CoordMode::UV && bumpImg) {
                 // #1004 - UV image Height, Cycles' structure: offset the INPUT UV before the
                 // Mapping (kernel/svm/attribute.h:173-186 svm_node_attr_derivative, Cycles @ Blender v5.2.0 fbe62287) and
                 // difference the Linear-interpolated image (interp_linear) over a small step
@@ -141,10 +136,14 @@ class NormalMappedPlugin : public Material {
                 // kBumpLinearStepTexels in texture space; Cycles uses Filter Width 0.1 of
                 // the pixel footprint (no ray differentials here: a texel is the footprint).
                 // GPU twin: stage_advance_device.cuh bump block (gpu_sampleImageTextureLinear).
+                // #1156: a zero-scale Mapping axis clamps the divisor (GPU rule): that axis's
+                // taps then coincide, giving the exact zero slope (surfgrad is invariant to the
+                // step length), where the old nearest 1.5-texel fallback stepped the other axis
+                // differently from the GPU.
                 const float du = kBumpLinearStepTexels / static_cast<float>(std::max(bumpImg->getWidth(), 1)) /
-                                 bumpTexture_->uvInputAxisLength(0);
+                                 std::max(bumpTexture_->uvInputAxisLength(0), 1e-8f);
                 const float dv = kBumpLinearStepTexels / static_cast<float>(std::max(bumpImg->getHeight(), 1)) /
-                                 bumpTexture_->uvInputAxisLength(1);
+                                 std::max(bumpTexture_->uvInputAxisLength(1), 1e-8f);
                 dPdx = T * (du * rec.uvScaleU);
                 dPdy = Bt * (dv * rec.uvScaleV);
                 h_c = heightValue(bumpImg->valueLinear(bumpTexture_->mappedInputUV(rec, Vec3(0), 0.0f, 0.0f)));

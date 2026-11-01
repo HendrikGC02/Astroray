@@ -18,28 +18,28 @@ scene = "prod_car_paint"
 backend = "gpu"
 kind = "parity"
 issue = "#1220"
-reason = "#1220: car_paint CPU/GPU twin gap (GPU 9/16 at seed 278, build e302ca1). Fails: limb_grazing r 0.956 b 0.926 L 0.965; lower_shadowed r 1.032 g 1.057 b 0.963 L 1.042. pkg327 Phase B pinned lit_front b (spectral, Mitsuba-confirmed, CPU 0.927 / GPU 0.936); upper_flake b is pinned on CPU only (GPU reads 0.981, the +3 % twin gap of #1220), so GPU upper_flake stays on Cycles and passes. The limb_grazing/lower_shadowed b shifts are not pinned: GPU 0.926/0.963 against 0.869/0.866 in the Mitsuba proxy and CPU in band"
+reason = "#1220: car_paint GPU 10/16 at seed 278 on the bump-twin build (7acd80bf; was 9/16 at e302ca1). Fails: limb_grazing r 0.951 b 0.923 L 0.961; lower_shadowed r 1.023 b 0.944 L 1.031 (lower_shadowed g is now in band). The #1220/#1156/#1214 fixes moved the 8-seed GPU/CPU toward 1: lit_front 1.019 -> 1.008, upper_flake 1.015 -> 1.003. The remaining misses are within seed noise of CPU, which is in band at seed 278: 5-seed GPU/CPU limb_grazing 1.007 (SE 0.010), lower_shadowed 0.981 (SE 0.026); the 5-seed GPU means of limb_grazing r 0.978 L 0.987 and lower_shadowed r 0.986 L 0.996 are in band, only lower_shadowed b (0.934, CPU 0.957, band 0.033) is not. pkg327 Phase B pinned lit_front b (spectral, Mitsuba-confirmed; CPU 0.927 / GPU 0.931). upper_flake b is pinned on CPU only: GPU reads 0.976 against CPU 0.961 (5-seed GPU/CPU 1.016, SE 0.004), so that GPU leg stays on Cycles and passes"
 
 [[row]]
 scene = "prod_wood"
 backend = "cpu"
 kind = "parity"
 issue = "#1222"
-reason = "#1222: pkg327 Phase B pinned grain_center r and b, grain_right b and lower b (spectral, Mitsuba-confirmed). 15/16 at seed 278, build e302ca1: only grain_center L 0.970 (tol 0.026) fails. L stays on Cycles (not a pin candidate); the 5-seed CPU mean is 0.980, in band, so seed 278 is a low draw (r 0.958, g 0.978; CPU per-seed L 0.970 0.979 1.000 0.984 0.965)"
+reason = "#1222: pkg327 Phase B pinned grain_center r and b, grain_right b and lower b (spectral, Mitsuba-confirmed), and the bump-twin build adds grain_left b. 15/16 at seed 278: only grain_center L 0.970 (tol 0.026) fails. L stays on Cycles (not a pin candidate); the 5-seed CPU mean is 0.980, in band, so seed 278 is a low draw (r 0.958, g 0.978; CPU per-seed L 0.970 0.979 1.000 0.984 0.965). Wood GPU passes 16/16 at seed 278. Candidate twin gap, not filed: GPU grain_center stays about 1.8 % above CPU over 8 seeds (5-seed GPU/CPU L 1.011, SE 0.006), unchanged by the bump-twin fixes"
 
 [[row]]
 scene = "prod_pbr_group"
 backend = "cpu"
 kind = "parity"
-issue = "#1004"
-reason = "#1004 root cause was Image Texture extension REPEAT (fixed: tile layout now matches); image Bump now steps the input UV and differences the Linear height, Normal Map read Linear (#1004). pkg327 Phase B pinned lower b (spectral, Mitsuba-confirmed; CPU 0.925). 12/16 at seed 278, build e302ca1: only the right ROI fails, r 1.182 g 1.280 b 1.286 L 1.234 - a seed-278 outlier (the other four seeds read right L 0.98-0.995, b 0.93-0.98), no pinned channel involved"
+issue = "#1156"
+reason = "#1156: pbr_group right ROI. 12/16 at seed 278 (bump-twin build, same as e302ca1): only the right ROI fails, r 1.182 g 1.280 b 1.286 L 1.234 - a seed-278 outlier (5-seed CPU/Cycles right L 1.037; the other four seeds read right L 0.98-0.995) with no pinned channel involved. pkg327 Phase B pinned lower b (spectral, Mitsuba-confirmed; CPU 0.925). The right ROI is the heavy-tail one: 5-seed GPU/CPU 0.941 with SE 0.049"
 
 [[row]]
 scene = "prod_pbr_group"
 backend = "gpu"
 kind = "parity"
-issue = "#1004"
-reason = "#1004 Linear bump / normal map fixed. pkg327 Phase B pinned lower b (spectral, Mitsuba-confirmed; GPU 0.940). 12/16 at seed 278, build e302ca1: only the right ROI fails and reads dim, r 0.935 g 0.913 b 0.851 L 0.922 (5-seed GPU L 0.96, all seeds dim; CPU right is 0.98-0.995 on four of five seeds)"
+issue = "#1156"
+reason = "#1156: pbr_group right ROI. 12/16 at seed 278 (bump-twin build): only the right ROI fails and reads dim, r 0.939 g 0.938 b 0.874 L 0.937 (5-seed GPU/Cycles right r 0.967 g 0.985 b 0.934 L 0.975, up from L 0.96 before the #1156/#1214 fixes; CPU right is 0.98-0.995 on four of five seeds). pkg327 Phase B pinned lower b (spectral, Mitsuba-confirmed; GPU 0.931)"
 
 [[row]]
 scene = "prod_light_path"
@@ -88,6 +88,13 @@ roi = "grain_center"
 channels = ["r", "b"]
 arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
 reason = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 1.000, proxy arb_chroma_hero_wood grain_center b Ms/Mr 0.924 A/C 0.925 (5-seed CPU 0.940, GPU 0.949). r: proxy Ms/Mr 0.983 A/C 0.984 confirms 1.7 of the 2.8-point 8-seed CPU shift (5-seed CPU 0.973, GPU 0.985); the 1.2-point remainder is 2.4 sigma and unexplained, so the r pin is the seed mean, not a claim that the whole shift is spectral. Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
+
+[[divergence]]
+scene = "prod_wood"
+roi = "grain_left"
+channels = ["b"]
+arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+reason = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 0.998, proxy arb_chroma_hero_wood grain_left b Ms/Mr 0.969 A/C 0.969 (8-seed CPU 0.979). Not pinned in the first Phase B pass because it passed on Cycles; the pkg327 GPU bump-twin fixes (#1156, #1214, #1220) moved the GPU onto the CPU shift and the GPU failed at seed 278 (b 0.974). Pinned to the Astroray 5-seed mean on the build with those fixes; the other channels of the ROI stay on Cycles."
 
 [[divergence]]
 scene = "prod_wood"

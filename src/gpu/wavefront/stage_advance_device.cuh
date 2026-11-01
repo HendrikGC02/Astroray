@@ -1980,10 +1980,11 @@ __device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_coatN_sample_spectral(
         const GPrincipledLobe& L = lobes[ds.lobe];
         if (L.kind == GPR_TRANSPARENT || L.kind == GPR_THINGLASS_TRANSMIT)
             s.f = L.weight;
-        else if (ds.deltaRefract)
-            s.f = L.weight * gpu_pr_sqrtColor(c.color) * (ds.eta * ds.eta * ds.pdfInternal);
+        else if (ds.deltaRefract)  // #1200: gpu_principled_sample twin (pdfInternal = 1 - F)
+            s.f = L.weight * gpu_pr_glassTint(c, true, 1.f - ds.pdfInternal, L.ior) *
+                  (ds.eta * ds.eta * ds.pdfInternal);
         else
-            s.f = L.weight * c.specularTint * ds.pdfInternal;
+            s.f = L.weight * gpu_pr_glassTint(c, false, ds.pdfInternal, L.ior) * ds.pdfInternal;
         s.pdf = (L.sel / W) * ds.pdfInternal;
         s.isDelta = true;
         rec.isDelta = true;

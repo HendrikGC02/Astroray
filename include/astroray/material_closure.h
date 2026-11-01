@@ -89,6 +89,10 @@ struct MaterialClosure {
     // i16 review: "rough_glass_walk" (pkg265 Heitz walk) is CPU-only. Host-only flag so
     // scene_upload can report the GPU's MULTI_GGX substitution; never uploaded.
     bool roughGlassWalk = false;
+    // #1200: Glass BSDF Fresnel tints (f0 = F0 untinted, reflection_tint = transmission_tint
+    // = Color; Cycles svm/closure.h:816-822) instead of Principled's (f0 = F0 x specular_tint).
+    // Host-only; the device side packs it into GPrincipledClosure::thinWallAniso (-16).
+    bool glassBsdf = false;
 };
 
 class MaterialClosureGraph {

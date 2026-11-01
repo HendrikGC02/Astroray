@@ -5714,23 +5714,26 @@ class CustomRaytracerRenderEngine(RenderEngine):
             _warn_color_texture_unsupported('BSDF_GLASS')
             spec = {'kind': 'principled', 'base_color': color, 'params': {'transmission': 1.0, 'ior': ior, 'roughness': rough}}
             if self._use_native_principled():
-                # #1038: Cycles' Glass BSDF tints BOTH lobes by Color (svm/closure.h
-                # CLOSURE_BSDF_MICROFACET_GGX_GLASS_ID: fresnel->tint = {color, color};
-                # reflection = color*F, transmission = color*(1-F)). The native Principled
-                # transmission lobe tints reflection by specular_tint (post-multiply) and
-                # transmission by sqrt(base_color) (Cycles' Principled semantics). So a
-                # Glass BSDF is encoded as specular_tint = Color, base_color = Color^2:
-                # no engine/GPU change, Principled glass untouched (.astroray_plan/docs/
-                # issue1038-glass-tint-research.md).
+                # #1038 / #1200: Cycles' Glass BSDF (v5.2.0 svm/closure.h :816-822) fills its
+                # FresnelGeneralizedSchlick with f0 = F0_from_ior(ior) UNTINTED and
+                # reflection_tint = transmission_tint = Color, so R = F*Color and
+                # T = (1-F)*Color, film or not. The Principled transmission lobe fills the
+                # same struct differently (:404-409): f0 = F0*specular_tint, reflection_tint
+                # 1, transmission_tint sqrt(base_color). The Glass BSDF is encoded as
+                # specular_tint = Color, base_color = Color^2 (sqrt(base) = Color) plus
+                # 'glass_bsdf', which makes the engine use the Glass fill: Color is the
+                # reflection_tint post-multiply instead of entering f0 (the thin-film F0
+                # rescale, where it whitened a tinted rim, #1200). .astroray_plan/docs/
+                # issue1038-glass-tint-research.md.
                 spec['base_color'] = [max(float(c), 0.0) ** 2 for c in color]
-                spec['native_params'] = {'specular_tint': [max(float(c), 0.0) for c in color]}
+                spec['native_params'] = {'specular_tint': [max(float(c), 0.0) for c in color],
+                                         'glass_bsdf': 1.0}
                 # pkg326 (#1136): Thin Film Thickness / IOR. Cycles 5.2 svm/closure.h
                 # (blender v5.2.0, Apache-2.0) CLOSURE_BSDF_MICROFACET_*_GLASS_ID :779-840
-                # loads thin_film_thickness/ior into fresnel->thin_film of the SAME
-                # FresnelGeneralizedSchlick the Principled transmission lobe builds
-                # (:362-423, back-face ior adjust :400-403 == :827). The native Principled
-                # transmission lobe already renders that film on CPU and GPU (pkg178
-                # Stage 4, Belcour & Barla 2017), so the Glass node only forwards sockets.
+                # loads thin_film_thickness/ior into fresnel->thin_film (back-face ior
+                # adjust :827, as Principled's :400-403). The native transmission lobe
+                # renders that film on CPU and GPU (pkg178 Stage 4, Belcour & Barla 2017),
+                # smooth glass included (#1162), with the Glass tints above.
                 # A Blender without the sockets reads 0 nm (below the 0.1 nm film cutoff).
                 spec['native_params']['thin_film_thickness'] = film_thickness
                 spec['native_params']['thin_film_ior'] = film_ior

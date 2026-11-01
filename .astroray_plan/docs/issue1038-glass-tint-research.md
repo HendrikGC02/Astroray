@@ -19,6 +19,17 @@ reflection tinted by `specular_tint` (scaling f0), transmission by `sqrt(base_co
 So Glass: reflection tint = Color, transmission tint = Color (full, per interface).
 Principled: reflection tint = specular_tint, transmission tint = sqrt(base_color).
 
+**Correction (#1200, 2026-11-01, v5.2.0 sources):** Principled's specular_tint is NOT a
+reflection post-multiply. `generalized_schlick_setup` (bsdf_microfacet.h:111-124) sets
+`f0 = F0_from_ior(ior) * specular_tint`, `reflection_tint = 1`; `generalized_schlick_fresnel`
+(:316-321) gives R = mix(f0, 1, s), s = saturate((F - F0)/(1 - F0)), T = (1 - R) * sqrt(base),
+so a tinted Principled glass rim goes to white. The Glass BSDF (svm/closure.h:816-822) keeps
+f0 = F0 untinted and post-multiplies Color on both lobes, film or not. The engine now has
+both fills (principled.cpp glassF0Tint / glassReflTint / glassTint; `glass_bsdf` selects the
+Glass one; GPU twin gpu_pr_glass*), and the addon sends `glass_bsdf = 1` with the encoding
+below. Before #1200 the non-film lobe used the Glass fill for Principled too, and the
+thin-film lobe used the Principled fill for Glass too.
+
 ## Why the architect hypothesis (reflection only) was incomplete
 
 The Blender addon exports `BSDF_GLASS` as native `principled` (transmission 1, base_color =

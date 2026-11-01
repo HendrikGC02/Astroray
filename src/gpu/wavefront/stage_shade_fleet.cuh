@@ -18,6 +18,14 @@
 // __launch_bounds__, Apache-2.0); the sweep is in
 // .astroray_plan/docs/pkg300-shade-counter-attribution.md.
 #pragma once
+// #1200: the fleet kernels inline the glass sampler's gpu_pr_glassReflectProb (main 000cd943's
+// compiler did, as an out-of-line call it costs a register save per rough-glass sample);
+// every other TU keeps it out of line (gpu_materials.h). Must precede stage_advance_device.cuh.
+#if defined(_MSC_VER) && !defined(__GNUC__)
+#define ASTRORAY_GLASS_SAMPLER_NOINLINE __forceinline
+#else
+#define ASTRORAY_GLASS_SAMPLER_NOINLINE __attribute__((always_inline))
+#endif
 #include "stage_advance_device.cuh"
 
 #define ASTRORAY_DEFINE_SHADE_FLEET(P, BUDGET) \

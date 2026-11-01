@@ -113,8 +113,8 @@ def test_every_reported_drop_warning_text_exists_in_the_addon_source():
 
 # (bl_idname, row) -> (classification, resolution). The eight rows #1088 / pkg321 left silent, resolved by pkg328.
 PKG328_ROWS = {
-    ("ShaderNodeOutputWorld", "input:Surface"): ("SUPPORTED", "scanner credit + addon fix; probes w_surface / w_bg_control"),
-    ("ShaderNodeOutputWorld", "prop:is_active_output"): ("SUPPORTED", "scanner credit + addon fix; probe w_active_output"),
+    ("ShaderNodeOutputWorld", "input:Surface"): ("APPROXIMATED", "scanner credit capped (Phase 2 blind review); probes w_surface / w_bg_control"),
+    ("ShaderNodeOutputWorld", "prop:is_active_output"): ("APPROXIMATED", "scanner credit capped (Phase 2 blind review); probe w_active_output"),
     ("ShaderNodeOutputMaterial", "prop:target"): ("SUPPORTED", "scanner credit + addon fix; probe o_target"),
     ("ShaderNodeOutputMaterial", "input:Thickness"): ("SUPPORTED", "Cycles ignores it too; probe o_thickness"),
     ("ShaderNodeTexEnvironment", "input:Vector"): ("APPROXIMATED", "probe credit; probe env_vector"),

@@ -274,6 +274,9 @@ __device__ inline GVec3 gpu_fresnelSchlick3(float cosTheta, const GVec3& F0) {
 __device__ inline GVec3 gpu_metal_eval(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
+    // #1206: conductor closure dropped by the reflective caustic toggle (CPU twin
+    // MetalPlugin::gated; Cycles svm/closure.h __CAUSTICS_TRICKS__).
+    if (rec.causticGate & CAUSTIC_GATE_REFLECT) return GVec3(0.f);
     // roughness <= 0.1: near-delta path — eval approximates a narrow lobe
     if (mat.roughness <= 0.1f) {
         GVec3 perfectRefl = rec.normal * (2.f * wo.dot(rec.normal)) - wo;
@@ -344,6 +347,7 @@ __device__ inline GSampledSpectrum gpu_metal_eval_spectral(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
     const GSampledWavelengths& wl)
 {
+    if (rec.causticGate & CAUSTIC_GATE_REFLECT) return GSampledSpectrum(0.f);  // #1206
     // Near-delta path mirrors MetalPlugin::evalSpectral lines 109-114:
     // albedo spectrum * exp(-deviation) narrow lobe.
     if (mat.roughness <= 0.1f) {
@@ -391,6 +395,14 @@ __device__ inline GBSDFSample gpu_metal_sample(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng)
 {
     GBSDFSample s;
+    s.label = BSDF_LABEL_GLOSSY;  // #1204: CPU twin MetalPlugin::sample
+    if (rec.causticGate & CAUSTIC_GATE_REFLECT) {  // #1206: closure dropped, the path ends
+        s.wi = rec.normal;
+        s.f = GVec3(0.f);
+        s.pdf = 0.f;
+        s.isDelta = false;
+        return s;
+    }
     if (mat.roughness <= 0.1f) {
         // Perfect mirror: wi = 2*(wo·n)*n - wo
         s.wi      = rec.normal * (2.f * wo.dot(rec.normal)) - wo;
@@ -428,7 +440,7 @@ __device__ inline GBSDFSample gpu_metal_sample(
 __device__ inline float gpu_metal_pdf(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
-    if (mat.roughness <= 0.1f) return 0.f;
+    if ((rec.causticGate & CAUSTIC_GATE_REFLECT) || mat.roughness <= 0.1f) return 0.f;  // #1206
     GVec3 h    = (wo + wi).normalized();
     float NdotH = fmaxf(rec.normal.dot(h), 0.001f);
     float HdotV = fmaxf(h.dot(wo), 0.001f);
@@ -590,6 +602,7 @@ __device__ inline GBSDFSample gpu_thin_glass_sample(
 {
     GBSDFSample s;
     s.isDelta = mat.roughness < 0.02f;
+    s.label = BSDF_LABEL_GLOSSY;  // #1204: CPU twin ThinGlassPlugin::sample
     rec.isDelta = s.isDelta;
 
     float cosTheta = fabsf(wo.normalized().dot(rec.normal));
@@ -614,6 +627,13 @@ __device__ inline GBSDFSample gpu_thin_glass_sample(
         s.wi = gpu_sampleCone(-wo, mat.roughness, rng);
         s.f = mat.baseColor * transmitProb;
         s.pdf = fmaxf(transmitProb, 1e-4f);
+    }
+    // #1206: the gated side is dropped (CPU twin ThinGlassPlugin::sample); one-branch
+    // estimate, so ending it is exact.
+    if (rec.causticGate & (s.wi.dot(rec.normal) * wo.dot(rec.normal) > 0.f
+                               ? CAUSTIC_GATE_REFLECT : CAUSTIC_GATE_REFRACT)) {
+        s.f = GVec3(0.f);
+        s.pdf = 0.f;
     }
     return s;
 }
@@ -1886,6 +1906,9 @@ struct GPrincipledLobe {
     float ior;
     float sel;
     bool  isDelta;
+    // #1206: a Transmission lobe with one caustic toggle gated drops that side's eval
+    // (CAUSTIC_GATE_* bits; CPU twin Lobe::gate). Sits in isDelta's padding.
+    unsigned char gate = 0;
     float sheenA;  // Sheen LTC aInv (view-dependent)
     float sheenB;  // Sheen LTC bInv
     // pkg178 PR-4b (specular/metallic; 0 → isotropic). Default-initialized so the
@@ -1938,6 +1961,13 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
     GVec3 weight(1.f, 1.f, 1.f);  // W₀ = 1
     GVec3 baseColor = c.color;
     int n = 0;
+    // #1206: Cycles caustic toggles (svm/closure.h CLOSURE_BSDF_PRINCIPLED_ID); CPU twin
+    // PrincipledPlugin::assembleLobes. Gated coat / metallic / specular / thin-glass closures
+    // are not created (coat and specular skip their layering too); the glass closure is
+    // side-gated, or dropped when both toggles are gated.
+    const unsigned char cg = rec.causticGate;
+    const bool dropRefl = (cg & CAUSTIC_GATE_REFLECT) != 0;
+    const bool dropRefr = (cg & CAUSTIC_GATE_REFRACT) != 0;
     // pkg194 Item 1 -- running per-λ layering weight (mirrors `weight`; each
     // chromatic factor upsampled SEPARATELY, achromatic scalars multiplied directly).
     // Inert when wl == nullptr (RGB callers). `usp` upsamples one reflectance colour;
@@ -1982,27 +2012,32 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         float f0c = gpu_pr_F0_from_ior(c.coatIor);
         float sView = gpu_pr_generalizedSchlickS(nvC, c.coatIor);
         float Fview = f0c + (1.f - f0c) * sView;
-        GPrincipledLobe& L = lobes[n++];
-        L.kind = GPR_COAT; L.weight = weight * c.coatWeight; L.color = GVec3(f0c);
-        L.roughness = c.coatRoughness; L.ior = c.coatIor; L.isDelta = false;
-        L.sheenA = 0.f; L.sheenB = 0.f;
-        L.sel = fmaxf(luminance(weight * c.coatWeight) * Fview, 1e-4f);
-        if (wl) L.weightSpec = weightSp * c.coatWeight;
-        GVec3 coatAlb = gpu_ggxLayeringAlbedo(GVec3(f0c), c.coatRoughness, nvC, c.coatIor) * c.coatWeight;  // pkg261
-        float layT = gpu_pr_layeringScale(weight, coatAlb);
-        weight = weight * layT;
+        if (!dropRefl) {  // #1206
+            GPrincipledLobe& L = lobes[n++];
+            L.kind = GPR_COAT; L.weight = weight * c.coatWeight; L.color = GVec3(f0c);
+            L.roughness = c.coatRoughness; L.ior = c.coatIor; L.isDelta = false;
+            L.sheenA = 0.f; L.sheenB = 0.f;
+            L.sel = fmaxf(luminance(weight * c.coatWeight) * Fview, 1e-4f);
+            if (wl) L.weightSpec = weightSp * c.coatWeight;
+            GVec3 coatAlb = gpu_ggxLayeringAlbedo(GVec3(f0c), c.coatRoughness, nvC, c.coatIor) * c.coatWeight;  // pkg261
+            float layT = gpu_pr_layeringScale(weight, coatAlb);
+            weight = weight * layT;
+            if (wl) weightSp = weightSp * layT;
+        }
         GVec3 beer = gpu_pr_coatBeerFactor(c, nvC);  // chromatic coat-tint Beer
         weight = weight * beer;
-        if (wl) weightSp = weightSp * layT * usp(beer);
+        if (wl) weightSp = weightSp * usp(beer);
     }
     // 4. Metallic (GGX + F82-tint)
     if (c.metallic > 1e-4f) {
-        GPrincipledLobe& L = lobes[n++];
-        L.kind = GPR_METALLIC; L.weight = weight * c.metallic; L.color = baseColor;
-        L.roughness = c.roughness; L.ior = c.ior; L.isDelta = false;
-        L.anisotropic = c.anisotropic; L.anisoRotation = c.anisotropicRotation;  // PR-4b
-        L.sel = fmaxf(luminance(L.weight * baseColor), 1e-4f);
-        if (wl) L.weightSpec = weightSp * c.metallic;
+        if (!dropRefl) {  // #1206: closure dropped, the rest still scaled by 1 - metallic
+            GPrincipledLobe& L = lobes[n++];
+            L.kind = GPR_METALLIC; L.weight = weight * c.metallic; L.color = baseColor;
+            L.roughness = c.roughness; L.ior = c.ior; L.isDelta = false;
+            L.anisotropic = c.anisotropic; L.anisoRotation = c.anisotropicRotation;  // PR-4b
+            L.sel = fmaxf(luminance(L.weight * baseColor), 1e-4f);
+            if (wl) L.weightSpec = weightSp * c.metallic;
+        }
         weight = weight * (1.f - c.metallic);
         if (wl) weightSp = weightSp * (1.f - c.metallic);
     }
@@ -2015,7 +2050,7 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
             GSampledSpectrum RpS, TpS;  // pkg194 Item 2: per-λ native R'/T'
             if (wl) gpu_pr_thinGlassFresnelSpectral(c, nv, *wl, RpS, TpS);
             GVec3 baseW = weight * c.transmission;
-            if (luminance(Rp) > 1e-6f) {
+            if (luminance(Rp) > 1e-6f && !dropRefl) {  // #1206
                 GPrincipledLobe& L = lobes[n++];
                 L.kind = GPR_THINGLASS_REFLECT; L.weight = baseW * Rp; L.color = c.specularTint;
                 L.roughness = c.roughness; L.ior = c.ior; L.isDelta = false;
@@ -2023,7 +2058,7 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
                 L.sel = fmaxf(luminance(L.weight), 1e-4f);
                 if (wl) L.weightSpec = weightSp * c.transmission * RpS;
             }
-            if (luminance(Tp) > 1e-6f) {
+            if (luminance(Tp) > 1e-6f && !dropRefr) {  // #1206
                 float aReflect = c.roughness * c.roughness;
                 float aT = gpu_pr_thinGlassTransmissionRoughness(aReflect, c.ior);
                 GPrincipledLobe& L = lobes[n++];
@@ -2034,9 +2069,10 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
                 L.sel = fmaxf(luminance(L.weight), 1e-4f);
                 if (wl) L.weightSpec = weightSp * c.transmission * TpS;
             }
-        } else {
+        } else if (!(dropRefl && dropRefr)) {  // #1206: both gated drops the closure
             GPrincipledLobe& L = lobes[n++];
             L.kind = GPR_TRANSMISSION; L.weight = weight * c.transmission; L.color = baseColor;
+            L.gate = cg;  // one side gated: zero eval there (gpu_pr_evalLobe / Spectral)
             L.roughness = c.roughness;
             // #1084 twin of principled.cpp: rough transmission at eta == 1 has a zero
             // refraction half-vector (wi = -wo). Cycles bsdf_microfacet_sample treats
@@ -2057,8 +2093,8 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         weight = weight * (1.f - c.transmission);
         if (wl) weightSp = weightSp * (1.f - c.transmission);
     }
-    // 6. Specular dielectric (generalized-Schlick, exponent = -ior)
-    if (luminance(weight) > 1e-4f) {
+    // 6. Specular dielectric (generalized-Schlick, exponent = -ior); #1206: gated with its layering
+    if (luminance(weight) > 1e-4f && !dropRefl) {
         // #940: specular_ior_level re-derives the layer eta from the scaled f0
         // (Cycles svm/closure.h principled IOR adjustment); twin of principled.cpp.
         float f0s = gpu_pr_F0_from_ior(c.ior);
@@ -2123,7 +2159,7 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         L.sel = fmaxf(luminance(L.weight), 1e-4f);
         if (wl) L.weightSpec = weightSp * usp(baseColor) * (1.f - c.subsurfaceWeight);
     }
-    if (n == 0) {  // degenerate guard (principled.cpp:305-312)
+    if (n == 0 && !cg) {  // degenerate guard (principled.cpp:305-312); #1206: a gate may leave none
         GPrincipledLobe& L = lobes[0];
         L.kind = GPR_DIFFUSE; L.weight = baseColor; L.color = baseColor;
         L.roughness = 0.f; L.ior = c.ior; L.isDelta = false;
@@ -2576,8 +2612,17 @@ __device__ inline GSampledSpectrum gpu_pr_transmissionEvalSpectral(
 }
 
 // --- Per-lobe eval / pdf (principled.cpp:355-461) --------------------------
+// #1206: a half-gated glass lobe has no eval on the dropped side (Cycles zeroes that tint in
+// generalized_schlick_setup); the pdf is kept. CPU twin PrincipledPlugin::sideGated.
+__device__ inline bool gpu_pr_sideGated(const GPrincipledLobe& L, const GHitRecord& rec,
+                                        const GVec3& wo, const GVec3& wi) {
+    if (!L.gate) return false;
+    const bool transmitted = rec.normal.dot(wo) * rec.normal.dot(wi) < 0.f;
+    return (L.gate & (transmitted ? CAUSTIC_GATE_REFRACT : CAUSTIC_GATE_REFLECT)) != 0;
+}
 __device__ inline GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrincipledLobe& L,
                                         const GHitRecord& rec, const GVec3& wo, const GVec3& wi) {
+    if (gpu_pr_sideGated(L, rec, wo, wi)) return GVec3(0.f);
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
     switch (L.kind) {
         case GPR_SUBSURFACE:  // approximate SSS = Lambert (D2=a)
@@ -2702,6 +2747,7 @@ __device__ inline float gpu_pr_pdfLobe(const GPrincipledClosure& c, const GPrinc
 __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClosure& c, const GPrincipledLobe& L,
                                                            const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
                                                            const GSampledWavelengths& wl) {
+    if (gpu_pr_sideGated(L, rec, wo, wi)) return GSampledSpectrum(0.f);  // #1206
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
     // pkg188 Finding B: weight-path clamp-guard (twin of principled.cpp
     // evalLobeSpectral). Defensive no-op at weight ≤ 1 (wMax==1).

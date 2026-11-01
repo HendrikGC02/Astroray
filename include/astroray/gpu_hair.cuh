@@ -296,6 +296,7 @@ __device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_hair_sample(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng) {
     GBSDFSample s;
     s.isDelta = false;
+    s.label = BSDF_LABEL_GLOSSY;  // #1204: Cycles bsdf_hair_chiang_sample (CPU twin)
     s.f = GVec3(0.f);
     s.fSpectral = GSampledSpectrum(0.f);
     s.wi = GVec3(0.f, 1.f, 0.f);
@@ -325,6 +326,7 @@ __device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_hair_sample_spectral(
     GSampledWavelengths& wl, TRng* rng) {
     GBSDFSample s;
     s.isDelta = false;
+    s.label = BSDF_LABEL_GLOSSY;  // #1204: Cycles bsdf_hair_chiang_sample (CPU twin)
     s.f = GVec3(0.f);
     s.fSpectral = GSampledSpectrum(0.f);
     s.wi = GVec3(0.f, 1.f, 0.f);

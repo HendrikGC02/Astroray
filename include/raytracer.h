@@ -400,6 +400,10 @@ struct HitRecord {
     Vec2 windowUV;
     std::shared_ptr<Material> material;
     bool isDelta;
+    // #1206: Cycles caustic toggles at this vertex (CAUSTIC_GATE_* bits, gpu_types.h; 0 = none).
+    // Set by pathTraceSpectral from the incoming ray's DIFFUSE visibility; materials drop the
+    // gated closures in eval / pdf / sample (Cycles svm/closure.h __CAUSTICS_TRICKS__).
+    unsigned char causticGate = 0;
     const Hittable* hitObject = nullptr;  // set by hit() for GR dispatch
     // pkg225 Stage 1 — CurveSegment (ray-thick-curve) parametrization, needed by
     // the future hair BSDF (Stage 2) for cuticle tilt / tangent-frame construction.
@@ -4043,17 +4047,13 @@ public:
         // continuation is still traced; the next surface adds its emission only and
         // ends the path, and media on the way only attenuate and emit.
         bool terminateAfter = false;
-        // pkg201 Stage 3 (Finding E) — native caustic toggles. Sticky path-lifetime
-        // flag mirroring Cycles PATH_RAY_DIFFUSE_ANCESTOR: set once a path bounces
-        // off a genuinely diffuse surface, never cleared. A subsequent specular
-        // (delta) bounce forms a caustic; when the matching toggle is off the path
-        // is culled there (Cycles drops the reflective/refractive closure at setup).
-        // causticGateActive is false in the default (both toggles on) so the whole
-        // block is a no-op → byte-identical to pre-pkg201.
-        bool hadDiffuseAncestor = false;
         // #991 — Light Path state of the ray being traced (Cycles path flags +
         // per-type depths), advanced at every scatter (astroray/light_path.h).
         astroray::lightpath::PathContext lpc;
+        // pkg201 Stage 3 (Finding E) / #1206 — native caustic toggles. Cycles gates on the
+        // incoming ray's DIFFUSE visibility (the previous scatter), lpc.flags & LPF_DIFFUSE;
+        // see rec.causticGate below. causticGateActive is false in the default (both toggles
+        // on), so the gate stays 0 and nothing changes.
         const bool causticGateActive =
             !useReflectiveCaustics || !useRefractiveCaustics;
         // pkg287 (#909): photon split chain, GPU GWavefrontPhotonSplit twin:
@@ -4566,6 +4566,12 @@ public:
             // camera_sample_perspective: P += nearclip * z_inv * D).
             rec.lightPath.rayLength = rec.t + passDist - ((bounce == 0) ? clipNear_ * clipZInv : 0.0f);  // #1033: cumulative since the last real vertex
             resolveLightPathMaterial(rec);
+            // #1206: the caustic toggles at this vertex (Cycles svm/closure.h gates on the
+            // incoming ray's DIFFUSE visibility). Read by the materials' eval/pdf/sample.
+            if (causticGateActive)
+                rec.causticGate = astroray::lightpath::caustic_gate(
+                    (lpc.flags & astroray::lightpath::LPF_DIFFUSE) != 0u,
+                    useReflectiveCaustics, useRefractiveCaustics);
 
             // Emission (gated on camera ray or post-specular bounce).
             astroray::SampledSpectrum Le_spec =
@@ -4916,24 +4922,17 @@ public:
                     transmitted, bss.isDelta, bss.label, rec.material->isGlossy());
             }
             if (firstCat < 0 && !transparentPass) firstCat = lobeCat;
-            lpc = astroray::lightpath::next_surface(  // #991
-                lpc, lobeCat, bss.isDelta, transparentPass);
+            lpc = astroray::lightpath::next_surface(  // #991 / #1204
+                lpc, lobeCat, bss.isDelta, bss.label, transparentPass);
 
-            // pkg201 Stage 3 (Finding E) — native caustic toggle cull. Reuses the
-            // per-bounce lobeCat (item A): a delta reflection is lobeCat==1
-            // (reflective caustic), a delta transmission is lobeCat==2 (refractive).
-            // When the path already has a diffuse ancestor and the matching toggle
-            // is off, terminate here (the closest equivalent to Cycles suppressing
-            // the specular/refractive closure at setup — the caustic never reaches
-            // the light). Direct lighting at earlier vertices is untouched.
-            if (causticGateActive && !transparentPass) {
-                if (hadDiffuseAncestor && bss.isDelta &&
-                    ((lobeCat == 2 && !useRefractiveCaustics) ||
-                     (lobeCat == 1 && !useReflectiveCaustics))) {
-                    break;
-                }
-                if (lobeCat == 0) hadDiffuseAncestor = true;
-            }
+            // pkg201 Stage 3 (Finding E) / #1206 — caustic toggle cull of a singular sample
+            // of a gated closure (mirror, smooth glass, smooth metal): Cycles drops that
+            // closure at setup when the incoming ray is DIFFUSE (rec.causticGate). Non-delta
+            // closures are dropped by the materials themselves (eval / pdf / sample).
+            if (rec.causticGate && !transparentPass &&
+                astroray::lightpath::caustic_gated_delta(rec.causticGate, bss.isDelta,
+                                                         lobeCat == 2))
+                break;
 
             // pkg87b: Cryptomatte per-shade-point accumulation.
             // Weight = average(throughput · bsdf_eval), per Cycles film_write_cryptomatte_slots (Apache-2.0).
@@ -5354,7 +5353,7 @@ public:
                     transmitted, bss.isDelta, bss.label, rec.material->isGlossy());
                 transparentPass = astroray::lightpath::is_transparent_pass(
                     bss.isDelta, wo.dot(bss.wi), rec.material->shadowAlpha(rec) < 1.0f);
-                lpc = astroray::lightpath::next_surface(lpc, cat, bss.isDelta, transparentPass);
+                lpc = astroray::lightpath::next_surface(lpc, cat, bss.isDelta, bss.label, transparentPass);
             }
             if (!transparentPass) wasSpecular = bss.isDelta;  // #1033: a pass keeps the MIS state
 
@@ -5640,7 +5639,7 @@ public:
                 const int cat = astroray::lightpath::bounce_class(  // #1178
                     transmitted, bs.isDelta, bs.label, rec.material->isGlossy());
                 lpc = astroray::lightpath::next_surface(
-                    lpc, cat, bs.isDelta,
+                    lpc, cat, bs.isDelta, bs.label,
                     astroray::lightpath::is_transparent_pass(bs.isDelta, wo.dot(bs.wi),
                         rec.material->shadowAlpha(rec) < 1.0f));
             }

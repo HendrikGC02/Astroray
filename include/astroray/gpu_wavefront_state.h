@@ -172,11 +172,12 @@ struct GPUWavefrontState {
     // shade kernel never touches this array and renders stay byte-identical.
     uint32_t* per_type_bounce = nullptr;
 
-    // pkg201 Stage 3 (Finding E) — sticky "path has bounced off a diffuse surface"
-    // flag (Cycles PATH_RAY_DIFFUSE_ANCESTOR), 0/1, set once and never cleared.
-    // Reset to 0 at initPathSlot. Read in shadePathSlot ONLY when a caustic toggle
-    // is off; both-on (default) never touches it → fleet renders byte-identical.
-    int*      had_diffuse_ancestor = nullptr;
+    // pkg201 Stage 3 (Finding E) / #1206: DIFFUSE visibility of the ray in flight (Cycles
+    // PATH_RAY_VISIBILITY_DIFFUSE: its producing surface scatter was diffuse), 0/1. Kept
+    // across a transparent pass, cleared by a volume scatter and at initPathSlot; the caustic
+    // toggles gate on it (svm/closure.h). Read/written in shadePathSlot ONLY when a toggle is
+    // off; both-on (default) never touches it, so fleet renders stay byte-identical.
+    int*      ray_vis_diffuse = nullptr;
 
     // #991 — Light Path state of the ray in flight (astroray/light_path.h
     // pack_state: label flags of the bounce that produced it + diffuse/glossy/

@@ -810,6 +810,8 @@ __global__ void stageVolumeScatterKernel(
     gpu_countVolumeBounce(state.per_type_bounce, idx, c_wfGridVolume.volumeBounceCap);
     // #991 — Light Path: the continuation is a volume-scatter ray.
     if (c_wfLightPath.enabled) state.lp_state[idx] = gpu_lpVolume(state.lp_state[idx]);
+    // #1206: a volume-scatter ray carries no DIFFUSE visibility (Cycles path_state_next).
+    state.ray_vis_diffuse[idx] = 0;
 
     // ---- HG phase-sampled continuation from P (throughput *= phase/pdf = 1) ----
     float phasePdf;

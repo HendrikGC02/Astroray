@@ -13,9 +13,10 @@
 //
 // Reference (Apache-2.0): Blender Cycles
 //   intern/cycles/kernel/svm/light_path.h        svm_node_light_path
-//   intern/cycles/kernel/integrator/path_state.h path_state_next,
-//                                                path_state_ray_visibility
-// Research note: .astroray_plan/docs/issue991-light-path-research.md.
+//   intern/cycles/kernel/integrator/path_state.h path_state_next
+//   intern/cycles/kernel/svm/closure.h           caustic toggles (__CAUSTICS_TRICKS__)
+// Research notes: .astroray_plan/docs/issue991-light-path-research.md,
+// .astroray_plan/docs/issue1204-1206-path-flags-caustic-gate-research.md.
 //
 // Contexts (Cycles path_visibility / path_flag):
 //   camera ray   : CAMERA                     (path start)
@@ -113,15 +114,28 @@ HD inline int bounce_class(bool transmitted, bool singular, unsigned label, bool
     return materialGlossy ? 1 : 0;
 }
 
-// Cycles path_state_next for a surface bounce. lobeCat is Astroray's bounce class
-// (0 diffuse, 1 glossy, 2 transmission: the pkg201 per-type bounce-limit
-// classifier, shared by both backends). A transmission ray carries no diffuse/
-// glossy visibility (path_state_ray_visibility); a delta reflection is glossy +
-// singular. The returned context is the one the NEXT vertex is shaded with
-// (depth and rayLength are filled in there). `transparent`: a straight-through
-// delta pass (Cycles LABEL_TRANSPARENT): flags kept, transparentDepth + 1.
+// #1204/#1206 — Cycles path_state_next (path_state.h:209-222, v5.2.0) "diffuse/glossy/
+// singular": a LABEL_DIFFUSE scatter sets DIFFUSE visibility, reflect OR transmit (Translucent
+// is TRANSMIT|DIFFUSE). Everything else (glossy, singular) sets GLOSSY. lobeCat 0 is a diffuse
+// reflection by construction (bounce_class); a transmission reads the sampled label.
+HD inline bool is_diffuse_scatter(int lobeCat, bool singular, unsigned label) {
+    if (singular) return false;
+    if (lobeCat == 0) return true;
+    return lobeCat == 2 && (label & BSDF_LABEL_DIFFUSE) != 0u;
+}
+
+// Cycles path_state_next for a surface bounce (path_state.h:143-235, v5.2.0). lobeCat is
+// Astroray's bounce class (0 diffuse, 1 glossy, 2 transmission: the pkg201 per-type
+// bounce-limit classifier, shared by both backends); `label` the sampled BSDF_LABEL_*.
+// Visibility is reset every bounce. #1204: a transmission carries DIFFUSE or GLOSSY as well as
+// TRANSMIT (Cycles strips them only for object ray visibility, path_state_ray_visibility, never
+// for shading: shade_surface.h hands the raw visibility to svm/light_path.h), so Is Glossy Ray
+// is 1 behind glass and Is Diffuse Ray behind a translucent sheet. A delta reflection is glossy
+// + singular. The returned context is the one the NEXT vertex is shaded with (depth and
+// rayLength are filled in there). `transparent`: a straight-through delta pass (Cycles
+// LABEL_TRANSPARENT): flags kept, transparentDepth + 1.
 HD inline PathContext next_surface(const PathContext& c, int lobeCat, bool singular,
-                                   bool transparent = false) {
+                                   unsigned label, bool transparent = false) {
     PathContext n = c;
     if (transparent) {
         n.transparentDepth = (unsigned short)(c.transparentDepth + 1);
@@ -133,17 +147,31 @@ HD inline PathContext next_surface(const PathContext& c, int lobeCat, bool singu
         n.transmissionDepth = (unsigned short)(c.transmissionDepth + 1);
     } else {
         f |= LPF_REFLECT;
-        if (lobeCat == 0) {
-            f |= LPF_DIFFUSE;
-            n.diffuseDepth = (unsigned short)(c.diffuseDepth + 1);
-        } else {
-            f |= LPF_GLOSSY;
-            n.glossyDepth = (unsigned short)(c.glossyDepth + 1);
-        }
+        if (lobeCat == 0) n.diffuseDepth = (unsigned short)(c.diffuseDepth + 1);
+        else n.glossyDepth = (unsigned short)(c.glossyDepth + 1);
     }
+    f |= is_diffuse_scatter(lobeCat, singular, label) ? LPF_DIFFUSE : LPF_GLOSSY;
     if (singular) f |= LPF_SINGULAR;
     n.flags = f;
     return n;
+}
+
+// #1206 — Cycles' caustic toggles (svm/closure.h __CAUSTICS_TRICKS__, v5.2.0):
+//   reflective_caustics = caustics_reflective || !(ray_visibility & PATH_RAY_VISIBILITY_DIFFUSE)
+// (refractive alike). ray_visibility is the incoming ray's visibility, i.e. the PREVIOUS
+// non-transparent scatter was diffuse; Cycles' sticky PATH_RAY_DIFFUSE_ANCESTOR is not read
+// there. The gated closures are dropped at setup at any roughness. Materials read the result
+// (CAUSTIC_GATE_* bits, gpu_types.h) from HitRecord::causticGate / GHitRecord::causticGate.
+HD inline unsigned char caustic_gate(bool rayDiffuse, bool reflectiveOn, bool refractiveOn) {
+    if (!rayDiffuse) return 0u;
+    return (unsigned char)((reflectiveOn ? 0u : CAUSTIC_GATE_REFLECT) |
+                           (refractiveOn ? 0u : CAUSTIC_GATE_REFRACT));
+}
+// A delta (singular) sample of a gated closure, on the side the gate drops. Exact for a
+// singular closure, whose sample carries only its own weight.
+HD inline bool caustic_gated_delta(unsigned char gate, bool singular, bool transmitted) {
+    if (!gate || !singular) return false;
+    return (gate & (transmitted ? CAUSTIC_GATE_REFRACT : CAUSTIC_GATE_REFLECT)) != 0u;
 }
 
 // Cycles' LABEL_TRANSPARENT: the straight-through delta sample (wi == -wo) of a

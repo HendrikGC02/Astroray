@@ -95,8 +95,8 @@ bool allocateGPUWavefrontState(GPUWavefrontState& s, int capacity) {
 
     // pkg201 Stage 3 (Finding A) — packed per-type bounce counters.
     ALLOC_CHECK(s.per_type_bounce, capacity * sizeof(uint32_t));
-    // pkg201 Stage 3 (Finding E) — sticky diffuse-ancestor flag.
-    ALLOC_CHECK(s.had_diffuse_ancestor, capacity * sizeof(int));
+    // pkg201 Stage 3 (Finding E) / #1206 — DIFFUSE visibility of the ray in flight.
+    ALLOC_CHECK(s.ray_vis_diffuse, capacity * sizeof(int));
     // #991 — packed Light Path state.
     ALLOC_CHECK(s.lp_state, capacity * sizeof(uint32_t));
     ALLOC_CHECK(s.pass_dist, capacity * sizeof(float));  // #1033
@@ -164,7 +164,7 @@ void freeGPUWavefrontState(GPUWavefrontState& s) {
     cudaFree(s.photon_xyz_z);
 
     cudaFree(s.per_type_bounce);       // pkg201 Stage 3 (A)
-    cudaFree(s.had_diffuse_ancestor);  // pkg201 Stage 3 (E)
+    cudaFree(s.ray_vis_diffuse);       // pkg201 Stage 3 (E) / #1206
     cudaFree(s.lp_state);              // #991
     cudaFree(s.pass_dist);             // #1033
     cudaFree(s.pass_count);            // #1125

@@ -104,7 +104,7 @@ __device__ __noinline__ unsigned gpu_lpAdvance(unsigned lpState, const ::GMateri
     const bool alphaLobe = mat->closureCount >= 1 &&
                            mat->closures[0].type == GCLOSURE_PRINCIPLED &&
                            mat->principled.alpha < 1.0f;
-    return pack_state(next_surface(unpack_state(lpState, 0, 0.f), cat, isDelta,
+    return pack_state(next_surface(unpack_state(lpState, 0, 0.f), cat, isDelta, label,  // #1204
                                    forcePass || is_transparent_pass(isDelta, wo.dot(wi), alphaLobe)));
 }
 

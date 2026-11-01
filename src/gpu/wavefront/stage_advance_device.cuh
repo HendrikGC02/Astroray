@@ -2238,6 +2238,12 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     rec.primId     = hitBufs.hit_prim_id[idx];
     rec.frontFace  = hitBufs.hit_front_face[idx] != 0;
     rec.isDelta    = hitBufs.hit_is_delta[idx] != 0;
+    // #1206: Cycles caustic toggles at this vertex (svm/closure.h gates on the incoming ray's
+    // DIFFUSE visibility; CPU twin pathTraceSpectral rec.causticGate). The material code drops
+    // the gated closures. Both toggles on (the fleet default) never reads the SoA flag.
+    if (c_wfCausticGate[0] == 0 || c_wfCausticGate[1] == 0)
+        rec.causticGate = astroray::lightpath::caustic_gate(
+            state.ray_vis_diffuse[idx] != 0, c_wfCausticGate[0] != 0, c_wfCausticGate[1] != 0);
 
     // pkg178 Stage-3b PR-4b — UV-aligned shading tangent for anisotropic
     // Principled. Default to the arbitrary frame; override from the hit triangle's
@@ -3260,25 +3266,29 @@ __device__ __forceinline__ bool shadePathSlotImpl(
         }
     }
 
-    // pkg201 Stage 3 (Finding E) — native caustic toggle cull (device twin of the
-    // CPU pathTraceSpectral cull). Sticky had_diffuse_ancestor: once the path has
-    // scattered off a diffuse surface, a subsequent delta bounce forms a caustic;
-    // terminate it when the matching toggle is off (a delta reflection ⇒ cat 1 ⇒
-    // reflective; a delta transmission ⇒ cat 2 ⇒ refractive). Both-allow (the
+    // pkg201 Stage 3 (Finding E) / #1206 — caustic toggles (device twin of the CPU
+    // pathTraceSpectral block). A singular sample of a gated closure (mirror, smooth glass,
+    // smooth metal) ends here: Cycles drops that closure at setup when the incoming ray is
+    // DIFFUSE; non-delta closures were already dropped by the material code (rec.causticGate).
+    // Then record this scatter's DIFFUSE visibility for the next vertex (Cycles
+    // path_state_next resets visibility per bounce; a transparent pass keeps it). The gate
+    // bits are re-derived from the SoA flag rather than kept live in rec. Both-allow (the
     // fleet default) skips this entirely → byte-identical. Runtime-gated like the
-    // Finding-A block above (OPTION-2 shape), probe-decided.
+    // Finding-A block above (OPTION-2 shape).
     if (!tp && (c_wfCausticGate[0] == 0 || c_wfCausticGate[1] == 0)) {
         float sWo = wo.dot(rec.normal);
         float sWi = bss.wi.dot(rec.normal);
-        int cat = astroray::lightpath::bounce_class(  // #1178/#1198: sampled-lobe label
-            sWo * sWi < 0.f, bss.isDelta, bss.label, gpu_material_is_glossy(mat));
-        if (state.had_diffuse_ancestor[idx] && bss.isDelta &&
-            ((cat == 2 && c_wfCausticGate[1] == 0) ||
-             (cat == 1 && c_wfCausticGate[0] == 0))) {
+        const bool transmitted = sWo * sWi < 0.f;
+        const unsigned char gate = astroray::lightpath::caustic_gate(
+            state.ray_vis_diffuse[idx] != 0, c_wfCausticGate[0] != 0, c_wfCausticGate[1] != 0);
+        if (astroray::lightpath::caustic_gated_delta(gate, bss.isDelta, transmitted)) {
             state.path_alive[idx] = 0;
             return false;
         }
-        if (cat == 0) state.had_diffuse_ancestor[idx] = 1;
+        int cat = astroray::lightpath::bounce_class(  // #1178/#1198: sampled-lobe label
+            transmitted, bss.isDelta, bss.label, gpu_material_is_glossy(mat));
+        state.ray_vis_diffuse[idx] =
+            astroray::lightpath::is_diffuse_scatter(cat, bss.isDelta, bss.label) ? 1 : 0;
     }
 
     int next_bounce = bounce + (tp ? 0 : 1);   // #1033: a pass-through is no bounce

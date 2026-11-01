@@ -140,8 +140,9 @@ glossy closure forms its alpha, with no virtual signature change.
       authored (blur_glossy 1.0) on CPU and on GPU.
 - [ ] `tests/test_pkg329_filter_glossy.py` passes on CPU and GPU (rough-closure and camera-ray
       invariance bit-exact; smooth metal seen from a diffuse floor changes).
-- [ ] Filter Glossy 0 renders bit-identical to the pre-pkg329 build (CPU and GPU) on a glossy
-      scene.
+- [ ] Filter Glossy 0 renders within float rounding (<= 1e-6 relative) of the pre-pkg329 build
+      (CPU and GPU) on a glossy scene (lead 2026-11-02: MSVC codegen in principled.cpp moves
+      ULPs; the GPU differs from itself run to run by ~1e-6).
 - [ ] No regression in the closeout sweep relevant suites (principled, metal, disney, glass,
       bump, Light Path, caustic gate).
 - [ ] GPU: REG unchanged and STACK growth small on the shade kernels; perf A/B within ~1 % on

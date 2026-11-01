@@ -5,7 +5,8 @@ min of every non-transparent scatter pdf (shade_surface.h:608-612); at the next 
 glossy microfacet closures shade with alpha = max(alpha, sqrt(1 - min_ray_pdf / blur_glossy) / 2)
 when min_ray_pdf < blur_glossy (surface_shader.h:189-213, bsdf_microfacet.h:1095-1101).
 
-Twin tests of that floor rule (each runs on the CPU and the GPU backend):
+Twin tests of that floor rule (each runs on the CPU and the GPU backend; "bit-identically" means
+within the GPU's own run-to-run rounding on the GPU leg):
 - the floor is a max on alpha and never exceeds 0.5, so a scene whose glossy closures all have
   alpha >= 0.5 renders bit-identically with Filter Glossy on and off;
 - the camera ray is never blurred, so an isolated convex glossy object (no surface seen after
@@ -26,6 +27,15 @@ from test_issue991_light_path import _render, _renderer  # noqa: E402
 
 BACKENDS = [pytest.param(False, id="cpu"), pytest.param(True, id="gpu", marks=pytest.mark.gpu)]
 LUM = np.array([0.2126, 0.7152, 0.0722])
+
+
+def _assert_unchanged(on, off, use_gpu):
+    """CPU: bit-exact. GPU: the same frame rendered twice differs by up to ~1e-6 relative on
+    ~70 % of pixels (float accumulation order; measured 2026-11-02), so compare at 1e-5."""
+    if use_gpu:
+        np.testing.assert_allclose(on, off, rtol=1e-5, atol=1e-6)
+    else:
+        np.testing.assert_array_equal(on, off)
 
 
 def _scene(use_gpu, blur_glossy, sphere_roughness, floor=True):
@@ -50,7 +60,7 @@ def test_rough_closures_are_never_blurred(use_gpu):
     """alpha = 0.75^2 = 0.5625 >= the largest possible floor (0.5): Filter Glossy is a no-op."""
     off = _scene(use_gpu, 0.0, 0.75)
     on = _scene(use_gpu, 1.0, 0.75)
-    np.testing.assert_array_equal(on, off)
+    _assert_unchanged(on, off, use_gpu)
 
 
 @pytest.mark.parametrize("use_gpu", BACKENDS)
@@ -58,7 +68,7 @@ def test_camera_ray_is_never_blurred(use_gpu):
     """A lone convex sphere: every surface hit is camera-direct, min_ray_pdf stays FLT_MAX."""
     off = _scene(use_gpu, 0.0, 0.2, floor=False)
     on = _scene(use_gpu, 1.0, 0.2, floor=False)
-    np.testing.assert_array_equal(on, off)
+    _assert_unchanged(on, off, use_gpu)
 
 
 @pytest.mark.parametrize("use_gpu", BACKENDS)

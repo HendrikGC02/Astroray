@@ -126,6 +126,11 @@ def scene_entry(manifest: dict, sid: str) -> dict:
         for d in tomllib.loads(KNOWN.read_text(encoding="utf-8")).get("divergence", []):
             if d["scene"] == sid:
                 e["v2"]["divergence"][d["roi"]] = d["reason"]
+                if "channels" in d:  # pkg327: per-channel pin; must cite its arbitration artefact
+                    if not d.get("arbitration"):
+                        raise SystemExit(f"[mc_tolerance] divergence {sid}/{d['roi']}: channels pin needs arbitration")
+                    e["v2"].setdefault("divergence_pin", {})[d["roi"]] = {
+                        k: d[k] for k in ("channels", "arbitration", "legs") if k in d}
     return e
 
 
@@ -205,24 +210,35 @@ def roi_means(img: np.ndarray, rect) -> np.ndarray:
     return np.append(m, m @ LUM)
 
 
+def roi_reference(roi: dict, leg: str) -> tuple[list, list, list]:
+    """(denominator, tol, pinned) per channel of one ROI. Rows with ``expected_divergence`` pin Astroray against
+    its own N-seed mean: every channel, or only ``pin_channels`` on the ``pin_legs`` (default both) -- pkg327; those
+    rows also carry ``arbitration``."""
+    div = "expected_divergence" in roi and leg in roi.get("pin_legs", (leg,))
+    pins = roi.get("pin_channels")
+    pinned = [div and (pins is None or ch in pins) for ch in CH]
+    den = [roi[f"{leg}_mean"][c] if pinned[c] else roi["cycles_mean"][c] for c in range(len(CH))]
+    tol = [roi[f"{leg}_pin_tol"][c] if pinned[c] else roi[f"{leg}_tol"][c] for c in range(len(CH))]
+    return den, tol, pinned
+
+
 def score_material(scene_gates: dict, img: np.ndarray, leg: str) -> list[dict]:
     """pkg310: every non-excluded (ROI, channel) of one ``gates_*.toml`` scene against one render.
 
     ``scene_gates`` is ``tomllib`` output for ``[scenes.<id>]``; ``leg`` is ``cpu`` or ``gpu``. Rows the owner
     declared documented divergences (``expected_divergence``) pin Astroray against its own N-seed mean, the
-    same rule as tests/test_corpus_v2_parity.py. Returns dicts with roi, channel, ratio, tol, ok."""
+    same rule as tests/test_corpus_v2_parity.py; ``pin_channels`` limits the pin to those channels and the rest
+    of the ROI stays on Cycles. Returns dicts with roi, channel, ratio, tol, ok."""
     rows = []
     for roi in scene_gates["roi"]:
         m = roi_means(img, roi["rect"])
-        pinned = "expected_divergence" in roi
-        den = roi[f"{leg}_mean"] if pinned else roi["cycles_mean"]
-        tol = roi[f"{leg}_pin_tol"] if pinned else roi[f"{leg}_tol"]
+        den, tol, pinned = roi_reference(roi, leg)
         for c, ch in enumerate(CH):
             if roi["excluded"][c]:
                 continue
             ratio = float(m[c] / den[c])
             rows.append({"roi": roi["name"], "channel": ch, "ratio": ratio, "tol": float(tol[c]),
-                         "ok": abs(ratio - 1.0) <= tol[c], "pinned": pinned})
+                         "ok": abs(ratio - 1.0) <= tol[c], "pinned": pinned[c]})
     return rows
 
 
@@ -315,6 +331,7 @@ def build_rois(entry: dict, res: dict) -> list[dict]:
         r["note"] = "; ".join(notes)
         if name in div:
             r["expected_divergence"] = div[name]
+            r.update(entry["v2"].get("divergence_pin", {}).get(name, {}))
         rois.append(r)
     return rois
 
@@ -354,6 +371,11 @@ def write_toml(results: dict, manifest: dict, seeds, blender_version: str, base:
                 L.append(f'note = "{r["note"]}"')
             if "expected_divergence" in r:
                 L.append(f'expected_divergence = "{r["expected_divergence"]}"')
+            if "channels" in r:
+                L += [f"pin_channels = [{', '.join(chr(34) + c + chr(34) for c in r['channels'])}]",
+                      f'arbitration = "{r["arbitration"]}"']
+                if "legs" in r:
+                    L.append(f"pin_legs = [{', '.join(chr(34) + x + chr(34) for x in r['legs'])}]")
             L.append("")
     text = "\n".join(L)
     tomllib.loads(text)  # must parse

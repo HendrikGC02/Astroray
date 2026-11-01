@@ -1,15 +1,15 @@
 {
-  "basis": "Independent blind review of the scanner delta cb70daa3..fdb8774b (#1101 #1139 #1148 #1163) by a Claude Opus 5.5 reviewer, 2026-10-25: ACCEPT. A regeneration under Blender 5.2 reproduces the committed coverage_matrix.json except one pre-existing pkg260 row (TexImage interpolation, credited by a report-only read; outside the reviewed delta, the committed matrix keeps it DROPPED-SILENT). An opencode flash critic returned CHANGES; its claims were checked and none is blocking. Latent scanner weaknesses and the interpolation over-credit are tracked in #1168.",
-  "commit": "fdb8774b05537efd62f915ecf3cff80e2b0eb3b8",
-  "follow_up_issue": 1168,
+  "basis": "Independent review of the scanner delta fdb8774b..b4e7cbf0 (#1168 fail-closed scanner, pkg325, pkg328 Phase 1) by a Claude Opus 5.5 reviewer given only the diff and the repo. Round 1 verdict CHANGES, six non-blocking findings: (1) TexEnvironment Vector credited APPROXIMATED though setup_world never reads the socket (any world Mapping rotation is used); (2) OutputWorld Surface / is_active_output credited SUPPORTED though only Background nodes linked straight to Surface are filtered; (3) Material Output target falls back to an EEVEE-only output; (4) TexImage interpolation report misses two load paths (b4 only); (5) report-sink coverage in the scanner is narrower than its docstring; (6) Material Output Thickness is credited because Cycles ignores it too (probe on both engines). Findings 1 and 2 could inflate the score, so the scanner was changed (commit d7769bf8: both World rows capped at APPROXIMATED via PARTIAL_HANDLING_CAPS, env Vector note corrected; matrix regenerated under Blender 5.2) and re-reviewed: round 2 FINAL ACCEPT, change fails closed and touches only those three rows; findings 3-6 stay as filed non-blocking follow-ups. All 28 reported_at_runtime flags were verified against warning text in blender_addon; no scope creep in classifications. An opencode flash critic (deepseek-v4.1-flash-free) returned CHANGES with seven claims (Thickness credit, report-sink holes in _is_consumed, Env Vector, scan_object_image_evidence stores, branch-local served names, flag scope); they overlap the reviewer's findings 1, 5 and 6, none can credit an unconsumed row beyond the bounded cases above, and none blocks.",
+  "commit": "d7769bf8816230d139c711624bb7d597ff60a7fc",
+  "follow_up_issue": "to be filed by the lead (findings 3-6 and flash claims)",
   "issue": 823,
   "reviewer": {
-    "id": "blind Claude Opus 5.5 reviewer, 2026-10-25, ACCEPT; opencode flash critic CHANGES (claims checked, none blocking)",
-    "signature": "7bcd6039ea0e3cd0ba384f6fd8effa3261937c7d330ffe8c42f841a71e9f2ac5",
-    "signed_at": "2026-10-25T00:00:00+00:00"
+    "id": "blind Claude Opus 5.5 reviewer, 2026-11-01: round 1 CHANGES (non-blocking findings), follow-up fix, round 2 ACCEPT; opencode flash critic CHANGES (claims checked, none blocking)",
+    "signature": "e4ab118cd1951f4c7688798799fd651a778f56ad186709b89b494be590589e82",
+    "signed_at": "2026-11-01T00:00:00+00:00"
   },
   "schema": "pkg278.scanner_review_receipt.v1",
   "source_path": "scripts/generate_blender_parity_matrix.py",
-  "source_sha256": "076893de9109810d9bf1dbfe5da6228ceddde8fc191411dd729dfe3c04cfe8aa",
+  "source_sha256": "78e65e59c24ba98fad33866ff5cdc1c4b62848d0a604bd932ebf4335b8c8c791",
   "verdict": "ACCEPT"
 }

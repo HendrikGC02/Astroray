@@ -1,0 +1,6 @@
+{
+  "schema": "pkg328.gate_b_threshold.v1",
+  "status": "UNSIGNED: proposal pending",
+  "proposed": {"cpu": null, "gpu": null},
+  "signed": null
+}

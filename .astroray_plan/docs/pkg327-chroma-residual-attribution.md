@@ -96,6 +96,15 @@ curves inner_backface r; wood grain_center b, grain_right b, lower b; car_paint 
 candidate with remainder 1 above. light_path floor_near r passes at its 8-seed mean (0.982 vs 0.020) and fails only at the gate seed; a pin is defensible, not required.
 The pin must cite `arb_chroma_hero_*` / `arb_chroma_bowl_stage` / `arb_chroma_patches` with the smooth HDRI, not the raw one. The `*_hdri` and `_patches` scenes are not render-gated (`render_gate` false), so default `--suite arbitration` runs are unchanged.
 
+## Phase B outcome
+
+Eight ROIs pin nine channels (list, means and rules: `benchmarks/reference_corpus/README.md`, "Documented divergences"; rows: `provisional_production.toml` `[[divergence]]`).
+Pins are per channel, calibrated on 5 seeds (278 1301 2711 4177 6113, build `e302ca1`, CPU and GPU), and cite `pkg327-attribution/proxy_smooth_hdri.json`.
+- wood `grain_center` r is pinned to its seed mean with the unexplained 1.2-point remainder stated in the pin; it is not a claim that the whole shift is spectral.
+- light_path `floor_near` r is pinned although its 8-seed mean passes: the 1.8-point shift fills 90 % of the 0.020 floor band, so seed draws fall outside it about two times in five (CPU seed 278 reads 0.975).
+- car_paint `upper_flake` b is pinned on CPU only: GPU reads 0.981 against CPU 0.961 (the #1220 twin gap), so the GPU leg stays on Cycles.
+- Luminance is never pinned. wood `grain_center` L (0.970 at seed 278, 5-seed CPU mean 0.980) therefore still fails the CPU gate at the gate seed.
+
 ## Evidence and reproduction
 
 Committed: this document, `.astroray_plan/docs/pkg327-attribution/{production_variants,target_channels,proxy_smooth_hdri,proxy_raw_hdri}.json`, the proxy scenes and manifest entries, `calibration.json` (`arb_chroma_stage`).

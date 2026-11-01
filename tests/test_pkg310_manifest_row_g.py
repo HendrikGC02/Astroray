@@ -34,7 +34,7 @@ def _image(sid: str, backend: str, skew: tuple[str, str, float] | None = None) -
     w, h = g["res"]
     img = np.full((h, w, 3), 0.001, dtype=np.float32)
     for roi in g["roi"]:
-        den = roi[f"{backend.lower()}_mean"] if "expected_divergence" in roi else roi["cycles_mean"]
+        den = MC.roi_reference(roi, backend.lower())[0]
         x0, y0, x1, y1 = roi["rect"]
         patch = np.array(den[:3], dtype=np.float32)
         if skew and skew[0] == roi["name"]:

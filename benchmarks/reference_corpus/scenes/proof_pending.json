@@ -782,6 +782,13 @@
       "classification": "SUPPORTED",
       "feature": "ShaderNodeTexImage",
       "socket_or_prop": "interpolation"
+    },
+    {
+      "bl_idname": "",
+      "category": "image_property",
+      "classification": "SUPPORTED",
+      "feature": "Image",
+      "socket_or_prop": "alpha_mode"
     }
   ],
   "world_sky": [

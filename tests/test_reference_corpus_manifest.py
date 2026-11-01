@@ -510,8 +510,13 @@ PKG234_PROOF_PENDING = frozenset({
     "ShaderNodeTexImage|prop:interpolation",
     "ShaderNodeTexImage|interpolation",
 })
+# #1238: Image alpha_mode is honoured for the Image Texture Color output (probes img_alpha*, Cycles-tracking on CPU and
+# GPU); the frozen textures_mapping cards carry no alpha texture. Shrink-only as above.
+I1238_PROOF_PENDING = frozenset({
+    "|alpha_mode",
+})
 PROOF_PENDING_BASELINE = (PROOF_PENDING_BASELINE | PKG320_PROOF_PENDING | PKG321_PROOF_PENDING | I1117_PROOF_PENDING
-                          | PKG326_PROOF_PENDING | PKG328_PROOF_PENDING | PKG234_PROOF_PENDING)
+                          | PKG326_PROOF_PENDING | PKG328_PROOF_PENDING | PKG234_PROOF_PENDING | I1238_PROOF_PENDING)
 
 
 def _proof_pending() -> dict:

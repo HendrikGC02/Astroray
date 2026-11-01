@@ -1,8 +1,8 @@
 {
   "schema": "pkg328.gate_b_threshold.v1",
-  "status": "UNSIGNED: proposal awaiting owner sign-off; row (b) stays red until 'signed' is filled in the PR",
+  "status": "SIGNED by the owner 2026-11-02 (Remote Control, answering the lead: \"Sign it\") at the proposed values",
   "basis": ".astroray_plan/docs/stage0-gate-scoring-2026-11-01.md: threshold = measured ceiling - (seed-to-seed spread of S (max - min over the measured S and the 8 leave-one-seed-out scores) + one witness's weight), rounded down to 3 places",
   "proposed": {"cpu": 0.676, "gpu": 0.665},
-  "signed": null,
+  "signed": {"cpu": 0.676, "gpu": 0.665, "owner": "HendrikGC02", "pr": 1243, "date": "2026-11-02"},
   "how_to_sign": "set signed to {\"cpu\": <min S_CPU>, \"gpu\": <min S_GPU>, \"owner\": \"<name>\", \"pr\": <number>, \"date\": \"<yyyy-mm-dd>\"}"
 }

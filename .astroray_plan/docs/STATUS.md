@@ -1,6 +1,46 @@
 # Astroray Status
 
-## 2026-11-01 CURRENT — batch/2026-11-01 sweep (Opus 5.5 lead)
+## 2026-11-01 (midday) CURRENT — batch merged, main restaged, (e) and (g) re-measured (Opus 5.5 lead)
+
+**Merged:**
+- #1219, batch b4e7cbf0: #1032, #1153, #1174, #1178/#1198, #1180/#1186, and pkg328 Phase 1. Round-2 sweep 5955 passed, 9 failed; every failure attributed in the PR body:
+  - 6 are #1213.
+  - pkg306 GPU had re-scored a stale render cache (memory `corpus-test-render-caches-survive-rebuilds`). Fresh renders pass, and the GPU relVar 2.99x xfail was removed.
+  - The pkg315 latency failure was CPU contention.
+  - The pkg328 proof-pending rows were registered.
+  - Smoke-grid GPU probe 1.58x main; v2_media GPU 1.08x render time at relVar 3.46x -> 2.99x Cycles.
+- #1217, pkg327 Phase A, e302ca19. Mitsuba confirms the row (g) minor-channel chroma shift on all 10 target channels. Side finding filed as #1218.
+
+**Builds:** main `build_cuda` and `dist/astroray` at e302ca19 (11:24 / 11:34). Worktrees batch1101, i1032, i1038, i1153, i1174, i1178, i1186, p327 and p328 are removed. The unused i1032 pyd copy is in `~\Astroray_TO_DELETE_2026-11-01`.
+
+**Owner action:** GitHub closed only #1032 (one `Closes` keyword covers one number), and the auto-mode classifier blocks `gh issue close`. Close these: `for n in 1153 1174 1178 1180 1186 1198; do gh issue close $n --comment "Fixed by #1219 (b4e7cbf0)."; done`
+
+**Gates:**
+- (e) **RED, 6 high.** The five 10-31 highs are fixed. The 13 issues filed 10-31..11-01 were rated by two blind Sonnet 5.5 raters plus DeepSeek flash, stricter wins (`%LOCALAPPDATA%\astroray-evidence\2026-11-01\gate-e\`). Highs, by who rated them high:
+  - All three raters: #1216 EXR world.
+  - Both Sonnet raters: #1215 image interpolation (pkg234).
+  - One Sonnet rater: #1214 GPU sphere image bump.
+  - Flash only: #1200 film tint, #1204 Light Path flags, #1206 caustic toggles.
+- (g) **RED** on e302ca19: CPU 2/8, GPU 2/8, 0 silent pairs (`...\2026-11-01\g\`). ROI channels in band, CPU / GPU (10-31 in brackets):
+
+  | Scene | CPU | GPU | Out of band |
+  |---|---|---|---|
+  | curves_geometry | 15/16 | 15/16 | inner_backface r (pkg327 chroma) |
+  | light_path | 19/20 | 17/20 | CPU floor_near r 0.975 (pkg327); GPU floor_far +2.5 % |
+  | car_paint | 14/16 | 8/16 (2) | CPU b chroma; GPU twin gap #1220 |
+  | wood | 11/16 | 14/16 (12) | b chroma (pkg327); CPU grain_center r 0.958 |
+  | pbr_group | 11/16 | 11/16 | right ROI (#1156 / firefly), lower b |
+  | shader_stack | 6/16 | 4/16 | 1/n^2 reference pending |
+
+**Next (plan §2.1-2.3):**
+- pkg327 Phase B pins.
+- shader_stack 1/n^2 reference.
+- GPU-twin lane: #1220, light_path floor_far, #1156.
+- pkg328 Phase 2.
+- #1213.
+- An engine batch for the (e) highs: #1216, #1214, #1200, #1204, #1206. #1215 / pkg234 needs architect review.
+
+## 2026-11-01 — batch/2026-11-01 sweep (Opus 5.5 lead)
 
 **Merged:** #1203 (#1038 glass tint), #1211 (#1201 linked film sockets), #1212 (pkg325 passthrough ON for users; parity legs terminate), #1210 (architect plan + pkg327/pkg328).
 

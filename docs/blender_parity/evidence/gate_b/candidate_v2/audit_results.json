@@ -1,14 +1,14 @@
 {
   "build": {
     "CPU": {
-      "addon_sha256": "6c52af8d4c765fd3bae7ab71a4b5ed51eda1d3950569649aef6a51c85e2969a5",
-      "build_id": "e302ca1+20261101T002422Z",
-      "module_sha256": "7993fecd5b37657d965c7e512a7a2198a531b67758543aebe3cb59538a1d49c9"
+      "addon_sha256": "f2bdd5263efcdb3c429fc3b6399a0c74fcc47c72af0ab9eda8a6f7b78d81c1e0",
+      "build_id": "ef27d80+20261101T165703Z",
+      "module_sha256": "b3c58c06e06f24ab2321ed268d83ad478ec0e0ef7133e7eca2c7dc1af708e6f7"
     },
     "GPU": {
-      "addon_sha256": "6c52af8d4c765fd3bae7ab71a4b5ed51eda1d3950569649aef6a51c85e2969a5",
-      "build_id": "e302ca1+20261101T002422Z",
-      "module_sha256": "7993fecd5b37657d965c7e512a7a2198a531b67758543aebe3cb59538a1d49c9"
+      "addon_sha256": "f2bdd5263efcdb3c429fc3b6399a0c74fcc47c72af0ab9eda8a6f7b78d81c1e0",
+      "build_id": "ef27d80+20261101T165703Z",
+      "module_sha256": "b3c58c06e06f24ab2321ed268d83ad478ec0e0ef7133e7eca2c7dc1af708e6f7"
     }
   },
   "n_seeds": 8,
@@ -26,44 +26,44 @@
   ],
   "stack_sha256": {
     "CPU": {
-      "prod_car_paint/cpu": "b0e8e495b3e3fd2065fb2d21271831dd5bf97068b743f6d97c22517d8c3559b6",
+      "prod_car_paint/cpu": "881fe3f9c1ef87a16a3fb75905d793b89f72bc6435c4f14b970b773cb4e3bc4f",
       "prod_car_paint/cycles": "f93b8aa144a8c26e2a879475f9437b68f9aaa2649b588a528e7c9d08c0b4826f",
-      "prod_curves_geometry/cpu": "0fee1bad450893920e5ecd99dc8d8ec332a08c2394f2966260488544aeb3392d",
+      "prod_curves_geometry/cpu": "91e6df14c2eb7d33c29ca466085b4393af10a6a9b1e86ef08c802910303d8d14",
       "prod_curves_geometry/cycles": "289d7bc39aa3ad5d8e1430ceae13f669ac79a9212b92813f75785e6659365b84",
-      "prod_marble/cpu": "0eaf7ebc7618fc77b1d4f99e0e9e6fd3d516fa0b5b5e3418236ed55020a98ea0",
+      "prod_marble/cpu": "82443e859eef4d5fb4ee7016756ad9e2112e4c35405be92a7206ae1ad5e849d8",
       "prod_marble/cycles": "1a00d0305b67b627109c0179c71bb92401b1ab1cc51dae4f125014a029aa271c",
-      "prod_shader_stack/cpu": "629b20f3c3c1198b98d4c849b160684906a436333c0d9a216e26be6ea187bdf5",
+      "prod_shader_stack/cpu": "2d5be14942c4617d2932604c0626c05c2453429efeb5c5ba3ac8a82b5123aaf7",
       "prod_shader_stack/cycles": "2dc5a0dad228256086c5bfcf272f3d50fdc17114caa1eeb11d33967a412e708f",
-      "prod_wood/cpu": "4590aa4688c4dcb2b7db44aca54fbb7bf698431fcff47ea134d8c25802a44f83",
+      "prod_wood/cpu": "48d8f2aa5ed61ab4d63c2514b069b738642d5e38ef59f3f37d902db981fd32e4",
       "prod_wood/cycles": "c2f75f9998dcf9bff97b0fead66832899bbc4def2a487a724aa9d86ad0e4a2c4",
-      "v2_sky_sun/cpu": "ce5e32d473b6f63c674b9fcc28813845772883a1b5fb261d8ca5d68a2e5dce2e",
+      "v2_sky_sun/cpu": "c14073180a5e4563a5dcb9584b5d0ddb4cc47aa52d10fd8b3dba5500bbc7ab38",
       "v2_sky_sun/cycles": "632b8e93a7a32c4d642ee66f78f5d8e80b19b8ec5faabbe6f72415368a7889cb",
-      "v2_textures_opvm/cpu": "410ea8e4754b91ba774175d545a4d14891ac4a5e4ddbc8259e0eaf29afeb2f43",
+      "v2_textures_opvm/cpu": "e4a918cf1c3fa104e712416b0ae3745cd55115088a518e4bafb19d273e726ea9",
       "v2_textures_opvm/cycles": "c513687a03d9b6e41ac76967277f1469bb61706a0d3d2491e124eac3b047ff79",
-      "v2_thin_film_metals/cpu": "dcb363cfd6aa694ba2bef8bbc3b6c74922be154982549f84e33682dd6be5b8d7",
+      "v2_thin_film_metals/cpu": "74dc3464a8ca3e4acdc5002f0408c885fe8e2492234e34367561ba27ff756857",
       "v2_thin_film_metals/cycles": "23945c6c03bc8428b6baaaa4d2ebccc522788c8cae1888b2de0717d8ee112c39",
-      "v2_viewport/cpu": "fe689093de38db7dbadc7799d8f5d3202bc421851685e97492d5f73f196642c4",
+      "v2_viewport/cpu": "1b064989796d657d63a709983cf87ade15896f2fd7176ff73c6763cde8138bd0",
       "v2_viewport/cycles": "3adb287218d17e59b2cbb02460c48f67b8b61e4259585a4015347fd2f9caaf09"
     },
     "GPU": {
       "prod_car_paint/cycles": "f93b8aa144a8c26e2a879475f9437b68f9aaa2649b588a528e7c9d08c0b4826f",
-      "prod_car_paint/gpu": "e47f97024a8ec5610ee5c0da6e2f5a71e13ae462bf28923252b04c171c075818",
+      "prod_car_paint/gpu": "a3a9597d7a3a00d2b85f77f177f07348fccb265fa850621a18477e52f381f61c",
       "prod_curves_geometry/cycles": "289d7bc39aa3ad5d8e1430ceae13f669ac79a9212b92813f75785e6659365b84",
-      "prod_curves_geometry/gpu": "762f19eff2793ab20709bf6b1441c1e9b018b9780aa3f6bd4f0f542c7eef38b8",
+      "prod_curves_geometry/gpu": "5e144118b6f37dfc29933f65718dc279bf76deb1dcb39b7f0ea4efcb99b52720",
       "prod_marble/cycles": "1a00d0305b67b627109c0179c71bb92401b1ab1cc51dae4f125014a029aa271c",
-      "prod_marble/gpu": "1ee5310a6f31d8bd16283349cbe970e70e0a3864bc7aca79e1af2b79427e2487",
+      "prod_marble/gpu": "b540443f7b88a290b57886df17f2991adf066920aabafe46252d3b06f862f3af",
       "prod_shader_stack/cycles": "2dc5a0dad228256086c5bfcf272f3d50fdc17114caa1eeb11d33967a412e708f",
-      "prod_shader_stack/gpu": "010e3aa60887c205cc0eb86db080225674cfc3c42b923dba09f440867e12f733",
+      "prod_shader_stack/gpu": "d962f71f732ffce4c1025355bde4ccd5b488755ee809353148b96247bc429771",
       "prod_wood/cycles": "c2f75f9998dcf9bff97b0fead66832899bbc4def2a487a724aa9d86ad0e4a2c4",
-      "prod_wood/gpu": "2fc19f750f7e5da27e5d12b2c404f7efce541b8ebbcb73347e4326aac4cb02ee",
+      "prod_wood/gpu": "53cde9af378c6d1f6a2060cb9d75639fd50fe28e7acda0e5e0c1663b846a9bd1",
       "v2_sky_sun/cycles": "632b8e93a7a32c4d642ee66f78f5d8e80b19b8ec5faabbe6f72415368a7889cb",
-      "v2_sky_sun/gpu": "182ffd5dfbc110d3f4d4167ba6ac57e3ddaaa9866b3ef6c173ee9bcda83ab579",
+      "v2_sky_sun/gpu": "69cd6378ac13019189a8806f608cc35fd065f17a830cc1d326c3d97e2a7f59f8",
       "v2_textures_opvm/cycles": "c513687a03d9b6e41ac76967277f1469bb61706a0d3d2491e124eac3b047ff79",
-      "v2_textures_opvm/gpu": "210ec3c0d6ef4c3988221cddcbc0838f2855488adc8795c2712762ff610a7bb3",
+      "v2_textures_opvm/gpu": "460fa4499b039a247e677023cfdcb130c20bbecad772ac27fcdd5220d5d17428",
       "v2_thin_film_metals/cycles": "23945c6c03bc8428b6baaaa4d2ebccc522788c8cae1888b2de0717d8ee112c39",
-      "v2_thin_film_metals/gpu": "960d0122ab853fe8a83191b11294ade07051cbb236d62c808474925b54615650",
+      "v2_thin_film_metals/gpu": "b832353dc64fdf797971caa29da279c706bd34f2df99d11b624d979124b9bd7d",
       "v2_viewport/cycles": "3adb287218d17e59b2cbb02460c48f67b8b61e4259585a4015347fd2f9caaf09",
-      "v2_viewport/gpu": "7245eb189bb720ce3695021e343cf7e0fb28e2921896c6ab29d74013a658e7f6"
+      "v2_viewport/gpu": "c80ce780b5e84213365b8694a7fd92938ad3ba8c25909d40cf23d6c9eda69ddb"
     }
   },
   "welch": {
@@ -98,14 +98,14 @@
         ],
         "roi_mean_ratio_rgb": [
           0.9785298705101013,
-          1.0001873970031738,
-          0.9858757853507996
+          1.0001872777938843,
+          0.9858759045600891
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.1592831313610077,
+          "max_rel_bias_rejected": 0.15928320586681366,
           "mean_rel_diff": -0.01753123663365841,
-          "min_p": 7.6312430661733e-12,
+          "min_p": 7.631178625350332e-12,
           "n_reject_holm": 104,
           "n_tests": 1587,
           "pass": false
@@ -115,8 +115,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.3262156844139099,
-            "value": 0.04677719995379448
+            "signal": 0.32125574350357056,
+            "value": 0.04679625853896141
           },
           "cycles": {
             "ok": true,
@@ -135,16 +135,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          1.0005195140838623,
-          1.0108492374420166,
-          0.9841742515563965
+          0.9829405546188354,
+          0.9978854656219482,
+          0.9796566367149353
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.13676542043685913,
-          "mean_rel_diff": -0.0032268876675516367,
-          "min_p": 9.799066785064906e-11,
-          "n_reject_holm": 77,
+          "max_rel_bias_rejected": 0.1681647002696991,
+          "mean_rel_diff": -0.01624855026602745,
+          "min_p": 1.7578890059608623e-11,
+          "n_reject_holm": 91,
           "n_tests": 1587,
           "pass": false
         }
@@ -175,15 +175,15 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.9887570142745972,
+          0.9887568950653076,
           0.9956177473068237,
           0.9931620955467224
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 1.9155255556106567,
+          "max_rel_bias_rejected": 1.9155250787734985,
           "mean_rel_diff": -0.03168635815382004,
-          "min_p": 3.0985836903100513e-21,
+          "min_p": 3.098573517605013e-21,
           "n_reject_holm": 44,
           "n_tests": 1368,
           "pass": false
@@ -219,9 +219,9 @@
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 1.923457384109497,
+          "max_rel_bias_rejected": 1.9234570264816284,
           "mean_rel_diff": -0.027575504034757614,
-          "min_p": 1.1022674507202762e-22,
+          "min_p": 1.102256031108971e-22,
           "n_reject_holm": 52,
           "n_tests": 1368,
           "pass": false
@@ -255,12 +255,12 @@
         "roi_mean_ratio_rgb": [
           1.0019885301589966,
           1.0031324625015259,
-          1.0018210411071777
+          1.0018209218978882
         ],
         "status": "PASS",
         "welch": {
           "max_rel_bias_rejected": 0.0,
-          "mean_rel_diff": -0.001814242103137076,
+          "mean_rel_diff": -0.0018142437329515815,
           "min_p": 0.001944205611983079,
           "n_reject_holm": 0,
           "n_tests": 1587,
@@ -291,14 +291,14 @@
           true
         ],
         "roi_mean_ratio_rgb": [
-          1.0071287155151367,
+          1.0071285963058472,
           1.0068730115890503,
           1.0051450729370117
         ],
         "status": "PASS",
         "welch": {
           "max_rel_bias_rejected": 0.0,
-          "mean_rel_diff": 0.001672273501753807,
+          "mean_rel_diff": 0.0016722732689231634,
           "min_p": 0.0065288500663777,
           "n_reject_holm": 0,
           "n_tests": 1587,
@@ -333,12 +333,12 @@
         "roi_mean_ratio_rgb": [
           1.0019885301589966,
           1.0031324625015259,
-          1.0018210411071777
+          1.0018209218978882
         ],
         "status": "PASS",
         "welch": {
           "max_rel_bias_rejected": 0.0,
-          "mean_rel_diff": -0.001814242103137076,
+          "mean_rel_diff": -0.0018142437329515815,
           "min_p": 0.001944205611983079,
           "n_reject_holm": 0,
           "n_tests": 1587,
@@ -369,14 +369,14 @@
           true
         ],
         "roi_mean_ratio_rgb": [
-          1.0071287155151367,
+          1.0071285963058472,
           1.0068730115890503,
           1.0051450729370117
         ],
         "status": "PASS",
         "welch": {
           "max_rel_bias_rejected": 0.0,
-          "mean_rel_diff": 0.001672273501753807,
+          "mean_rel_diff": 0.0016722732689231634,
           "min_p": 0.0065288500663777,
           "n_reject_holm": 0,
           "n_tests": 1587,
@@ -390,7 +390,7 @@
           "astroray": {
             "ok": true,
             "signal": 0.7643285989761353,
-            "value": 0.2163272500038147
+            "value": 0.2163272649049759
           },
           "cycles": {
             "ok": true,
@@ -411,12 +411,12 @@
         "roi_mean_ratio_rgb": [
           1.0019885301589966,
           1.0031324625015259,
-          1.0018210411071777
+          1.0018209218978882
         ],
         "status": "PASS",
         "welch": {
           "max_rel_bias_rejected": 0.0,
-          "mean_rel_diff": -0.001814242103137076,
+          "mean_rel_diff": -0.0018142437329515815,
           "min_p": 0.001944205611983079,
           "n_reject_holm": 0,
           "n_tests": 1587,
@@ -447,14 +447,14 @@
           true
         ],
         "roi_mean_ratio_rgb": [
-          1.0071287155151367,
+          1.0071285963058472,
           1.0068730115890503,
           1.0051450729370117
         ],
         "status": "PASS",
         "welch": {
           "max_rel_bias_rejected": 0.0,
-          "mean_rel_diff": 0.001672273501753807,
+          "mean_rel_diff": 0.0016722732689231634,
           "min_p": 0.0065288500663777,
           "n_reject_holm": 0,
           "n_tests": 1587,
@@ -467,8 +467,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.6618638634681702,
-            "value": 0.1961778998374939
+            "signal": 0.6617917418479919,
+            "value": 0.19575554132461548
           },
           "cycles": {
             "ok": true,
@@ -487,15 +487,15 @@
           true
         ],
         "roi_mean_ratio_rgb": [
-          1.0051392316818237,
-          1.004638433456421,
-          1.0055181980133057
+          1.0034741163253784,
+          1.0027282238006592,
+          1.0050843954086304
         ],
         "status": "PASS",
         "welch": {
           "max_rel_bias_rejected": 0.0,
-          "mean_rel_diff": 0.007974439300596714,
-          "min_p": 0.004672084789825713,
+          "mean_rel_diff": 0.005402719601988792,
+          "min_p": 0.008155100799648709,
           "n_reject_holm": 0,
           "n_tests": 1587,
           "pass": true
@@ -506,7 +506,7 @@
           "astroray": {
             "ok": true,
             "signal": 0.675101637840271,
-            "value": 0.18934974074363708
+            "value": 0.1893496960401535
           },
           "cycles": {
             "ok": true,
@@ -525,15 +525,15 @@
           true
         ],
         "roi_mean_ratio_rgb": [
-          1.002000093460083,
-          1.002431035041809,
-          1.0025267601013184
+          1.001999855041504,
+          1.0024311542510986,
+          1.002526879310608
         ],
         "status": "PASS",
         "welch": {
           "max_rel_bias_rejected": 0.0,
-          "mean_rel_diff": 0.005711057223379612,
-          "min_p": 0.0035666848153093574,
+          "mean_rel_diff": 0.005711073987185955,
+          "min_p": 0.0035673554869306737,
           "n_reject_holm": 0,
           "n_tests": 1587,
           "pass": true
@@ -545,8 +545,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.6618638634681702,
-            "value": 0.10339660942554474
+            "signal": 0.6617917418479919,
+            "value": 0.10394328832626343
           },
           "cycles": {
             "ok": true,
@@ -565,15 +565,15 @@
           true
         ],
         "roi_mean_ratio_rgb": [
-          1.0051392316818237,
-          1.004638433456421,
-          1.0055181980133057
+          1.0034741163253784,
+          1.0027282238006592,
+          1.0050843954086304
         ],
         "status": "PASS",
         "welch": {
           "max_rel_bias_rejected": 0.0,
-          "mean_rel_diff": 0.007974439300596714,
-          "min_p": 0.004672084789825713,
+          "mean_rel_diff": 0.005402719601988792,
+          "min_p": 0.008155100799648709,
           "n_reject_holm": 0,
           "n_tests": 1587,
           "pass": true
@@ -584,7 +584,7 @@
           "astroray": {
             "ok": true,
             "signal": 0.675101637840271,
-            "value": 0.050108131021261215
+            "value": 0.05010813847184181
           },
           "cycles": {
             "ok": true,
@@ -603,15 +603,15 @@
           true
         ],
         "roi_mean_ratio_rgb": [
-          1.002000093460083,
-          1.002431035041809,
-          1.0025267601013184
+          1.001999855041504,
+          1.0024311542510986,
+          1.002526879310608
         ],
         "status": "PASS",
         "welch": {
           "max_rel_bias_rejected": 0.0,
-          "mean_rel_diff": 0.005711057223379612,
-          "min_p": 0.0035666848153093574,
+          "mean_rel_diff": 0.005711073987185955,
+          "min_p": 0.0035673554869306737,
           "n_reject_holm": 0,
           "n_tests": 1587,
           "pass": true
@@ -649,9 +649,9 @@
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.10689062625169754,
-          "mean_rel_diff": -0.014325136318802834,
-          "min_p": 1.1129527355931223e-08,
+          "max_rel_bias_rejected": 0.10689053684473038,
+          "mean_rel_diff": -0.014325135387480259,
+          "min_p": 1.112971860068644e-08,
           "n_reject_holm": 44,
           "n_tests": 1587,
           "pass": false
@@ -661,8 +661,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.2741401195526123,
-            "value": 0.0125551363453269
+            "signal": 0.2735845446586609,
+            "value": 0.012463863007724285
           },
           "cycles": {
             "ok": true,
@@ -681,16 +681,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.9949626326560974,
-          1.0023694038391113,
-          0.9801386594772339
+          0.9918915033340454,
+          0.999923050403595,
+          0.9788975715637207
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.09764479100704193,
-          "mean_rel_diff": -0.007288961671292782,
-          "min_p": 3.643178890321539e-07,
-          "n_reject_holm": 24,
+          "max_rel_bias_rejected": 0.09798068553209305,
+          "mean_rel_diff": -0.010225903242826462,
+          "min_p": 3.2607901167505485e-07,
+          "n_reject_holm": 32,
           "n_tests": 1587,
           "pass": false
         }
@@ -727,9 +727,9 @@
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.10689062625169754,
-          "mean_rel_diff": -0.014325136318802834,
-          "min_p": 1.1129527355931223e-08,
+          "max_rel_bias_rejected": 0.10689053684473038,
+          "mean_rel_diff": -0.014325135387480259,
+          "min_p": 1.112971860068644e-08,
           "n_reject_holm": 44,
           "n_tests": 1587,
           "pass": false
@@ -739,8 +739,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.2741401195526123,
-            "value": 0.08383765071630478
+            "signal": 0.2735845446586609,
+            "value": 0.08364897221326828
           },
           "cycles": {
             "ok": true,
@@ -759,16 +759,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.9949626326560974,
-          1.0023694038391113,
-          0.9801386594772339
+          0.9918915033340454,
+          0.999923050403595,
+          0.9788975715637207
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.09764479100704193,
-          "mean_rel_diff": -0.007288961671292782,
-          "min_p": 3.643178890321539e-07,
-          "n_reject_holm": 24,
+          "max_rel_bias_rejected": 0.09798068553209305,
+          "mean_rel_diff": -0.010225903242826462,
+          "min_p": 3.2607901167505485e-07,
+          "n_reject_holm": 32,
           "n_tests": 1587,
           "pass": false
         }
@@ -805,9 +805,9 @@
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.10689062625169754,
-          "mean_rel_diff": -0.014325136318802834,
-          "min_p": 1.1129527355931223e-08,
+          "max_rel_bias_rejected": 0.10689053684473038,
+          "mean_rel_diff": -0.014325135387480259,
+          "min_p": 1.112971860068644e-08,
           "n_reject_holm": 44,
           "n_tests": 1587,
           "pass": false
@@ -817,8 +817,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.2741401195526123,
-            "value": 0.022678298875689507
+            "signal": 0.2735845446586609,
+            "value": 0.022619610652327538
           },
           "cycles": {
             "ok": true,
@@ -837,16 +837,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.9949626326560974,
-          1.0023694038391113,
-          0.9801386594772339
+          0.9918915033340454,
+          0.999923050403595,
+          0.9788975715637207
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.09764479100704193,
-          "mean_rel_diff": -0.007288961671292782,
-          "min_p": 3.643178890321539e-07,
-          "n_reject_holm": 24,
+          "max_rel_bias_rejected": 0.09798068553209305,
+          "mean_rel_diff": -0.010225903242826462,
+          "min_p": 3.2607901167505485e-07,
+          "n_reject_holm": 32,
           "n_tests": 1587,
           "pass": false
         }
@@ -883,9 +883,9 @@
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.10689062625169754,
-          "mean_rel_diff": -0.014325136318802834,
-          "min_p": 1.1129527355931223e-08,
+          "max_rel_bias_rejected": 0.10689053684473038,
+          "mean_rel_diff": -0.014325135387480259,
+          "min_p": 1.112971860068644e-08,
           "n_reject_holm": 44,
           "n_tests": 1587,
           "pass": false
@@ -895,8 +895,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.2741401195526123,
-            "value": 0.06169909983873367
+            "signal": 0.2735845446586609,
+            "value": 0.061565253883600235
           },
           "cycles": {
             "ok": true,
@@ -915,16 +915,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.9949626326560974,
-          1.0023694038391113,
-          0.9801386594772339
+          0.9918915033340454,
+          0.999923050403595,
+          0.9788975715637207
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.09764479100704193,
-          "mean_rel_diff": -0.007288961671292782,
-          "min_p": 3.643178890321539e-07,
-          "n_reject_holm": 24,
+          "max_rel_bias_rejected": 0.09798068553209305,
+          "mean_rel_diff": -0.010225903242826462,
+          "min_p": 3.2607901167505485e-07,
+          "n_reject_holm": 32,
           "n_tests": 1587,
           "pass": false
         }
@@ -1051,8 +1051,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.47478237748146057,
-            "value": 0.29521089792251587
+            "signal": 0.47425511479377747,
+            "value": 0.2938818335533142
           },
           "cycles": {
             "ok": true,
@@ -1061,28 +1061,28 @@
           }
         },
         "jackknife_pass": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
         ],
         "roi_mean_ratio_rgb": [
-          1.001258373260498,
-          1.0010735988616943,
-          0.9983566403388977
+          1.000311255455017,
+          1.0002593994140625,
+          0.9989891648292542
         ],
-        "status": "FAIL",
+        "status": "PASS",
         "welch": {
-          "max_rel_bias_rejected": 0.07262007892131805,
-          "mean_rel_diff": 0.0010277567198500037,
-          "min_p": 1.0960849460176177e-15,
-          "n_reject_holm": 65,
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": -0.00014091530465520918,
+          "min_p": 0.4102686132425248,
+          "n_reject_holm": 0,
           "n_tests": 243,
-          "pass": false
+          "pass": true
         }
       }
     },
@@ -1129,8 +1129,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.47478237748146057,
-            "value": 0.25932562351226807
+            "signal": 0.47425511479377747,
+            "value": 0.25852108001708984
           },
           "cycles": {
             "ok": true,
@@ -1139,28 +1139,28 @@
           }
         },
         "jackknife_pass": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
         ],
         "roi_mean_ratio_rgb": [
-          1.001258373260498,
-          1.0010735988616943,
-          0.9983566403388977
+          1.000311255455017,
+          1.0002593994140625,
+          0.9989891648292542
         ],
-        "status": "FAIL",
+        "status": "PASS",
         "welch": {
-          "max_rel_bias_rejected": 0.07262007892131805,
-          "mean_rel_diff": 0.0010277567198500037,
-          "min_p": 1.0960849460176177e-15,
-          "n_reject_holm": 65,
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": -0.00014091530465520918,
+          "min_p": 0.4102686132425248,
+          "n_reject_holm": 0,
           "n_tests": 243,
-          "pass": false
+          "pass": true
         }
       }
     },
@@ -1207,8 +1207,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.4998210668563843,
-            "value": 0.06878320872783661
+            "signal": 0.4998147487640381,
+            "value": 0.06942715495824814
           },
           "cycles": {
             "ok": true,
@@ -1227,15 +1227,15 @@
           true
         ],
         "roi_mean_ratio_rgb": [
-          0.9999303817749023,
-          1.0001205205917358,
-          0.999458372592926
+          0.9999167323112488,
+          1.0001258850097656,
+          0.9994295835494995
         ],
         "status": "PASS",
         "welch": {
           "max_rel_bias_rejected": 0.0,
-          "mean_rel_diff": -9.86630857369164e-06,
-          "min_p": 0.6913138859646972,
+          "mean_rel_diff": -5.57355560886208e-05,
+          "min_p": 0.9682827045348615,
           "n_reject_holm": 0,
           "n_tests": 243,
           "pass": true
@@ -1285,8 +1285,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.4984217584133148,
-            "value": 0.25683990120887756
+            "signal": 0.4986399710178375,
+            "value": 0.2745698392391205
           },
           "cycles": {
             "ok": true,
@@ -1295,28 +1295,28 @@
           }
         },
         "jackknife_pass": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
         ],
         "roi_mean_ratio_rgb": [
-          1.0008074045181274,
-          1.0008699893951416,
-          1.0004091262817383
+          1.0001509189605713,
+          1.0002171993255615,
+          0.9997617602348328
         ],
-        "status": "FAIL",
+        "status": "PASS",
         "welch": {
-          "max_rel_bias_rejected": 0.05527191981673241,
-          "mean_rel_diff": 0.00621485710144043,
-          "min_p": 2.205524900271717e-12,
-          "n_reject_holm": 33,
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": 0.0003383480361662805,
+          "min_p": 0.49448097317221645,
+          "n_reject_holm": 0,
           "n_tests": 243,
-          "pass": false
+          "pass": true
         }
       }
     },
@@ -1352,7 +1352,7 @@
         "status": "FAIL",
         "welch": {
           "max_rel_bias_rejected": 0.08459489047527313,
-          "mean_rel_diff": -0.013125412166118622,
+          "mean_rel_diff": -0.013125409372150898,
           "min_p": 1.02815250180397e-05,
           "n_reject_holm": 1,
           "n_tests": 192,
@@ -1363,8 +1363,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.443970650434494,
-            "value": 0.0812903568148613
+            "signal": 0.44373539090156555,
+            "value": 0.0808744728565216
           },
           "cycles": {
             "ok": true,
@@ -1383,15 +1383,15 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.9851077795028687,
-          0.9984210133552551,
-          0.9851462841033936
+          0.9837984442710876,
+          0.9977303743362427,
+          0.9847223162651062
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.07798507064580917,
-          "mean_rel_diff": -0.011960162781178951,
-          "min_p": 3.0618051550409195e-06,
+          "max_rel_bias_rejected": 0.08812157809734344,
+          "mean_rel_diff": -0.012944083660840988,
+          "min_p": 1.7289228083497276e-05,
           "n_reject_holm": 2,
           "n_tests": 192,
           "pass": false
@@ -1423,14 +1423,14 @@
           true
         ],
         "roi_mean_ratio_rgb": [
-          0.9909486770629883,
-          0.995545506477356,
+          0.9909487366676331,
+          0.9955455660820007,
           0.9880225658416748
         ],
         "status": "PASS",
         "welch": {
           "max_rel_bias_rejected": 0.0,
-          "mean_rel_diff": -0.010411364026367664,
+          "mean_rel_diff": -0.010411362163722515,
           "min_p": 0.0029738127043195768,
           "n_reject_holm": 0,
           "n_tests": 108,
@@ -1481,8 +1481,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.2898794412612915,
-            "value": 0.0221842210739851
+            "signal": 0.2818650007247925,
+            "value": 0.022878453135490417
           },
           "cycles": {
             "ok": true,
@@ -1491,36 +1491,36 @@
           }
         },
         "jackknife_pass": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
         ],
         "roi_mean_ratio_rgb": [
-          1.0251107215881348,
-          1.0212905406951904,
-          1.010616660118103
+          0.9981037378311157,
+          0.9978408813476562,
+          0.9977618455886841
         ],
-        "status": "FAIL",
+        "status": "PASS",
         "welch": {
-          "max_rel_bias_rejected": 0.270292192697525,
-          "mean_rel_diff": 0.024939503520727158,
-          "min_p": 3.237759736560242e-19,
-          "n_reject_holm": 1749,
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": -0.002831787336617708,
+          "min_p": 8.186701474764647e-05,
+          "n_reject_holm": 0,
           "n_tests": 6720,
-          "pass": false
+          "pass": true
         }
       },
       "GPU": {
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.28991472721099854,
-            "value": 0.02035721018910408
+            "signal": 0.2818808853626251,
+            "value": 0.020130323246121407
           },
           "cycles": {
             "ok": true,
@@ -1529,28 +1529,28 @@
           }
         },
         "jackknife_pass": [
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
         ],
         "roi_mean_ratio_rgb": [
-          1.0250256061553955,
-          1.02125883102417,
-          1.010565996170044
+          0.9980763792991638,
+          0.9977803230285645,
+          0.9977759122848511
         ],
-        "status": "FAIL",
+        "status": "PASS",
         "welch": {
-          "max_rel_bias_rejected": 0.27667492628097534,
-          "mean_rel_diff": 0.02492251619696617,
-          "min_p": 2.5969063281767817e-19,
-          "n_reject_holm": 1761,
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": -0.002829828765243292,
+          "min_p": 2.755597173770797e-05,
+          "n_reject_holm": 0,
           "n_tests": 6720,
-          "pass": false
+          "pass": true
         }
       }
     }

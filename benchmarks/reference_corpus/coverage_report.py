@@ -215,6 +215,13 @@ POPULATIONS: dict[str, tuple[tuple[str, tuple[str, ...] | None], ...]] = {
                                          "v2_textures_opvm", "v2_thin_film_metals", "v2_viewport")),
                      (_PRODUCTION_MANIFEST, None)),
 }
+# Owner b1 sign-off per population (10-06 population decision, confirmed 2026-10-31 decision 4). The sha256 is pinned
+# here, not computed, so editing the approval file un-ratifies until the pin is deliberately updated.
+POPULATION_RATIFICATIONS: dict[str, dict[str, str]] = {
+    "candidate_v2": {"path": "docs/blender_parity/evidence/gate_b/candidate_v2/b1_ratification.md",
+                     "sha256": "64c44138705cf2db5eb1f1034a3a93b18ba4d376e60de957a080044598ac2101",
+                     "owner": "HendrikGC02"},
+}
 
 
 def write_population_manifest(name: str, repo_root: Path, out_dir: Path | None = None) -> Path:
@@ -230,7 +237,10 @@ def write_population_manifest(name: str, repo_root: Path, out_dir: Path | None =
             scenes[scene_id] = source_scenes[scene_id]
     out = (Path(out_dir) if out_dir is not None else Path(repo_root) / POPULATIONS_DIR) / f"{name}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({"scenes": scenes}, indent=2, sort_keys=True) + "\n",
+    payload: dict[str, Any] = {"scenes": scenes}
+    if name in POPULATION_RATIFICATIONS:
+        payload["ratified"], payload["ratification"] = True, dict(POPULATION_RATIFICATIONS[name])
+    out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n",
                    encoding="utf-8", newline="\n")
     return out
 
@@ -1468,8 +1478,8 @@ def freeze_coverage_input(corpus_manifest: Mapping[str, Any],
         "input_path": input_path,
         "created": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "population": {
-            "ratified": False,
-            "ratification": None,
+            "ratified": bool(corpus_manifest.get("ratified")),
+            "ratification": corpus_manifest.get("ratification") if corpus_manifest.get("ratified") else None,
             "expected_scene_ids": expected,
             "original_population_label": ORIGINAL_POPULATION_LABEL,
             "original_population_status": "undefined",

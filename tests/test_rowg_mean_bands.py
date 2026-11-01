@@ -139,21 +139,21 @@ def test_seed_mean_in_band_while_each_render_is_out():
     _, lo = _scene_and_image(factor=0.5)
     imgs = [hi, lo] * 4
     assert not all(r["ok"] for r in MC.score_material(g, hi, "cpu"))
-    assert all(r["ok"] for r in MC.score_material_mean(g, imgs, "cpu"))
-    rows = MC.score_material_mean(g, [hi] * 8, "cpu")
+    assert all(r["ok"] for r in MC.score_material_mean(g, imgs, "cpu", 5))
+    rows = MC.score_material_mean(g, [hi] * 8, "cpu", 5)
     assert not any(r["ok"] for r in rows) and all("sigma_obs" in r for r in rows)
 
 
 def test_mean_score_uses_the_mean_bands_and_pins():
     g, img = _scene_and_image()
-    rows = MC.score_material_mean(g, [img] * 8, "cpu")
+    rows = MC.score_material_mean(g, [img] * 8, "cpu", 5)
     by = {(r["roi"], r["channel"]): r for r in rows}
     for roi in g["roi"]:
         _, tol, pinned = MC.roi_reference(roi, "cpu", mean=True)
         for c, ch in enumerate(MC.CH):
             if roi["excluded"][c]:
                 continue
-            assert by[(roi["name"], ch)]["tol"] == tol[c] and by[(roi["name"], ch)]["pinned"] == pinned[c]
+            assert by[(roi["name"], ch)]["tol"] == pytest.approx(tol[c], abs=5e-5) and by[(roi["name"], ch)]["pinned"] == pinned[c]
             assert by[(roi["name"], ch)]["sigma_obs"] == pytest.approx(0.0, abs=1e-12)
     assert any(r["pinned"] for r in rows)  # prod_wood carries pkg327 pins: they take *_mean_pin_tol
 
@@ -162,13 +162,42 @@ def test_wrong_render_count_or_missing_mean_bands_fail_closed():
     g, img = _scene_and_image()
     for n in (1, 5, 7, 9):
         with pytest.raises(ValueError, match="exactly 8"):
-            MC.score_material_mean(g, [img] * n, "cpu")
+            MC.score_material_mean(g, [img] * n, "cpu", 5)
     legacy = {k: v for k, v in g.items() if k != "n_gate"}
     with pytest.raises(ValueError, match="n_gate"):
-        MC.score_material_mean(legacy, [img] * 8, "cpu")
-    roi0 = {k: v for k, v in g["roi"][0].items() if k != "cpu_mean_tol"}
+        MC.score_material_mean(legacy, [img] * 8, "cpu", 5)
+    roi0 = {k: v for k, v in g["roi"][0].items() if k != "cpu_sigma"}
     with pytest.raises(KeyError):
-        MC.score_material_mean({**g, "roi": [roi0]}, [img] * 8, "cpu")
+        MC.score_material_mean({**g, "roi": [roi0]}, [img] * 8, "cpu", 5)
+
+
+def test_sigma_a_is_max_of_stored_and_observed_and_never_below_stored():
+    """The scorer widens a band whose stored sigma under-states the gated renders' scatter; identical (zero-variance)
+    renders cannot shrink it below the stored-sigma band."""
+    g, base = _scene_and_image()
+    calm = MC.score_material_mean(g, [base] * 8, "cpu", 5)
+    assert all(r["sigma_used"] == pytest.approx(r["sigma_stored"], abs=1e-9) and r["tol"] == pytest.approx(r["tol_stored"], abs=5e-5)
+               for r in calm)  # the file's bands are written at 4 decimals
+    # +-30 % alternating renders: observed per-render sd ~0.32 on every channel, far above any stored sigma of prod_wood
+    noisy = [_scene_and_image(factor=1.3 if i % 2 == 0 else 0.7)[1] for i in range(8)]
+    rows = MC.score_material_mean(g, noisy, "cpu", 5)
+    widened = [r for r in rows if r["sigma_source"] == "observed"]
+    assert widened and all(r["sigma_used"] == r["sigma_obs"] > r["sigma_stored"] for r in widened)
+    for r in widened:
+        roi = next(x for x in g["roi"] if x["name"] == r["roi"])
+        c = MC.CH.index(r["channel"])
+        used = {"excluded": roi["excluded"], "cycles_sigma": roi["cycles_sigma"], "cpu_sigma": [r["sigma_used"]] * 4}
+        want = MC.mean_bands(used, 8, g["spp_gate"], g["spp_reference"], 5)["cpu_mean_pin_tol" if r["pinned"] else "cpu_mean_tol"][c]
+        assert r["tol"] == pytest.approx(want) and r["tol"] >= r["tol_stored"] - 5e-5
+    assert all(r["tol"] >= r["tol_stored"] - 5e-5 for r in rows)  # never narrower than the stored-sigma band
+
+
+def test_effective_sigma_feeds_the_twin_band_too():
+    eff = MC.effective_sigma([0.01, 0.05, 0.02, 0.0], [0.03, 0.01, 0.02, 0.0])
+    assert list(eff) == [0.03, 0.05, 0.02, 0.0]
+    roi = {"excluded": [False] * 4, "cycles_sigma": [0.0] * 4, "cpu_sigma": list(eff), "gpu_sigma": list(eff)}
+    twin = MC.mean_bands(roi, 8, 64, 1024, 5)["gpu_cpu_mean_tol"]
+    assert twin[1] == pytest.approx(3 * math.sqrt(2 * 0.05 ** 2 / 8)) and twin[0] == 0.05
 
 
 def test_single_render_scoring_is_unchanged():
@@ -209,6 +238,8 @@ def test_report_records_seed_list_and_n_and_scores_the_mean(tmp_path):
     _paint(work)
     s = RT.build_production_report(work, tmp_path / "out")
     assert s["seeds"] == SEEDS and s["n_seeds"] == 8 and "mean" in s["statistic"]
+    sig = s["materials"]["prod_wood"]["cpu"]["sigma_a"]
+    assert sig and {"sigma_stored", "sigma_obs", "sigma_used", "sigma_source"} <= set(sig[0])
     assert s["cpu"] == {"pass": 8, "of": 8} and s["gpu"] == {"pass": 8, "of": 8}
     assert (tmp_path / "out" / "production_summary.json").is_file()
     rows = RT.production_xfail_clearance(s)

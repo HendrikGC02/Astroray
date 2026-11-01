@@ -190,7 +190,7 @@ def build_production_report(work: Path, out_dir: Path, seeds=None) -> dict:
 
     gates = tomllib.loads((REPO_ROOT / "benchmarks" / "reference_corpus" / "gates_production.toml")
                           .read_text(encoding="utf-8"))
-    pinned = gates["meta"]["gate_seeds"]
+    pinned, n_pin = gates["meta"]["gate_seeds"], len(gates["meta"]["mc_seeds"])
     seeds = list(seeds if seeds is not None else pinned)
     if seeds != pinned:
         raise ValueError(f"row (g) scores the pinned gate seeds {pinned}, got {seeds}")
@@ -214,11 +214,14 @@ def build_production_report(work: Path, out_dir: Path, seeds=None) -> dict:
         for leg, label in (("cpu", "Astroray CPU"), ("gpu", "Astroray GPU")):
             imgs = [np.load(work / f"{sid}_{leg}_s{s}.npy") for s in seeds]
             tiles.append((f"{label} {g['spp_gate']} spp", imgs[0]))
-            rows = MC.score_material_mean(g, imgs, leg)
+            rows = MC.score_material_mean(g, imgs, leg, n_pin)
             worst = max(abs(r["ratio"] - 1.0) / r["tol"] for r in rows)
             util[leg].append(round(worst, 3))
             entry[leg] = {"pass": all(r["ok"] for r in rows), "channels": len(rows),
-                          "out_of_band": [r for r in rows if not r["ok"]], "worst_band_utilisation": round(worst, 3)}
+                          "out_of_band": [r for r in rows if not r["ok"]], "worst_band_utilisation": round(worst, 3),
+                          # sigma_a behind every band: max(stored, observed over the gated renders)
+                          "sigma_a": [{k: r[k] for k in ("roi", "channel", "sigma_stored", "sigma_obs", "sigma_used", "sigma_source")}
+                                      for r in rows]}
         tiles = [(t, np.clip(px, 0.0, None) ** (1.0 / 2.2)) for t, px in tiles]
         rois = {r["name"]: (r["rect"][0] * w, r["rect"][1] * h, r["rect"][2] * w, r["rect"][3] * h) for r in g["roi"]}
         save_comparison_sheet(out_dir / f"{sid}_sheet.png", tiles,
@@ -535,7 +538,8 @@ def main(argv=None):
             for leg in ("cpu", "gpu"):
                 for r in leg_rows[leg]["out_of_band"]:
                     print(f"  OUT {sid} {leg} {r['roi']}.{r['channel']} mean ratio {r['ratio']:.4f} tol_mean {r['tol']:.4f} "
-                          f"{'(pinned) ' if r['pinned'] else ''}per-render sd {r['sigma_obs']:.4f}")
+                          f"{'(pinned) ' if r['pinned'] else ''}sigma_a {r['sigma_used']:.4f} ({r['sigma_source']}; stored "
+                          f"{r['sigma_stored']:.4f}, observed {r['sigma_obs']:.4f})")
         for line in production_xfail_clearance(s):
             print("  xfail " + line)
         return

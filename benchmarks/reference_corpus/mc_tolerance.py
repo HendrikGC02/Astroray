@@ -247,19 +247,29 @@ def roi_reference(roi: dict, leg: str, mean: bool = False) -> tuple[list, list, 
     return den, tol, pinned
 
 
-def _score_means(scene_gates: dict, means: dict, leg: str, mean: bool, sigma_obs: dict | None = None) -> list[dict]:
+def _score_means(scene_gates: dict, means: dict, leg: str, mean: bool, sigma: dict | None = None) -> list[dict]:
+    """``sigma`` (seed-mean gate only): roi -> (stored, observed, used) sigma_a vectors; the band is then recomputed from
+    ``used`` instead of read from the file (``tol_stored`` keeps the file's)."""
     rows = []
     for roi in scene_gates["roi"]:
         m = means[roi["name"]]
         den, tol, pinned = roi_reference(roi, leg, mean)
+        stored_tol = tol
+        if sigma is not None:
+            used = sigma[roi["name"]][2]
+            b = mean_bands({"excluded": roi["excluded"], "cycles_sigma": roi["cycles_sigma"], f"{leg}_sigma": used},
+                           scene_gates["n_gate"], scene_gates["spp_gate"], scene_gates["spp_reference"], scene_gates["n_pin"])
+            tol = [b[f"{leg}_mean_pin_tol"][c] if pinned[c] else b[f"{leg}_mean_tol"][c] for c in range(len(CH))]
         for c, ch in enumerate(CH):
             if roi["excluded"][c]:
                 continue
             ratio = float(m[c] / den[c])
             row = {"roi": roi["name"], "channel": ch, "ratio": ratio, "tol": float(tol[c]),
                    "ok": abs(ratio - 1.0) <= tol[c], "pinned": pinned[c]}
-            if sigma_obs is not None:
-                row["sigma_obs"] = float(sigma_obs[roi["name"]][c])
+            if sigma is not None:
+                st, ob, us = (float(v[c]) for v in sigma[roi["name"]])
+                row.update({"sigma_obs": ob, "sigma_stored": st, "sigma_used": us,
+                            "sigma_source": "observed" if ob > st else "stored", "tol_stored": float(stored_tol[c])})
             rows.append(row)
     return rows
 
@@ -274,14 +284,17 @@ def score_material(scene_gates: dict, img: np.ndarray, leg: str) -> list[dict]:
     return _score_means(scene_gates, {r["name"]: roi_means(img, r["rect"]) for r in scene_gates["roi"]}, leg, False)
 
 
-def score_material_mean(scene_gates: dict, imgs, leg: str) -> list[dict]:
+def score_material_mean(scene_gates: dict, imgs, leg: str, n_pin: int) -> list[dict]:
     """Row (g) gate (owner 2026-11-02, #986): ``score_material`` for the MEAN of ``n_gate`` decorrelated renders.
 
     The statistic of every (ROI, channel) is the mean over the renders of the per-render ROI mean, divided by the
-    same denominator as the single-render gate, and judged against the ``*_mean_tol`` / ``*_mean_pin_tol`` bands.
-    Fails closed: the scene must carry ``n_gate`` and the mean bands, and exactly ``n_gate`` renders must be given
-    (a band derived for N seeds is too tight for fewer). Rows also carry ``sigma_obs``, the observed per-render
-    relative scatter of the ROI mean across the given renders (a check on the band's ``sigma_a``, not a gate)."""
+    same denominator as the single-render gate. The band is the ``mean_bands`` formula (parity, pin) evaluated here with
+    ``sigma_a = max(stored per-render sigma, observed per-render sd over the given renders)``: a heavy-tailed ROI whose
+    stored 5-seed sigma under-states its scatter gets the wider band, and a low-variance draw can never shrink a band
+    below the stored sigma. ``n_pin`` = seeds behind the file's ``*_mean`` pins (``meta.mc_seeds``). The 0.02 floor and the
+    factor 3 are unchanged. Fails closed: the scene must carry ``n_gate`` and exactly ``n_gate`` renders must be given
+    (a band derived for N seeds is too tight for fewer). Rows carry ``sigma_stored`` / ``sigma_obs`` / ``sigma_used`` /
+    ``sigma_source`` and ``tol_stored`` (the file's mean band at the stored sigma)."""
     n = scene_gates.get("n_gate")
     if not n:
         raise ValueError("scene has no n_gate / mean bands: regenerate gates with mc_tolerance.py --add-mean-bands")
@@ -289,8 +302,16 @@ def score_material_mean(scene_gates: dict, imgs, leg: str) -> list[dict]:
     if len(imgs) != n:
         raise ValueError(f"seed-mean gate needs exactly {n} renders, got {len(imgs)}")
     per = {r["name"]: np.stack([roi_means(im, r["rect"]) for im in imgs]) for r in scene_gates["roi"]}
-    return _score_means(scene_gates, {k: v.mean(axis=0) for k, v in per.items()}, leg, True,
-                        {k: sigma_rel(v) for k, v in per.items()})
+    sig = {}
+    for r in scene_gates["roi"]:
+        stored, obs = np.asarray(r[f"{leg}_sigma"], float), sigma_rel(per[r["name"]])
+        sig[r["name"]] = (stored, obs, effective_sigma(stored, obs))
+    return _score_means({**scene_gates, "n_pin": n_pin}, {k: v.mean(axis=0) for k, v in per.items()}, leg, True, sig)
+
+
+def effective_sigma(stored, observed):
+    """sigma_a of a seed-mean band: never below the stored sigma, raised to the observed per-render sd."""
+    return np.maximum(np.asarray(stored, float), np.asarray(observed, float))
 
 
 # --------------------------------------------------------------------------------------------------

@@ -872,6 +872,7 @@ def _validate_g(payload: Mapping[str, Any], base: Path) -> tuple[list[str], dict
     try:
         gates_doc = tomllib.loads(paths["gates"].read_text(encoding="utf-8"))
         gates, gate_seeds = gates_doc["scenes"], gates_doc["meta"]["gate_seeds"]
+        n_pin = len(gates_doc["meta"]["mc_seeds"])
         manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))["scenes"]
         uses = json.loads(paths["node_uses"].read_text(encoding="utf-8"))["scenes"]
         matrix = AUDIT.load_matrix(paths["matrix"])
@@ -953,7 +954,7 @@ def _validate_g(payload: Mapping[str, Any], base: Path) -> tuple[list[str], dict
     for (sid, backend), by_seed in renders.items():  # the gate statistic: the mean of the gate seeds' renders
         if sorted(by_seed) == sorted(gate_seeds):
             try:
-                rows = MC.score_material_mean(gates[sid], [by_seed[s] for s in gate_seeds], backend.lower())
+                rows = MC.score_material_mean(gates[sid], [by_seed[s] for s in gate_seeds], backend.lower(), n_pin)
             except (ValueError, KeyError) as exc:
                 score_errors.append(f"row g {sid}/{backend} seed-mean bands unusable: {exc}")
                 continue

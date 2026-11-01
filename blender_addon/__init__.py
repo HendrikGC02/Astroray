@@ -2239,6 +2239,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         renderer.set_filter_glossy(settings.filter_glossy)
         renderer.set_use_reflective_caustics(settings.use_reflective_caustics)
         renderer.set_use_refractive_caustics(settings.use_refractive_caustics)
+        self._report_texture_cache(scene)  # pkg234
         # pkg325: Astroray-only glass bounce-cap behaviour (terminate = Cycles, the default).
         if hasattr(renderer, "set_dielectric_bounce_cap"):
             renderer.set_dielectric_bounce_cap(getattr(settings, "dielectric_bounce_cap", "passthrough"))
@@ -3474,7 +3475,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if spec.get('bump_image') is not None:
             return self.load_blender_image(spec['bump_image'], renderer,
                                            vector_input=spec.get('bump_vector'),
-                                           extension=spec.get('bump_extension', 'REPEAT'))
+                                           extension=spec.get('bump_extension', 'REPEAT'),
+                                           interpolation='Linear')
         bump_node = spec.get('bump_node')
         height = bump_node.inputs.get('Height') if bump_node is not None else None
         if not (height and height.is_linked):
@@ -3527,14 +3529,24 @@ class CustomRaytracerRenderEngine(RenderEngine):
             return bool(fn(tex_name))
         except Exception:
             return False
-    def _report_image_interpolation(self, node):
-        """pkg328 (#1215): ImageTexture samples the nearest texel whatever the node's Interpolation says,
-        so only Closest matches Cycles; Linear (its default), Cubic and Smart blend texels."""
-        interp = str(getattr(node, 'interpolation', 'Closest'))
-        if interp != 'Closest':
+    @staticmethod
+    def _image_interpolation_mode(node):
+        """pkg234 (#1215): the Image Texture node's Interpolation (Closest / Linear / Cubic / Smart), Linear
+        when absent or unknown (Blender's own fallback, Cycles blender/shader.cpp:93-98)."""
+        mode = str(getattr(node, 'interpolation', 'Linear'))
+        return mode if mode in ('Closest', 'Linear', 'Cubic', 'Smart') else 'Linear'
+
+    def _report_texture_cache(self, scene):
+        """pkg234: Cycles' opt-in Texture Cache (tiled, mipmapped .tx images, Render > Performance) selects
+        mip levels per footprint, which Astroray does not implement. Blender 5.2 defaults use_texture_cache
+        on, but Cycles only mipmaps images the cache has generated, so report only when the user also
+        asked for generation (use_auto_generate_texture_cache)."""
+        render = getattr(scene, 'render', None)
+        if (render is not None and getattr(render, 'use_texture_cache', False)
+                and getattr(render, 'use_auto_generate_texture_cache', False)):
             self._warn_shader_fallback(
-                'TEX_IMAGE', "Interpolation '%s' is not honoured: the image is sampled Closest, so magnified "
-                "texels show blocks (#1215)" % interp)
+                'TEX_IMAGE', "Texture Cache mip selection is not implemented: images are sampled "
+                "from the full-resolution level")
 
     def _report_non_linear_interp(self, kind, socket):
         """#1004: Normal Map / Bump height images are read Linear (Cycles' default); a
@@ -4072,7 +4084,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             self._warn_shader_fallback('MAPPING', 'native coordinate binding unavailable '
                                        '(%s); using available coordinate defaults' % error)
 
-    def load_blender_image(self, bpy_image, renderer, vector_input=None, extension='REPEAT'):
+    def load_blender_image(self, bpy_image, renderer, vector_input=None, extension='REPEAT',
+                           interpolation='Linear'):
         """Load a Blender image datablock into the renderer's texture manager.
         Returns the texture name (string) on success, None on failure.
 
@@ -4091,7 +4104,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # One traversal supplies both provenance and the complete affine.
         resolved = self._resolve_affine_coordinates(vector_input, warn=self._warn_shader_fallback)
         return self._load_blender_image_resolved(bpy_image, renderer, resolved,
-                                                 extension=extension)
+                                                 extension=extension, interpolation=interpolation)
 
     @staticmethod
     def _node_cache_id(node, depth=0):
@@ -4149,9 +4162,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
                         ((rgb + 0.055) / 1.055) ** 2.4).astype(np.float32)
 
     def _load_blender_image_resolved(self, bpy_image, renderer, resolved, child_signature=None,
-                                     extension='REPEAT'):
+                                     extension='REPEAT', interpolation='Linear'):
         """Upload one resolved image; only program children receive isolation salt.
-        ``extension`` is the Image Texture node's extension (#1004; Cycles default REPEAT)."""
+        ``extension`` is the Image Texture node's extension (#1004; Cycles default REPEAT).
+        ``interpolation`` is its Interpolation (pkg234; Cycles default Linear)."""
         coord_mode, uv_layer_name = resolved['coord_mode'], resolved['uv_layer']
         uv_scale, offset, rotation = (1.0, 1.0), (0.0, 0.0), 0.0
         mapping_matrix = self._affine_matrix_values(resolved)
@@ -4161,6 +4175,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             cache_key += "::program-child[%s]" % child_signature
         if extension != 'REPEAT':
             cache_key += "::ext=%s" % extension
+        if interpolation != 'Linear':
+            cache_key += "::interp=%s" % interpolation
 
         # Deduplicate: a single (image, transform) pair is uploaded at most
         # once per conversion pass.
@@ -4244,6 +4260,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 self._warn_shader_fallback(
                     'TEX_IMAGE', "extension '%s' needs native set_texture_extension; "
                     "samples outside [0,1] are clamped" % extension)
+            # pkg234 (#1215): Cycles Image Texture interpolation (the native default is Closest).
+            if hasattr(renderer, 'set_texture_interpolation'):
+                renderer.set_texture_interpolation(cache_key, interpolation)
+            elif interpolation != 'Closest':
+                self._warn_shader_fallback(
+                    'TEX_IMAGE', "Interpolation '%s' needs native set_texture_interpolation; "
+                    "the image is sampled Closest (#1215)" % interpolation)
             cache[cache_key] = cache_key
             return cache_key
         except Exception as e:
@@ -4649,9 +4672,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # so Mapping/Texture-Coordinate wiring is honored by the upload path.
         if linked_node.type == 'TEX_IMAGE' and linked_node.image:
             vector_inp = linked_node.inputs.get('Vector') if hasattr(linked_node, 'inputs') else None
-            self._report_image_interpolation(linked_node)
             tex_name = self.load_blender_image(linked_node.image, renderer, vector_input=vector_inp,
-                                               extension=getattr(linked_node, 'extension', 'REPEAT'))
+                                               extension=getattr(linked_node, 'extension', 'REPEAT'),
+                                               interpolation=self._image_interpolation_mode(linked_node))
             fallback = list(inp.default_value[:3]) if hasattr(inp.default_value, '__iter__') else [0.8, 0.8, 0.8]
             return fallback, tex_name
         # Procedural texture
@@ -4875,10 +4898,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # child's GPU descriptor on (image, parent Mapping) since #825.)
             identity = {'matrix': np.identity(4), 'coord_mode': 'UV', 'uv_layer': ''}
             for in_node in inputs:
-                self._report_image_interpolation(in_node)
                 cn = self._load_blender_image_resolved(
                     in_node.image, renderer, identity, child_signature=signatures[0],
-                    extension=getattr(in_node, 'extension', 'REPEAT'))
+                    extension=getattr(in_node, 'extension', 'REPEAT'),
+                    interpolation=self._image_interpolation_mode(in_node))
                 if cn is None:
                     return None
                 child_names.append(cn)
@@ -5010,6 +5033,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         ntype = getattr(in_node, 'type', None)
         vinp = in_node.inputs.get('Vector') if hasattr(in_node, 'inputs') else None
         extension = getattr(in_node, 'extension', 'REPEAT')
+        interpolation = self._image_interpolation_mode(in_node)
         if ntype in svm_attr_types:
             # #990: Attribute / Color Attribute / Object Info = an engine attribute layer
             # the mesh export fills (no coordinates; same keys as the op-VM path).
@@ -5025,10 +5049,9 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 identity = {'matrix': np.identity(4), 'coord_mode': 'UV', 'uv_layer': ''}
                 return self._load_blender_image_resolved(
                     image, renderer, identity, child_signature='graph-coord',
-                    extension=extension)
-            self._report_image_interpolation(in_node)
+                    extension=extension, interpolation=interpolation)
             name = self.load_blender_image(image, renderer, vector_input=vinp,
-                                           extension=extension)
+                                           extension=extension, interpolation=interpolation)
             mode = self._resolve_affine_coordinates(vinp, warn=lambda *a: None)['coord_mode']
             if name is not None and mode != 'UV':
                 self._degradation_report().degraded(
@@ -5113,7 +5136,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             if normal_inputs.get('normal_image') is not None:
                 tex = self.load_blender_image(normal_inputs['normal_image'], renderer,
                                             vector_input=normal_inputs.get('normal_vector'),
-                                            extension=normal_inputs.get('normal_extension', 'REPEAT'))
+                                            extension=normal_inputs.get('normal_extension', 'REPEAT'),
+                                            interpolation='Linear')
                 if tex:
                     spec['normal_map_texture'] = tex
                     spec['normal_strength'] = normal_inputs['normal_strength']
@@ -6358,7 +6382,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
         # Also check legacy path for backward compatibility
         _, base_color_img = self.get_color_or_texture(node, 'Base Color', [0.8, 0.8, 0.8])
         if base_color_tex_name is None and base_color_img is not None:
-            base_color_tex_name = self.load_blender_image(base_color_img, renderer)
+            legacy_node = self._image_node_from_socket(node.inputs.get('Base Color'))
+            base_color_tex_name = self.load_blender_image(
+                base_color_img, renderer,
+                interpolation=self._image_interpolation_mode(legacy_node) if legacy_node is not None else 'Linear')
 
         # --- Scalar parameters (with renamed-input fallbacks) ---
         metallic  = self.get_float_input(node, 'Metallic', 0.0)
@@ -6403,7 +6430,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if normal_inputs['normal_image'] is not None:
             tex_name = self.load_blender_image(normal_inputs['normal_image'], renderer,
                                             vector_input=normal_inputs.get('normal_vector'),
-                                            extension=normal_inputs.get('normal_extension', 'REPEAT'))
+                                            extension=normal_inputs.get('normal_extension', 'REPEAT'),
+                                            interpolation='Linear')
             if tex_name:
                 params['normal_map_texture'] = tex_name
                 params['normal_strength'] = normal_inputs['normal_strength']

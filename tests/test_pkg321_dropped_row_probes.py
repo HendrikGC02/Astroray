@@ -94,7 +94,9 @@ PROBE_VERDICT = {
     "env_vector": ("moves", ""), "o_target": ("moves", ""),
     "mr_clamp_const": ("moves", ""), "mr_clamp_linked": ("moves", ""),
     "o_thickness": ("inert", ""),        # Cycles ignores the socket too (PKG328_CYCLES_IGNORED)
-    "img_interp": ("inert", "Interpolation 'Linear' is not honoured"),    # #1215
+    # pkg234 (#1215): Image Texture Interpolation is honoured (Linear / Cubic / Smart); the render moves and nothing is named.
+    "img_interp": ("moves", ""),
+    "img_interp_float": ("moves", ""), "img_interp_cubic": ("moves", ""),
 }
 
 

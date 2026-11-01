@@ -47,7 +47,36 @@ private:
     float mapping_[12] = {1.f,0.f,0.f,0.f, 0.f,1.f,0.f,0.f, 0.f,0.f,1.f,0.f};
     bool hasMapping_ = false;
 
+    // #1239 - content identity for caches that outlive one render (the GPU
+    // procedural-bake cache, scene_upload.cu). `uid` is process-unique and never
+    // reused (a raw pointer can be, after a free); `ver` counts in-place mutations.
+    // A copy is a NEW texture (fresh uid); assigning over one counts as a mutation.
+    struct Stamp {
+        static std::atomic<uint64_t>& counter() {
+            static std::atomic<uint64_t> c{0};
+            return c;
+        }
+        uint64_t uid;
+        std::atomic<uint64_t> ver{0};
+        Stamp() : uid(counter().fetch_add(1) + 1) {}
+        Stamp(const Stamp&) : uid(counter().fetch_add(1) + 1) {}
+        Stamp& operator=(const Stamp&) { ver.fetch_add(1); return *this; }
+    } stamp_;
+
 protected:
+    // Every in-place mutator calls this AFTER it has written the new state: a
+    // reader that sampled the old version while the write was in flight stores its
+    // result under the old version, which no later lookup carries.
+    void touch() { stamp_.ver.fetch_add(1, std::memory_order_release); }
+    // Composite textures append their children's keys (a bake of the composite reads them).
+    static void appendChildKeys(std::string& k, const std::vector<std::shared_ptr<Texture>>& kids) {
+        k += '(';
+        for (const auto& c : kids) {
+            if (c) c->appendContentKey(k); else k += '-';
+        }
+        k += ')';
+    }
+
     // Apply the 3x4 affine mapping matrix to a 3-D coordinate (point, w=1).
     Vec3 applyMappingPoint(const Vec3& p) const {
         return Vec3(
@@ -211,6 +240,18 @@ protected:
 
 public:
     virtual ~Texture() = default;
+    // #1239 - appends this texture's content identity to `k`: "uid.ver;" for a leaf,
+    // plus the keys of every child texture its value() reads for a composite
+    // (ProgramTexture, CoordProgramTexture, GraphProgramTexture, Checker). Two equal
+    // keys mean the same object in the same state, children included.
+    virtual void appendContentKey(std::string& k) const {
+        k += std::to_string(stamp_.uid);
+        k += '.';
+        k += std::to_string(stamp_.ver.load(std::memory_order_acquire));
+        k += ';';
+    }
+    uint64_t uid() const { return stamp_.uid; }
+    uint64_t contentVersion() const { return stamp_.ver.load(std::memory_order_acquire); }
     virtual Vec3 value(const Vec2& uv, const Vec3& p) const = 0;
     // #776 — a single representative colour for this texture, used where a
     // per-hit UV is unavailable (textured mesh-light NEE power importance in
@@ -303,13 +344,14 @@ public:
             return std::sqrt(mapping_[axis] * mapping_[axis] + mapping_[4 + axis] * mapping_[4 + axis]);
         return std::fabs(axis == 0 ? uvScale_.u : uvScale_.v);
     }
-    void setCoordMode(CoordMode mode) { coordMode = mode; }
+    void setCoordMode(CoordMode mode) { coordMode = mode; touch(); }
     // pkg115 generated-coords: object bbox baked by the exporter (see the
     // CoordMode::Generated comment above).
     void setGeneratedBBox(const Vec3& bmin, const Vec3& bsize) {
         genMin_ = bmin;
         genSize_ = bsize;
         hasGenBBox_ = true;
+        touch();
     }
     CoordMode getCoordMode() const { return coordMode; }
     // pkg190 — read-only bbox accessors so the GPU scene-upload (scene_upload.cu)
@@ -326,11 +368,13 @@ public:
         uvScale_ = Vec2(sx, sy);
         uvOffset_ = Vec2(ox, oy);
         uvRotation_ = 0.0f;
+        touch();
     }
     void setUVTransform(float sx, float sy, float ox, float oy, float rotZRad) {
         uvScale_ = Vec2(sx, sy);
         uvOffset_ = Vec2(ox, oy);
         uvRotation_ = rotZRad;
+        touch();
     }
     Vec2 getUVScale()  const { return uvScale_;  }
     Vec2 getUVOffset() const { return uvOffset_; }
@@ -350,6 +394,7 @@ public:
                 "[pkg242] warning: texture Mapping matrix is singular "
                 "(det=%.3g); the procedural coordinate field collapses to a "
                 "constant.\n", mappingLinearDet());
+        touch();
     }
     bool hasMapping() const { return hasMapping_; }
     const float* getMappingMatrix() const { return mapping_; }
@@ -377,7 +422,7 @@ public:
     Vec3 mappedPoint(const Vec3& p) const {
         return hasMapping_ ? applyMappingPoint(p) : p;
     }
-    void setUVLayerName(const std::string& name) { uvLayerName_ = name; }
+    void setUVLayerName(const std::string& name) { uvLayerName_ = name; touch(); }
     const std::string& getUVLayerName() const { return uvLayerName_; }
 
     // Spectral hook (pkg13). Default upsamples the RGB value per-call.
@@ -420,6 +465,10 @@ class CheckerTexture : public Texture {
 public:
     CheckerTexture(const Vec3& c1, const Vec3& c2, float s = 10)
         : odd(std::make_shared<SolidColor>(c1)), even(std::make_shared<SolidColor>(c2)), scale(s) {}
+    void appendContentKey(std::string& k) const override {
+        Texture::appendContentKey(k);
+        appendChildKeys(k, {odd, even});
+    }
     Vec3 value(const Vec2& uv, const Vec3& p) const override {
         // pkg115 parity fix: replace sine-product with Blender's floor-parity formula.
         // Cycles intern/cycles/kernel/svm/checker.h::svm_checker (Apache-2.0):
@@ -459,6 +508,7 @@ class ImageTexture : public Texture {
     int width = 0, height = 0;
     Vec3 mean_{1, 0, 1};  // #776 — cached pixel mean for average()
     int extension_ = 0;   // #1004 - GImgExt::G_IMG_EXTEND
+    int interpolation_ = 0;  // pkg234 - GImgInterp::G_IMG_CLOSEST
     // Spectral cache: one RGBAlbedoSpectrum per texel, built eagerly in setData().
     std::vector<astroray::RGBAlbedoSpectrum> spectral_cache_;
 public:
@@ -472,6 +522,7 @@ public:
             sum += c;
         }
         if (!data.empty()) mean_ = sum * (1.0f / static_cast<float>(data.size()));
+        touch();
     }
     Vec3 average() const override { return mean_; }  // #776 — exact pixel mean
     // pkg186 — read-only accessors so the GPU scene-upload (scene_upload.cu) can
@@ -483,9 +534,23 @@ public:
     // #1004 - Image Texture extension (GImgExt, shared with the GPU sampler).
     // Default EXTEND (clamp) keeps every untagged texture byte-identical; the
     // addon tags REPEAT / CLIP / MIRROR from the node.
-    void setExtension(int ext) { extension_ = ext; }
+    void setExtension(int ext) { extension_ = ext; touch(); }
     int getExtension() const { return extension_; }
+    // pkg234 - Image Texture interpolation (GImgInterp, shared with the GPU sampler). Default
+    // Closest keeps every untagged texture byte-identical; the addon tags every Image Texture
+    // node (Smart arrives as G_IMG_CUBIC, as in Cycles).
+    void setInterpolation(int mode) { interpolation_ = mode; touch(); }   // #1239: value() changes, so bakes reading it must miss
+    int getInterpolation() const { return interpolation_; }
+    // Honours the texture's Interpolation (Closest / Linear / Cubic). GPU twin: gpu_sampleImageTexture.
     Vec3 value(const Vec2& uv, const Vec3&) const override {
+        if (data.empty()) return Vec3(1, 0, 1);
+        if (interpolation_ == G_IMG_LINEAR) return valueLinear(uv);
+        if (interpolation_ == G_IMG_CUBIC) return valueCubic(uv);
+        return valueClosest(uv);
+    }
+    // Nearest-neighbour fetch (the pre-pkg234 value()). Every filtered tap goes through this,
+    // never through value(), so a tap is never filtered twice.
+    Vec3 valueClosest(const Vec2& uv) const {
         if (data.empty()) return Vec3(1, 0, 1);
         if (extension_ != G_IMG_EXTEND) {
             int wi, wj;
@@ -501,19 +566,35 @@ public:
     }
     // #1004 - bilinear sample (Cycles INTERPOLATION_LINEAR, interp_linear in
     // kernel/device/cpu/image.h:170-178, Cycles @ Blender v5.2.0 fbe62287, Apache-2.0): the 2x2 texel footprint around
-    // (u*w - 0.5, v*h - 0.5), each texel read through value() so the extension (REPEAT /
-    // EXTEND / MIRROR / CLIP) wraps exactly like nearest sampling. Used by the bump height
-    // taps only (general Linear sampling is pkg234); GPU twin gpu_sampleImageTextureLinear.
+    // (u*w - 0.5, v*h - 0.5), each texel read through valueClosest() so the extension (REPEAT /
+    // EXTEND / MIRROR / CLIP) wraps exactly like nearest sampling. Bump height taps call this
+    // explicitly; pkg234: also value() for a Linear texture. GPU twin gpu_sampleImageTextureLinear.
     Vec3 valueLinear(const Vec2& uv) const {
         if (data.empty()) return Vec3(1, 0, 1);
         GImageLinearTaps t = gpu_imageLinearTaps(width, height, uv.u, uv.v);
-        return (value(Vec2(t.u0, t.v0), Vec3(0)) * (1.0f - t.fx) + value(Vec2(t.u1, t.v0), Vec3(0)) * t.fx) * (1.0f - t.fy) +
-               (value(Vec2(t.u0, t.v1), Vec3(0)) * (1.0f - t.fx) + value(Vec2(t.u1, t.v1), Vec3(0)) * t.fx) * t.fy;
+        return (valueClosest(Vec2(t.u0, t.v0)) * (1.0f - t.fx) + valueClosest(Vec2(t.u1, t.v0)) * t.fx) * (1.0f - t.fy) +
+               (valueClosest(Vec2(t.u0, t.v1)) * (1.0f - t.fx) + valueClosest(Vec2(t.u1, t.v1)) * t.fx) * t.fy;
+    }
+    // pkg234 - Cycles INTERPOLATION_CUBIC / SMART (uniform cubic B-spline, 4x4 footprint); the
+    // taps and weights are gpu_imageCubicTaps, each tap read through valueClosest(). GPU twin
+    // gpu_sampleImageTextureCubic.
+    Vec3 valueCubic(const Vec2& uv) const {
+        if (data.empty()) return Vec3(1, 0, 1);
+        const GImageCubicTaps t = gpu_imageCubicTaps(width, height, uv.u, uv.v);
+        Vec3 sum(0, 0, 0);
+        for (int j = 0; j < 4; ++j) {
+            Vec3 row(0, 0, 0);
+            for (int i = 0; i < 4; ++i) row += valueClosest(Vec2(t.u[i], t.v[j])) * t.wx[i];
+            sum += row * t.wy[j];
+        }
+        return sum;
     }
     astroray::SampledSpectrum sampleSpectral(
             const Vec2& uv, const Vec3&,
             const astroray::SampledWavelengths& lambdas) const override {
-        if (spectral_cache_.empty()) {
+        // pkg234: a filtered texture upsamples the filtered RGB per lambda (the GPU does the same;
+        // blending four cached texel spectra would be metameric, not a twin).
+        if (spectral_cache_.empty() || interpolation_ != G_IMG_CLOSEST) {
             Vec3 rgb = value(uv, Vec3(0));
             return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
         }
@@ -545,8 +626,12 @@ class ProgramTexture : public Texture {
     std::vector<std::shared_ptr<Texture>> inputs_;
     astroray::svm::ShaderVMProgram program_;
 public:
-    void setProgram(const astroray::svm::ShaderVMProgram& p) { program_ = p; }
-    void addInput(const std::shared_ptr<Texture>& t) { inputs_.push_back(t); }
+    void setProgram(const astroray::svm::ShaderVMProgram& p) { program_ = p; touch(); }
+    void addInput(const std::shared_ptr<Texture>& t) { inputs_.push_back(t); touch(); }
+    void appendContentKey(std::string& k) const override {
+        Texture::appendContentKey(k);
+        appendChildKeys(k, inputs_);
+    }
     const astroray::svm::ShaderVMProgram& getProgram() const { return program_; }
     size_t numInputs() const { return inputs_.size(); }
     std::shared_ptr<Texture> getInput(size_t i) const { return inputs_[i]; }
@@ -648,6 +733,11 @@ public:
                         std::vector<std::shared_ptr<Texture>> inputs = {})
         : child_(std::move(child)), program_(p), inputs_(std::move(inputs)) {}
     // #1007: read by the GPU per-hit lowering (scene_upload.cu lowerProcTexture).
+    void appendContentKey(std::string& k) const override {
+        Texture::appendContentKey(k);
+        appendChildKeys(k, inputs_);
+        appendChildKeys(k, {child_});
+    }
     const std::shared_ptr<Texture>& child() const { return child_; }
     const astroray::svm::ShaderVMProgram& program() const { return program_; }
     size_t numInputs() const { return inputs_.size(); }
@@ -726,6 +816,10 @@ public:
             throw std::runtime_error("graph program: input kind count mismatch");
         std::string err = astroray::sgraph::validateGraphProgram(prog_, (int)inputs_.size());
         if (!err.empty()) throw std::runtime_error("graph program rejected: " + err);
+    }
+    void appendContentKey(std::string& k) const override {
+        Texture::appendContentKey(k);
+        appendChildKeys(k, inputs_);
     }
     const astroray::sgraph::GraphProgramData& getProgram() const { return prog_; }
     size_t numInputs() const { return inputs_.size(); }

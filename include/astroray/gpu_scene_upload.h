@@ -26,6 +26,20 @@ struct MaterialSlotInfo {
     uint32_t nameHash = 0;           // GTriangle/GSphere::materialHash this slot stamps
 };
 
+// #1239 - one run of the flat texel buffer (SceneUploadResult::texelBlocks): an image,
+// a procedural bake (shared with the bake cache, scene_upload.cu) or an attribute
+// layer. (idA, idB, count) identifies the CONTENT: equal blocks in equal order mean
+// the device buffer already holds this buffer, so a material-only update skips the
+// upload (buildMaterialDomain). `data` is dropped after the upload; the identity stays.
+struct TexelBlock {
+    uint64_t idA = 0, idB = 0;
+    size_t   count = 0;
+    std::shared_ptr<const std::vector<GVec3>> data;
+    bool sameAs(const TexelBlock& o) const {
+        return idA == o.idA && idB == o.idB && count == o.count;
+    }
+};
+
 struct SceneUploadResult {
     std::vector<GBVHNode>   nodes;
     std::vector<GPrimitive> prims;
@@ -72,8 +86,8 @@ struct SceneUploadResult {
     // byte-identical (the hair uvTangent/hairV SoA restore is gated off).
     bool hasHair = false;
 
-    // pkg186 — GPU image textures. `textureTexels` is the flat RGB texel buffer
-    // holding ALL uploaded images concatenated; `textures[i]` slices it with an
+    // pkg186 — GPU image textures. The flat RGB texel buffer (texelBlocks, #1239)
+    // holds ALL uploaded images concatenated; `textures[i]` slices it with an
     // {offset,width,height}. `materialTextureId` is parallel to `materials`
     // (same index) and holds the texture id for each material (-1 = flat albedo,
     // preserving the untextured fast path). `hasTexture` selects the HasTexture
@@ -81,7 +95,13 @@ struct SceneUploadResult {
     // 'lambertian' materials (TexturedLambertian) populate these today; the
     // procedural-node slice is a follow-up (see pkg186 spec decision 1).
     std::vector<GImageTexture> textures;
-    std::vector<GVec3>         textureTexels;
+    // #1239: the flat texel buffer, as blocks in buffer order (no host-side concatenation:
+    // the upload copies each block to its offset). texelCount = sum of block counts.
+    // texelsReused: a material-domain update whose blocks are identical to the cached
+    // scene's - `data` is not filled and the device buffer is kept.
+    std::vector<TexelBlock>    texelBlocks;
+    size_t                     texelCount = 0;
+    bool                       texelsReused = false;
     std::vector<int>           materialTextureId;
     bool                       hasTexture = false;
     // #962 — some emissive (TexturedLight) material carries a materialTextureId:
@@ -188,7 +208,7 @@ struct SceneUploadResult {
     // (GImageTexture::attrLayer = slot). attrLayers[slot] is the engine layer id
     // (astroray::attr::layer_id); attrCorners[slot] holds three corners per
     // uploaded triangle (lazily padded with zeros, like triGenerated) and is
-    // appended to textureTexels after the geometry walk (build-time only).
+    // appended to the texel blocks after the geometry walk (build-time only).
     std::vector<int>                attrLayers;
     std::vector<std::vector<GVec3>> attrCorners;
     std::vector<float>              attrMissing;   // #1047: per-slot not-found value (pads corners)
@@ -301,6 +321,23 @@ bool buildMaterialDomain(const Renderer& cpu, const SceneUploadResult& cached,
 // Move the material-domain members of `src` into `dst` (a cached scene whose
 // geometry / light / environment members stay).
 void adoptMaterialDomain(SceneUploadResult& dst, SceneUploadResult&& src);
+
+// #1239: bake-cache diagnostics, accumulated since resetBakeStats() (the wavefront
+// render resets it before each scene decision). Surfaced in last_render_info().
+struct BakeStats {
+    int    hits = 0;        // bakes served from the cross-render cache
+    int    misses = 0;      // bakes evaluated
+    double bakeMs = 0.0;    // wall time inside bakeProceduralTexId (lookup + evaluation)
+    size_t cacheBytes = 0;  // host bytes the cache holds now
+};
+BakeStats bakeStats();
+void resetBakeStats();
+
+// Drop the texel data of every block once it is on the device (identity stays).
+inline void releaseTexelData(SceneUploadResult& r) {
+    for (TexelBlock& b : r.texelBlocks) b.data.reset();
+    r.texelsReused = false;
+}
 
 // pkg56 Phase B: camera became optional so the per-domain CUDA uploaders
 // (uploadMaterials / uploadLights / uploadEnvironment) can rebuild the host

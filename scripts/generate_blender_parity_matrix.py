@@ -3148,6 +3148,10 @@ PKG321_PROBE_CREDITS = {
     # into the env lookup (Mapping Location / Scale are reported as dropped), so a linked Mapping is honoured and anything
     # else is not: approximated, not exact.
     ('ShaderNodeTexEnvironment', 'input:Vector'): ('env_vector', 'APPROXIMATED'),
+    # pkg234 (#1215): every Image Texture Interpolation (Closest / Linear / Cubic / Smart) is honoured per texture on CPU and
+    # GPU and the probe moves Astroray's render, but 8-bit sRGB images are still filtered in linear space, not Cycles'
+    # encoded-then-decoded order (owner Phase 2 decision), so the row is APPROXIMATED, not SUPPORTED.
+    ('ShaderNodeTexImage', 'prop:interpolation'): ('img_interp', 'APPROXIMATED'),
 }
 PKG328_PROBE_NOTES = {
     ('ShaderNodeTexEnvironment', 'input:Vector'): (
@@ -3199,8 +3203,6 @@ PKG321_REPORTED_DROPS = {
     ('ShaderNodeBsdfPrincipled', 'input:Subsurface IOR'): ('e_principled_subsurface_ior', 1133),
     ('ShaderNodeVolumePrincipled', 'input:Color Attribute'): ('v_color_attribute', 1134),
     ('ShaderNodeTexSky', 'prop:ground_albedo'): ('s_ground_albedo', 1135),
-    # pkg328: every ImageTexture samples the nearest texel; the addon names Interpolation != Closest (#1215).
-    ('ShaderNodeTexImage', 'prop:interpolation'): ('img_interp', 1215),
     # Reported by the op-VM compiler's own warning ("Geometry output 'Normal' unsupported"); #989 owns the gap.
     ('ShaderNodeNewGeometry', 'output:Normal'): ('m_geometry_normal', 989),
 }

@@ -119,7 +119,7 @@ PKG328_ROWS = {
     ("ShaderNodeOutputMaterial", "input:Thickness"): ("SUPPORTED", "Cycles ignores it too; probe o_thickness"),
     ("ShaderNodeTexEnvironment", "input:Vector"): ("APPROXIMATED", "probe credit; probe env_vector"),
     ("ShaderNodeMapRange", "prop:clamp"): ("SUPPORTED", "scanner credit + op-VM fix; probes mr_clamp_*"),
-    ("ShaderNodeTexImage", "prop:interpolation"): ("DROPPED-SILENT", "reported drop #1215; probe img_interp"),
+    ("ShaderNodeTexImage", "prop:interpolation"): ("APPROXIMATED", "honoured since pkg234 (#1215), 8-bit sRGB filtered linear-space; probe img_interp"),
     ("ShaderNodeBsdfPrincipled", "input:Coat Normal"): ("DROPPED-SILENT", "reported drop #1130; probe n_principled_coat"),
 }
 
@@ -140,12 +140,11 @@ def test_probe_credits_have_moving_probes_in_both_engines_and_cycles_ignored_row
         assert ev[probe]["cycles"]["d_ab"] == 0.0 and ev[probe]["astroray"]["d_ab"] == 0.0, probe
         assert ev[probe]["cycles"]["d_aa"] > 0.0                  # the Cycles leg really rendered (noise floor > 0)
     # every other new probe moves the render in Cycles and in Astroray (so the credit is not vacuous)
+    # pkg234 (#1215): img_interp joined this list when Image Texture Interpolation became honoured
     for probe in ("w_bg_control", "w_surface", "w_active_output", "env_vector", "o_target", "mr_clamp_const",
-                  "mr_clamp_linked"):
+                  "mr_clamp_linked", "img_interp"):
         assert moved(ev[probe]["cycles"]) and moved(ev[probe]["astroray"]), probe
-    # the drop probe: Cycles moves, Astroray is bit-identical and names it
-    assert moved(ev["img_interp"]["cycles"]) and ev["img_interp"]["astroray"]["d_ab"] == 0.0
-    assert "#1215" in ev["img_interp"]["astroray"]["warn_A"]
+    assert ev["img_interp"]["astroray"]["warn_A"] == ""        # nothing is reported for an honoured mode
     # Coat Normal alone is still inert on CPU (#1157 consumes it only when it follows Normal) and is named
     assert ev["n_principled_coat"]["astroray"]["d_ab"] == 0.0
     assert "'Coat Normal' is linked but not honoured" in ev["n_principled_coat"]["astroray"]["warn_B"]
@@ -206,13 +205,17 @@ def test_world_active_output_picks_its_background(monkeypatch):
     assert _setup(monkeypatch, "w328d", [x, y, o1, o2])[0] == pytest.approx(0.1)
 
 
-def test_image_interpolation_other_than_closest_is_reported(monkeypatch):
+def test_image_interpolation_is_honoured_and_not_reported(monkeypatch):
+    """pkg234 (#1215): every mode reaches the native sampler; the pkg328 'not honoured' line is gone."""
     addon = load_addon(monkeypatch, "w328e")
-    for interp, reported in (("Linear", True), ("Cubic", True), ("Smart", True), ("Closest", False)):
+    assert not hasattr(addon.CustomRaytracerRenderEngine, "_report_image_interpolation")
+    for interp in ("Linear", "Cubic", "Smart", "Closest"):
         engine = addon.CustomRaytracerRenderEngine()
-        engine._report_image_interpolation(types.SimpleNamespace(interpolation=interp, image=types.SimpleNamespace(name="i")))
+        assert engine._image_interpolation_mode(types.SimpleNamespace(interpolation=interp)) == interp
         texts = [d for _f, d in engine._degradation_report().approximated]
-        assert any("Interpolation '%s'" % interp in t and "#1215" in t for t in texts) == reported, (interp, texts)
+        assert not any("#1215" in t for t in texts), (interp, texts)
+    assert engine._image_interpolation_mode(types.SimpleNamespace(interpolation="bogus")) == "Linear"
+    assert engine._image_interpolation_mode(types.SimpleNamespace()) == "Linear"
 
 
 def test_map_range_clamp_emits_a_range_clamp():

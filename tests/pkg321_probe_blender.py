@@ -168,6 +168,10 @@ PROBES = {
     "o_thickness": dict(scene="sphere", node="ShaderNodeOutputMaterial", custom="out_thickness"),
     "o_target": dict(scene="sphere", node="ShaderNodeOutputMaterial", custom="out_target"),
     "img_interp": dict(scene="sphere", node="ShaderNodeTexImage", custom="img_interp"),
+    # pkg234 (#1215): the same 4x4 texels as float (scene-linear) images, where Cycles also filters linearly, so the
+    # kernel's parity gate is independent of the 8-bit sRGB filter-order question. A = Linear / Cubic, B = Closest.
+    "img_interp_float": dict(scene="sphere", node="ShaderNodeTexImage", custom="img_interp_float"),
+    "img_interp_cubic": dict(scene="sphere", node="ShaderNodeTexImage", custom="img_interp_cubic"),
     "mr_clamp_const": dict(scene="sphere", node="ShaderNodeMapRange", custom="mr_clamp_const"),
     "mr_clamp_linked": dict(scene="sphere", node="ShaderNodeMapRange", custom="mr_clamp_linked"),
 }
@@ -550,16 +554,39 @@ def _out_target(variant, out_dir, notes):
     return mat
 
 
-def _img_interp(variant, out_dir, notes):
-    """4x4 random texture as Base Colour; A Linear, B Closest. Cycles: smooth vs hard-edged."""
-    mat, nt, out, d = _diffuse_mat("probe_%s" % variant)
-    rng = np.random.RandomState(7)
-    a = rng.uniform(0.05, 0.95, (4, 4, 3)).astype(np.float32)
-    tex = nt.nodes.new("ShaderNodeTexImage")
-    tex.image = _png_image(out_dir, "pkg328_checker", a, "sRGB")
-    tex.interpolation = "Closest" if variant == "B" else "Linear"
-    nt.links.new(tex.outputs["Color"], d.inputs["Color"])
-    return mat
+def _exr_image(out_dir, name, arr):
+    """A scene-linear float image saved as OpenEXR and reloaded (pkg234)."""
+    img = bpy.data.images.new(name, arr.shape[1], arr.shape[0], alpha=False, float_buffer=True)
+    img.colorspace_settings.name = "Linear Rec.709"
+    rgba = np.concatenate([arr, np.ones(arr.shape[:2] + (1,), np.float32)], axis=-1)
+    img.pixels.foreach_set(rgba.ravel())
+    img.filepath_raw = os.path.join(out_dir, name + ".exr")
+    img.file_format = "OPEN_EXR"
+    img.save()
+    bpy.data.images.remove(img)
+    img = bpy.data.images.load(os.path.join(out_dir, name + ".exr"))
+    img.colorspace_settings.name = "Linear Rec.709"
+    return img
+
+
+def _img_interp_probe(float_img, a_mode):
+    def build(variant, out_dir, notes):
+        """4x4 random texture as Base Colour; A a_mode (Linear / Cubic), B Closest. Cycles: smooth vs hard-edged.
+        float_img: the same texels 8-bit-quantised and sRGB-decoded, stored scene-linear float (pkg234)."""
+        mat, nt, out, d = _diffuse_mat("probe_%s" % variant)
+        rng = np.random.RandomState(7)
+        a = rng.uniform(0.05, 0.95, (4, 4, 3)).astype(np.float32)
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        if float_img:
+            q = np.round(a * 255.0) / 255.0
+            lin = np.where(q <= 0.04045, q / 12.92, ((q + 0.055) / 1.055) ** 2.4).astype(np.float32)
+            tex.image = _exr_image(out_dir, "pkg234_checker_float", lin)
+        else:
+            tex.image = _png_image(out_dir, "pkg328_checker", a, "sRGB")
+        tex.interpolation = "Closest" if variant == "B" else a_mode
+        nt.links.new(tex.outputs["Color"], d.inputs["Color"])
+        return mat
+    return build
 
 
 def _mr_clamp(linked):
@@ -583,7 +610,10 @@ def _mr_clamp(linked):
     return build
 
 
-MATERIAL_BUILDERS = {"out_thickness": _out_thickness, "out_target": _out_target, "img_interp": _img_interp,
+MATERIAL_BUILDERS = {"out_thickness": _out_thickness, "out_target": _out_target,
+                     "img_interp": _img_interp_probe(False, "Linear"),
+                     "img_interp_float": _img_interp_probe(True, "Linear"),
+                     "img_interp_cubic": _img_interp_probe(True, "Cubic"),
                      "mr_clamp_const": _mr_clamp(False), "mr_clamp_linked": _mr_clamp(True)}
 
 
@@ -655,6 +685,32 @@ def render(scene, out_dir, stem):
     return np.ascontiguousarray(px[::-1]), warn
 
 
+def _hit_uv_map(scene, obj):
+    """(RES, RES, 2) top-first map of the active UV layer under each pixel of the sphere scene (NaN = background).
+    pkg234: the order-term prediction in tests/test_pkg234_image_filtering.py weights the texture by the visible UVs."""
+    import mathutils
+    from mathutils.interpolate import poly_3d_calc
+    cam = scene.camera
+    mw = cam.matrix_world
+    inv = obj.matrix_world.inverted()
+    half = cam.data.sensor_width / (2.0 * cam.data.lens)
+    mesh, layer = obj.data, obj.data.uv_layers.active.data
+    uv = np.full((RES, RES, 2), np.nan, np.float32)
+    origin = inv @ mw.translation
+    for py in range(RES):
+        for px in range(RES):
+            nx, ny = ((px + 0.5) / RES) * 2.0 - 1.0, 1.0 - ((py + 0.5) / RES) * 2.0
+            d = (inv.to_3x3() @ (mw.to_3x3() @ mathutils.Vector((nx * half, ny * half, -1.0)))).normalized()
+            ok, loc, _n, fi = obj.ray_cast(origin, d)
+            if not ok:
+                continue
+            poly = mesh.polygons[fi]
+            w = poly_3d_calc([mesh.vertices[mesh.loops[i].vertex_index].co for i in poly.loop_indices], loc)
+            uv[py, px] = (sum(wi * layer[i].uv.x for wi, i in zip(w, poly.loop_indices)),
+                          sum(wi * layer[i].uv.y for wi, i in zip(w, poly.loop_indices)))
+    return uv
+
+
 def run_probe(pid, p, out_dir, scene_info):
     scene = bpy.context.scene
     res = {"id": pid, "node": p["node"]}
@@ -698,6 +754,8 @@ def run_probe(pid, p, out_dir, scene_info):
     res["notes"] = notes
     np.save(os.path.join(out_dir, f"{pid}_A.npy"), a)
     np.save(os.path.join(out_dir, f"{pid}_B.npy"), b)
+    if pid.startswith("img_interp"):
+        np.save(os.path.join(out_dir, f"{pid}_uv.npy"), _hit_uv_map(scene, scene_info["obj"]))
     return res
 
 

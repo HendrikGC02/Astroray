@@ -12,9 +12,9 @@
 
 ## Summary
 
-- **SUPPORTED**: 328 features
-- **APPROXIMATED**: 104 features
-- **DROPPED-SILENT**: 305 features ⚠️
+- **SUPPORTED**: 329 features
+- **APPROXIMATED**: 105 features
+- **DROPPED-SILENT**: 303 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 737 features
 
@@ -24,23 +24,23 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5851)
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5851)
-- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4309, line 4450)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5875)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5875)
+- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4332, line 4473)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5851)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5851)
-- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5851)
-- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5851)
-- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5851)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5851)
-- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5851)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5851)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5851)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5875)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5875)
+- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5875)
+- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5875)
+- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5875)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5875)
+- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5875)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5875)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5875)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -58,7 +58,6 @@ These features are silently ignored by the addon with no warning:
 
 - **Image**: `alpha_mode`
 - **Image**: `source==TILED (UDIM)`
-- **ShaderNodeTexImage**: `interpolation`
 - **ShaderNodeTexImage**: `projection`
 
 ### input_node
@@ -265,7 +264,6 @@ These features are silently ignored by the addon with no warning:
 - **TEX_IES**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320) in _fold_light_scalar; context-blind row: credited only where these methods consume it (#1101 finding 6)
 - **TEX_IES**: `prop:mode` — property ENUM
 - **TEX_IMAGE**: `prop:extension` — property ENUM
-- **TEX_IMAGE**: `prop:interpolation` — property ENUM; pkg321 probe `img_interp` leaves the CPU render identical: dropped, reported at runtime (#1215)
 - **TEX_IMAGE**: `prop:projection` — property ENUM
 - **TEX_IMAGE**: `prop:projection_blend` — property FLOAT
 - **TEX_SKY**: `input:Vector` — root / scene-level node consumed by the render-engine traversal (pkg320) in no method; context-blind row: credited only where these methods consume it (#1101 finding 6)
@@ -408,7 +406,7 @@ These features are silently ignored by the addon with no warning:
 | Image | colorspace_settings.name | SUPPORTED |  |
 | Image | alpha_mode | DROPPED-SILENT |  |
 | Image | source==TILED (UDIM) | DROPPED-SILENT |  |
-| ShaderNodeTexImage | interpolation | DROPPED-SILENT |  |
+| ShaderNodeTexImage | interpolation | SUPPORTED |  |
 | ShaderNodeTexImage | extension | SUPPORTED |  |
 | ShaderNodeTexImage | projection | DROPPED-SILENT |  |
 
@@ -875,7 +873,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_IES | prop:mode | DROPPED-SILENT | property ENUM |
 | TEX_IMAGE | input:Vector | APPROXIMATED | op-VM / vector-input path (pkg219/pkg223) |
 | TEX_IMAGE | prop:extension | DROPPED-SILENT | property ENUM |
-| TEX_IMAGE | prop:interpolation | DROPPED-SILENT | property ENUM; pkg321 probe `img_interp` leaves the CPU render identical: dropped, reported at runtime (#1215) |
+| TEX_IMAGE | prop:interpolation | APPROXIMATED | pkg321 probe `img_interp` moves the CPU render (consumed) |
 | TEX_IMAGE | prop:projection | DROPPED-SILENT | property ENUM |
 | TEX_IMAGE | prop:projection_blend | DROPPED-SILENT | property FLOAT |
 | TEX_MAGIC | input:Vector | SUPPORTED |  |

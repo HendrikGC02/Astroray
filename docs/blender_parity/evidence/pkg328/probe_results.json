@@ -1,5 +1,5 @@
 {
- "_note": "pkg328 Phase 1 probes (tests/pkg321_probe_blender.py): CPU 64 spp 80x80, Blender 5.2; astroray = staged dist_batch_931dd0af pyd + worktree addon, cycles = PKG328_ENGINE=CYCLES. d_ab = mean |A-B| (linear), d_aa = same-scene seed-noise floor.",
+ "_note": "pkg328 Phase 1 probes (tests/pkg321_probe_blender.py): CPU 64 spp 80x80, Blender 5.2; astroray = staged dist_batch_931dd0af pyd + worktree addon, cycles = PKG328_ENGINE=CYCLES. d_ab = mean |A-B| (linear), d_aa = same-scene seed-noise floor. img_interp astroray leg re-measured by pkg234 (b26e8bb6, interpolation honoured); Cycles leg unchanged.",
  "probes": {
   "env_vector": {
    "astroray": {
@@ -19,11 +19,11 @@
   },
   "img_interp": {
    "astroray": {
-    "d_aa": 0.00256,
-    "d_ab": 0.0,
-    "db_aa": 0.000364,
-    "db_ab": 0.0,
-    "warn_A": "Astroray degradation: 1 approximated / 0 ignored -- approximated TEX_IMAGE: Interpolation 'Linear' is not honoured: the image is sampled Closest, so magnified texels show blocks (#1215)",
+    "d_aa": 0.002054,
+    "d_ab": 0.043698,
+    "db_aa": 0.000262,
+    "db_ab": 0.041607,
+    "warn_A": "",
     "warn_B": ""
    },
    "cycles": {

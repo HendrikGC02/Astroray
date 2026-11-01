@@ -124,6 +124,17 @@ ids: `v2_light_tree`, `v2_media`, `v2_dispersion_caustics`, `v2_sky_sun`,
     (0.927 / 0.931), upper_flake b (0.961 / CPU only); `prod_pbr_group` lower b (0.925 / 0.931); `prod_light_path`
     floor_near r (0.981 / 0.988). Not pinned: GPU-only twin gaps (car_paint GPU
     limb_grazing and lower_shadowed, #1220; light_path GPU floor_far, #1199).
+  - **Reference variant (#995, owner 2026-10-31): `prod_shader_stack`.** Astroray keeps the radiance 1/eta^2 on light
+    crossing a dielectric boundary (pbrt-v4 radiance mode, Veach thesis 5.2); Cycles applies none, so the stack's Emission
+    seen from inside the glass shell read 1/n^2 darker (ROIs right, lower, upper_left 0.88-0.98). The Astroray legs still
+    render the scene as authored; the Cycles legs (reference EXR and band sigma) run `render_leg.py` control
+    `emission_backface_scale`, which multiplies Emission Strength by 1/n^2 on back-facing hits (the inside of the closed
+    shell; front-face emission is untouched), n = the material's Glass BSDF IOR read from the scene (1.45, 0.4756). It
+    is a `[[reference_control]]` row in `provisional_production.toml`; `gates_production.toml` names it on the scene
+    (`reference_variant`) and `production/refs/prod_shader_stack_cycles.json` records the receipt. No ROI is pinned, no
+    tolerance widened; the scene's bands were re-measured from the regenerated reference (5 seeds, Cycles + Astroray).
+    Refresh: `mc_tolerance.py --suite production --scenes prod_shader_stack --legs cycles cpu gpu --reference
+    --work-dir W --gates <scratch.toml>` (GPU leg under `gpu_locked_run.py`), then copy that scene's block.
 
 ## volumes_mesh (pkg296) -- mesh-bounded volumes
 

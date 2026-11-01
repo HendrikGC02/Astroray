@@ -144,6 +144,19 @@ def test_audit_still_flags_an_unhandled_output_socket():
     assert ("ShaderNodeNewGeometry", "Pointiness") in flagged
 
 
+def test_shader_stack_reference_is_the_recorded_1_over_n2_variant(monkeypatch):
+    """#995 (owner 2026-10-31): the Cycles reference of prod_shader_stack carries emission x 1/n^2 inside the glass;
+    the gates file names the variant, the sidecar holds the render receipt (n read from the scene), and only the
+    Cycles legs get the control (``mc_tolerance.render`` adds it for leg ``cycles``; Astroray legs render as authored)."""
+    monkeypatch.setattr(MC, "KNOWN", CORPUS / "provisional_production.toml")
+    assert [c["kind"] for c in MC.reference_controls("prod_shader_stack")] == ["emission_backface_scale"]
+    assert not any(MC.reference_controls(s) for s in SCENES if s != "prod_shader_stack")
+    assert "emission_backface_scale" in GATES["scenes"]["prod_shader_stack"]["reference_variant"]
+    assert not any("reference_variant" in GATES["scenes"][s] for s in SCENES if s != "prod_shader_stack")
+    rec = json.loads((PROD / "refs" / "prod_shader_stack_cycles.json").read_text(encoding="utf-8"))["receipt"][0]
+    assert rec["ok"] and rec["ior"] == 1.45 and abs(rec["scale"] - 1 / 1.45 ** 2) < 1e-12
+
+
 def test_provisional_rows_reference_real_cases_and_issues():
     ids = {p.id for kind in ("parity", "silent") for p in _cases(kind)}
     for row in PROVISIONAL:

@@ -1,0 +1,28 @@
+{
+ "reference": "prod_shader_stack_cycles.exr",
+ "engine": "Cycles CPU",
+ "seed": 278,
+ "spp": 1024,
+ "blender": "5.2.0 LTS",
+ "variant": [
+  {
+   "issue": "#995",
+   "reason": "Astroray keeps the radiance 1/eta^2 on light crossing the glass boundary (pbrt-v4 radiance mode, Veach thesis 5.2) and Cycles has none, so emission inside the glass reads 1/n^2 darker in Astroray. The reference scales the Emission strength by 1/n^2 on back-facing (inside-the-shell) hits, n = the Glass BSDF IOR. Front-face emission and every other channel stay as Cycles renders them"
+  }
+ ],
+ "receipt": [
+  {
+   "kind": "emission_backface_scale",
+   "material": "ShaderStack",
+   "ior": 1.45,
+   "scale": 0.4756242568370987,
+   "emission_nodes": [
+    "Emission"
+   ],
+   "strength_front": [
+    0.6000000238418579
+   ],
+   "ok": true
+  }
+ ]
+}

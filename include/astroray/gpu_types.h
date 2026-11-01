@@ -1185,6 +1185,11 @@ struct GHitRecord {
     // read only while a toggle is off (stage_advance_device.cuh gpu_causticGated), so it has
     // no initializer: the default path stores nothing.
     unsigned char causticGate;
+    // pkg329: Cycles Filter Glossy GGX alpha floor at this vertex (CPU twin
+    // HitRecord::glossyAlphaFloor; lightpath::filter_glossy_alpha_floor of the path's
+    // min_ray_pdf). Set by the wavefront shade stage only while Filter Glossy is on
+    // (c_wfFilterGlossy != 0); 0 = no blur, which every alpha site returns unchanged.
+    float glossyAlphaFloor = 0.f;
 };
 
 // ---------------------------------------------------------------------------

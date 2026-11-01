@@ -167,9 +167,25 @@ glossy closure forms its alpha, with no virtual signature change.
 - [x] CPU: single-alpha + floor in principled, metal, disney (syntax-checked with g++).
 - [x] Twin tests written (`tests/test_pkg329_filter_glossy.py`); band ROI to calibrate on first
       build.
-- [ ] CPU build, tests, Welch-1b witness, Filter Glossy 0 bit-identity vs b1101c.
-- [ ] GPU accumulator + floor, register / perf gates, GPU witness.
-- [ ] `pkg200_honour_matrix.py` blur_glossy note; parity matrix regen only if a row changes.
+- [x] CPU build (7d9a6531), tests, Welch-1b witness, Filter Glossy 0 identity vs b1101c
+      (2026-11-02, evidence `%LOCALAPPDATA%\astroray-evidence\2026-11-02\p329\`):
+  - `test_pkg329_filter_glossy.py -k cpu` 3/3. Band calibrated: rows 26-34 in front of the
+    contact, on/off 0.910 / 0.902 / 0.911 over seeds 7 / 11 / 23 (64 spp), off-frame seed spread
+    <= 1 %; bound `< 0.95`.
+  - Welch-1b v2_viewport CPU vs Cycles as authored: **0/6720**, ROI ratio 0.998; centre-contact
+    band 0.995 (was up to +15 %).
+  - FG-0 (attrib filter_glossy 0, seed 278) vs b1101c: not bit-exact, 45773/230400 px differ by
+    <= 4.8e-7 abs / 9.4e-7 rel (float ULP). Attribution probe (`cpu/codegen_probe.py`): a
+    Lambertian scene is bit-exact (integrator unchanged), a Principled roughness-1 scene (alpha 1
+    > any floor, so the floor cannot act) differs in 30/4096 px by 3.6e-7: MSVC `/fp:fast`
+    codegen in principled.cpp, not a logic or RNG change (any such change moves samples, not ULPs).
+  - Related CPU suites (principled, layering, metal x3, disney x4, rough glass x4, thin film,
+    #1112, #991, #1204/#1206, caustic toggles, pkg329): 327 passed.
+- [x] GPU accumulator + floor written (lane p329): `min_ray_pdf` SoA + `c_wfFilterGlossy`
+      (gated: off never touches the SoA), `GHitRecord::glossyAlphaFloor`, floors in
+      `gpu_metal_*`, `gpu_disney_*` (closure-graph GGX conductor / rough dielectric leaves lower
+      to these), `gpu_pr_*`. Awaiting build, register / perf gates, GPU witness.
+- [x] `pkg200_honour_matrix.py` blur_glossy note; parity matrix regen only if a row changes.
 
 ---
 

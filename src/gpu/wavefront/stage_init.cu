@@ -33,6 +33,7 @@
 
 #include <cuda_runtime.h>
 #include <cstdio>
+#include <cfloat>   // pkg329: FLT_MAX
 #include <stdexcept>
 
 namespace astroray::wavefront {
@@ -49,6 +50,9 @@ void setWavefrontPixelFilter(int type, float width) {
     GPixelFilterParams p{type, width};
     cudaMemcpyToSymbol(c_wfPixelFilter, &p, sizeof(GPixelFilterParams));
 }
+
+// pkg329 - Filter Glossy kernel value (stage_advance.cu; 0 = off, min_ray_pdf untouched).
+extern __constant__ float c_wfFilterGlossy;
 
 // pkg305 — the single device definition of the Sobol-Burley table declared in
 // sobol_burley.h (statically initialised from the Cycles literal).
@@ -418,6 +422,7 @@ __device__ void initPathSlot(
     state.bounce[idx]       = 0;
     state.per_type_bounce[idx] = 0u;  // pkg201 Stage 3 (A) — reset per-type counters
     state.ray_vis_diffuse[idx] = 0;  // pkg201 Stage 3 (E) / #1206 — camera ray: no DIFFUSE
+    if (c_wfFilterGlossy != 0.f) state.min_ray_pdf[idx] = FLT_MAX;  // pkg329 (path_state.h:62)
     state.lp_state[idx] = astroray::lightpath::kInitialState;  // #991 camera ray
     state.pass_dist[idx] = 0.f;  // #1033
     state.pass_count[idx] = 0u;  // #1125

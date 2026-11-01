@@ -78,6 +78,7 @@ __device__ inline float gpu_rng_uniform(GSegRng* r)
 extern __constant__ GWavefrontGridVolumeBinding c_wfGridVolume;
 extern __constant__ GWavefrontLightPassBinding  c_wfLpBinding;
 extern __constant__ GWavefrontLightPathBinding  c_wfLightPath;   // #991
+extern __constant__ float c_wfFilterGlossy;                        // pkg329
 __device__ unsigned gpu_lpVolume(unsigned lpState);              // #991 shading_inputs_eval.cu
 
 namespace {
@@ -1152,6 +1153,8 @@ __global__ void stageVolumeHeteroScatterKernel(
     // (written by intersect), see stageVolumeScatterKernel.
     state.env_nee_sampled_prev[idx] = 2;
     state.path_bsdf_pdf[idx] = phasePdf;
+    // pkg329: Cycles min_ray_pdf takes the phase pdf at a volume scatter (shade_volume.h:2668).
+    if (c_wfFilterGlossy != 0.f) state.min_ray_pdf[idx] = fminf(state.min_ray_pdf[idx], phasePdf);
     state.rng_dimension[idx] = rng.dimension();
     int next_bounce = bounce + 1;
     state.bounce[idx] = next_bounce;

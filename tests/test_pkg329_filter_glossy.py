@@ -64,10 +64,13 @@ def test_camera_ray_is_never_blurred(use_gpu):
 @pytest.mark.parametrize("use_gpu", BACKENDS)
 def test_smooth_metal_seen_from_diffuse_floor_is_blurred(use_gpu):
     """Floor pixels next to the contact see the sphere through a diffuse bounce: blurring its
-    alpha (0.04 -> >= 0.41 after a diffuse bounce, whose pdf is <= 1/pi) changes them."""
+    alpha (0.04 -> >= 0.41 after a diffuse bounce, whose pdf is <= 1/pi) darkens them (the
+    blurred sphere mirrors less sky and more floor; #1231 saw Astroray brighter than Cycles).
+    Band calibrated on the CPU build at 64 spp, seeds 7 / 11 / 23: on/off 0.910 / 0.902 / 0.911,
+    seed-to-seed spread of the off frame <= 1 %; the 0.95 bound leaves ~4 % margin each way."""
     off = _scene(use_gpu, 0.0, 0.2)
     on = _scene(use_gpu, 1.0, 0.2)
-    band = (slice(36, 44), slice(14, 34))  # floor in front of the contact
+    band = (slice(26, 34), slice(14, 34))  # floor just in front of the contact
     l_off = float(off[band].reshape(-1, 3).mean(axis=0) @ LUM)
     l_on = float(on[band].reshape(-1, 3).mean(axis=0) @ LUM)
-    assert abs(l_on / l_off - 1.0) > 0.01, (l_on, l_off)
+    assert l_on / l_off < 0.95, (l_on, l_off)

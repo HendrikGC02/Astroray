@@ -117,6 +117,7 @@
       }
     }
   },
+  "audit_incomplete": [],
   "blocked": false,
   "cpu": {
     "backend": "CPU",
@@ -509,7 +510,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|input:Anisotropy",
         "scenes": [
           "v2_thin_film_metals"
@@ -520,7 +521,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|input:Base Color",
         "scenes": [
           "v2_thin_film_metals"
@@ -531,7 +532,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|input:Edge Tint",
         "scenes": [
           "v2_thin_film_metals"
@@ -553,7 +554,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|input:Rotation",
         "scenes": [
           "v2_thin_film_metals"
@@ -564,7 +565,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|input:Roughness",
         "scenes": [
           "v2_thin_film_metals"
@@ -586,7 +587,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|input:Thin Film IOR",
         "scenes": [
           "v2_thin_film_metals"
@@ -597,7 +598,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|input:Thin Film Thickness",
         "scenes": [
           "v2_thin_film_metals"
@@ -608,7 +609,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|output:BSDF",
         "scenes": [
           "v2_thin_film_metals"
@@ -619,7 +620,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|prop:distribution",
         "scenes": [
           "v2_thin_film_metals"
@@ -630,7 +631,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|prop:fresnel_type",
         "scenes": [
           "v2_thin_film_metals"
@@ -639,9 +640,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Alpha",
         "scenes": [
           "prod_attributes",
@@ -665,9 +666,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Anisotropic",
         "scenes": [
           "prod_attributes",
@@ -691,9 +692,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Anisotropic Rotation",
         "scenes": [
           "prod_attributes",
@@ -717,9 +718,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Base Color",
         "scenes": [
           "prod_attributes",
@@ -743,9 +744,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Coat IOR",
         "scenes": [
           "prod_attributes",
@@ -795,9 +796,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Coat Roughness",
         "scenes": [
           "prod_attributes",
@@ -821,9 +822,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Coat Tint",
         "scenes": [
           "prod_attributes",
@@ -847,9 +848,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Coat Weight",
         "scenes": [
           "prod_attributes",
@@ -873,9 +874,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Diffuse Roughness",
         "scenes": [
           "prod_attributes",
@@ -899,9 +900,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Emission Color",
         "scenes": [
           "prod_attributes",
@@ -925,9 +926,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Emission Strength",
         "scenes": [
           "prod_attributes",
@@ -951,9 +952,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:IOR",
         "scenes": [
           "prod_attributes",
@@ -977,9 +978,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Metallic",
         "scenes": [
           "prod_attributes",
@@ -1003,9 +1004,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Normal",
         "scenes": [
           "prod_attributes",
@@ -1029,9 +1030,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Roughness",
         "scenes": [
           "prod_attributes",
@@ -1055,9 +1056,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Sheen Roughness",
         "scenes": [
           "prod_attributes",
@@ -1081,9 +1082,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Sheen Tint",
         "scenes": [
           "prod_attributes",
@@ -1107,9 +1108,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Sheen Weight",
         "scenes": [
           "prod_attributes",
@@ -1133,9 +1134,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Specular IOR Level",
         "scenes": [
           "prod_attributes",
@@ -1159,9 +1160,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Specular Tint",
         "scenes": [
           "prod_attributes",
@@ -1185,9 +1186,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Subsurface Anisotropy",
         "scenes": [
           "prod_attributes",
@@ -1211,9 +1212,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Subsurface Radius",
         "scenes": [
           "prod_attributes",
@@ -1237,9 +1238,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Subsurface Scale",
         "scenes": [
           "prod_attributes",
@@ -1263,9 +1264,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Subsurface Weight",
         "scenes": [
           "prod_attributes",
@@ -1315,9 +1316,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Thin Film IOR",
         "scenes": [
           "prod_attributes",
@@ -1341,9 +1342,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Thin Film Thickness",
         "scenes": [
           "prod_attributes",
@@ -1367,9 +1368,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Thin Wall",
         "scenes": [
           "prod_attributes",
@@ -1393,9 +1394,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Transmission Weight",
         "scenes": [
           "prod_attributes",
@@ -1419,9 +1420,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|output:BSDF",
         "scenes": [
           "prod_attributes",
@@ -1519,9 +1520,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "identity": "ShaderNodeBump|input:Distance",
         "scenes": [
           "prod_car_paint",
@@ -1532,9 +1533,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "identity": "ShaderNodeBump|input:Filter Width",
         "scenes": [
           "prod_car_paint",
@@ -1545,9 +1546,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "identity": "ShaderNodeBump|input:Height",
         "scenes": [
           "prod_car_paint",
@@ -1558,9 +1559,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "identity": "ShaderNodeBump|input:Normal",
         "scenes": [
           "prod_car_paint",
@@ -1571,9 +1572,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "identity": "ShaderNodeBump|input:Strength",
         "scenes": [
           "prod_car_paint",
@@ -1584,9 +1585,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "identity": "ShaderNodeBump|output:Normal",
         "scenes": [
           "prod_car_paint",
@@ -2017,9 +2018,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
         "identity": "ShaderNodeMapping|input:Location",
         "scenes": [
           "prod_marble",
@@ -2031,9 +2032,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
         "identity": "ShaderNodeMapping|input:Rotation",
         "scenes": [
           "prod_marble",
@@ -2045,9 +2046,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
         "identity": "ShaderNodeMapping|input:Scale",
         "scenes": [
           "prod_marble",
@@ -2059,9 +2060,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
         "identity": "ShaderNodeMapping|input:Vector",
         "scenes": [
           "prod_marble",
@@ -2073,9 +2074,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
         "identity": "ShaderNodeMapping|output:Vector",
         "scenes": [
           "prod_marble",
@@ -2819,9 +2820,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Detail",
         "scenes": [
           "prod_curves_geometry",
@@ -2834,9 +2835,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Distortion",
         "scenes": [
           "prod_curves_geometry",
@@ -2849,9 +2850,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Lacunarity",
         "scenes": [
           "prod_curves_geometry",
@@ -2864,9 +2865,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Roughness",
         "scenes": [
           "prod_curves_geometry",
@@ -2879,9 +2880,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Scale",
         "scenes": [
           "prod_curves_geometry",
@@ -2894,9 +2895,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Vector",
         "scenes": [
           "prod_curves_geometry",
@@ -2909,9 +2910,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture']",
         "identity": "ShaderNodeTexNoise|output:Color",
         "scenes": [
           "prod_curves_geometry",
@@ -2922,9 +2923,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|output:Fac",
         "scenes": [
           "prod_curves_geometry",
@@ -2936,9 +2937,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|prop:noise_dimensions",
         "scenes": [
           "prod_curves_geometry",
@@ -2951,9 +2952,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|prop:noise_type",
         "scenes": [
           "prod_curves_geometry",
@@ -2966,9 +2967,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|prop:normalize",
         "scenes": [
           "prod_curves_geometry",
@@ -2981,9 +2982,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|output:Color",
         "scenes": [
           "v2_sky_sun"
@@ -2992,9 +2993,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|prop:aerosol_density",
         "scenes": [
           "v2_sky_sun"
@@ -3003,9 +3004,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|prop:altitude",
         "scenes": [
           "v2_sky_sun"
@@ -3025,9 +3026,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|prop:sky_type",
         "scenes": [
           "v2_sky_sun"
@@ -3036,9 +3037,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|prop:sun_direction",
         "scenes": [
           "v2_sky_sun"
@@ -3047,9 +3048,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|prop:sun_elevation",
         "scenes": [
           "v2_sky_sun"
@@ -3058,9 +3059,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|prop:sun_size",
         "scenes": [
           "v2_sky_sun"
@@ -3069,9 +3070,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|prop:turbidity",
         "scenes": [
           "v2_sky_sun"
@@ -3198,9 +3199,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|input:Detail",
         "scenes": [
           "prod_marble",
@@ -3211,9 +3212,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|input:Detail Roughness",
         "scenes": [
           "prod_marble",
@@ -3224,9 +3225,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|input:Detail Scale",
         "scenes": [
           "prod_marble",
@@ -3237,9 +3238,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|input:Distortion",
         "scenes": [
           "prod_marble",
@@ -3250,9 +3251,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|input:Phase Offset",
         "scenes": [
           "prod_marble",
@@ -3263,9 +3264,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|input:Scale",
         "scenes": [
           "prod_marble",
@@ -3276,9 +3277,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|input:Vector",
         "scenes": [
           "prod_marble",
@@ -3291,7 +3292,7 @@
         "cpu": 1.0,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|output:Color",
         "scenes": [
           "v2_textures_opvm"
@@ -3300,9 +3301,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "identity": "ShaderNodeTexWave|output:Fac",
         "scenes": [
           "prod_marble",
@@ -3334,9 +3335,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "identity": "ShaderNodeTexWave|prop:wave_type",
         "scenes": [
           "prod_wood"
@@ -3994,7 +3995,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|input:Anisotropy",
         "scenes": [
           "v2_thin_film_metals"
@@ -4005,7 +4006,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|input:Base Color",
         "scenes": [
           "v2_thin_film_metals"
@@ -4016,7 +4017,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|input:Edge Tint",
         "scenes": [
           "v2_thin_film_metals"
@@ -4038,7 +4039,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|input:Rotation",
         "scenes": [
           "v2_thin_film_metals"
@@ -4049,7 +4050,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|input:Roughness",
         "scenes": [
           "v2_thin_film_metals"
@@ -4071,7 +4072,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|input:Thin Film IOR",
         "scenes": [
           "v2_thin_film_metals"
@@ -4082,7 +4083,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|input:Thin Film Thickness",
         "scenes": [
           "v2_thin_film_metals"
@@ -4093,7 +4094,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|output:BSDF",
         "scenes": [
           "v2_thin_film_metals"
@@ -4104,7 +4105,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|prop:distribution",
         "scenes": [
           "v2_thin_film_metals"
@@ -4115,7 +4116,7 @@
         "cpu": 0.5,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_thin_film_metals/Gold/Metallic BSDF']",
         "identity": "ShaderNodeBsdfMetallic|prop:fresnel_type",
         "scenes": [
           "v2_thin_film_metals"
@@ -4124,9 +4125,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Alpha",
         "scenes": [
           "prod_attributes",
@@ -4150,9 +4151,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Anisotropic",
         "scenes": [
           "prod_attributes",
@@ -4176,9 +4177,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Anisotropic Rotation",
         "scenes": [
           "prod_attributes",
@@ -4202,9 +4203,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Base Color",
         "scenes": [
           "prod_attributes",
@@ -4228,9 +4229,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Coat IOR",
         "scenes": [
           "prod_attributes",
@@ -4280,9 +4281,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Coat Roughness",
         "scenes": [
           "prod_attributes",
@@ -4306,9 +4307,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Coat Tint",
         "scenes": [
           "prod_attributes",
@@ -4332,9 +4333,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Coat Weight",
         "scenes": [
           "prod_attributes",
@@ -4358,9 +4359,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Diffuse Roughness",
         "scenes": [
           "prod_attributes",
@@ -4384,9 +4385,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Emission Color",
         "scenes": [
           "prod_attributes",
@@ -4410,9 +4411,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Emission Strength",
         "scenes": [
           "prod_attributes",
@@ -4436,9 +4437,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:IOR",
         "scenes": [
           "prod_attributes",
@@ -4462,9 +4463,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Metallic",
         "scenes": [
           "prod_attributes",
@@ -4488,9 +4489,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Normal",
         "scenes": [
           "prod_attributes",
@@ -4514,9 +4515,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Roughness",
         "scenes": [
           "prod_attributes",
@@ -4540,9 +4541,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Sheen Roughness",
         "scenes": [
           "prod_attributes",
@@ -4566,9 +4567,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Sheen Tint",
         "scenes": [
           "prod_attributes",
@@ -4592,9 +4593,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Sheen Weight",
         "scenes": [
           "prod_attributes",
@@ -4618,9 +4619,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Specular IOR Level",
         "scenes": [
           "prod_attributes",
@@ -4644,9 +4645,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Specular Tint",
         "scenes": [
           "prod_attributes",
@@ -4670,9 +4671,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Subsurface Anisotropy",
         "scenes": [
           "prod_attributes",
@@ -4696,9 +4697,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Subsurface Radius",
         "scenes": [
           "prod_attributes",
@@ -4722,9 +4723,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Subsurface Scale",
         "scenes": [
           "prod_attributes",
@@ -4748,9 +4749,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Subsurface Weight",
         "scenes": [
           "prod_attributes",
@@ -4800,9 +4801,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Thin Film IOR",
         "scenes": [
           "prod_attributes",
@@ -4826,9 +4827,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Thin Film Thickness",
         "scenes": [
           "prod_attributes",
@@ -4852,9 +4853,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Thin Wall",
         "scenes": [
           "prod_attributes",
@@ -4878,9 +4879,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|input:Transmission Weight",
         "scenes": [
           "prod_attributes",
@@ -4904,9 +4905,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_viewport/Grid100k/Principled BSDF']",
         "identity": "ShaderNodeBsdfPrincipled|output:BSDF",
         "scenes": [
           "prod_attributes",
@@ -5004,9 +5005,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "identity": "ShaderNodeBump|input:Distance",
         "scenes": [
           "prod_car_paint",
@@ -5017,9 +5018,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "identity": "ShaderNodeBump|input:Filter Width",
         "scenes": [
           "prod_car_paint",
@@ -5030,9 +5031,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "identity": "ShaderNodeBump|input:Height",
         "scenes": [
           "prod_car_paint",
@@ -5043,9 +5044,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "identity": "ShaderNodeBump|input:Normal",
         "scenes": [
           "prod_car_paint",
@@ -5056,9 +5057,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "identity": "ShaderNodeBump|input:Strength",
         "scenes": [
           "prod_car_paint",
@@ -5069,9 +5070,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_car_paint/Hero/Bump', 'prod_wood/Hero/Bump']",
         "identity": "ShaderNodeBump|output:Normal",
         "scenes": [
           "prod_car_paint",
@@ -5502,9 +5503,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
         "identity": "ShaderNodeMapping|input:Location",
         "scenes": [
           "prod_marble",
@@ -5516,9 +5517,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
         "identity": "ShaderNodeMapping|input:Rotation",
         "scenes": [
           "prod_marble",
@@ -5530,9 +5531,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
         "identity": "ShaderNodeMapping|input:Scale",
         "scenes": [
           "prod_marble",
@@ -5544,9 +5545,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
         "identity": "ShaderNodeMapping|input:Vector",
         "scenes": [
           "prod_marble",
@@ -5558,9 +5559,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Mapping', 'v2_textures_opvm/CardMapAfterWarp/Mapping']",
         "identity": "ShaderNodeMapping|output:Vector",
         "scenes": [
           "prod_marble",
@@ -6304,9 +6305,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Detail",
         "scenes": [
           "prod_curves_geometry",
@@ -6319,9 +6320,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Distortion",
         "scenes": [
           "prod_curves_geometry",
@@ -6334,9 +6335,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Lacunarity",
         "scenes": [
           "prod_curves_geometry",
@@ -6349,9 +6350,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Roughness",
         "scenes": [
           "prod_curves_geometry",
@@ -6364,9 +6365,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Scale",
         "scenes": [
           "prod_curves_geometry",
@@ -6379,9 +6380,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Vector",
         "scenes": [
           "prod_curves_geometry",
@@ -6394,9 +6395,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture']",
         "identity": "ShaderNodeTexNoise|output:Color",
         "scenes": [
           "prod_curves_geometry",
@@ -6407,9 +6408,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|output:Fac",
         "scenes": [
           "prod_curves_geometry",
@@ -6421,9 +6422,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|prop:noise_dimensions",
         "scenes": [
           "prod_curves_geometry",
@@ -6436,9 +6437,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|prop:noise_type",
         "scenes": [
           "prod_curves_geometry",
@@ -6451,9 +6452,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|prop:normalize",
         "scenes": [
           "prod_curves_geometry",
@@ -6466,9 +6467,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|output:Color",
         "scenes": [
           "v2_sky_sun"
@@ -6477,9 +6478,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|prop:aerosol_density",
         "scenes": [
           "v2_sky_sun"
@@ -6488,9 +6489,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|prop:altitude",
         "scenes": [
           "v2_sky_sun"
@@ -6510,9 +6511,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|prop:sky_type",
         "scenes": [
           "v2_sky_sun"
@@ -6521,9 +6522,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|prop:sun_direction",
         "scenes": [
           "v2_sky_sun"
@@ -6532,9 +6533,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|prop:sun_elevation",
         "scenes": [
           "v2_sky_sun"
@@ -6543,9 +6544,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|prop:sun_size",
         "scenes": [
           "v2_sky_sun"
@@ -6554,9 +6555,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_sky_sun/World/Sky Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_sky_sun/World/Sky Texture']",
         "identity": "ShaderNodeTexSky|prop:turbidity",
         "scenes": [
           "v2_sky_sun"
@@ -6683,9 +6684,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|input:Detail",
         "scenes": [
           "prod_marble",
@@ -6696,9 +6697,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|input:Detail Roughness",
         "scenes": [
           "prod_marble",
@@ -6709,9 +6710,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|input:Detail Scale",
         "scenes": [
           "prod_marble",
@@ -6722,9 +6723,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|input:Distortion",
         "scenes": [
           "prod_marble",
@@ -6735,9 +6736,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|input:Phase Offset",
         "scenes": [
           "prod_marble",
@@ -6748,9 +6749,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|input:Scale",
         "scenes": [
           "prod_marble",
@@ -6761,9 +6762,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture', 'v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|input:Vector",
         "scenes": [
           "prod_marble",
@@ -6776,7 +6777,7 @@
         "cpu": 1.0,
         "cpu_reason": "matrix credit",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['v2_textures_opvm/CardWave/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['v2_textures_opvm/CardWave/Wave Texture']",
         "identity": "ShaderNodeTexWave|output:Color",
         "scenes": [
           "v2_textures_opvm"
@@ -6785,9 +6786,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "identity": "ShaderNodeTexWave|output:Fac",
         "scenes": [
           "prod_marble",
@@ -6819,9 +6820,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by failing audit witness ['prod_wood/Hero/Wave Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_wood/Hero/Wave Texture']",
         "identity": "ShaderNodeTexWave|prop:wave_type",
         "scenes": [
           "prod_wood"
@@ -7178,11 +7179,11 @@
         0.47468354430379744,
         0.47468354430379744
       ],
-      "margin": 0.09177215189873418,
+      "margin": 0.10232067510548522,
       "measured": 0.4641350210970464,
       "one_witness_weight": 0.09177215189873418,
-      "proposed_threshold": 0.6761603375527425,
-      "seed_spread": 0.0
+      "proposed_threshold": 0.6656118143459915,
+      "seed_spread": 0.010548523206751037
     },
     "n_seeds": 8
   },
@@ -7208,13 +7209,15 @@
       "min": null,
       "pass": false,
       "proposed": 0.676,
+      "reason": "threshold not signed by the owner",
       "score": 0.4767932489451477,
       "signed": false
     },
     "b3_gpu_score": {
       "min": null,
       "pass": false,
-      "proposed": 0.676,
+      "proposed": 0.665,
+      "reason": "threshold not signed by the owner",
       "score": 0.4641350210970464,
       "signed": false
     },
@@ -7362,8 +7365,42 @@
       "pass": false
     },
     "b6_nonzero_links_evidence": {
-      "pass": true,
-      "unlinked": []
+      "nonzero_uses": {
+        "CPU": 603,
+        "GPU": 562
+      },
+      "pass": false,
+      "reason": "1150 nonzero (identity, scene, variant) use(s) have no PASSing audit witness with linked seed stacks on that backend; the sampled audit links only its own witnesses' variants",
+      "unlinked_count": {
+        "CPU": 590,
+        "GPU": 560
+      },
+      "unlinked_examples": {
+        "CPU": [
+          "NodeGroupInput|output:Socket_1 @ prod_pbr_group",
+          "NodeGroupOutput|input:Socket_0 @ prod_pbr_group",
+          "NodeGroupOutput|input:__extend__ @ prod_pbr_group",
+          "NodeGroupOutput|prop:is_active_output @ prod_pbr_group",
+          "ShaderNodeAddShader|input:Shader @ prod_shader_stack",
+          "ShaderNodeAddShader|input:Shader_001 @ prod_shader_stack",
+          "ShaderNodeAddShader|output:Shader @ prod_shader_stack",
+          "ShaderNodeAttribute|output:Fac @ prod_attributes",
+          "ShaderNodeBackground|input:Color @ prod_attributes",
+          "ShaderNodeBackground|input:Color @ prod_car_paint"
+        ],
+        "GPU": [
+          "NodeGroupInput|output:Socket_1 @ prod_pbr_group",
+          "NodeGroupOutput|input:Socket_0 @ prod_pbr_group",
+          "NodeGroupOutput|input:__extend__ @ prod_pbr_group",
+          "NodeGroupOutput|prop:is_active_output @ prod_pbr_group",
+          "ShaderNodeAddShader|input:Shader @ prod_shader_stack",
+          "ShaderNodeAddShader|input:Shader_001 @ prod_shader_stack",
+          "ShaderNodeAddShader|output:Shader @ prod_shader_stack",
+          "ShaderNodeAttribute|output:Fac @ prod_attributes",
+          "ShaderNodeBackground|input:Color @ prod_attributes",
+          "ShaderNodeBackground|input:Color @ prod_car_paint"
+        ]
+      }
     }
   },
   "threshold": {
@@ -7373,8 +7410,9 @@
     },
     "proposed_by_this_report": {
       "CPU": 0.6761603375527425,
-      "GPU": 0.6761603375527425
+      "GPU": 0.6656118143459915
     },
+    "reason": "threshold not signed by the owner",
     "signed": false
   }
 }

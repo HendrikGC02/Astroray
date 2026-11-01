@@ -21,4 +21,4 @@
 - b3_gpu_score: FAIL
 - b4_zero_silent_drops: PASS
 - b5_named_node_checks: FAIL
-- b6_nonzero_links_evidence: PASS
+- b6_nonzero_links_evidence: FAIL

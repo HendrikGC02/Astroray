@@ -7730,13 +7730,15 @@
       "min": null,
       "pass": false,
       "proposed": 0.676,
+      "reason": "threshold not signed by the owner",
       "score": 0.0021321961620469083,
       "signed": false
     },
     "b3_gpu_score": {
       "min": null,
       "pass": false,
-      "proposed": 0.676,
+      "proposed": 0.665,
+      "reason": "threshold not signed by the owner",
       "score": 0.0021321961620469083,
       "signed": false
     },

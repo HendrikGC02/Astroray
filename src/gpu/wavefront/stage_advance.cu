@@ -983,10 +983,14 @@ void setWavefrontDielectricCapPass(bool on)
 // pkg201 Stage 3 (Finding E) — publish the native caustic toggles into the
 // __constant__ c_wfCausticGate[2] symbol (read by shadePathSlot). Both-allow
 // (1,1) is the byte-identical fleet default.
+// #1206: host mirror; a toggle off keeps launchStageShadeBucketed off the fleet kernels,
+// which compile no gate code (shadePathSlotImpl CausticGate=false).
+static bool g_causticGateActive = false;
 void setWavefrontCausticGate(bool reflective, bool refractive)
 {
     const int gate[2] = { reflective ? 1 : 0, refractive ? 1 : 0 };
     cudaMemcpyToSymbol(c_wfCausticGate, gate, sizeof(gate));
+    g_causticGateActive = !reflective || !refractive;
 }
 
 // pkg224 — publish the progressive-sampler mode into the __constant__
@@ -1188,7 +1192,8 @@ void launchStageShadeBucketed(
         const bool hasD = (sel & 1) != 0;
         const int part = (sel < 8) ? (sel >> 1) : 4 + 2 * ((sel >> 1) & 3) + (hasD ? 1 : 0);
         const bool fleetAxes = !hasTexture && !hasPhotons && !hasD && !hasLightPassAOVs
-                            && !hasProgram && !hasNormalPerturb;
+                            && !hasProgram && !hasNormalPerturb
+                            && !g_causticGateActive;  // #1206: the fleet compiles no gate
         // #1072 / #995: a scene with a closure tree needs the HasAdd=true instantiation, which
         // exists only for P=true, no photons, no dispersion, no pass AOVs. Anything else
         // falls back to the (child-A-only) normal kernels with a one-time warning.

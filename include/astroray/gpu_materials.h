@@ -271,12 +271,18 @@ __device__ inline GVec3 gpu_fresnelSchlick3(float cosTheta, const GVec3& F0) {
     return F0 + (GVec3(1.f) - F0) * t;
 }
 
+// #1206: `Gated` (default false) is the caustic-toggle instantiation, reached only through the
+// out-of-line gpu_shade_*_gated entry points (stage_advance_device.cuh) when a toggle is off and
+// the incoming ray is DIFFUSE (rec.causticGate). There the conductor closure is dropped by the
+// reflective toggle (CPU twin MetalPlugin::gated; Cycles svm/closure.h __CAUSTICS_TRICKS__).
+// Gated=false compiles to the ungated body, so the default shade path carries no gate code.
+template<bool Gated = false>
 __device__ inline GVec3 gpu_metal_eval(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
-    // #1206: conductor closure dropped by the reflective caustic toggle (CPU twin
-    // MetalPlugin::gated; Cycles svm/closure.h __CAUSTICS_TRICKS__).
-    if (rec.causticGate & CAUSTIC_GATE_REFLECT) return GVec3(0.f);
+    if constexpr (Gated) {
+        if (rec.causticGate & CAUSTIC_GATE_REFLECT) return GVec3(0.f);
+    }
     // roughness <= 0.1: near-delta path — eval approximates a narrow lobe
     if (mat.roughness <= 0.1f) {
         GVec3 perfectRefl = rec.normal * (2.f * wo.dot(rec.normal)) - wo;
@@ -343,11 +349,14 @@ __device__ inline GVec3 gpu_metal_eval(
 // BSD-3-Clause) compensation via gpu_ggxDarkeningChannel, all off the same
 // achromatic scalar E/Eavg tables gpu_metal_eval reads. Sampling/pdf logic is
 // unchanged; only the f-spectral construction moves per-lambda.
+template<bool Gated = false>  // #1206 (see gpu_metal_eval)
 __device__ inline GSampledSpectrum gpu_metal_eval_spectral(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
     const GSampledWavelengths& wl)
 {
-    if (rec.causticGate & CAUSTIC_GATE_REFLECT) return GSampledSpectrum(0.f);  // #1206
+    if constexpr (Gated) {
+        if (rec.causticGate & CAUSTIC_GATE_REFLECT) return GSampledSpectrum(0.f);
+    }
     // Near-delta path mirrors MetalPlugin::evalSpectral lines 109-114:
     // albedo spectrum * exp(-deviation) narrow lobe.
     if (mat.roughness <= 0.1f) {
@@ -390,18 +399,20 @@ __device__ inline GSampledSpectrum gpu_metal_eval_spectral(
     return result;
 }
 
-template <typename TRng>
+template <bool Gated = false, typename TRng>  // #1206 (see gpu_metal_eval)
 __device__ inline GBSDFSample gpu_metal_sample(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng)
 {
     GBSDFSample s;
     s.label = BSDF_LABEL_GLOSSY;  // #1204: CPU twin MetalPlugin::sample
-    if (rec.causticGate & CAUSTIC_GATE_REFLECT) {  // #1206: closure dropped, the path ends
-        s.wi = rec.normal;
-        s.f = GVec3(0.f);
-        s.pdf = 0.f;
-        s.isDelta = false;
-        return s;
+    if constexpr (Gated) {
+        if (rec.causticGate & CAUSTIC_GATE_REFLECT) {  // closure dropped, the path ends
+            s.wi = rec.normal;
+            s.f = GVec3(0.f);
+            s.pdf = 0.f;
+            s.isDelta = false;
+            return s;
+        }
     }
     if (mat.roughness <= 0.1f) {
         // Perfect mirror: wi = 2*(wo·n)*n - wo
@@ -437,10 +448,14 @@ __device__ inline GBSDFSample gpu_metal_sample(
     return s;
 }
 
+template<bool Gated = false>  // #1206 (see gpu_metal_eval)
 __device__ inline float gpu_metal_pdf(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
-    if ((rec.causticGate & CAUSTIC_GATE_REFLECT) || mat.roughness <= 0.1f) return 0.f;  // #1206
+    if constexpr (Gated) {
+        if (rec.causticGate & CAUSTIC_GATE_REFLECT) return 0.f;
+    }
+    if (mat.roughness <= 0.1f) return 0.f;
     GVec3 h    = (wo + wi).normalized();
     float NdotH = fmaxf(rec.normal.dot(h), 0.001f);
     float HdotV = fmaxf(h.dot(wo), 0.001f);
@@ -596,7 +611,7 @@ __device__ inline GVec3 gpu_sampleCone(const GVec3& dir, float roughness, TRng* 
             w * cosTheta).normalized();
 }
 
-template <typename TRng>
+template <bool Gated = false, typename TRng>  // #1206 (see gpu_metal_eval)
 __device__ inline GBSDFSample gpu_thin_glass_sample(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng)
 {
@@ -630,10 +645,12 @@ __device__ inline GBSDFSample gpu_thin_glass_sample(
     }
     // #1206: the gated side is dropped (CPU twin ThinGlassPlugin::sample); one-branch
     // estimate, so ending it is exact.
-    if (rec.causticGate & (s.wi.dot(rec.normal) * wo.dot(rec.normal) > 0.f
-                               ? CAUSTIC_GATE_REFLECT : CAUSTIC_GATE_REFRACT)) {
-        s.f = GVec3(0.f);
-        s.pdf = 0.f;
+    if constexpr (Gated) {
+        if (rec.causticGate & (s.wi.dot(rec.normal) * wo.dot(rec.normal) > 0.f
+                                   ? CAUSTIC_GATE_REFLECT : CAUSTIC_GATE_REFRACT)) {
+            s.f = GVec3(0.f);
+            s.pdf = 0.f;
+        }
     }
     return s;
 }
@@ -1906,9 +1923,6 @@ struct GPrincipledLobe {
     float ior;
     float sel;
     bool  isDelta;
-    // #1206: a Transmission lobe with one caustic toggle gated drops that side's eval
-    // (CAUSTIC_GATE_* bits; CPU twin Lobe::gate). Sits in isDelta's padding.
-    unsigned char gate = 0;
     float sheenA;  // Sheen LTC aInv (view-dependent)
     float sheenB;  // Sheen LTC bInv
     // pkg178 PR-4b (specular/metallic; 0 → isotropic). Default-initialized so the
@@ -1950,7 +1964,9 @@ __device__ inline void gpu_pr_glassEnergy(const GPrincipledClosure& c, const GPr
 // 152-161; CPU twin principled.cpp assembleLobes coatOwnN): their view-angle terms use nvCoat /
 // nvSheen. Only the out-of-line HasNormalPerturb helpers (stage_advance_device.cuh gpu_coatN_*)
 // instantiate it; every other caller gets the CoatN=false body unchanged.
-template<bool CoatN = false>
+// #1206: Gated (see gpu_metal_eval) is the caustic-toggle instantiation; Gated=false folds every
+// drop test below to false, leaving the ungated body.
+template<bool CoatN = false, bool Gated = false>
 __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GHitRecord& rec,
                                            const GVec3& wo, GPrincipledLobe lobes[kMaxPrincipledLobes],
                                            const GSampledWavelengths* wl = nullptr,
@@ -1964,8 +1980,9 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
     // #1206: Cycles caustic toggles (svm/closure.h CLOSURE_BSDF_PRINCIPLED_ID); CPU twin
     // PrincipledPlugin::assembleLobes. Gated coat / metallic / specular / thin-glass closures
     // are not created (coat and specular skip their layering too); the glass closure is
-    // side-gated, or dropped when both toggles are gated.
-    const unsigned char cg = rec.causticGate;
+    // side-gated (gpu_pr_glassSideGated in the lobe evals), or dropped when both are gated.
+    unsigned char cg = 0;
+    if constexpr (Gated) cg = rec.causticGate;
     const bool dropRefl = (cg & CAUSTIC_GATE_REFLECT) != 0;
     const bool dropRefr = (cg & CAUSTIC_GATE_REFRACT) != 0;
     // pkg194 Item 1 -- running per-λ layering weight (mirrors `weight`; each
@@ -2072,7 +2089,6 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         } else if (!(dropRefl && dropRefr)) {  // #1206: both gated drops the closure
             GPrincipledLobe& L = lobes[n++];
             L.kind = GPR_TRANSMISSION; L.weight = weight * c.transmission; L.color = baseColor;
-            L.gate = cg;  // one side gated: zero eval there (gpu_pr_evalLobe / Spectral)
             L.roughness = c.roughness;
             // #1084 twin of principled.cpp: rough transmission at eta == 1 has a zero
             // refraction half-vector (wi = -wo). Cycles bsdf_microfacet_sample treats
@@ -2613,16 +2629,15 @@ __device__ inline GSampledSpectrum gpu_pr_transmissionEvalSpectral(
 
 // --- Per-lobe eval / pdf (principled.cpp:355-461) --------------------------
 // #1206: a half-gated glass lobe has no eval on the dropped side (Cycles zeroes that tint in
-// generalized_schlick_setup); the pdf is kept. CPU twin PrincipledPlugin::sideGated.
-__device__ inline bool gpu_pr_sideGated(const GPrincipledLobe& L, const GHitRecord& rec,
-                                        const GVec3& wo, const GVec3& wi) {
-    if (!L.gate) return false;
-    const bool transmitted = rec.normal.dot(wo) * rec.normal.dot(wi) < 0.f;
-    return (L.gate & (transmitted ? CAUSTIC_GATE_REFRACT : CAUSTIC_GATE_REFLECT)) != 0;
+// generalized_schlick_setup); the pdf is kept. The glass lobe exists only when at most one side
+// is gated (gpu_pr_assembleLobes), so the gate bits name that side. Read by the Gated lobe
+// evals only. CPU twin PrincipledPlugin::sideGated.
+__device__ inline bool gpu_pr_glassSideGated(unsigned char gate, float nl, float nv) {
+    return (gate & (nl * nv < 0.f ? CAUSTIC_GATE_REFRACT : CAUSTIC_GATE_REFLECT)) != 0;
 }
+template<bool Gated = false>  // #1206 (see gpu_metal_eval)
 __device__ inline GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrincipledLobe& L,
                                         const GHitRecord& rec, const GVec3& wo, const GVec3& wi) {
-    if (gpu_pr_sideGated(L, rec, wo, wi)) return GVec3(0.f);
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
     switch (L.kind) {
         case GPR_SUBSURFACE:  // approximate SSS = Lambert (D2=a)
@@ -2678,6 +2693,9 @@ __device__ inline GVec3 gpu_pr_evalLobe(const GPrincipledClosure& c, const GPrin
                                                 L.anisotropic, L.anisoRotation, rec, wo, wi);
         }
         case GPR_TRANSMISSION:
+            if constexpr (Gated) {  // #1206
+                if (gpu_pr_glassSideGated(rec.causticGate, nl, nv)) return GVec3(0.f);
+            }
             return gpu_pr_transmissionEval(c, L, rec, wo, wi);
         case GPR_THINGLASS_REFLECT: {  // GGX reflection, constant F=R' (in weight)
             if (nl <= 0.f || nv <= 0.f) return GVec3(0.f);
@@ -2744,10 +2762,10 @@ __device__ inline float gpu_pr_pdfLobe(const GPrincipledClosure& c, const GPrinc
     }
     return 0.f;
 }
+template<bool Gated = false>  // #1206 (see gpu_metal_eval)
 __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClosure& c, const GPrincipledLobe& L,
                                                            const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
                                                            const GSampledWavelengths& wl) {
-    if (gpu_pr_sideGated(L, rec, wo, wi)) return GSampledSpectrum(0.f);  // #1206
     float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
     // pkg188 Finding B: weight-path clamp-guard (twin of principled.cpp
     // evalLobeSpectral). Defensive no-op at weight ≤ 1 (wMax==1).
@@ -2814,6 +2832,9 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClos
                                                      L.anisotropic, L.anisoRotation, rec, wo, wi);
         }
         case GPR_TRANSMISSION: {
+            if constexpr (Gated) {  // #1206
+                if (gpu_pr_glassSideGated(rec.causticGate, nl, nv)) return GSampledSpectrum(0.f);
+            }
             // pkg178 Stage 4 PR-3: with the film ON, evaluate F per-λ natively
             // (pkg163 discipline); OFF path is the exact Stage-3b upsample hack.
             if (gpu_pr_filmActive(c)) return gpu_pr_transmissionEvalSpectral(c, L, rec, wo, wi, wl);
@@ -2853,19 +2874,23 @@ __device__ inline GSampledSpectrum gpu_pr_evalLobeSpectral(const GPrincipledClos
 }
 
 // --- Mixture eval / pdf / spectral eval (principled.cpp:611-709) -----------
+// #1206: Gated (see gpu_metal_eval) threads the caustic-toggle instantiation to the assembly
+// and the lobe evals.
+template<bool Gated = false>
 __device__ inline GVec3 gpu_principled_eval(const GPrincipledClosure& c, const GHitRecord& rec,
                                             const GVec3& wo, const GVec3& wi) {
     GPrincipledLobe lobes[kMaxPrincipledLobes];
-    int n = gpu_pr_assembleLobes(c, rec, wo, lobes);
+    int n = gpu_pr_assembleLobes<false, Gated>(c, rec, wo, lobes);
     GVec3 sum(0.f);
     for (int i = 0; i < n; ++i)
-        if (!lobes[i].isDelta) sum += gpu_pr_evalLobe(c, lobes[i], rec, wo, wi);
+        if (!lobes[i].isDelta) sum += gpu_pr_evalLobe<Gated>(c, lobes[i], rec, wo, wi);
     return gvec3_max(sum, GVec3(0.f));
 }
+template<bool Gated = false>
 __device__ inline float gpu_principled_pdf(const GPrincipledClosure& c, const GHitRecord& rec,
                                            const GVec3& wo, const GVec3& wi) {
     GPrincipledLobe lobes[kMaxPrincipledLobes];
-    int n = gpu_pr_assembleLobes(c, rec, wo, lobes);
+    int n = gpu_pr_assembleLobes<false, Gated>(c, rec, wo, lobes);
     float W = 0.f;
     for (int i = 0; i < n; ++i) W += lobes[i].sel;
     if (W <= 0.f) return 0.f;
@@ -2874,14 +2899,15 @@ __device__ inline float gpu_principled_pdf(const GPrincipledClosure& c, const GH
         if (!lobes[i].isDelta) p += (lobes[i].sel / W) * gpu_pr_pdfLobe(c, lobes[i], rec, wo, wi);
     return p;
 }
+template<bool Gated = false>  // #1206 (see gpu_principled_eval)
 __device__ inline GSampledSpectrum gpu_principled_eval_spectral(const GPrincipledClosure& c, const GHitRecord& rec,
                                                                 const GVec3& wo, const GVec3& wi,
                                                                 const GSampledWavelengths& wl) {
     GPrincipledLobe lobes[kMaxPrincipledLobes];
-    int n = gpu_pr_assembleLobes(c, rec, wo, lobes, &wl);
+    int n = gpu_pr_assembleLobes<false, Gated>(c, rec, wo, lobes, &wl);
     GSampledSpectrum sum(0.f);
     for (int i = 0; i < n; ++i)
-        if (!lobes[i].isDelta) sum += gpu_pr_evalLobeSpectral(c, lobes[i], rec, wo, wi, wl);
+        if (!lobes[i].isDelta) sum += gpu_pr_evalLobeSpectral<Gated>(c, lobes[i], rec, wo, wi, wl);
     return sum;
 }
 
@@ -3056,7 +3082,7 @@ __device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GPrincipledClos
     ds.ok = true;
     return ds;
 }
-template <typename TRng>
+template <bool Gated = false, typename TRng>  // #1206 (see gpu_principled_eval)
 __device__ inline GBSDFSample gpu_principled_sample(const GPrincipledClosure& c, GHitRecord& rec,
                                                     const GVec3& wo, TRng* rng,
                                                     float heroIor = -1.f,
@@ -3064,7 +3090,7 @@ __device__ inline GBSDFSample gpu_principled_sample(const GPrincipledClosure& c,
     GBSDFSample s;
     s.wi = rec.normal; s.f = GVec3(0.f); s.fSpectral = GSampledSpectrum(0.f); s.pdf = 0.f; s.isDelta = false;
     GPrincipledLobe lobes[kMaxPrincipledLobes];
-    int n = gpu_pr_assembleLobes(c, rec, wo, lobes);
+    int n = gpu_pr_assembleLobes<false, Gated>(c, rec, wo, lobes);
     // pkg187 -- dispersive Principled: the caller passes the hero-wavelength IOR
     // (n(lambda0) via gpu_cauchy_ior); the refracting transmission lobe bends with
     // it. heroIor < 0 (the default, every non-dispersive call at ~line 3013) leaves
@@ -3116,8 +3142,8 @@ __device__ inline GBSDFSample gpu_principled_sample(const GPrincipledClosure& c,
     } else {
         // one-sample-MIS mixture: overwrite f/pdf with the full mixture at s.wi,
         // exactly as PrincipledPlugin::sample does (principled.cpp:736-738).
-        s.f = gpu_principled_eval(c, rec, wo, s.wi);
-        s.pdf = gpu_principled_pdf(c, rec, wo, s.wi);
+        s.f = gpu_principled_eval<Gated>(c, rec, wo, s.wi);
+        s.pdf = gpu_principled_pdf<Gated>(c, rec, wo, s.wi);
         s.isDelta = false;
     }
     return s;
@@ -3242,6 +3268,9 @@ __device__ inline GMaterial gpu_closure_as_material(const GMaterial& parent, con
     return tmp;
 }
 
+// #1206: the Gated template parameter of the closure-graph and gpu_material_* dispatch below
+// selects the caustic-toggle instantiation (see gpu_metal_eval); default false.
+template<bool Gated = false>
 __device__ inline GVec3 gpu_closure_eval(
     const GMaterial& parent, const GMaterialClosure& closure,
     GHitRecord& rec, const GVec3& wo, const GVec3& wi)
@@ -3251,13 +3280,14 @@ __device__ inline GVec3 gpu_closure_eval(
     GVec3 result(0.0f);
     switch (tmp.type) {
         case GMAT_LAMBERTIAN: result = gpu_lambertian_eval(tmp, rec, wo, wi); break;
-        case GMAT_METAL: result = gpu_metal_eval(tmp, rec, wo, wi); break;
+        case GMAT_METAL: result = gpu_metal_eval<Gated>(tmp, rec, wo, wi); break;
         case GMAT_DISNEY: result = gpu_disney_eval(tmp, rec, wo, wi); break;
         default: result = GVec3(0.0f); break;
     }
     return result * closure.weight;
 }
 
+template<bool Gated = false>
 __device__ inline float gpu_closure_pdf(
     const GMaterial& parent, const GMaterialClosure& closure,
     const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
@@ -3267,7 +3297,7 @@ __device__ inline float gpu_closure_pdf(
     GMaterial tmp = gpu_closure_as_material(parent, closure);
     switch (tmp.type) {
         case GMAT_LAMBERTIAN: return gpu_lambertian_pdf(tmp, rec, wo, wi);
-        case GMAT_METAL: return gpu_metal_pdf(tmp, rec, wo, wi);
+        case GMAT_METAL: return gpu_metal_pdf<Gated>(tmp, rec, wo, wi);
         case GMAT_DISNEY: return gpu_disney_pdf(tmp, rec, wo, wi);
         default: return 0.0f;
     }
@@ -3279,7 +3309,7 @@ __device__ inline float gpu_closure_pdf(
 // non-principled shade-kernel footprint. Default = true so every OTHER caller
 // (restir, snapshot intersect, sms, CPU-reachable) keeps today's behavior
 // verbatim. See .astroray_plan/docs/pkg178-stage3-d4-and-forks-decision.md §2b.
-template<bool HasPrincipled = true>
+template<bool HasPrincipled = true, bool Gated = false>  // #1206 Gated
 __device__ inline GVec3 gpu_closure_graph_eval(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
@@ -3288,7 +3318,7 @@ __device__ inline GVec3 gpu_closure_graph_eval(
     // over independent graph closures — route it straight there.
     if constexpr (HasPrincipled) {
         if (gpu_closure_graph_is_principled(mat))
-            return gpu_principled_eval(mat.principled, rec, wo, wi);
+            return gpu_principled_eval<Gated>(mat.principled, rec, wo, wi);
     }
     // pkg170: weight each lobe by its SELECTION probability (weight_i / totalWeight),
     // matching gpu_closure_graph_pdf's normalization, so the closure-graph sampler's
@@ -3319,7 +3349,7 @@ __device__ inline GVec3 gpu_closure_graph_eval(
     for (int i = 0; i < count; ++i) {
         const GMaterialClosure& closure = mat.closures[i];
         if (closure.type != GCLOSURE_EMISSION)
-            sum += gpu_closure_eval(mat, closure, rec, wo, wi);
+            sum += gpu_closure_eval<Gated>(mat, closure, rec, wo, wi);
     }
     return sum * (1.0f / totalWeight);
 }
@@ -3361,7 +3391,7 @@ __device__ inline bool gpu_is_plain_diffuse(const GMaterial& mat) {
 // per-lambda via gpu_metal_eval_spectral (CPU-canonical colour space); any other
 // lobe keeps its existing per-lobe RGB eval then upsample. Non-metal graphs
 // never reach here, so their summed-then-upsampled behaviour is unchanged.
-template<bool HasPrincipled = true>  // pkg178 Stage-3b D4 (see gpu_closure_graph_eval)
+template<bool HasPrincipled = true, bool Gated = false>  // pkg178 Stage-3b D4; #1206 Gated
 __device__ inline GSampledSpectrum gpu_closure_graph_eval_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi,
     const GSampledWavelengths& wl)
@@ -3371,7 +3401,7 @@ __device__ inline GSampledSpectrum gpu_closure_graph_eval_spectral(
     // gpu_pr_evalLobeSpectral, which upsamples reflectance colours only).
     if constexpr (HasPrincipled) {
         if (gpu_closure_graph_is_principled(mat))
-            return gpu_principled_eval_spectral(mat.principled, rec, wo, wi, wl);
+            return gpu_principled_eval_spectral<Gated>(mat.principled, rec, wo, wi, wl);
     }
     // pkg170: same selection-probability normalization as the RGB
     // gpu_closure_graph_eval (see there) so f_total/pdf_total is a one-sample-MIS
@@ -3395,26 +3425,26 @@ __device__ inline GSampledSpectrum gpu_closure_graph_eval_spectral(
         if (closure.type == GCLOSURE_EMISSION || closure.weight <= 0.0f) continue;
         GMaterial tmp = gpu_closure_as_material(mat, closure);
         if (tmp.type == GMAT_METAL)
-            sum += gpu_metal_eval_spectral(tmp, rec, wo, wi, wl) * closure.weight;
+            sum += gpu_metal_eval_spectral<Gated>(tmp, rec, wo, wi, wl) * closure.weight;
         else if (tmp.type == GMAT_LAMBERTIAN)
             // pkg168: upsample the diffuse colour per-lambda, not the pre-scaled
             // RGB eval (JH upsampling is nonlinear in magnitude).
             sum += gpu_lambertian_eval_spectral(tmp, rec, wo, wi, wl) * closure.weight;
         else
             sum += gpu_rgbToSampledSpectrum(
-                gpu_closure_eval(mat, closure, rec, wo, wi), wl, mat.spectralMode);
+                gpu_closure_eval<Gated>(mat, closure, rec, wo, wi), wl, mat.spectralMode);
     }
     return sum * (1.0f / totalWeight);
 }
 
-template<bool HasPrincipled = true>  // pkg178 Stage-3b D4 (see gpu_closure_graph_eval)
+template<bool HasPrincipled = true, bool Gated = false>  // pkg178 Stage-3b D4; #1206 Gated
 __device__ inline float gpu_closure_graph_pdf(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
     // pkg178 Stage 2: monolithic Principled mixture pdf (see gpu_closure_graph_eval).
     if constexpr (HasPrincipled) {
         if (gpu_closure_graph_is_principled(mat))
-            return gpu_principled_pdf(mat.principled, rec, wo, wi);
+            return gpu_principled_pdf<Gated>(mat.principled, rec, wo, wi);
     }
     float totalWeight = 0.0f;
     int count = mat.closureCount < G_MAX_MATERIAL_CLOSURES ? mat.closureCount : G_MAX_MATERIAL_CLOSURES;
@@ -3430,12 +3460,12 @@ __device__ inline float gpu_closure_graph_pdf(
         const GMaterialClosure& closure = mat.closures[i];
         if (!gpu_closure_is_sampleable(closure.type)) continue;
         float selectionPdf = fmaxf(closure.weight, 0.0f) / totalWeight;
-        sum += selectionPdf * gpu_closure_pdf(mat, closure, rec, wo, wi);
+        sum += selectionPdf * gpu_closure_pdf<Gated>(mat, closure, rec, wo, wi);
     }
     return sum;
 }
 
-template <bool HasPrincipled = true, typename TRng>  // pkg178 Stage-3b D4
+template <bool HasPrincipled = true, bool Gated = false, typename TRng>  // pkg178 D4; #1206
 __device__ inline GBSDFSample gpu_closure_graph_sample(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng)
 {
@@ -3452,7 +3482,7 @@ __device__ inline GBSDFSample gpu_closure_graph_sample(
     // per-lobe switch + recompute below (its assembly is view-dependent).
     if constexpr (HasPrincipled) {
         if (gpu_closure_graph_is_principled(mat))
-            return gpu_principled_sample(mat.principled, rec, wo, rng);
+            return gpu_principled_sample<Gated>(mat.principled, rec, wo, rng);
     }
 
     float totalWeight = 0.0f;
@@ -3482,10 +3512,10 @@ __device__ inline GBSDFSample gpu_closure_graph_sample(
     GMaterial tmp = gpu_closure_as_material(mat, closure);
     switch (tmp.type) {
         case GMAT_LAMBERTIAN: s = gpu_lambertian_sample(tmp, rec, wo, rng); break;
-        case GMAT_METAL: s = gpu_metal_sample(tmp, rec, wo, rng); break;
+        case GMAT_METAL: s = gpu_metal_sample<Gated>(tmp, rec, wo, rng); break;
         case GMAT_DIELECTRIC: s = gpu_dielectric_sample(tmp, rec, wo, rng); break;
         case GMAT_DISNEY: s = gpu_disney_sample(tmp, rec, wo, rng); break;
-        case GMAT_THIN_GLASS: s = gpu_thin_glass_sample(tmp, rec, wo, rng); break;
+        case GMAT_THIN_GLASS: s = gpu_thin_glass_sample<Gated>(tmp, rec, wo, rng); break;
         default: return s;
     }
 
@@ -3493,8 +3523,8 @@ __device__ inline GBSDFSample gpu_closure_graph_sample(
     if (s.isDelta) {
         s.f *= closure.weight;
     } else {
-        s.f = gpu_closure_graph_eval<HasPrincipled>(mat, rec, wo, s.wi);
-        s.pdf = gpu_closure_graph_pdf<HasPrincipled>(mat, rec, wo, s.wi);
+        s.f = gpu_closure_graph_eval<HasPrincipled, Gated>(mat, rec, wo, s.wi);
+        s.pdf = gpu_closure_graph_pdf<HasPrincipled, Gated>(mat, rec, wo, s.wi);
     }
     return s;
 }
@@ -3510,24 +3540,24 @@ __device__ inline GVec3 gpu_closure_graph_emitted(const GMaterial& mat, bool fro
     return sum;
 }
 
-template<bool HasPrincipled = true>  // pkg178 Stage-3b D4 (see gpu_closure_graph_eval)
+template<bool HasPrincipled = true, bool Gated = false>  // pkg178 Stage-3b D4; #1206 Gated
 __device__ inline GVec3 gpu_material_eval(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
     switch (mat.type) {
         case GMAT_LAMBERTIAN:    return gpu_lambertian_eval(mat, rec, wo, wi);
-        case GMAT_METAL:         return gpu_metal_eval(mat, rec, wo, wi);
+        case GMAT_METAL:         return gpu_metal_eval<Gated>(mat, rec, wo, wi);
         case GMAT_DIELECTRIC:    return GVec3(0.f); // delta — no direct eval
         case GMAT_DIFFUSE_LIGHT: return GVec3(0.f); // emissive only
         case GMAT_DISNEY:        return gpu_disney_eval(mat, rec, wo, wi);
         case GMAT_THIN_GLASS:    return GVec3(0.f); // mostly-delta pane
-        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_eval<HasPrincipled>(mat, rec, wo, wi);
+        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_eval<HasPrincipled, Gated>(mat, rec, wo, wi);
         case GMAT_HAIR_PRINCIPLED: return astroray_gpu_hair::gpu_hair_eval(mat, rec, wo, wi);
         default:                 return GVec3(0.f);
     }
 }
 
-template<bool HasPrincipled = true>  // pkg178 Stage-3b D4 (see gpu_closure_graph_eval)
+template<bool HasPrincipled = true, bool Gated = false>  // pkg178 Stage-3b D4; #1206 Gated
 __device__ inline GSampledSpectrum gpu_material_eval_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, const GVec3& wi,
     const GSampledWavelengths& wl)
@@ -3537,17 +3567,17 @@ __device__ inline GSampledSpectrum gpu_material_eval_spectral(
     // so the CPU/GPU colour spaces match. Plain `metal` uploads as a closure
     // graph (its GGXConductor lobe validates), so both entry points are covered.
     if (mat.type == GMAT_METAL)
-        return gpu_metal_eval_spectral(mat, rec, wo, wi, wl);
+        return gpu_metal_eval_spectral<Gated>(mat, rec, wo, wi, wl);
     // pkg225 Stage 4: hair is natively per-λ (sigma_a spectral); NOT a JH upsample.
     if (mat.type == GMAT_HAIR_PRINCIPLED)
         return astroray_gpu_hair::gpu_hair_eval_spectral(mat, rec, wo, wi, wl);
     // pkg178 Stage 2: native per-λ Principled (its own spectral mixture path).
     if constexpr (HasPrincipled) {
         if (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_is_principled(mat))
-            return gpu_closure_graph_eval_spectral<HasPrincipled>(mat, rec, wo, wi, wl);
+            return gpu_closure_graph_eval_spectral<HasPrincipled, Gated>(mat, rec, wo, wi, wl);
     }
     if (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_has_metal(mat))
-        return gpu_closure_graph_eval_spectral<HasPrincipled>(mat, rec, wo, wi, wl);
+        return gpu_closure_graph_eval_spectral<HasPrincipled, Gated>(mat, rec, wo, wi, wl);
     // pkg168 Step 2: plain diffuse (native GMAT_LAMBERTIAN or a diffuse-only
     // closure graph — the plain-Lambertian upload path) must upsample the pure
     // reflectance COLOUR, not the pre-scaled RGB eval baseColor*cos/pi. Jakob-
@@ -3563,7 +3593,7 @@ __device__ inline GSampledSpectrum gpu_material_eval_spectral(
     // no Hanrahan-Krueger mix is needed; the CPU oracle (Lambertian::evalSpectral)
     // applies none. The Disney diffuse lobe inside a metal-carrying graph keeps its
     // HK mix via gpu_closure_graph_eval_spectral above, unchanged.
-    GVec3 e = gpu_material_eval<HasPrincipled>(mat, rec, wo, wi);
+    GVec3 e = gpu_material_eval<HasPrincipled, Gated>(mat, rec, wo, wi);
     float diffuseScale = 1.0f;
     if (gpu_is_plain_diffuse(mat)) {
         float NdotL = rec.normal.dot(wi);
@@ -3582,23 +3612,23 @@ __device__ inline GSampledSpectrum gpu_material_eval_spectral(
     return gpu_rgbToSampledSpectrum(e, wl, mat.spectralMode) * diffuseScale;
 }
 
-template <bool HasPrincipled = true, typename TRng>  // pkg178 Stage-3b D4
+template <bool HasPrincipled = true, bool Gated = false, typename TRng>  // pkg178 D4; #1206
 __device__ inline GBSDFSample gpu_material_sample(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo, TRng* rng)
 {
     switch (mat.type) {
         case GMAT_LAMBERTIAN:    return gpu_lambertian_sample(mat, rec, wo, rng);
-        case GMAT_METAL:         return gpu_metal_sample(mat, rec, wo, rng);
+        case GMAT_METAL:         return gpu_metal_sample<Gated>(mat, rec, wo, rng);
         case GMAT_DIELECTRIC:    return gpu_dielectric_sample(mat, rec, wo, rng);
         case GMAT_DISNEY:        return gpu_disney_sample(mat, rec, wo, rng);
-        case GMAT_THIN_GLASS:    return gpu_thin_glass_sample(mat, rec, wo, rng);
-        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_sample<HasPrincipled>(mat, rec, wo, rng);
+        case GMAT_THIN_GLASS:    return gpu_thin_glass_sample<Gated>(mat, rec, wo, rng);
+        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_sample<HasPrincipled, Gated>(mat, rec, wo, rng);
         case GMAT_HAIR_PRINCIPLED: return astroray_gpu_hair::gpu_hair_sample(mat, rec, wo, rng);
         default: { GBSDFSample s; s.f=GVec3(0); s.fSpectral=GSampledSpectrum(0.f); s.wi=GVec3(0,1,0); s.pdf=0; s.isDelta=false; return s; }
     }
 }
 
-template <bool HasPrincipled = true, typename TRng>  // pkg178 Stage-3b D4
+template <bool HasPrincipled = true, bool Gated = false, typename TRng>  // pkg178 D4; #1206
 __device__ inline GBSDFSample gpu_material_sample_spectral(
     const GMaterial& mat, GHitRecord& rec, const GVec3& wo,
     GSampledWavelengths& wl, TRng* rng)
@@ -3625,7 +3655,7 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
             gpu_closure_graph_is_principled(mat)) {
             float heroIor = gpu_cauchy_ior(mat.dispersion.b1, mat.dispersion.b2, wl.lambda[0]);
             bool refracted = false;
-            s = gpu_principled_sample(mat.principled, rec, wo, rng, heroIor, &refracted);
+            s = gpu_principled_sample<Gated>(mat.principled, rec, wo, rng, heroIor, &refracted);
             if (refracted) wl.terminateSecondary();
             handled = true;
         }
@@ -3633,7 +3663,7 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     if (!handled) {
         s = (mat.type == GMAT_DIELECTRIC && mat.isDispersive)
             ? gpu_dielectric_sample_spectral(mat, rec, wo, wl, rng)
-            : gpu_material_sample<HasPrincipled>(mat, rec, wo, rng);
+            : gpu_material_sample<HasPrincipled, Gated>(mat, rec, wo, rng);
     }
 
     // Delta lobes (dielectric reflect/refract, smooth-glass disney/closure-graph
@@ -3681,8 +3711,8 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
         (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_has_metal(mat));
     if (metalSpectral && !s.isDelta && s.pdf > 0.0f && s.f.length2() > 0.0f) {
         s.fSpectral = (mat.type == GMAT_METAL)
-            ? gpu_metal_eval_spectral(mat, rec, wo, s.wi, wl)
-            : gpu_closure_graph_eval_spectral<HasPrincipled>(mat, rec, wo, s.wi, wl);
+            ? gpu_metal_eval_spectral<Gated>(mat, rec, wo, s.wi, wl)
+            : gpu_closure_graph_eval_spectral<HasPrincipled, Gated>(mat, rec, wo, s.wi, wl);
         return s;
     }
 
@@ -3733,7 +3763,7 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     if constexpr (HasPrincipled) {
         if (mat.type == GMAT_CLOSURE_GRAPH && gpu_closure_graph_is_principled(mat) &&
             !s.isDelta && s.pdf > 0.0f && s.f.length2() > 0.0f) {
-            s.fSpectral = gpu_closure_graph_eval_spectral<HasPrincipled>(mat, rec, wo, s.wi, wl);
+            s.fSpectral = gpu_closure_graph_eval_spectral<HasPrincipled, Gated>(mat, rec, wo, s.wi, wl);
             return s;
         }
     }
@@ -3771,15 +3801,15 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
     return s;
 }
 
-template<bool HasPrincipled = true>  // pkg178 Stage-3b D4 (see gpu_closure_graph_eval)
+template<bool HasPrincipled = true, bool Gated = false>  // pkg178 Stage-3b D4; #1206 Gated
 __device__ inline float gpu_material_pdf(
     const GMaterial& mat, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
     switch (mat.type) {
         case GMAT_LAMBERTIAN: return gpu_lambertian_pdf(mat, rec, wo, wi);
-        case GMAT_METAL:      return gpu_metal_pdf(mat, rec, wo, wi);
+        case GMAT_METAL:      return gpu_metal_pdf<Gated>(mat, rec, wo, wi);
         case GMAT_DISNEY:     return gpu_disney_pdf(mat, rec, wo, wi);
-        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_pdf<HasPrincipled>(mat, rec, wo, wi);
+        case GMAT_CLOSURE_GRAPH: return gpu_closure_graph_pdf<HasPrincipled, Gated>(mat, rec, wo, wi);
         case GMAT_HAIR_PRINCIPLED: return astroray_gpu_hair::gpu_hair_pdf(mat, rec, wo, wi);
         default:              return 0.f;
     }

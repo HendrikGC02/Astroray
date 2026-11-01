@@ -1092,8 +1092,10 @@ struct GHitRecord {
     bool  frontFace;
     bool  isDelta;
     // #1206: Cycles caustic toggles at this vertex (lightpath::CAUSTIC_GATE_* bits, 0 = none;
-    // CPU twin HitRecord::causticGate). Set by the wavefront shade stage; sits in padding.
-    unsigned char causticGate = 0;
+    // CPU twin HitRecord::causticGate). Sits in padding. Set by the wavefront shade stage and
+    // read only while a toggle is off (stage_advance_device.cuh gpu_causticGated), so it has
+    // no initializer: the default path stores nothing.
+    unsigned char causticGate;
 };
 
 // ---------------------------------------------------------------------------

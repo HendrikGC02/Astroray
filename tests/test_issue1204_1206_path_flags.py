@@ -64,7 +64,7 @@ def _wall_behind(use_gpu, sheet, output):
         wall = r.create_material("principled", [0.8, 0.8, 0.8],
                                  {"roughness": 1.0, "specular_ior_level": 0.0})
     else:
-        _program(r, "lp1204", C.compile_chain(_lp_value(output, 1.0)))
+        _program(r, "lp1204", C.compile_chain(_lp_value(output, 0.8)))
         wall = r.create_material("principled", [0.8, 0.8, 0.8],
                                  {"roughness": 1.0, "specular_ior_level": 0.0,
                                   "base_color_texture": "lp1204"})
@@ -241,6 +241,9 @@ def test_rough_caustic_closure_dropped_after_diffuse(use_gpu, obj, ref, toggle):
     off = _floor_rois(_over_floor(use_gpu, obj, **kw))
     exp = _floor_rois(_over_floor(use_gpu, ref))
     on = _floor_rois(_over_floor(use_gpu, obj))
+    # 0.01 absolute: the shadow ROI's per-render seed spread is sd ~0.0023 at mean ~0.105 (CPU,
+    # 6 seeds), and off / exp draw different random streams on the CPU, so their difference has
+    # sd ~0.0033; the toggle-on caustic it must exclude is ~0.18 (rough metal).
     for o, e, n in zip(off, exp, on):
-        assert abs(o - e) <= 0.05 * e + 1e-3, (obj, off, exp, on)
+        assert abs(o - e) <= 0.05 * e + 0.01, (obj, off, exp, on)
     assert any(abs(n - e) > 0.1 * e + 2e-3 for n, e in zip(on, exp)), (obj, off, exp, on)

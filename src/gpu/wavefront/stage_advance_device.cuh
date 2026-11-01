@@ -1624,7 +1624,9 @@ __device__ __forceinline__ const ::GMaterial& gpu_treeLeaf(const GClosureTree& t
     return (i == 0) ? leaf0 : c_wfAddMaterials[t.leafMat[i]];
 }
 
-template<bool HasPrincipled>
+// #1206: Gated = the caustic-toggle instantiation (gpu_shade_*_gated; gpu_materials.h
+// gpu_metal_eval note); default false.
+template<bool HasPrincipled, bool Gated = false>
 __device__ __noinline__ inline GSampledSpectrum gpu_tree_eval_spectral(
     const GClosureTree& t, const ::GMaterial& leaf0, int idx, GHitRecord& rec,
     const GVec3& wo, const GVec3& wi, const GSampledWavelengths& wl)
@@ -1634,12 +1636,12 @@ __device__ __noinline__ inline GSampledSpectrum gpu_tree_eval_spectral(
     GSampledSpectrum f(0.0f);
     for (int i = 0; i < t.numLeaves; ++i) {
         if (!(q[i] > 0.0f)) continue;   // no BSDF or zero weight
-        f = f + gpu_material_eval_spectral<HasPrincipled>(gpu_treeLeaf(t, i, leaf0), rec, wo, wi, wl) * w[i];
+        f = f + gpu_material_eval_spectral<HasPrincipled, Gated>(gpu_treeLeaf(t, i, leaf0), rec, wo, wi, wl) * w[i];
     }
     return f;
 }
 
-template<bool HasPrincipled>
+template<bool HasPrincipled, bool Gated = false>
 __device__ __noinline__ inline float gpu_tree_pdf(
     const GClosureTree& t, const ::GMaterial& leaf0, int idx, const GHitRecord& rec,
     const GVec3& wo, const GVec3& wi)
@@ -1649,12 +1651,12 @@ __device__ __noinline__ inline float gpu_tree_pdf(
     float p = 0.0f;
     for (int i = 0; i < t.numLeaves; ++i) {
         if (!(q[i] > 0.0f)) continue;
-        p += q[i] * gpu_material_pdf<HasPrincipled>(gpu_treeLeaf(t, i, leaf0), rec, wo, wi);
+        p += q[i] * gpu_material_pdf<HasPrincipled, Gated>(gpu_treeLeaf(t, i, leaf0), rec, wo, wi);
     }
     return p;
 }
 
-template<bool HasPrincipled, typename TRng>
+template<bool HasPrincipled, bool Gated = false, typename TRng>
 __device__ __noinline__ inline GBSDFSample gpu_tree_sample_spectral(
     const GClosureTree& t, const ::GMaterial& leaf0, int idx, GHitRecord& rec,
     const GVec3& wo, GSampledWavelengths& wl, TRng* rng)
@@ -1674,7 +1676,7 @@ __device__ __noinline__ inline GBSDFSample gpu_tree_sample_spectral(
         if (u < acc) { c = i; break; }
     }
     if (c < 0) c = (q[0] > 0.0f) ? 0 : last;
-    GBSDFSample s = gpu_material_sample_spectral<HasPrincipled>(gpu_treeLeaf(t, c, leaf0), rec, wo, wl, rng);
+    GBSDFSample s = gpu_material_sample_spectral<HasPrincipled, Gated>(gpu_treeLeaf(t, c, leaf0), rec, wo, wl, rng);
     if (s.pdf <= 0.0f || !(q[c] > 0.0f)) { s.pdf = 0.0f; return s; }
     // #1178: label the bounce by the picked leaf (CPU twin ClosureNodeMaterial::sampleSpectral),
     // not by the tree root's class.
@@ -1687,8 +1689,8 @@ __device__ __noinline__ inline GBSDFSample gpu_tree_sample_spectral(
     for (int i = 0; i < t.numLeaves; ++i) {
         if (i == c || !(q[i] > 0.0f)) continue;
         const ::GMaterial& m = gpu_treeLeaf(t, i, leaf0);
-        s.fSpectral = s.fSpectral + gpu_material_eval_spectral<HasPrincipled>(m, rec, wo, s.wi, wl) * w[i];
-        pdf += q[i] * gpu_material_pdf<HasPrincipled>(m, rec, wo, s.wi);
+        s.fSpectral = s.fSpectral + gpu_material_eval_spectral<HasPrincipled, Gated>(m, rec, wo, s.wi, wl) * w[i];
+        pdf += q[i] * gpu_material_pdf<HasPrincipled, Gated>(m, rec, wo, s.wi);
     }
     s.pdf = pdf;
     return s;
@@ -1818,6 +1820,7 @@ struct GCoatNEvalPdf {
     GSampledSpectrum f;
     float pdf;  // < 0: not computed (gpu_np_eval_lazyPdf, plain path)
 };
+template<bool Gated = false>  // #1206 (gpu_tree_eval_spectral note)
 __device__ __forceinline__ GCoatNEvalPdf gpu_coatN_mix(
     const GPrincipledClosure& c, const GPrincipledLobe* lobes, int n, float W,
     const GCoatNFrames& f, const GHitRecord& rec, const GVec3& wo, const GVec3& wi,
@@ -1839,7 +1842,7 @@ __device__ __forceinline__ GCoatNEvalPdf gpu_coatN_mix(
         const float t = L.kind == GPR_COAT ? 1.0f
                       : L.kind != GPR_SHEEN ? tBase
                       : setsSdN ? 1.0f : bc::bumpShadowingTerm(f.rc.normal, f.rs.normal, wi, true, true, corr);
-        if (t > 0.0f) r.f += gpu_pr_evalLobeSpectral(c, L, fr, wo, wi, wl) * t;
+        if (t > 0.0f) r.f += gpu_pr_evalLobeSpectral<Gated>(c, L, fr, wo, wi, wl) * t;
     }
     return r;
 }
@@ -1847,6 +1850,7 @@ __device__ __forceinline__ GCoatNEvalPdf gpu_coatN_mix(
 // gpu_principled_eval_spectral + gpu_principled_pdf with the coat / sheen frames: one lobe
 // assembly and one call per NEE sample (#1153 perf: was two calls, two assemblies and a nested
 // gpu_bumpShadowing call).
+template<bool Gated = false>  // #1206 (gpu_tree_eval_spectral note)
 __device__ ASTRORAY_SHADE_NOINLINE inline GCoatNEvalPdf gpu_coatN_eval_pdf(
     const ::GMaterial& mat, const GPUWavefrontHitBuffers& hitBufs, int idx, const GHitRecord& rec,
     const GVec3& wo, const GVec3& wi, const GSampledWavelengths& wl)
@@ -1855,10 +1859,10 @@ __device__ ASTRORAY_SHADE_NOINLINE inline GCoatNEvalPdf gpu_coatN_eval_pdf(
     GCoatNFrames f;
     gpu_coatN_frames(c, hitBufs, idx, rec, wo, f);
     GPrincipledLobe lobes[kMaxPrincipledLobes];
-    const int n = gpu_pr_assembleLobes<true>(c, rec, wo, lobes, &wl, f.nvC, f.nvS);
+    const int n = gpu_pr_assembleLobes<true, Gated>(c, rec, wo, lobes, &wl, f.nvC, f.nvS);
     float W = 0.f;
     for (int i = 0; i < n; ++i) W += lobes[i].sel;
-    return gpu_coatN_mix(c, lobes, n, W, f, rec, wo, wi, wl);
+    return gpu_coatN_mix<Gated>(c, lobes, n, W, f, rec, wo, wi, wl);
 }
 
 // Replays the lobe-selection uniform gpu_coatN_sample_spectral already drew, so
@@ -1882,6 +1886,7 @@ __device__ inline float gpu_rng_uniform(GCoatNReplayRng* r)
 // so the caller does not apply gpu_bumpShadowing; a delta one is the generic eta^2-clamped
 // upsample. s.f is not read by the shade path; it carries the spectral mean so it stays nonzero.
 // #1178: the sampled lobe is lobes[ds.lobe] (s.label goes here).
+template<bool Gated = false>  // #1206 (gpu_tree_eval_spectral note)
 __device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_coatN_sample_spectral(
     const ::GMaterial& mat, const GPUWavefrontHitBuffers& hitBufs, int idx, GHitRecord& rec,
     const GVec3& wo, const GSampledWavelengths& wl, WavefrontRNG* rng)
@@ -1892,7 +1897,7 @@ __device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_coatN_sample_spectral(
     GCoatNFrames f;
     gpu_coatN_frames(c, hitBufs, idx, rec, wo, f);
     GPrincipledLobe lobes[kMaxPrincipledLobes];
-    const int n = gpu_pr_assembleLobes<true>(c, rec, wo, lobes, &wl, f.nvC, f.nvS);
+    const int n = gpu_pr_assembleLobes<true, Gated>(c, rec, wo, lobes, &wl, f.nvC, f.nvS);
     float W = 0.f;
     for (int i = 0; i < n; ++i) W += lobes[i].sel;
     if (W <= 0.f) return s;
@@ -1930,7 +1935,7 @@ __device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_coatN_sample_spectral(
             : gpu_rgbToSampledSpectrum(s.f, wl, mat.spectralMode);
         return s;
     }
-    const GCoatNEvalPdf ep = gpu_coatN_mix(c, lobes, n, W, f, rec, wo, s.wi, wl);
+    const GCoatNEvalPdf ep = gpu_coatN_mix<Gated>(c, lobes, n, W, f, rec, wo, s.wi, wl);
     s.pdf = ep.pdf;
     if (s.pdf > 0.0f) {
         s.fSpectral = ep.f;
@@ -1941,13 +1946,67 @@ __device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_coatN_sample_spectral(
     return s;
 }
 
-// Shade-stage entry points: identical to gpu_material_{eval_spectral,pdf,sample_spectral}
-// except that a closure-tree material (HasAdd kernels only) weights its leaves.
+// #1206 - caustic toggles (Cycles v5.2.0 svm/closure.h __CAUSTICS_TRICKS__): the vertex drops
+// its reflective / refractive closures when a toggle is off and the incoming ray is DIFFUSE.
+// shadePathSlotImpl<..., CausticGate=true> sets rec.causticGate (lightpath::caustic_gate) only
+// while a toggle is off, so this reads it only then. The gated material code is the Gated=true
+// instantiation of the gpu_materials.h dispatch, called out of line (gpu_shade_*_gated) so the
+// default path keeps the ungated body plus one constant-bank test and a not-taken call (the
+// pkg224 noinline-runtime-flag pattern). wi goes by value: no new address-taken local.
+// CG (default false) is the kernel's CausticGate: the fleet kernels (stage_shade_fleet.cuh)
+// compile none of this, and launchStageShadeBucketed keeps gated renders off them.
+__device__ __forceinline__ bool gpu_causticGated(const GHitRecord& rec)
+{
+    return (c_wfCausticGate[0] & c_wfCausticGate[1]) == 0 && rec.causticGate != 0;
+}
+
 template<bool HasPrincipled, bool HasAdd>
+__device__ __noinline__ inline GSampledSpectrum gpu_shade_eval_spectral_gated(
+    const ::GMaterial& mat, int idx, GHitRecord& rec, const GVec3& wo, GVec3 wi,
+    const GSampledWavelengths& wl)
+{
+    if constexpr (HasAdd) {
+        if (const GClosureTree* t = gpu_closureTree(mat))
+            return gpu_tree_eval_spectral<HasPrincipled, true>(*t, mat, idx, rec, wo, wi, wl);
+    }
+    return gpu_material_eval_spectral<HasPrincipled, true>(mat, rec, wo, wi, wl);
+}
+
+template<bool HasPrincipled, bool HasAdd>
+__device__ __noinline__ inline float gpu_shade_pdf_gated(
+    const ::GMaterial& mat, int idx, const GHitRecord& rec, const GVec3& wo, GVec3 wi)
+{
+    if constexpr (HasAdd) {
+        if (const GClosureTree* t = gpu_closureTree(mat))
+            return gpu_tree_pdf<HasPrincipled, true>(*t, mat, idx, rec, wo, wi);
+    }
+    return gpu_material_pdf<HasPrincipled, true>(mat, rec, wo, wi);
+}
+
+template<bool HasPrincipled, bool HasAdd, typename TRng>
+__device__ __noinline__ inline GBSDFSample gpu_shade_sample_spectral_gated(
+    const ::GMaterial& mat, int idx, GHitRecord& rec, const GVec3& wo, GSampledWavelengths& wl,
+    TRng* rng)
+{
+    if constexpr (HasAdd) {
+        if (const GClosureTree* t = gpu_closureTree(mat))
+            return gpu_tree_sample_spectral<HasPrincipled, true>(*t, mat, idx, rec, wo, wl, rng);
+    }
+    return gpu_material_sample_spectral<HasPrincipled, true>(mat, rec, wo, wl, rng);
+}
+
+// Shade-stage entry points: identical to gpu_material_{eval_spectral,pdf,sample_spectral}
+// except that a closure-tree material (HasAdd kernels only) weights its leaves, and (CG) a
+// caustic-gated vertex takes the out-of-line gated twin above.
+template<bool HasPrincipled, bool HasAdd, bool CG = false>
 __device__ __forceinline__ GSampledSpectrum gpu_shade_eval_spectral(
     const ::GMaterial& mat, int idx, GHitRecord& rec, const GVec3& wo, const GVec3& wi,
     const GSampledWavelengths& wl)
 {
+    if constexpr (CG) {
+        if (gpu_causticGated(rec))
+            return gpu_shade_eval_spectral_gated<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi, wl);
+    }
     if constexpr (HasAdd) {
         if (const GClosureTree* t = gpu_closureTree(mat))
             return gpu_tree_eval_spectral<HasPrincipled>(*t, mat, idx, rec, wo, wi, wl);
@@ -1955,10 +2014,14 @@ __device__ __forceinline__ GSampledSpectrum gpu_shade_eval_spectral(
     return gpu_material_eval_spectral<HasPrincipled>(mat, rec, wo, wi, wl);
 }
 
-template<bool HasPrincipled, bool HasAdd>
+template<bool HasPrincipled, bool HasAdd, bool CG = false>
 __device__ __forceinline__ float gpu_shade_pdf(
     const ::GMaterial& mat, int idx, const GHitRecord& rec, const GVec3& wo, const GVec3& wi)
 {
+    if constexpr (CG) {
+        if (gpu_causticGated(rec))
+            return gpu_shade_pdf_gated<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi);
+    }
     if constexpr (HasAdd) {
         if (const GClosureTree* t = gpu_closureTree(mat))
             return gpu_tree_pdf<HasPrincipled>(*t, mat, idx, rec, wo, wi);
@@ -1966,11 +2029,15 @@ __device__ __forceinline__ float gpu_shade_pdf(
     return gpu_material_pdf<HasPrincipled>(mat, rec, wo, wi);
 }
 
-template<bool HasPrincipled, bool HasAdd, typename TRng>
+template<bool HasPrincipled, bool HasAdd, bool CG = false, typename TRng>
 __device__ __forceinline__ GBSDFSample gpu_shade_sample_spectral(
     const ::GMaterial& mat, int idx, GHitRecord& rec, const GVec3& wo, GSampledWavelengths& wl,
     TRng* rng)
 {
+    if constexpr (CG) {
+        if (gpu_causticGated(rec))
+            return gpu_shade_sample_spectral_gated<HasPrincipled, HasAdd>(mat, idx, rec, wo, wl, rng);
+    }
     if constexpr (HasAdd) {
         if (const GClosureTree* t = gpu_closureTree(mat))
             return gpu_tree_sample_spectral<HasPrincipled>(*t, mat, idx, rec, wo, wl, rng);
@@ -1983,32 +2050,43 @@ __device__ __forceinline__ GBSDFSample gpu_shade_sample_spectral(
 // the shared entry point times the #1154 whole-closure term (gpu_bumpShadowing), as before.
 // NEE: gpu_np_eval_lazyPdf returns f and, on the coat path, the pdf of the same single call
 // (pdf < 0 on the plain path: the caller evaluates it only when it needs it).
-template<bool HasPrincipled, bool HasAdd>
+// #1206 CG: see gpu_causticGated.
+template<bool HasPrincipled, bool HasAdd, bool CG = false>
 __device__ __forceinline__ GCoatNEvalPdf gpu_np_eval_lazyPdf(
     const ::GMaterial& mat, const GPUWavefrontHitBuffers& hitBufs, int idx, GHitRecord& rec,
     const GVec3& wo, const GVec3& wi, const GSampledWavelengths& wl)
 {
     if constexpr (HasPrincipled) {
-        if (gpu_coatOnSdN(mat, hitBufs, idx, rec))
+        if (gpu_coatOnSdN(mat, hitBufs, idx, rec)) {
+            if constexpr (CG) {
+                if (gpu_causticGated(rec))
+                    return gpu_coatN_eval_pdf<true>(mat, hitBufs, idx, rec, wo, wi, wl);
+            }
             return gpu_coatN_eval_pdf(mat, hitBufs, idx, rec, wo, wi, wl);
+        }
     }
     GCoatNEvalPdf r;
-    r.f = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi, wl);
+    r.f = gpu_shade_eval_spectral<HasPrincipled, HasAdd, CG>(mat, idx, rec, wo, wi, wl);
     r.f *= gpu_bumpShadowing(hitBufs, idx, rec.materialId, rec.normal, wi);
     r.pdf = -1.0f;
     return r;
 }
 
-template<bool HasPrincipled, bool HasAdd>
+template<bool HasPrincipled, bool HasAdd, bool CG = false>  // #1206 CG: see gpu_causticGated
 __device__ __forceinline__ GBSDFSample gpu_np_sample_spectral(
     const ::GMaterial& mat, const GPUWavefrontHitBuffers& hitBufs, int idx, GHitRecord& rec,
     const GVec3& wo, GSampledWavelengths& wl, WavefrontRNG* rng)
 {
     if constexpr (HasPrincipled) {
-        if (gpu_coatOnSdN(mat, hitBufs, idx, rec))
+        if (gpu_coatOnSdN(mat, hitBufs, idx, rec)) {
+            if constexpr (CG) {
+                if (gpu_causticGated(rec))
+                    return gpu_coatN_sample_spectral<true>(mat, hitBufs, idx, rec, wo, wl, rng);
+            }
             return gpu_coatN_sample_spectral(mat, hitBufs, idx, rec, wo, wl, rng);
+        }
     }
-    GBSDFSample s = gpu_shade_sample_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, wl, rng);
+    GBSDFSample s = gpu_shade_sample_spectral<HasPrincipled, HasAdd, CG>(mat, idx, rec, wo, wl, rng);
     if (!s.isDelta)  // a delta sample is never zeroed (Cycles bsdf.h:297-315)
         s.fSpectral *= gpu_bumpShadowing(hitBufs, idx, rec.materialId, rec.normal, s.wi);
     return s;
@@ -2030,7 +2108,8 @@ __device__ __forceinline__ GBSDFSample gpu_np_sample_spectral(
 // except L_spec: throughput * f_spec * (wt / envPdf).
 // #1153: NP = the HasNormalPerturb kernel's variant (gpu_env_nee_generate_np): the BSDF eval /
 // pdf go through gpu_np_* (coat / sheen frames, bump shadowing folded into f_spec).
-template<bool HasPrincipled, bool HasAdd, bool NP>
+// #1206 CG: see gpu_causticGated.
+template<bool HasPrincipled, bool HasAdd, bool NP, bool CG = false>
 __device__ __forceinline__ bool gpu_env_nee_generate_impl(
     int idx, int bounce, GHitRecord& rec, const GVec3& wo,
     const GMaterial& mat, const GSampledSpectrum& throughput,
@@ -2061,20 +2140,24 @@ __device__ __forceinline__ bool gpu_env_nee_generate_impl(
         bool coatN = false;
         if constexpr (HasPrincipled) coatN = gpu_coatOnSdN(mat, *hitBufs, idx, rec);
         if (coatN) {
-            const GCoatNEvalPdf e = gpu_coatN_eval_pdf(mat, *hitBufs, idx, rec, wo, wi, lambdas);
+            bool gated = false;  // #1206
+            if constexpr (CG) gated = gpu_causticGated(rec);
+            const GCoatNEvalPdf e = gated
+                ? gpu_coatN_eval_pdf<CG>(mat, *hitBufs, idx, rec, wo, wi, lambdas)
+                : gpu_coatN_eval_pdf(mat, *hitBufs, idx, rec, wo, wi, lambdas);
             bsdfPdf = e.pdf;
             if (bsdfPdf <= 0.f) return true;
             f_spec = e.f;
         } else {
-            bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi);
+            bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd, CG>(mat, idx, rec, wo, wi);
             if (bsdfPdf <= 0.f) return true;
-            f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi, lambdas);
+            f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd, CG>(mat, idx, rec, wo, wi, lambdas);
             f_spec *= gpu_bumpShadowing(*hitBufs, idx, rec.materialId, rec.normal, wi);
         }
     } else {
-        bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi);
+        bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd, CG>(mat, idx, rec, wo, wi);
         if (bsdfPdf <= 0.f) return true;
-        f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, wi, lambdas);
+        f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd, CG>(mat, idx, rec, wo, wi, lambdas);
     }
     if (f_spec.maxValue() <= 0.f) return true;
     // pkg258 (Terra item 6): COMPLEMENTARY power heuristic (Veach 1997). This
@@ -2118,26 +2201,26 @@ __device__ __forceinline__ bool gpu_env_nee_generate_impl(
     return true;
 }
 
-template<bool HasPrincipled, bool HasAdd = false>
+template<bool HasPrincipled, bool HasAdd = false, bool CG = false>  // #1206 CG
 __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_env_nee_generate(
     int idx, int bounce, GHitRecord& rec, const GVec3& wo,
     const GMaterial& mat, const GSampledSpectrum& throughput,
     const GSampledWavelengths& lambdas, WavefrontRNG* rng)
 {
-    return gpu_env_nee_generate_impl<HasPrincipled, HasAdd, false>(
+    return gpu_env_nee_generate_impl<HasPrincipled, HasAdd, false, CG>(
         idx, bounce, rec, wo, mat, throughput, lambdas, rng, nullptr);
 }
 
 // #1153 - HasNormalPerturb kernels only (replaces gpu_env_nee_generate + gpu_bumpShadowEnvRecord
 // there: the bump shadowing term is already in the parked f).
-template<bool HasPrincipled, bool HasAdd = false>
+template<bool HasPrincipled, bool HasAdd = false, bool CG = false>  // #1206 CG
 __device__ ASTRORAY_SHADE_NOINLINE inline bool gpu_env_nee_generate_np(
     int idx, int bounce, GHitRecord& rec, const GVec3& wo,
     const GMaterial& mat, const GSampledSpectrum& throughput,
     const GSampledWavelengths& lambdas, WavefrontRNG* rng,
     const GPUWavefrontHitBuffers& hitBufs)
 {
-    return gpu_env_nee_generate_impl<HasPrincipled, HasAdd, true>(
+    return gpu_env_nee_generate_impl<HasPrincipled, HasAdd, true, CG>(
         idx, bounce, rec, wo, mat, throughput, lambdas, rng, &hitBufs);
 }
 
@@ -2145,7 +2228,11 @@ template<bool Deferred, bool HasPrincipled, bool HasTexture = false, bool HasPho
          bool HasDispersion = false, bool HasLightPassAOVs = false,  // pkg198 S2 pass axis
          bool HasProgram = false,   // pkg219b — per-texel op-VM axis
          bool HasNormalPerturb = false,  // pkg223 — tangent-space normal-map axis
-         bool HasAdd = false>  // #1072 — Add Shader partner sum (requires HasPrincipled)
+         bool HasAdd = false,  // #1072 — Add Shader partner sum (requires HasPrincipled)
+         // #1206 — compiles the caustic toggles (pkg201 Stage 3 E). Not a runtime axis: true
+         // everywhere except the pkg300 fleet kernels, which launchStageShadeBucketed never
+         // picks while a toggle is off (see gpu_causticGated).
+         bool CausticGate = true>
 // pkg300: the body is __forceinline__ so a kernel can inline it (the pkg300 fleet
 // kernels in stage_shade_fleet_p<P>.cu); stageShadeBucketedKernel and the MIS-snapshot
 // kernel call the out-of-line shadePathSlot wrapper below.
@@ -2239,11 +2326,14 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     rec.frontFace  = hitBufs.hit_front_face[idx] != 0;
     rec.isDelta    = hitBufs.hit_is_delta[idx] != 0;
     // #1206: Cycles caustic toggles at this vertex (svm/closure.h gates on the incoming ray's
-    // DIFFUSE visibility; CPU twin pathTraceSpectral rec.causticGate). The material code drops
-    // the gated closures. Both toggles on (the fleet default) never reads the SoA flag.
-    if (c_wfCausticGate[0] == 0 || c_wfCausticGate[1] == 0)
-        rec.causticGate = astroray::lightpath::caustic_gate(
-            state.ray_vis_diffuse[idx] != 0, c_wfCausticGate[0] != 0, c_wfCausticGate[1] != 0);
+    // DIFFUSE visibility; CPU twin pathTraceSpectral rec.causticGate). The gated entry points
+    // (gpu_causticGated) drop the closures. Both toggles on never reads the SoA flag, and
+    // rec.causticGate is read only while a toggle is off.
+    if constexpr (CausticGate) {
+        if (c_wfCausticGate[0] == 0 || c_wfCausticGate[1] == 0)
+            rec.causticGate = astroray::lightpath::caustic_gate(
+                state.ray_vis_diffuse[idx] != 0, c_wfCausticGate[0] != 0, c_wfCausticGate[1] != 0);
+    }
 
     // pkg178 Stage-3b PR-4b — UV-aligned shading tangent for anisotropic
     // Principled. Default to the arbitrary frame; override from the hit triangle's
@@ -2788,21 +2878,21 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                     GSampledSpectrum f_spec;
                     [[maybe_unused]] float npPdf = -1.0f;  // #1153: the coat path's pdf, same call
                     if constexpr (HasNormalPerturb) {  // #1154 bump_shadowing_term, #1153 coat frame
-                        const GCoatNEvalPdf e = gpu_np_eval_lazyPdf<HasPrincipled, HasAdd>(
+                        const GCoatNEvalPdf e = gpu_np_eval_lazyPdf<HasPrincipled, HasAdd, CausticGate>(
                             mat, hitBufs, idx, rec, wo, s.wi, lambdas);
                         f_spec = e.f;
                         npPdf = e.pdf;
                     } else {
-                        f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd>(
+                        f_spec = gpu_shade_eval_spectral<HasPrincipled, HasAdd, CausticGate>(
                             mat, idx, rec, wo, s.wi, lambdas);
                     }
                     if (f_spec.maxValue() > 0.f) {
                         float bsdfPdf;
                         if constexpr (HasNormalPerturb)
                             bsdfPdf = npPdf >= 0.0f ? npPdf
-                                                    : gpu_shade_pdf<HasPrincipled, HasAdd>(mat, idx, rec, wo, s.wi);
+                                                    : gpu_shade_pdf<HasPrincipled, HasAdd, CausticGate>(mat, idx, rec, wo, s.wi);
                         else
-                            bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd>(mat, idx, rec, wo, s.wi);
+                            bsdfPdf = gpu_shade_pdf<HasPrincipled, HasAdd, CausticGate>(mat, idx, rec, wo, s.wi);
                         // Power heuristic (Veach 1997) — mirrors
                         // gpu_mw_powerHeuristic in the MW TU. Delta lights
                         // (pkg140, e.g. zero-diameter sun) force wt = 1
@@ -2967,10 +3057,10 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     if (c_wfEnvNeeBinding.enabled && c_wfEnvNeeBinding.envMap.loaded &&
         (bounce + 1) <= c_wfEnvNeeBinding.worldMaxBounces) {
         if constexpr (HasNormalPerturb)  // #1154 bump_shadowing_term, #1153 coat frame
-            envNeeRan = gpu_env_nee_generate_np<HasPrincipled, HasAdd>(
+            envNeeRan = gpu_env_nee_generate_np<HasPrincipled, HasAdd, CausticGate>(
                 idx, bounce, rec, wo, mat, throughput, lambdas, &rng, hitBufs);
         else
-            envNeeRan = gpu_env_nee_generate<HasPrincipled, HasAdd>(
+            envNeeRan = gpu_env_nee_generate<HasPrincipled, HasAdd, CausticGate>(
                 idx, bounce, rec, wo, mat, throughput, lambdas, &rng);
     }
 
@@ -3006,9 +3096,9 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // per-path PCG32 stream (template-RNG arc; see the NEE note above).
     GBSDFSample bss;
     if constexpr (HasNormalPerturb)  // #1154 bump_shadowing_term (CPU: NormalMappedPlugin::sample), #1153
-        bss = gpu_np_sample_spectral<HasPrincipled, HasAdd>(mat, hitBufs, idx, rec, wo, lambdas, &rng);
+        bss = gpu_np_sample_spectral<HasPrincipled, HasAdd, CausticGate>(mat, hitBufs, idx, rec, wo, lambdas, &rng);
     else
-        bss = gpu_shade_sample_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, lambdas, &rng);
+        bss = gpu_shade_sample_spectral<HasPrincipled, HasAdd, CausticGate>(mat, idx, rec, wo, lambdas, &rng);
     // #1178: only the Principled sampler and the closure tree (HasAdd requires HasPrincipled) report
     // a label; elsewhere it is the constant NONE, so the fleet <false> kernels keep no new live state.
     if constexpr (!HasPrincipled) bss.label = BSDF_LABEL_NONE;
@@ -3269,13 +3359,13 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // pkg201 Stage 3 (Finding E) / #1206 — caustic toggles (device twin of the CPU
     // pathTraceSpectral block). A singular sample of a gated closure (mirror, smooth glass,
     // smooth metal) ends here: Cycles drops that closure at setup when the incoming ray is
-    // DIFFUSE; non-delta closures were already dropped by the material code (rec.causticGate).
-    // Then record this scatter's DIFFUSE visibility for the next vertex (Cycles
-    // path_state_next resets visibility per bounce; a transparent pass keeps it). The gate
-    // bits are re-derived from the SoA flag rather than kept live in rec. Both-allow (the
-    // fleet default) skips this entirely → byte-identical. Runtime-gated like the
-    // Finding-A block above (OPTION-2 shape).
-    if (!tp && (c_wfCausticGate[0] == 0 || c_wfCausticGate[1] == 0)) {
+    // DIFFUSE; non-delta closures were already dropped by the gated material code
+    // (gpu_causticGated). Then record this scatter's DIFFUSE visibility for the next vertex
+    // (Cycles path_state_next resets visibility per bounce; a transparent pass keeps it). The
+    // gate bits are re-derived from the SoA flag rather than kept live in rec. Both-allow skips
+    // this at runtime (OPTION-2 shape, like the Finding-A block above); the fleet kernels
+    // (CausticGate=false) do not compile it.
+    if constexpr (CausticGate) if (!tp && (c_wfCausticGate[0] == 0 || c_wfCausticGate[1] == 0)) {
         float sWo = wo.dot(rec.normal);
         float sWi = bss.wi.dot(rec.normal);
         const bool transmitted = sWo * sWi < 0.f;

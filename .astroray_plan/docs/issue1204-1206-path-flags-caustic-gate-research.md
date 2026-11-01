@@ -68,4 +68,9 @@ and caustic toggles follow Cycles).
   `include/astroray/gpu_wavefront_state.h`, `src/gpu/wavefront/{stage_advance_device.cuh,
   stage_advance.cu, stage_volume_hetero.cu, stage_init.cu, wavefront_state.cu,
   shading_inputs_eval.cu}`.
+- GPU cost: the gate code is the `Gated=true` instantiation of the `gpu_materials.h` dispatch,
+  reached only through the out-of-line `gpu_shade_*_gated` entry points
+  (`stage_advance_device.cuh` `gpu_causticGated`); `Gated=false` is the ungated body. The pkg300
+  fleet kernels compile no gate (`shadePathSlotImpl` `CausticGate=false`) and
+  `launchStageShadeBucketed` routes a render with a toggle off to the part kernels.
 - Tests: `tests/test_issue1204_1206_path_flags.py`.

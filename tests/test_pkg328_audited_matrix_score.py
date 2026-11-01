@@ -529,3 +529,38 @@ def test_load_audit_rejects_a_seed_count_the_sample_does_not_have(tmp_path):
     assert any("n_seeds does not match" in e for e in C.load_audit(ref, tmp_path, ["s1"])[1])
     assert any("n_seeds is not a positive" in e for e in
                C.load_audit(_audit_files(tmp_path, {}, n_seeds=0), tmp_path, ["s1"])[1])
+
+
+# ---- b1 ratification (owner 10-06 population decision, confirmed 10-31) ----------------------------------------------
+
+def _ratified_frozen(root: Path, *, text: str | None = None, sha: str | None = None) -> dict:
+    rel = "b1_ratification.md"
+    if text is not None:
+        (root / rel).write_text(text, encoding="utf-8", newline="\n")
+    return {"population": {"expected_scene_ids": ["a"], "ratified": True,
+                           "ratification": {"path": rel, "sha256": sha or C._sha256_bytes(text.encode()),
+                                            "owner": "HendrikGC02"}}}
+
+
+def test_committed_candidate_v2_ratification_passes_b1_population_status():
+    manifest = json.loads((REPO / C.POPULATIONS_DIR / "candidate_v2.json").read_text(encoding="utf-8"))
+    assert manifest["ratified"] is True
+    frozen = json.loads((REPO / "docs/blender_parity/coverage_input_v5_candidate_v2.json").read_text(encoding="utf-8"))
+    assert frozen["population"]["ratification"] == manifest["ratification"] == C.POPULATION_RATIFICATIONS["candidate_v2"]
+    pop = C.population_status(frozen, REPO)
+    assert pop["ratified"] and pop["gate_eligible"]
+
+
+def test_nine_scene_population_is_not_ratified():
+    assert "nine_scene" not in C.POPULATION_RATIFICATIONS
+    manifest = json.loads((REPO / C.POPULATIONS_DIR / "nine_scene.json").read_text(encoding="utf-8"))
+    assert "ratified" not in manifest
+
+
+def test_ratification_fails_on_sha_mismatch_or_missing_file(tmp_path):
+    frozen = _ratified_frozen(tmp_path, text="signed\n")
+    assert C.population_status(frozen, tmp_path)["ratified"]
+    (tmp_path / "b1_ratification.md").write_text("edited\n", encoding="utf-8", newline="\n")
+    assert not C.population_status(frozen, tmp_path)["ratified"]
+    (tmp_path / "b1_ratification.md").unlink()
+    assert not C.population_status(frozen, tmp_path)["ratified"]

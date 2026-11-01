@@ -188,6 +188,8 @@ def test_principled_alpha_from_a_chain_uses_the_half_coverage_hint(monkeypatch):
                                                      Sock("B", 0.5)])
     spec = eng._principled_shader_spec(_principled(mul, "Value"), r)
     assert "alpha_program" in spec["scalar_programs"] and spec["native_params"]["alpha"] == 0.5
+    # a procedural chain is no bare link: the GPU's shadow rays keep the constant, and the report says so
+    assert any("Alpha" in m for m in eng._degradation_report().messages())
 
 
 @pytest.mark.parametrize("make", [

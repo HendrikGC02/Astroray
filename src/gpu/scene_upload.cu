@@ -391,7 +391,7 @@ static bool isBareImageProgram(const GraphProgramTexture& g) {
     return g.numInputs() == 1 && !g.inputIsCoord(0) &&
            std::dynamic_pointer_cast<ImageTexture>(g.getInput(0)) != nullptr &&
            p.instrs.size() == 1 && p.instrs[0].op == astroray::sgraph::GOP_TEX_NATIVE &&
-           p.instrs[0].res == 0 && p.instrs[0].dst == p.desc.outSlot;
+           p.instrs[0].res == 0 && (uint32_t)p.instrs[0].dst == p.desc.outSlot;
 }
 
 // pkg315 (#1067): the per-MATERIAL half of the per-triangle UV-upload gate that

@@ -3139,6 +3139,9 @@ PKG321_PROBE_CREDITS = {
     # pkg328 (#1088): a World Environment Texture's Vector is read through the world Mapping (rotation baked into the
     # env lookup; Mapping Location / Scale are reported as dropped), so it is approximated, not exact.
     ('ShaderNodeTexEnvironment', 'input:Vector'): ('env_vector', 'APPROXIMATED'),
+    # pkg234 (#1215): every Image Texture Interpolation (Closest / Linear / Cubic / Smart) is honoured per texture on CPU and
+    # GPU; the probe moves Astroray's render. (8-bit sRGB images are still filtered linear-space, not Cycles' encoded order.)
+    ('ShaderNodeTexImage', 'prop:interpolation'): ('img_interp', 'SUPPORTED'),
 }
 # pkg328: Cycles ignores these too -- the Cycles leg of the probe (PKG328_ENGINE=CYCLES) renders bit-identically for
 # A and B, and so does Astroray, so the socket is faithfully "consumed as nothing". Evidence: docs/blender_parity/
@@ -3184,8 +3187,6 @@ PKG321_REPORTED_DROPS = {
     ('ShaderNodeBsdfPrincipled', 'input:Subsurface IOR'): ('e_principled_subsurface_ior', 1133),
     ('ShaderNodeVolumePrincipled', 'input:Color Attribute'): ('v_color_attribute', 1134),
     ('ShaderNodeTexSky', 'prop:ground_albedo'): ('s_ground_albedo', 1135),
-    # pkg328: every ImageTexture samples the nearest texel; the addon names Interpolation != Closest (#1215).
-    ('ShaderNodeTexImage', 'prop:interpolation'): ('img_interp', 1215),
     # Reported by the op-VM compiler's own warning ("Geometry output 'Normal' unsupported"); #989 owns the gap.
     ('ShaderNodeNewGeometry', 'output:Normal'): ('m_geometry_normal', 989),
 }

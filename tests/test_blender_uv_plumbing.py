@@ -123,6 +123,7 @@ class _RecordingRenderer:
         self.mapping_matrix_calls = [] # (name, [12 floats])  pkg219a
         self.uv_layer_calls = []       # (name, layer)
         self.extension_calls = []      # (name, extension)  #1004
+        self.interpolation_calls = []  # (name, interpolation)  pkg234
         self.proc_texture_calls = []   # (name, type, params)
         self.created_materials = []
         self._next_id = 1
@@ -144,6 +145,9 @@ class _RecordingRenderer:
 
     def set_texture_extension(self, name, ext):
         self.extension_calls.append((name, ext))
+
+    def set_texture_interpolation(self, name, interp):
+        self.interpolation_calls.append((name, interp))
 
     def create_procedural_texture(self, name, ttype, params):
         self.proc_texture_calls.append((name, ttype, list(params)))

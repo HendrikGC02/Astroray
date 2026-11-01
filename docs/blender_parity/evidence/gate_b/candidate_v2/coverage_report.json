@@ -7108,15 +7108,15 @@
       "v2_thin_film_metals",
       "v2_viewport"
     ],
-    "gate_eligible": false,
+    "gate_eligible": true,
     "original_population": {
       "label": "~50 scenes",
       "reason": "the original population was never frozen; no score is computed",
       "status": "undefined"
     },
-    "ratified": false,
+    "ratified": true,
     "scene_count": 16,
-    "status": "undefined"
+    "status": "ratified"
   },
   "proposal": {
     "CPU": {
@@ -7189,12 +7189,12 @@
   "scoring_mode": "audited_matrix",
   "silent_drop_count": 0,
   "silent_drops": [],
-  "status": "provisional",
+  "status": "red",
   "subchecks": {
     "b1_input_manifest_ratified": {
       "hash_locked": true,
-      "pass": false,
-      "ratified": false
+      "pass": true,
+      "ratified": true
     },
     "b2_cpu_score": {
       "min": 0.676,

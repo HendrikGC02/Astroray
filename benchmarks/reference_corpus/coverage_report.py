@@ -1108,7 +1108,8 @@ def load_b_threshold(repo_root: Path | None, ceilings: Mapping[str, float | None
     if not problems:
         try:
             relative = path.resolve().relative_to(Path(repo_root).resolve()).as_posix()
-            head = subprocess.run(["git", "show", f"HEAD:{relative}"], cwd=repo_root, capture_output=True, check=True).stdout
+            # "./" resolves against repo_root, not the enclosing repo's top level (CI keeps pytest temp dirs in-tree).
+            head = subprocess.run(["git", "show", f"HEAD:./{relative}"], cwd=repo_root, capture_output=True, check=True).stdout
             if head != raw:
                 problems.append("threshold file differs from its committed HEAD version")
         except (OSError, ValueError, subprocess.SubprocessError):

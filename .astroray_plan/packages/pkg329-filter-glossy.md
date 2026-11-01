@@ -2,7 +2,7 @@
 
 **Pillar:** 1
 **Track:** A
-**Status:** in-progress — lane p329, branch lane/pkg329-filter-glossy
+**Status:** done — lane p329, branch lane/pkg329-filter-glossy (awaiting merge); v2_viewport witness Welch-1b 0/6720 vs Cycles as authored on CPU and GPU
 **Estimated effort:** 2 sessions (CPU + GPU, each with one build and a register / perf probe)
 **Depends on:** pkg201
 
@@ -135,17 +135,18 @@ glossy closure forms its alpha, with no virtual signature change.
 
 ## Acceptance criteria
 
-- [ ] v2_viewport Grid100k witness passes Welch-1b (alpha 0.05, tile 8, delta_rel 0.01, 8 seeds
+- [x] v2_viewport Grid100k witness passes Welch-1b (alpha 0.05, tile 8, delta_rel 0.01, 8 seeds
       278 1301 2711 4177 6113 7919 9371 11027, ROI `[0, 0.3614, 1, 1]`) against Cycles as
       authored (blur_glossy 1.0) on CPU and on GPU.
-- [ ] `tests/test_pkg329_filter_glossy.py` passes on CPU and GPU (rough-closure and camera-ray
-      invariance bit-exact; smooth metal seen from a diffuse floor changes).
-- [ ] Filter Glossy 0 renders within float rounding (<= 1e-6 relative) of the pre-pkg329 build
+- [x] `tests/test_pkg329_filter_glossy.py` passes on CPU and GPU (rough-closure and camera-ray
+      invariance bit-exact on CPU, within the GPU's run-to-run rounding on GPU; smooth metal
+      seen from a diffuse floor changes).
+- [x] Filter Glossy 0 renders within float rounding (<= 1e-6 relative) of the pre-pkg329 build
       (CPU and GPU) on a glossy scene (lead 2026-11-02: MSVC codegen in principled.cpp moves
       ULPs; the GPU differs from itself run to run by ~1e-6).
-- [ ] No regression in the closeout sweep relevant suites (principled, metal, disney, glass,
+- [x] No regression in the closeout sweep relevant suites (principled, metal, disney, glass,
       bump, Light Path, caustic gate).
-- [ ] GPU: REG unchanged and STACK growth small on the shade kernels; perf A/B within ~1 % on
+- [x] GPU: REG unchanged and STACK growth small on the shade kernels; perf A/B within ~1 % on
       principled, glass, bump and volume probes.
 
 ---
@@ -185,11 +186,40 @@ glossy closure forms its alpha, with no virtual signature change.
 - [x] GPU accumulator + floor written (lane p329): `min_ray_pdf` SoA + `c_wfFilterGlossy`
       (gated: off never touches the SoA), `GHitRecord::glossyAlphaFloor`, floors in
       `gpu_metal_*`, `gpu_disney_*` (closure-graph GGX conductor / rough dielectric leaves lower
-      to these), `gpu_pr_*`. Awaiting build, register / perf gates, GPU witness.
-- [x] `pkg200_honour_matrix.py` blur_glossy note; parity matrix regen only if a row changes.
+      to these), `gpu_pr_*`.
+- [x] `pkg200_honour_matrix.py` blur_glossy note. The parity matrix has no blur_glossy row
+      (render setting, not a node), so no regen.
+- [x] GPU build 87f01144 verified (2026-11-02, evidence `...\2026-11-02\p329\gpu\`, `perf\`):
+  - Register / stack (lead, vs b1101c): shade kernels REG 254 unchanged, STACK +8..+72 B;
+    shadow +2..+4 REG, intersect +1 REG; nothing missing or new.
+  - `test_pkg329_filter_glossy.py` 6/6 after one test fix: the GPU frame differs from itself
+    run to run by ~1e-6 rel on ~70 % of pixels, so the GPU invariance legs compare at
+    rtol 1e-5 (CPU stays bit-exact). GPU subsets of the related suites (principled, layering,
+    rough diffuse, metal x4, disney x4, rough glass x3, thin film x2, #1112, #991,
+    #1204/#1206, caustic toggles, f82): 224 passed.
+  - Welch-1b v2_viewport, 8 seeds, Cycles as authored: GPU **0/6720**, ROI ratio
+    0.998 / 0.998 / 0.998, centre-contact band 0.996; GPU vs CPU 0/6720, ROI ratio 1.000.
+  - FG-0 GPU vs b1101c (seed 278): 0.1 % of values differ, max 2.4e-7 abs / 7.0e-7 rel, which
+    is exactly b1101c against itself (same counts and maxima); mean ratio 1.0000000.
+  - Perf, interleaved min-of-8 x (burn-in + min-of-3), p329 / b1101c, Filter Glossy 0:
+    principled 1.003, glass 1.002, bump 1.004, principled_tex 1.007, glass_tex 1.006,
+    volume 1.028; per-round spread <= 0.3 %. The volume excess is all in
+    `stageRegenKernel` (0.85 -> 1.05 ms/launch) and is a device-address layout artefact,
+    not code: pre-allocating a 6-64 MB dummy buffer moves the b1101c regen to 1.02 ms and its
+    frame to 0.2006-0.2013 s, where p329 measures 0.2019-0.2027 s (+0.5 %). Filter Glossy 1.0
+    on principled: 0.3736 s vs 0.3912 s off (blurred lobes, informational).
 
 ---
 
 ## Lessons
 
-*(Fill in after the package is done.)*
+- The GPU wavefront render is not bit-reproducible run to run (~1e-6 rel, float
+  accumulation order), so "bit-identical" GPU tests must compare at a tolerance above that
+  floor; measure the floor (same build twice) before reading an A/B diff.
+- A one-scene perf A/B excess can be allocation layout: `stageRegenKernel` on the volume
+  probe moves ~20 % between two address layouts of the SAME build. Before attributing a
+  regression to new code, shift the baseline's device addresses (ctypes `cudaMalloc` a
+  dummy buffer before the render, `perf\layout_probe.py`) and compare against that spread.
+- Filter Glossy needs no virtual signature change: a per-hit floor in the hit record,
+  read by each glossy material's single alpha helper, reaches nested closures through the
+  decorators' hit-record copies on CPU and GPU alike.

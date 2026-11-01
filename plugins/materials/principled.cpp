@@ -1515,8 +1515,12 @@ class PrincipledPlugin : public Material {
         switch (L.kind) {
             case LobeKind::Subsurface:  // approximate SSS = Lambert (D2=a)
             case LobeKind::Diffuse: {
-                if (nl <= 0.0f || nv <= 0.0f) return Vec3(0);
+                // #1227: Cycles bsdf_diffuse_eval tests only the light side (Cycles @ Blender
+                // v5.2.0 kernel/closure/bsdf_diffuse.h:38-49); a bumped N facing away from the
+                // viewer still shades. EON needs nv, so its gate stays.
+                if (nl <= 0.0f) return Vec3(0);
                 if (L.roughness <= 1e-4f) return L.weight * (nl / float(M_PI));  // Lambert
+                if (nv <= 0.0f) return Vec3(0);
                 EON e = eonSetup(std::clamp(L.roughness, 0.0f, 1.0f), nl, nv, wi.dot(wo));
                 return Vec3(L.weight.x * eonChannel(e, L.color.x),
                             L.weight.y * eonChannel(e, L.color.y),
@@ -1898,8 +1902,8 @@ class PrincipledPlugin : public Material {
         float nl = rec.normal.dot(wi), nv = rec.normal.dot(wo);
         switch (L.kind) {
             case LobeKind::Subsurface:
-            case LobeKind::Diffuse:
-                return (nl > 0.0f && nv > 0.0f) ? nl / float(M_PI) : 0.0f;
+            case LobeKind::Diffuse:  // #1227: Lambert pdf = eval, light side only (bsdf_diffuse.h:38-49)
+                return (nl > 0.0f && (nv > 0.0f || L.roughness <= 1e-4f)) ? nl / float(M_PI) : 0.0f;
             case LobeKind::Sheen: {  // Cycles bsdf_sheen_sample: *pdf = val
                 if (nl <= 0.0f || nv <= 0.0f) return 0.0f;
                 Vec3 T, B;
@@ -2515,8 +2519,9 @@ public:
         switch (L.kind) {
             case LobeKind::Subsurface:  // approximate SSS = Lambert (D2=a)
             case LobeKind::Diffuse: {
-                if (nl <= 0.0f || nv <= 0.0f) return astroray::SampledSpectrum(0.0f);
+                if (nl <= 0.0f) return astroray::SampledSpectrum(0.0f);  // #1227 (see evalLobeRGBAt)
                 if (L.roughness <= 1e-4f) return wSpec * (nl / float(M_PI));  // Lambert
+                if (nv <= 0.0f) return astroray::SampledSpectrum(0.0f);
                 EON e = eonSetup(std::clamp(L.roughness, 0.0f, 1.0f), nl, nv, wi.dot(wo));
                 astroray::SampledSpectrum cSpec = upsample(L.color, lam);
                 astroray::SampledSpectrum out(0.0f);

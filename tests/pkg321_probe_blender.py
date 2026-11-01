@@ -149,7 +149,9 @@ PROBES = {
     "s_altitude": dict(scene="sky", node="ShaderNodeTexSky", A={"prop:altitude": 0.0}, B={"prop:altitude": 20000.0}),
     # ---- Glass thin film + misc (family 6) ------------------------------------------------------------------
     # pkg326 (#1136): the sockets are consumed (rough glass takes the film Fresnel); #1162: smooth glass too.
-    "g_thin_film_thickness": dict(scene="sphere", node="ShaderNodeBsdfGlass", pre={"Roughness": 0.2},
+    # Thickness renders with Filter Glossy off: pkg329's blur roughens the sphere's internal bounces and
+    # doubles the 64 spp seed noise (GPU db_aa 1.6e-3 -> 3.1e-3), sinking this probe under the 3x bar.
+    "g_thin_film_thickness": dict(scene="sphere", node="ShaderNodeBsdfGlass", pre={"Roughness": 0.2}, blur_glossy=0.0,
                                   A={"Thin Film Thickness": 0.0}, B={"Thin Film Thickness": 600.0}),
     "g_thin_film_ior": dict(scene="sphere", node="ShaderNodeBsdfGlass", pre={"Roughness": 0.2, "Thin Film Thickness": 600.0},
                             A={"Thin Film IOR": 1.33}, B={"Thin Film IOR": 2.0}),
@@ -772,6 +774,7 @@ def run_probe(pid, p, out_dir, scene_info):
     scene = bpy.context.scene
     res = {"id": pid, "node": p["node"]}
     pix, warns, notes = {}, {}, []
+    scene.cycles.blur_glossy = p.get("blur_glossy", 1.0)      # 1.0 = the Cycles default; scenes are shared
     for variant in ("A", "A2", "B"):
         scene.cycles.seed = 322 if variant == "A2" else 321      # A2 = A under another seed: the noise floor
         if p.get("custom") in WORLD_BUILDERS:

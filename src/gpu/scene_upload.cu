@@ -248,8 +248,9 @@ static GMaterial convertMaterial(const std::shared_ptr<Material>& mat) {
                 // pkg178 Stage 4 PR-4 — thin_wall + subsurface_anisotropy packed into
                 // ONE float to keep GMaterial at 640 B (a second field rounds it to
                 // 704 B and leaks +STACK into the shared <false> by-value copy; see
-                // GPrincipledClosure comment). thin_wall=false → -8 sentinel.
-                gp.thinWallAniso = c.thinWall ? c.subsurfaceAnisotropy : -8.f;
+                // GPrincipledClosure comment). thin_wall=false → -8 sentinel, or -16 for a
+                // Glass BSDF (#1200, decoded by gpu_pr_glassBsdf; thick glass only).
+                gp.thinWallAniso = c.thinWall ? c.subsurfaceAnisotropy : (c.glassBsdf ? -16.f : -8.f);
                 // i16 review minor: the pkg265 Heitz walk has no GPU twin (not planned).
                 if (c.roughGlassWalk && c.transmission > 1e-4f && !c.thinWall)
                     fprintf(stderr, "[i16] DEGRADED: rough_glass_walk (pkg265 Heitz walk) is "

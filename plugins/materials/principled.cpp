@@ -48,6 +48,13 @@ class PrincipledPlugin : public Material {
     // the GPU twin also runs. true ("rough_glass_walk" param, CPU only): the pkg265
     // Heitz-2016 multiple-scattering random walk.
     bool msWalk_ = false;
+    // #1200: Glass BSDF Fresnel tints ("glass_bsdf" param, set by the addon's Glass node
+    // lowering with specular_tint = Color, base_color = Color^2). Cycles v5.2.0
+    // svm/closure.h:816-822: f0 = F0_from_ior(ior) untinted, reflection_tint =
+    // transmission_tint = Color. false (Principled, svm/closure.h:404-409): f0 = F0 x
+    // specular_tint, reflection_tint 1, transmission_tint sqrt(base_color). See
+    // glassF0Tint / glassReflTint / glassTint.
+    bool glassBsdf_ = false;
     // pkg178 Stage 4 PR-4 — Thin Wall (thin glass + thin subsurface). false →
     // byte-identical to PR-1..3. thin_wall=true routes the transmission lobe through
     // the analytic thin-glass R'+T' split and the subsurface lobe through the
@@ -837,7 +844,7 @@ class PrincipledPlugin : public Material {
                                                         HO, HI, etap, alpha * alpha);
         Vec3 dark; float eScale;
         glassEnergyTerms(L, etap, cosO, dark, eScale);
-        colour = (transmit ? sqrtColor(baseColor_) : specularTint_) * dark;
+        colour = glassTint(transmit, F, L.ior) * dark;  // #1200
         scalar = ss.value * (transmit ? 1.0f - F : F) * eScale;
         return scalar > 0.0f;
     }
@@ -858,19 +865,23 @@ class PrincipledPlugin : public Material {
         return ss.pdf * (transmit ? 1.0f - pR : pR);
     }
     // pdf_reflect = average(R) / average(R + T) (Cycles bsdf_microfacet_sample). Film
-    // glass: R = thin-film F with specular_tint folded in by the F0 rescale, T = (1-R) x
-    // sqrt(base_color), exactly the factors the film eval uses (Cycles microfacet_fresnel,
-    // generalized Schlick + thin film). Otherwise R = F x specular_tint, T = (1-F) x tint.
-    // Blender v5.2.0 intern/cycles/kernel/closure/bsdf_microfacet.h:274-328,768,847
-    // (BSD-3-Clause).
+    // glass: R = thin-film F rescaled by f0 / F0 times reflection_tint, T = (1 - rescaled
+    // F) x sqrt(base_color), exactly the factors the film eval uses (Cycles
+    // microfacet_fresnel, generalized Schlick + thin film). Otherwise R = F x glassTint(R),
+    // T = (1-F) x glassTint(T). Blender v5.2.0
+    // intern/cycles/kernel/closure/bsdf_microfacet.h:274-328,768,847 (BSD-3-Clause).
     float glassReflectProb(const Lobe& L, bool entering, float cosHO, float F) const {
-        if (!filmActive())
-            return astroray::ggxglass::reflectProb(F, glassReflTintAvg(), glassTransTintAvg());
+        if (!filmActive()) {
+            Vec3 rt = glassTint(false, F, L.ior), tt = glassTint(true, F, L.ior);  // #1200
+            return astroray::ggxglass::reflectProb(F, (rt.x + rt.y + rt.z) / 3.0f,
+                                                   (tt.x + tt.y + tt.z) / 3.0f);
+        }
         float etap = entering ? L.ior : (1.0f / L.ior);
         float filmIor = entering ? thinFilmIor_ : thinFilmIor_ / L.ior;
-        Vec3 R = thinFilmF0RescaleRGB(thinFilmFresnelRGB(cosHO, etap, filmIor),
-                                      Vec3(F0_from_ior(etap)) * specularTint_, etap);
-        Vec3 T = Vec3::max((Vec3(1.0f) - R) * sqrtColor(baseColor_), Vec3(0.0f));
+        Vec3 Fr = thinFilmF0RescaleRGB(thinFilmFresnelRGB(cosHO, etap, filmIor),
+                                       Vec3(F0_from_ior(etap)) * glassF0Tint(), etap);
+        Vec3 R = Fr * glassReflTint();  // #1200
+        Vec3 T = Vec3::max((Vec3(1.0f) - Fr) * sqrtColor(baseColor_), Vec3(0.0f));
         float r = R.x + R.y + R.z, s = r + T.x + T.y + T.z;
         return (s > 0.0f) ? r / s : F;
     }
@@ -888,10 +899,10 @@ class PrincipledPlugin : public Material {
         // sampleLobeDir chose reflect / refract in.
         const Vec3& N = L.ownN ? L.N : rec.normal;
         Vec3 R = thinFilmF0RescaleRGB(thinFilmFresnelRGB(std::abs(wo.dot(N)), etap, filmIor),
-                                      Vec3(F0_from_ior(etap)) * specularTint_, etap);
+                                      Vec3(F0_from_ior(etap)) * glassF0Tint(), etap);  // #1200
         return refract ? L.weight * sqrtColor(baseColor_) * Vec3::max(Vec3(1.0f) - R, Vec3(0.0f)) *
                              (eta * eta)
-                       : L.weight * R;
+                       : L.weight * glassReflTint() * R;
     }
     // Per-λ twin: analytic-sensitivity R(λ), upsampled tint (as transmissionEvalSpectral),
     // so E[f/pdf] = R(λ) + T(λ) per wavelength over the RGB-chosen pR.
@@ -903,24 +914,38 @@ class PrincipledPlugin : public Material {
         float F0real = F0_from_ior(etap);
         astroray::SampledSpectrum R =
             thinFilmFresnelSpectral(std::abs(wo.dot(L.ownN ? L.N : rec.normal)), etap, filmIor, lam);  // #1154
-        if (F0real > 1e-5f) {
+        if (F0real > 1e-5f && !glassBsdf_) {  // #1200: Glass BSDF f0 = F0, factor 1
             astroray::SampledSpectrum tintSpec = upsample(specularTint_, lam);
             for (int i = 0; i < astroray::kSpectrumSamples; ++i)
                 R[i] = thinFilmF0RescaleChannel(R[i], F0real * tintSpec[i], F0real);
         }
-        Vec3 rgb = refract ? L.weight * sqrtColor(baseColor_) : L.weight;
+        Vec3 rgb = refract ? L.weight * sqrtColor(baseColor_) : L.weight * glassReflTint();
         float maxc = std::max({rgb.x, rgb.y, rgb.z, 1.0f});
         astroray::SampledSpectrum f = upsample(rgb * (1.0f / maxc), lam) * maxc;
         for (int i = 0; i < astroray::kSpectrumSamples; ++i)
             f[i] *= refract ? std::max(1.0f - R[i], 0.0f) * (eta * eta) : R[i];
         return f;
     }
-    float glassReflTintAvg() const {
-        return (specularTint_.x + specularTint_.y + specularTint_.z) / 3.0f;
-    }
-    float glassTransTintAvg() const {
-        Vec3 t = sqrtColor(baseColor_);
-        return (t.x + t.y + t.z) / 3.0f;
+    // #1200: the glass lobe's Cycles FresnelGeneralizedSchlick tints (see glassBsdf_). The
+    // film F is rescaled by f0 / F0 = glassF0Tint (bsdf_microfacet.h:290-295; identity for
+    // the Glass BSDF), then multiplied by reflection_tint = glassReflTint (:327).
+    Vec3 glassF0Tint() const { return glassBsdf_ ? Vec3(1.0f) : specularTint_; }
+    Vec3 glassReflTint() const { return glassBsdf_ ? specularTint_ : Vec3(1.0f); }
+    // Non-film glass colour relative to the plain dielectric F: R / F (reflect) or
+    // T / (1 - F) (transmit). Glass BSDF or white specular_tint: f0 = F0, so R = F x
+    // reflection_tint exactly and the colour is the constant tint (Color, or specular_tint
+    // = 1; transmission sqrt(base_color)). Tinted Principled glass: R = mix(F0 x tint, 1, s)
+    // (ggxglass::schlickGlassTint), so its rim goes to white, not to the tint.
+    Vec3 glassTint(bool transmit, float F, float ior) const {
+        Vec3 tt = sqrtColor(baseColor_);
+        if (glassBsdf_ || (specularTint_.x == 1.0f && specularTint_.y == 1.0f &&
+                           specularTint_.z == 1.0f))
+            return transmit ? tt : specularTint_;
+        namespace gg = astroray::ggxglass;
+        float F0 = F0_from_ior(ior);
+        return Vec3(gg::schlickGlassTint(specularTint_.x, tt.x, F0, F, transmit),
+                    gg::schlickGlassTint(specularTint_.y, tt.y, F0, F, transmit),
+                    gg::schlickGlassTint(specularTint_.z, tt.z, F0, F, transmit));
     }
 
     // Cycles bsdf_util.h closure_layering_weight: attenuate the running weight
@@ -1691,14 +1716,15 @@ class PrincipledPlugin : public Material {
             float G = smithG2_GGX(cosI, cosO, alpha);
             if (filmActive()) {
                 // pkg178 Stage 4 PR-1: thin-film iridescence F (Cycles single
-                // microfacet_fresnel at bsdf->ior = etap; specular_tint folded
-                // into f0 via the F0-rescale, not a post-multiply).
+                // microfacet_fresnel at bsdf->ior = etap; Principled specular_tint folded
+                // into f0 via the F0-rescale, not a post-multiply). #1200: the Glass
+                // BSDF's Color is the reflection_tint post-multiply instead (f0 = F0).
                 float etapR = entering ? L.ior : (1.0f / L.ior);
                 float filmIor = entering ? thinFilmIor_ : thinFilmIor_ / L.ior;
                 Vec3 F = thinFilmFresnelRGB(HdotO, etapR, filmIor);
-                F = thinFilmF0RescaleRGB(F, Vec3(F0_from_ior(etapR)) * specularTint_, etapR);
+                F = thinFilmF0RescaleRGB(F, Vec3(F0_from_ior(etapR)) * glassF0Tint(), etapR);
                 float geom = D * G / (4.0f * cosO * cosI + 1e-8f) * cosI;
-                return L.weight * F * filmDark * (geom * filmScale);
+                return L.weight * glassReflTint() * F * filmDark * (geom * filmScale);
             }
             float F = fresnelDielectric(HdotO, 1.0f, L.ior);
             float fr = D * G * F / (4.0f * cosO * cosI + 1e-8f) * cosI;  // brdf·cosI
@@ -1719,7 +1745,7 @@ class PrincipledPlugin : public Material {
             // same iridescence F; film IOR backface-adjusted (÷bulk IOR).
             float filmIor = entering ? thinFilmIor_ : thinFilmIor_ / L.ior;
             Vec3 Fv = thinFilmFresnelRGB(std::abs(wo.dot(wm)), etap, filmIor);
-            Fv = thinFilmF0RescaleRGB(Fv, Vec3(F0_from_ior(etap)) * specularTint_, etap);
+            Fv = thinFilmF0RescaleRGB(Fv, Vec3(F0_from_ior(etap)) * glassF0Tint(), etap);  // #1200
             float den = wi.dot(wm) + wo.dot(wm) / etap;
             den = den * den * cosI * cosO;
             float ft = D * G * std::abs(wi.dot(wm) * wo.dot(wm) / (den + 1e-10f));
@@ -1788,9 +1814,11 @@ class PrincipledPlugin : public Material {
             astroray::SampledSpectrum F = thinFilmFresnelSpectral(HdotO, etap, filmIor, lam);
             astroray::SampledSpectrum out(0.0f);
             for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
-                float Fi = (F0real > 1e-5f)
+                // #1200: Glass BSDF: f0 = F0 (no rescale), Color post-multiplied.
+                float Fi = (F0real > 1e-5f && !glassBsdf_)
                                ? thinFilmF0RescaleChannel(F[i], F0real * tintSpec[i], F0real)
                                : F[i];
+                if (glassBsdf_) Fi *= tintSpec[i];
                 out[i] = wSpec[i] * Fi * filmDark[i] * (geom * filmScale);
             }
             return out;
@@ -1814,7 +1842,7 @@ class PrincipledPlugin : public Material {
         astroray::SampledSpectrum baseSpec = upsample(sqrtColor(baseColor_), lam);
         astroray::SampledSpectrum out(0.0f);
         for (int i = 0; i < astroray::kSpectrumSamples; ++i) {
-            float Fi = (F0real > 1e-5f)
+            float Fi = (F0real > 1e-5f && !glassBsdf_)  // #1200
                            ? thinFilmF0RescaleChannel(F[i], F0real * tintSpec[i], F0real)
                            : F[i];
             float v = wSpec[i] * baseSpec[i] * (1.0f - Fi) * filmDark[i] * (scale * filmScale);
@@ -2244,6 +2272,7 @@ public:
         // the film is active on the metallic lobe.
         precomputeConductorNK();
         msWalk_ = p.getFloat("rough_glass_walk", 0.0f) > 0.5f;
+        glassBsdf_ = p.getFloat("glass_bsdf", 0.0f) > 0.5f;  // #1200
         // pkg187 — dispersion fit. Cycles' Principled dispersion (PR #162041) is
         // driven by two sockets: Dispersion Scale ∈ [0,1] and an Abbe number
         // (default 20). inv_abbe = scale / abbe (safe_divide → 0). A single
@@ -2373,6 +2402,7 @@ public:
         c.thinWall = thinWall_;                       // pkg178 Stage 4 PR-4
         c.subsurfaceAnisotropy = subsurfaceAnisotropy_;
         c.roughGlassWalk = msWalk_;                   // CPU-only; GPU reports DEGRADED
+        c.glassBsdf = glassBsdf_;                     // #1200
         graph.add(c);
         return graph;
     }
@@ -2646,10 +2676,11 @@ public:
                 s.f = L.weight;
             } else if (L.kind == LobeKind::Transmission && L.isDelta && filmActive()) {
                 s.f = deltaFilmF(L, rec, wo, ds.deltaRefract, ds.eta);  // #1162
-            } else if (ds.deltaRefract) {
-                s.f = L.weight * sqrtColor(baseColor_) * (ds.eta * ds.eta * ds.pdfInternal);
-            } else {
-                s.f = L.weight * specularTint_ * ds.pdfInternal;
+            } else if (ds.deltaRefract) {  // #1200: pdfInternal = 1 - F
+                s.f = L.weight * glassTint(true, 1.0f - ds.pdfInternal, L.ior) *
+                      (ds.eta * ds.eta * ds.pdfInternal);
+            } else {  // pdfInternal = F (1 under total internal reflection)
+                s.f = L.weight * glassTint(false, ds.pdfInternal, L.ior) * ds.pdfInternal;
             }
             s.pdf = qj * ds.pdfInternal;
             s.isDelta = true;
@@ -2740,7 +2771,8 @@ public:
                 // upsampling tint x eta^2 (1-F) gave a different spectrum on entry (k ~ 0.46)
                 // and exit (k ~ 2.0) and the smooth path disagreed with the rough path of the
                 // same material by 3.4 % in R for Color (0.9, 1, 0.95) (white furnace).
-                Vec3 tint = ds.deltaRefract ? sqrtColor(baseColor_) : specularTint_;
+                Vec3 tint = ds.deltaRefract ? glassTint(true, 1.0f - ds.pdfInternal, L.ior)
+                                            : glassTint(false, ds.pdfInternal, L.ior);  // #1200
                 float s = ds.deltaRefract ? ds.eta * ds.eta * ds.pdfInternal : ds.pdfInternal;
                 float wmax = std::max({L.weight.x, L.weight.y, L.weight.z});
                 Vec3 col = (wmax > 0.0f) ? tint * (L.weight * (1.0f / wmax)) : Vec3(0.0f);

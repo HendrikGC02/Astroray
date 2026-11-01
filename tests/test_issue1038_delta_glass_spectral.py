@@ -50,9 +50,10 @@ def _centre(rough, bg, color, use_gpu):
     r.set_integrator("path_tracer")
     if use_gpu:
         r.set_use_gpu(True)
-    # Glass BSDF encoding (addon _standalone_bsdf_spec): base_color = Color^2, specular_tint = Color.
+    # Glass BSDF encoding (addon _standalone_bsdf_spec): base_color = Color^2, specular_tint = Color,
+    # glass_bsdf (#1200: the Glass Fresnel fill, f0 = F0 and Color post-multiplied).
     params = {"transmission_weight": 1.0, "ior": IOR, "roughness": rough,
-              "specular_tint": list(color)}
+              "specular_tint": list(color), "glass_bsdf": 1.0}
     mid = r.create_material("principled", [c * c for c in color], params)
     r.add_sphere([0.0, 0.0, 0.0], 1.0, mid)
     r.setup_camera([0, 0, 4], [0, 0, 0], [0, 1, 0], 40.0, 1.0, 0.0, 4.0, 64, 64)

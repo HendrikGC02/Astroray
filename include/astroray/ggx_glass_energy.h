@@ -126,6 +126,21 @@ AR_GGXG_HD inline float reflectProb(float F, float reflTintAvg, float transTintA
     return (s > 0.0f) ? r / s : F;
 }
 
+// #1200: one channel of the Principled glass Fresnel colour. Cycles generalized_schlick_fresnel,
+// exponent < 0 branch (bsdf_microfacet.h:316-321, :327-328): R = mix(f0, 1, s), s =
+// saturate((F - F0) / (1 - F0)), T = (1 - R) * transmission_tint, with f0 = saturate(F0 *
+// specular_tint) and reflection_tint 1 (generalized_schlick_setup :111-124, :967). Returned
+// relative to the plain dielectric F the callers carry: R / F (reflect) or T / (1 - F)
+// (transmit). For tint == 1, R = F exactly and this is 1 / transTint.
+AR_GGXG_HD inline float schlickGlassTint(float tint, float transTint, float F0, float F,
+                                         bool transmit) {
+    const float s = saturate((F - F0) / (1.0f - F0));
+    const float f0 = saturate(F0 * tint);
+    const float R = f0 + (1.0f - f0) * s;
+    if (!transmit) return (F > 0.0f) ? R / F : 1.0f;
+    return transTint * ((1.0f - F > 1e-6f) ? (1.0f - R) / (1.0f - F) : (1.0f - f0) / (1.0f - F0));
+}
+
 // bsdf_D<GGX> and bsdf_lambda<GGX> (Heitz 2014 Eq. 72); alpha2 = alpha_x*alpha_y.
 AR_GGXG_HD inline float ggxD(float alpha2, float cosNH) {
     const float c2 = fminf(cosNH * cosNH, 1.0f);

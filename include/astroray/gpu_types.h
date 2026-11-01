@@ -538,6 +538,7 @@ struct GPrincipledClosure {
     // in its by-value GMaterial copy (gpu_closure_as_material `GMaterial tmp = parent`)
     // — the same STACK-leak class PR-3 documented. So both PR-4 params ride ONE float.
     // Encoding: thin_wall=false → -8 sentinel; thin_wall=true → subsurface_anisotropy.
+    // #1200: thin_wall=false on a Glass BSDF (MaterialClosure::glassBsdf) → -16.
     // Decode via gpu_pr_thinWall / gpu_pr_subsurfaceAniso (gpu_materials.h). Filled by
     // scene_upload.cu from MaterialClosure::{thinWall,subsurfaceAnisotropy}.
     float thinWallAniso = -8.f;

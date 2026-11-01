@@ -4,9 +4,11 @@ Cycles v5.2.0 (blender/blender tag `v5.2.0`, fetched 2026-10-25):
 
 - `intern/cycles/kernel/svm/closure.h` (Apache-2.0) `CLOSURE_BSDF_MICROFACET_{GGX,BECKMANN,MULTI_GGX}_GLASS_ID`
   :779-840 loads `thin_film_thickness` / `thin_film_ior` into `fresnel->thin_film` of the same
-  `FresnelGeneralizedSchlick` the Principled thick-glass transmission builds (:362-423); back faces use
-  `thinfilm_ior / ior` (:827) == Principled `adjust_thin_film_ior_at_backface` (:400-403). Reflection and
-  transmission tints are both `Color` (#1038).
+  `FresnelGeneralizedSchlick` struct the Principled thick-glass transmission builds (:362-423), filled
+  differently (#1200): f0 = F0_from_ior(ior) untinted, reflection and transmission tints both `Color`
+  (:816-822; Principled: f0 = F0 x specular_tint, reflection tint 1). Back faces use `thinfilm_ior / ior`
+  (:827) == Principled `adjust_thin_film_ior_at_backface` (:400-403). With a film the F0 rescale
+  (bsdf_microfacet.h:290-295) is then the identity, so R = F_irid x Color, T = (1 - F_irid) x Color.
 - `intern/cycles/kernel/closure/bsdf_microfacet.h` (BSD-3-Clause) `bsdf_microfacet_sample` :795-917: a
   singular (smooth) lobe still calls `microfacet_fresnel` (:335, thin-film branch :361-375), so smooth glass
   gets the film; `pdf_reflect = avg(R)/avg(R+T)`.
@@ -21,8 +23,9 @@ on both backends.
 ## #1162 - smooth (delta) glass gets the film
 
 Same Cycles v5.2.0 source. `bsdf_microfacet_sample` :795-917 with `m_singular` (H = N): `microfacet_fresnel`
-(:840) runs the thin-film branch, `pdf_reflect = avg(R)/avg(R+T)` (:847), eval = R or T (:865-879), R = F,
-T = (1-F)*sqrt(base_color), f0 = F0(ior)*specular_tint (`generalized_schlick_setup` :111-124).
+(:840) runs the thin-film branch, `pdf_reflect = avg(R)/avg(R+T)` (:847), eval = R or T (:865-879). For the
+Principled BSDF R = F, T = (1-F)*sqrt(base_color), f0 = F0(ior)*specular_tint (`generalized_schlick_setup`
+:111-124); for the Glass BSDF f0 = F0(ior), R = F*Color, T = (1-F)*Color (#1200; the addon's `glass_bsdf`).
 
 Astroray (CPU `principled.cpp` `sampleLobeDir` delta block + `deltaFilmF`/`deltaFilmFSpectral`; GPU twin
 `gpu_pr_chooseAndSampleDir` + `gpu_principled_sample` + `gpu_material_sample_spectral`): pR = the existing

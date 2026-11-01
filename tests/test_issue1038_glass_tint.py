@@ -89,7 +89,7 @@ def _fresnel0(ior):
 def test_glass_sphere_centre_matches_cycles_tint_series(monkeypatch):
     _, base, params = _glass_create_args(monkeypatch, COLOR)
     params = {k: v for k, v in params.items()
-              if k in ("transmission_weight", "ior", "roughness", "specular_tint")}
+              if k in ("transmission_weight", "ior", "roughness", "specular_tint", "glass_bsdf")}
     r = astroray.Renderer()
     r.set_background_color([1.0, 1.0, 1.0])
     r.set_integrator("path_tracer")

@@ -1679,6 +1679,41 @@ __device__ inline bool gpu_pr_thinWall(const GPrincipledClosure& c) {
 __device__ inline float gpu_pr_subsurfaceAniso(const GPrincipledClosure& c) {
     return c.thinWallAniso > -2.f ? c.thinWallAniso : 0.f;
 }
+// #1200: Glass BSDF Fresnel tints (thinWallAniso -16 sentinel, scene_upload.cu). Twin of
+// principled.cpp glassF0Tint / glassReflTint / glassTint: Cycles v5.2.0 svm/closure.h:816-822
+// (Glass: f0 = F0, reflection_tint = transmission_tint = Color = specular_tint here) vs
+// :404-409 (Principled: f0 = F0 x specular_tint, reflection_tint 1).
+__device__ inline bool gpu_pr_glassBsdf(const GPrincipledClosure& c) {
+    return c.thinWallAniso < -12.f;
+}
+__device__ inline GVec3 gpu_pr_glassF0Tint(const GPrincipledClosure& c) {
+    return gpu_pr_glassBsdf(c) ? GVec3(1.f) : c.specularTint;
+}
+__device__ inline GVec3 gpu_pr_glassReflTint(const GPrincipledClosure& c) {
+    return gpu_pr_glassBsdf(c) ? c.specularTint : GVec3(1.f);
+}
+// Tinted Principled glass colour (ggxglass::schlickGlassTint per channel). Out of line with
+// value args (the pkg224 pattern): the register-saturated shade kernels pay only a not-taken call.
+__device__ __noinline__ inline GVec3 gpu_pr_schlickGlassTint(GVec3 tint, GVec3 color, float ior,
+                                                             float F, bool transmit) {
+    GVec3 tt = gpu_pr_sqrtColor(color);
+    float F0 = gpu_pr_F0_from_ior(ior);
+    return GVec3(astroray::ggxglass::schlickGlassTint(tint.x, tt.x, F0, F, transmit),
+                 astroray::ggxglass::schlickGlassTint(tint.y, tt.y, F0, F, transmit),
+                 astroray::ggxglass::schlickGlassTint(tint.z, tt.z, F0, F, transmit));
+}
+// True for tinted Principled glass, whose non-film colour depends on F (else it is the
+// constant tint: R = F x reflection_tint exactly when f0 = F0).
+__device__ inline bool gpu_pr_glassTintVaries(const GPrincipledClosure& c) {
+    return !gpu_pr_glassBsdf(c) &&
+           !(c.specularTint.x == 1.f && c.specularTint.y == 1.f && c.specularTint.z == 1.f);
+}
+// Non-film glass colour relative to the plain dielectric F: R / F or T / (1 - F).
+__device__ inline GVec3 gpu_pr_glassTint(const GPrincipledClosure& c, bool transmit, float F,
+                                         float ior) {
+    if (!gpu_pr_glassTintVaries(c)) return transmit ? gpu_pr_sqrtColor(c.color) : c.specularTint;
+    return gpu_pr_schlickGlassTint(c.specularTint, c.color, ior, F, transmit);
+}
 // Kulla-Conty roughened alpha for the mirrored-transmission lobe (the slide's 3.7
 // is a typo for 3.4; Cycles bsdf_thin_glass_transmission_roughness :1307). `alpha`
 // = GGX alpha (roughness²).
@@ -2358,14 +2393,17 @@ __device__ inline bool gpu_pr_glassHalfVector(const GPrincipledLobe& L, const GH
 __device__ inline float gpu_pr_glassReflectProb(const GPrincipledClosure& c, const GPrincipledLobe& L,
                                                 bool entering, float cosHO, float F) {
     GVec3 tt = gpu_pr_sqrtColor(c.color);
-    if (!gpu_pr_filmActive(c))
-        return astroray::ggxglass::reflectProb(
-            F, (c.specularTint.x + c.specularTint.y + c.specularTint.z) / 3.f, (tt.x + tt.y + tt.z) / 3.f);
+    if (!gpu_pr_filmActive(c)) {
+        GVec3 rt = gpu_pr_glassTint(c, false, F, L.ior);  // #1200
+        tt = gpu_pr_glassTint(c, true, F, L.ior);
+        return astroray::ggxglass::reflectProb(F, (rt.x + rt.y + rt.z) / 3.f, (tt.x + tt.y + tt.z) / 3.f);
+    }
     float etap = entering ? L.ior : (1.f / L.ior);
     float filmIor = entering ? c.thinFilmIor : c.thinFilmIor / L.ior;
-    GVec3 R = gpu_pr_thinFilmF0RescaleRGB(gpu_pr_thinFilmFresnelRGB(c, cosHO, etap, filmIor),
-                                          GVec3(gpu_pr_F0_from_ior(etap)) * c.specularTint, etap);
-    GVec3 T = gvec3_max((GVec3(1.f) - R) * tt, GVec3(0.f));
+    GVec3 Fr = gpu_pr_thinFilmF0RescaleRGB(gpu_pr_thinFilmFresnelRGB(c, cosHO, etap, filmIor),
+                                           GVec3(gpu_pr_F0_from_ior(etap)) * gpu_pr_glassF0Tint(c), etap);
+    GVec3 R = Fr * gpu_pr_glassReflTint(c);  // #1200
+    GVec3 T = gvec3_max((GVec3(1.f) - Fr) * tt, GVec3(0.f));
     float r = R.x + R.y + R.z, s = r + T.x + T.y + T.z;
     return (s > 0.f) ? r / s : F;
 }
@@ -2390,22 +2428,26 @@ __device__ inline GVec3 gpu_pr_deltaFilmRGB(float thickness, float filmIorIn, GV
     return gpu_pr_thinFilmF0RescaleRGB(F, GVec3(gpu_pr_F0_from_ior(etap)) * tint, etap);
 }
 // gpu_pr_glassReflectProb's film branch at H = N (same arithmetic as the CPU glassReflectProb).
+// #1200: glass = Glass BSDF (gpu_pr_glassBsdf): f0 = F0 (no rescale), R x tint (= Color).
 __device__ __noinline__ inline float gpu_pr_deltaFilmReflectProb(float thickness, float filmIor,
                                                                  GVec3 tint, GVec3 color, float ior,
-                                                                 bool entering, float cosI, float F) {
-    GVec3 R = gpu_pr_deltaFilmRGB(thickness, filmIor, tint, ior, entering, cosI);
-    GVec3 T = gvec3_max((GVec3(1.f) - R) * gpu_pr_sqrtColor(color), GVec3(0.f));
+                                                                 bool entering, float cosI, float F,
+                                                                 bool glass) {
+    GVec3 Fr = gpu_pr_deltaFilmRGB(thickness, filmIor, glass ? GVec3(1.f) : tint, ior, entering, cosI);
+    GVec3 R = glass ? Fr * tint : Fr;
+    GVec3 T = gvec3_max((GVec3(1.f) - Fr) * gpu_pr_sqrtColor(color), GVec3(0.f));
     float r = R.x + R.y + R.z, s = r + T.x + T.y + T.z;
     return (s > 0.f) ? r / s : F;
 }
 // f = weight*R (reflect) or weight*sqrt(base)*(1-R)*eta^2 (refract); pdf is qj*(pR or 1-pR).
+// #1200: Glass BSDF (glass): R = F x tint (Color), T = (1-F) x sqrt(base) (= Color).
 __device__ __noinline__ inline GVec3 gpu_pr_deltaFilmF(float thickness, float filmIor, GVec3 tint,
                                                        GVec3 color, GVec3 weight, float ior,
                                                        bool entering, float cosI, bool refract,
-                                                       float eta) {
-    GVec3 R = gpu_pr_deltaFilmRGB(thickness, filmIor, tint, ior, entering, cosI);
+                                                       float eta, bool glass) {
+    GVec3 R = gpu_pr_deltaFilmRGB(thickness, filmIor, glass ? GVec3(1.f) : tint, ior, entering, cosI);
     return refract ? weight * gpu_pr_sqrtColor(color) * gvec3_max(GVec3(1.f) - R, GVec3(0.f)) * (eta * eta)
-                   : weight * R;
+                   : (glass ? weight * tint : weight) * R;
 }
 // Per-lambda twin, called by gpu_material_sample_spectral AFTER the sample: fRGB is the
 // RGB weight above (Wc * X_rgb, X = R or (1-R)*eta^2, Wc = weight or weight*sqrt(base));
@@ -2413,11 +2455,12 @@ __device__ __noinline__ inline GVec3 gpu_pr_deltaFilmF(float thickness, float fi
 // U(Wc)(l) * X(l) with analytic-sensitivity R(l) and the upsampled tint, as on the CPU.
 __device__ __noinline__ inline GSampledSpectrum gpu_pr_deltaFilmFSpectral(
         float thickness, float filmIorIn, GVec3 tint, GVec3 fRGB, float ior, bool entering,
-        float cosI, bool refract, float eta, GSampledSpectrum lambdas) {
+        float cosI, bool refract, float eta, GSampledSpectrum lambdas, bool glass) {
     namespace tf = astroray::thinfilm;
     GSampledWavelengths wl;
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) wl.lambda[i] = lambdas[i];
-    GVec3 Rrgb = gpu_pr_deltaFilmRGB(thickness, filmIorIn, tint, ior, entering, cosI);
+    // #1200: Glass BSDF: untinted film F (f0 = F0); Color rides in Wc (weight x tint).
+    GVec3 Rrgb = gpu_pr_deltaFilmRGB(thickness, filmIorIn, glass ? GVec3(1.f) : tint, ior, entering, cosI);
     GVec3 X = refract ? gvec3_max(GVec3(1.f) - Rrgb, GVec3(0.f)) * (eta * eta) : Rrgb;
     GVec3 rgb;
     for (int ch = 0; ch < 3; ++ch)
@@ -2432,7 +2475,7 @@ __device__ __noinline__ inline GSampledSpectrum gpu_pr_deltaFilmFSpectral(
         R[i] = tf::fresnelIridescenceChannel<false>(1.f, thickness, filmIor, etap, 0.f, -1.f, cosI,
                                                     nullptr, S);
     }
-    if (F0real > 1e-5f) {
+    if (F0real > 1e-5f && !glass) {
         GSampledSpectrum tintSpec = gpu_rgbToSampledSpectrum(tint, wl, GSPEC_RGB_ALBEDO);
         for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i)
             R[i] = gpu_pr_thinFilmF0RescaleChannel(R[i], F0real * tintSpec[i], F0real);
@@ -2489,7 +2532,7 @@ __device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, con
         gpu_pr_glassEnergy(c, L, etap, cosO, dark, eScale);
         float scalar = ss.value * (transmit ? 1.f - F : F) * eScale;
         if (!(scalar > 0.f)) return GVec3(0.f);
-        GVec3 tint = transmit ? gpu_pr_sqrtColor(c.color) : c.specularTint;
+        GVec3 tint = gpu_pr_glassTint(c, transmit, F, L.ior);  // #1200
         // #1120: the split colour carries NO lobe weight (twin of principled.cpp
         // multiGgxGlass); the spectral caller applies L.weightSpec per lambda.
         if (outColour) { *outColour = tint * dark; *outScalar = scalar; }
@@ -2513,10 +2556,11 @@ __device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, con
         // via the F0-rescale, not a post-multiply).
         float etapR = entering ? L.ior : (1.f / L.ior);
         float filmIor = entering ? c.thinFilmIor : c.thinFilmIor / L.ior;
+        // #1200: Glass BSDF: f0 = F0 (identity rescale), Color post-multiplied.
         GVec3 F = gpu_pr_thinFilmFresnelRGB(c, HdotO, etapR, filmIor);
-        F = gpu_pr_thinFilmF0RescaleRGB(F, GVec3(gpu_pr_F0_from_ior(etapR)) * c.specularTint, etapR);
+        F = gpu_pr_thinFilmF0RescaleRGB(F, GVec3(gpu_pr_F0_from_ior(etapR)) * gpu_pr_glassF0Tint(c), etapR);
         float geom = D * G / (4.f * cosO * cosI + 1e-8f) * cosI;
-        return L.weight * F * filmDark * (geom * filmScale);
+        return L.weight * gpu_pr_glassReflTint(c) * F * filmDark * (geom * filmScale);
     }
     if (cosI >= 0.f) return GVec3(0.f);
     float etap = entering ? L.ior : (1.f / L.ior);
@@ -2530,7 +2574,7 @@ __device__ inline GVec3 gpu_pr_transmissionEval(const GPrincipledClosure& c, con
     // same iridescence F; film IOR backface-adjusted (÷bulk IOR).
     float filmIor = entering ? c.thinFilmIor : c.thinFilmIor / L.ior;
     GVec3 Fv = gpu_pr_thinFilmFresnelRGB(c, fabsf(wo.dot(wm)), etap, filmIor);
-    Fv = gpu_pr_thinFilmF0RescaleRGB(Fv, GVec3(gpu_pr_F0_from_ior(etap)) * c.specularTint, etap);
+    Fv = gpu_pr_thinFilmF0RescaleRGB(Fv, GVec3(gpu_pr_F0_from_ior(etap)) * gpu_pr_glassF0Tint(c), etap);  // #1200
     float den = wi.dot(wm) + wo.dot(wm) / etap;
     den = den * den * cosI * cosO;
     float ft = D * G * fabsf(wi.dot(wm) * wo.dot(wm) / (den + 1e-10f));
@@ -2573,6 +2617,7 @@ __device__ inline GSampledSpectrum gpu_pr_transmissionEvalSpectral(
     // pkg194 Item 1: per-λ layering weight (baseColor upsampled separately below).
     const GSampledSpectrum& wSpec = L.weightSpec;
     GSampledSpectrum tintSpec = gpu_rgbToSampledSpectrum(c.specularTint, wl, GSPEC_RGB_ALBEDO);
+    const bool glass = gpu_pr_glassBsdf(c);  // #1200
     // Cycles MULTI_GGX energy terms (twin of principled.cpp transmissionEvalSpectral):
     // achromatic energy_scale and per-λ darkening of Fss(λ) = upsampled sqrt(base_color).
     if (cosO <= 0.f) return GSampledSpectrum(0.f);
@@ -2597,9 +2642,11 @@ __device__ inline GSampledSpectrum gpu_pr_transmissionEvalSpectral(
         GSampledSpectrum F = gpu_pr_thinFilmFresnelSpectral(c, HdotO, etap, filmIor, wl);
         GSampledSpectrum out(0.f);
         for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
-            float Fi = (F0real > 1e-5f)
+            // #1200: Glass BSDF: f0 = F0 (no rescale), Color post-multiplied.
+            float Fi = (F0real > 1e-5f && !glass)
                            ? gpu_pr_thinFilmF0RescaleChannel(F[i], F0real * tintSpec[i], F0real)
                            : F[i];
+            if (glass) Fi *= tintSpec[i];
             out[i] = wSpec[i] * Fi * filmDark[i] * (geom * filmScale);
         }
         return out;
@@ -2620,7 +2667,7 @@ __device__ inline GSampledSpectrum gpu_pr_transmissionEvalSpectral(
     GSampledSpectrum baseSpec = gpu_rgbToSampledSpectrum(gpu_pr_sqrtColor(c.color), wl, GSPEC_RGB_ALBEDO);
     GSampledSpectrum out(0.f);
     for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) {
-        float Fi = (F0real > 1e-5f)
+        float Fi = (F0real > 1e-5f && !glass)  // #1200
                        ? gpu_pr_thinFilmF0RescaleChannel(F[i], F0real * tintSpec[i], F0real)
                        : F[i];
         float v = wSpec[i] * baseSpec[i] * (1.f - Fi) * filmDark[i] * scale;
@@ -3068,7 +3115,8 @@ __device__ inline GPrincipledDir gpu_pr_chooseAndSampleDir(const GPrincipledClos
     // (bsdf_microfacet.h:840-847). Only delta lobes reach here on the GPU.
     if (gpu_pr_filmActive(c))
         fresnel = gpu_pr_deltaFilmReflectProb(c.thinFilmThickness, c.thinFilmIor, c.specularTint,
-                                              c.color, L.ior, rec.frontFace, cosTheta, fresnel);
+                                              c.color, L.ior, rec.frontFace, cosTheta, fresnel,
+                                              gpu_pr_glassBsdf(c));
     ds.isDelta = true;
     if (cannotRefract || gpu_rng_uniform(rng) < fresnel) {
         ds.wi = nn * (2.f * wo.dot(nn)) - wo;
@@ -3132,12 +3180,13 @@ __device__ inline GBSDFSample gpu_principled_sample(const GPrincipledClosure& c,
             // The spectral wrapper re-weights it per lambda (gpu_pr_deltaFilmFSpectral).
             s.f = gpu_pr_deltaFilmF(c.thinFilmThickness, c.thinFilmIor, c.specularTint, c.color,
                                     L.weight, L.ior, rec.frontFace, fabsf(wo.dot(rec.normal)),
-                                    ds.deltaRefract, ds.eta);
+                                    ds.deltaRefract, ds.eta, gpu_pr_glassBsdf(c));
         }
-        else if (ds.deltaRefract)
-            s.f = L.weight * gpu_pr_sqrtColor(c.color) * (ds.eta * ds.eta * ds.pdfInternal);
-        else
-            s.f = L.weight * c.specularTint * ds.pdfInternal;
+        else if (ds.deltaRefract)  // #1200: pdfInternal = 1 - F
+            s.f = L.weight * gpu_pr_glassTint(c, true, 1.f - ds.pdfInternal, L.ior) *
+                  (ds.eta * ds.eta * ds.pdfInternal);
+        else  // pdfInternal = F (1 under total internal reflection)
+            s.f = L.weight * gpu_pr_glassTint(c, false, ds.pdfInternal, L.ior) * ds.pdfInternal;
         s.pdf = qj * ds.pdfInternal;
         s.isDelta = true;
         rec.isDelta = true;
@@ -3742,7 +3791,8 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
             for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) lambdas[i] = wl.lambda[i];
             s.fSpectral = gpu_pr_deltaFilmFSpectral(c.thinFilmThickness, c.thinFilmIor, c.specularTint,
                                                     s.f, ior, rec.frontFace, fabsf(cosO), refract,
-                                                    rec.frontFace ? 1.f / ior : ior, lambdas);
+                                                    rec.frontFace ? 1.f / ior : ior, lambdas,
+                                                    gpu_pr_glassBsdf(c));
             return s;
         }
     }
@@ -3757,8 +3807,17 @@ __device__ inline GBSDFSample gpu_material_sample_spectral(
             bool refract = (s.wi.dot(rec.normal) > 0.f) != (wo.dot(rec.normal) > 0.f);
             GSampledSpectrum lambdas;
             for (int i = 0; i < G_SPECTRUM_SAMPLES; ++i) lambdas[i] = wl.lambda[i];
-            s.fSpectral = gpu_pr_deltaGlassFSpectral(
-                refract ? gpu_pr_sqrtColor(c.color) : c.specularTint, s.f, lambdas);
+            // #1200: the tint gpu_principled_sample used; a tinted Principled glass recomputes
+            // its F at the same angle (gpu_pr_chooseAndSampleDir: |wo.N|, side-aware).
+            GVec3 tint = refract ? gpu_pr_sqrtColor(c.color) : c.specularTint;
+            if (gpu_pr_glassTintVaries(c)) {
+                float ior = mat.isDispersive
+                    ? gpu_cauchy_ior(mat.dispersion.b1, mat.dispersion.b2, wl.lambda[0]) : c.ior;
+                float F = rec.frontFace ? gpu_pr_fresnelDielectric(fabsf(wo.dot(rec.normal)), 1.f, ior)
+                                        : gpu_pr_fresnelDielectric(fabsf(wo.dot(rec.normal)), ior, 1.f);
+                tint = gpu_pr_schlickGlassTint(c.specularTint, c.color, ior, F, refract);
+            }
+            s.fSpectral = gpu_pr_deltaGlassFSpectral(tint, s.f, lambdas);
             return s;
         }
     }

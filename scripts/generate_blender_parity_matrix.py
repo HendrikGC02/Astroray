@@ -3091,6 +3091,14 @@ PARTIAL_HANDLING_CAPS = {
         'silently (setup_world `volume_node.type in {...}`)'),
     ('BACKGROUND', 'input:Color'): (
         'a linked chain _get_socket_color cannot evaluate falls back to white silently (setup_world)'),
+    # pkg328 Phase 2 blind review (2026-11-01): the active output only filters Background nodes, and only when Surface
+    # is linked straight to a Background.
+    ('OUTPUT_WORLD', 'input:Surface'): (
+        'only a Background linked directly to Surface is selected; an unlinked or Mix/Add/Emission Surface still uses '
+        'every Background, and Environment / Sky textures are never filtered by the active output (setup_world)'),
+    ('OUTPUT_WORLD', 'prop:is_active_output'): (
+        'only Background nodes are filtered by the active output; Environment / Sky textures in an inactive output '
+        'tree still render (setup_world)'),
 }
 
 
@@ -3136,9 +3144,16 @@ PKG321_PROBE_CREDITS = {
     ('ShaderNodeTexSky', 'prop:altitude'): ('s_altitude', 'APPROXIMATED'),
     ('ShaderNodeTexSky', 'prop:sun_intensity'): ('s_sun_intensity', 'APPROXIMATED'),
     ('ShaderNodeTexSky', 'prop:sun_size'): ('s_sun_size', 'APPROXIMATED'),
-    # pkg328 (#1088): a World Environment Texture's Vector is read through the world Mapping (rotation baked into the
-    # env lookup; Mapping Location / Scale are reported as dropped), so it is approximated, not exact.
+    # pkg328 (#1088): setup_world never reads the Vector socket; the Rotation of ANY Mapping node in the world tree is baked
+    # into the env lookup (Mapping Location / Scale are reported as dropped), so a linked Mapping is honoured and anything
+    # else is not: approximated, not exact.
     ('ShaderNodeTexEnvironment', 'input:Vector'): ('env_vector', 'APPROXIMATED'),
+}
+PKG328_PROBE_NOTES = {
+    ('ShaderNodeTexEnvironment', 'input:Vector'): (
+        'pkg328 probe `env_vector`: the Rotation of a Mapping node in the world tree moves the CPU render and matches Cycles; '
+        'the socket itself is never read, so a Vector linked to anything else (Vector Rotate / Math, Object coords) is '
+        'dropped without a warning'),
 }
 # pkg328: Cycles ignores these too -- the Cycles leg of the probe (PKG328_ENGINE=CYCLES) renders bit-identically for
 # A and B, and so does Astroray, so the socket is faithfully "consumed as nothing". Evidence: docs/blender_parity/
@@ -3203,7 +3218,7 @@ def _apply_pkg321_probe_audit(matrix_rows):
         key = (row['bl_idname'], row['socket_or_prop'])
         if key in PKG321_PROBE_CREDITS:
             probe, cls = PKG321_PROBE_CREDITS[key]
-            row['classification'], row['notes'] = cls, _P321 % probe
+            row['classification'], row['notes'] = cls, PKG328_PROBE_NOTES.get(key) or _P321 % probe
         elif key in PKG328_CYCLES_IGNORED:
             probe, cls = PKG328_CYCLES_IGNORED[key]
             row['classification'] = cls

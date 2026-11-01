@@ -395,7 +395,6 @@ def test_frozen_metric_and_other_rows_unchanged():
         "a": ("viewport_latency", {"gpu_p95_ms": {"max": 100.0}, "gpu_p99_ms": {"max": 150.0},
                                    "cancel_p95_ms": {"max": 200.0}, "cancel_p99_ms": {"max": 300.0},
                                    "stale_frames_after_ack": {"max": 0}}),
-        "b": ("coverage_report", {"cpu_score": {"min": 0.95}, "gpu_score": {"min": 0.95}}),
         "d": ("native_panel_smoke", {"mean_rel_error_max": {"max": 0.02}, "detail_preservation_min": {"min": 0.95}}),
         "e": ("issue_triage", {"high_count": {"max": 0}}),
         "f": ("clean_install", {}),
@@ -403,3 +402,6 @@ def test_frozen_metric_and_other_rows_unchanged():
                                         "cpu_silent_pairs": {"max": 0}, "gpu_silent_pairs": {"max": 0}}),
     }
     assert {r: (GM.ROW_SPEC[r]["instrument"], GM.ROW_SPEC[r]["threshold"]) for r in pinned} == pinned
+    # pkg328 Phase 2 (owner 2026-10-31): row (b)'s 0.95 is retired; the bound is read from threshold_b.json
+    assert GM.ROW_SPEC["b"]["instrument"] == "coverage_report"
+    assert GM.ROW_SPEC["b"]["threshold"] == GM._row_b_threshold()

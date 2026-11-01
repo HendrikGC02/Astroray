@@ -96,7 +96,7 @@ ROW_SPEC: dict[str, dict[str, Any]] = {
         "required_dimensions": ("backend", "variant"),
         "required_backends": ("CPU", "GPU"),
         "min_scenes": 1,
-        "threshold": {"cpu_score": {"min": 0.95}, "gpu_score": {"min": 0.95}},
+        "threshold": {"cpu_score": {"min": 1.0}, "gpu_score": {"min": 1.0}},  # replaced at import by _row_b_threshold()
         "required_subchecks": (
             "b1_input_manifest_ratified", "b2_cpu_score", "b3_gpu_score",
             "b4_zero_silent_drops", "b5_named_node_checks", "b6_nonzero_links_evidence",
@@ -775,9 +775,8 @@ def _validate_b(records: list[Any], _base: Path) -> tuple[list[str], dict[str, A
         claimed = json.loads(paths["report"].read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         return [f"row b canonical artifact is not JSON: {exc}"], {}, {}
-    if not isinstance(frozen, Mapping) or frozen.get("schema") not in (
-            "pkg278.coverage_input_manifest.v3", "pkg278.coverage_input_manifest.v4"):
-        return ["row b requires a v3 or v4 frozen coverage input"], {}, {}
+    if not isinstance(frozen, Mapping) or frozen.get("schema") not in COVERAGE_INPUT_SCHEMAS:
+        return ["row b requires a v3, v4 or v5 frozen coverage input"], {}, {}
     if frozen.get("schema") == "pkg278.coverage_input_manifest.v4" and (
             frozen.get("evidence", {}).get("runner_case_map", {}).get("status") != "ready"):
         return ["row b v4 frozen case map must be ready"], {}, {}
@@ -785,8 +784,8 @@ def _validate_b(records: list[Any], _base: Path) -> tuple[list[str], dict[str, A
         return ["row b input artifact is not the frozen canonical input_path"], {}, {}
     if paths["matrix"].resolve() != (REPO_ROOT / str(frozen.get("matrix", {}).get("path") or "")).resolve():
         return ["row b matrix artifact is not the frozen canonical matrix path"], {}, {}
-    if not isinstance(claimed, Mapping) or claimed.get("schema") != "pkg278.coverage_report.v1":
-        return ["row b requires a canonical coverage_report.v1 artifact"], {}, {}
+    if not isinstance(claimed, Mapping) or claimed.get("schema") not in ("pkg278.coverage_report.v1", "pkg278.coverage_report.v2"):
+        return ["row b requires a canonical coverage_report.v1 or v2 artifact"], {}, {}
     try:
         recomputed = _coverage_reducer().build_report(frozen, snapshot, matrix, REPO_ROOT)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
@@ -803,6 +802,21 @@ def _validate_b(records: list[Any], _base: Path) -> tuple[list[str], dict[str, A
         errors.append(f"row b canonical coverage report status is {recomputed.get('status')!r}, not 'green'")
     return errors, value, dict(subchecks)
 
+
+COVERAGE_INPUT_SCHEMAS = ("pkg278.coverage_input_manifest.v3", "pkg278.coverage_input_manifest.v4",
+                          "pkg278.coverage_input_manifest.v5")
+
+
+def _row_b_threshold() -> dict[str, dict[str, float]]:
+    """Row (b) bounds from the owner-signed threshold file (owner 2026-10-31 retired the fixed 0.95).  While it is
+    unsigned the bound shows the PROPOSED number (1.0 if none) and b2/b3 fail anyway, so the row stays red."""
+    t = _coverage_reducer().load_b_threshold(REPO_ROOT)
+    pick = {b: (t["min"][b] if t["signed"] else (t["proposed"][b] if t["proposed"][b] is not None else 1.0))
+            for b in ("CPU", "GPU")}
+    return {"cpu_score": {"min": pick["CPU"]}, "gpu_score": {"min": pick["GPU"]}}
+
+
+ROW_SPEC["b"]["threshold"] = _row_b_threshold()
 
 PRODUCTION_MATERIALS = 8  # pkg310 corpus size ("N/8")
 
@@ -1379,9 +1393,8 @@ def adapt_b_instrument(report_path: Path, input_path: Path, snapshot_path: Path,
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
     matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
     claimed = json.loads(report_path.read_text(encoding="utf-8"))
-    if not isinstance(frozen, Mapping) or frozen.get("schema") not in (
-            "pkg278.coverage_input_manifest.v3", "pkg278.coverage_input_manifest.v4"):
-        raise ValueError("row-b adapter requires coverage_input_v3.json or coverage_input_v4.json")
+    if not isinstance(frozen, Mapping) or frozen.get("schema") not in COVERAGE_INPUT_SCHEMAS:
+        raise ValueError("row-b adapter requires coverage_input_v3.json, v4 or v5")
     if frozen.get("schema") == "pkg278.coverage_input_manifest.v4" and (
             frozen.get("evidence", {}).get("runner_case_map", {}).get("status") != "ready"):
         raise ValueError("row-b v4 frozen case map must be ready")
@@ -1391,7 +1404,10 @@ def adapt_b_instrument(report_path: Path, input_path: Path, snapshot_path: Path,
     recomputed = _coverage_reducer().build_report(frozen, snapshot, matrix, REPO_ROOT)
     if claimed != recomputed:
         raise ValueError("coverage report differs from canonical build_report recomputation")
-    build = frozen.get("evidence", {}).get("runner_case_map", {}).get("candidate_build", {})
+    if frozen.get("schema") == "pkg278.coverage_input_manifest.v5":
+        build = (recomputed.get("audit") or {}).get("build", {}).get("CPU", {})  # CPU and GPU legs are one build
+    else:
+        build = frozen.get("evidence", {}).get("runner_case_map", {}).get("candidate_build", {})
     build_id = build.get("build_id") if isinstance(build, Mapping) else None
     if not isinstance(build_id, str) or not build_id:
         raise ValueError("row-b frozen case map has no candidate build identity")
@@ -1405,7 +1421,7 @@ def adapt_b_instrument(report_path: Path, input_path: Path, snapshot_path: Path,
             "settings": {"source": "canonical_coverage_reducer"}, "metric": {"source": "build_report"},
             "value": {"cpu_score": recomputed.get("cpu", {}).get("score"),
                       "gpu_score": recomputed.get("gpu", {}).get("score")},
-            "threshold": {"cpu_score": .95, "gpu_score": .95}, "dimensions": {"backend": "CPU+GPU", "variant": "frozen-ledger"},
+            "threshold": {k: v["min"] for k, v in ROW_SPEC["b"]["threshold"].items()}, "dimensions": {"backend": "CPU+GPU", "variant": "frozen-ledger"},
             "subchecks": dict(recomputed.get("subchecks") or {}),
             "scanner_issue_823": frozen.get("scanner_issue_823"), "records": [record]}
 

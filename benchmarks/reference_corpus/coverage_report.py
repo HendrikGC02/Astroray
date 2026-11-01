@@ -94,7 +94,7 @@ WEIGHT_CAP = 3              # distinct corpus scenes per socket, capped at 3
 SCORE_SUPPORTED = 1.0
 SCORE_APPROXIMATION = 0.5
 SCORE_UNPROVEN = 0.0
-SCORE_MIN = 0.95            # EACH backend must pass 95 % separately
+SCORE_MIN = 0.95            # RETIRED (owner 2026-10-31): fixture/self-test default only; real runs read THRESHOLD_PATH
 REQUIRED_SCANNER_ISSUE = 823
 SCANNER_SOURCE_PATH = "scripts/generate_blender_parity_matrix.py"
 SCANNER_PROOF_SCHEMA = "pkg278.scanner_integration_proof.v1"
@@ -106,6 +106,20 @@ ORIGINAL_POPULATION_LABEL = "~50 scenes"
 INPUT_MANIFEST_SCHEMA = "pkg278.coverage_input_manifest.v2"
 INPUT_MANIFEST_SCHEMA_V3 = "pkg278.coverage_input_manifest.v3"
 INPUT_MANIFEST_SCHEMA_V4 = "pkg278.coverage_input_manifest.v4"
+# pkg328 Phase 2 (owner 2026-10-31): credit = the static matrix per identity, audited by a sampled witness set
+# judged by mc_compare.welch_verdict (Welch-1b).  v5 inputs carry the pinned sample + results instead of a case map.
+INPUT_MANIFEST_SCHEMA_V5 = "pkg278.coverage_input_manifest.v5"
+REPORT_SCHEMA = "pkg278.coverage_report.v1"
+REPORT_SCHEMA_V2 = "pkg278.coverage_report.v2"
+SCORER_VERSION = 2
+AUDIT_STATUSES = ("PASS", "FAIL", "NO-EFFECT", "ERROR")
+AUDIT_SAMPLE_SCHEMA = "pkg328.audit_sample.v1"
+AUDIT_RESULTS_SCHEMA = "pkg328.audit_results.v1"
+AUDIT_WELCH = {"alpha": 0.05, "tile": 8, "delta_rel": 0.01}   # row (c)'s Welch-1b (gate_manifest.GATE_C_WELCH)
+AUDIT_SAMPLE_PATH = "benchmarks/reference_corpus/audit_sample_candidate_v2.json"
+AUDIT_RESULTS_PATH = "docs/blender_parity/evidence/gate_b/candidate_v2/audit_results.json"
+THRESHOLD_PATH = "docs/blender_parity/evidence/gate_b/threshold_b.json"
+THRESHOLD_SCHEMA = "pkg328.gate_b_threshold.v1"
 NODE_USES_SCHEMA = "pkg278.node_uses.v1"
 EVIDENCE_SCHEMA = "pkg278.gate_b.evidence.v2"
 VERDICT_SCHEMA = "pkg278.gate_b.verdict.v1"
@@ -1040,12 +1054,91 @@ def _named_node_checks(uses: Mapping[str, set[str]], matrix: Mapping[str, str],
     return checks
 
 
+def _number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def load_b_threshold(repo_root: Path | None, ceilings: Mapping[str, float | None] | None = None) -> dict[str, Any]:
+    """The owner-signed row (b) threshold (pkg328).  ``signed`` is False until the owner records a number in the PR; an
+    unsigned, unreadable or invalid file keeps b2/b3 red and ``reason`` says why.  ``min`` is None while unsigned.
+
+    A threshold counts as signed only when: ``owner`` is a non-empty string; ``cpu``/``gpu`` are numbers with
+    0 < value <= that backend's measured ceiling; ``pr`` is an int and ``date`` a non-empty string; and the file is
+    byte-identical to its committed version at HEAD.  ``ceilings`` are the matrix ceilings per backend; without them
+    (display callers only) ``ceiling_checked`` is False and ``_score_subcheck`` refuses to pass."""
+    out: dict[str, Any] = {"signed": False, "reason": "", "ceiling_checked": ceilings is not None,
+                           "min": {"CPU": None, "GPU": None}, "proposed": {"CPU": None, "GPU": None}}
+    if repo_root is None:
+        out["reason"] = "no repository root"
+        return out
+    path = Path(repo_root) / THRESHOLD_PATH
+    try:
+        raw = path.read_bytes()
+        data = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError):
+        out["reason"] = "threshold file missing or unreadable"
+        return out
+    if not isinstance(data, Mapping) or data.get("schema") != THRESHOLD_SCHEMA:
+        out["reason"] = "threshold file has the wrong schema"
+        return out
+    for key, backend in (("cpu", "CPU"), ("gpu", "GPU")):
+        v = (data.get("proposed") or {}).get(key)
+        out["proposed"][backend] = float(v) if _number(v) else None
+    signed = data.get("signed")
+    if not isinstance(signed, Mapping):
+        out["reason"] = "threshold not signed by the owner"
+        return out
+    problems = []
+    if not (isinstance(signed.get("owner"), str) and signed["owner"].strip()):
+        problems.append("owner is not a non-empty string")
+    if not (isinstance(signed.get("pr"), int) and not isinstance(signed.get("pr"), bool)):
+        problems.append("pr is not an integer")
+    if not (isinstance(signed.get("date"), str) and signed["date"].strip()):
+        problems.append("date is missing")
+    for key, backend in (("cpu", "CPU"), ("gpu", "GPU")):
+        v = signed.get(key)
+        if not _number(v) or not v > 0:
+            problems.append(f"{key} is not a positive number")
+        elif ceilings is not None:
+            ceiling = ceilings.get(backend)
+            if not _number(ceiling):
+                problems.append(f"{backend} measured ceiling is unavailable")
+            elif v > ceiling + 1e-12:
+                problems.append(f"{key} {v} exceeds the {backend} measured ceiling {ceiling:.6f}")
+    if not problems:
+        try:
+            relative = path.resolve().relative_to(Path(repo_root).resolve()).as_posix()
+            # "./" resolves against repo_root, not the enclosing repo's top level (CI keeps pytest temp dirs in-tree).
+            head = subprocess.run(["git", "show", f"HEAD:./{relative}"], cwd=repo_root, capture_output=True, check=True).stdout
+            if head != raw:
+                problems.append("threshold file differs from its committed HEAD version")
+        except (OSError, ValueError, subprocess.SubprocessError):
+            problems.append("threshold file is not committed at HEAD")
+    if problems:
+        out["reason"] = "signed threshold rejected: " + "; ".join(problems)
+        return out
+    out.update({"signed": True, "min": {"CPU": float(signed["cpu"]), "GPU": float(signed["gpu"])}})
+    return out
+
+
+def _score_subcheck(score: float | None, backend: str, threshold: Mapping[str, Any] | None) -> dict[str, Any]:
+    """b2/b3.  ``threshold=None`` is the retired fixed 0.95 (fixtures only); otherwise the owner-signed number."""
+    if threshold is None:
+        return {"pass": score is not None and score >= SCORE_MIN, "score": score, "min": SCORE_MIN}
+    minimum = threshold["min"][backend]
+    trusted = bool(threshold["signed"] and threshold.get("ceiling_checked", True))
+    return {"pass": bool(trusted and minimum is not None and score is not None and score >= minimum),
+            "score": score, "min": minimum, "signed": bool(threshold["signed"]),
+            "proposed": threshold["proposed"][backend], "reason": threshold.get("reason", "")}
+
+
 def evaluate_subchecks(uses: Mapping[str, set[str]], matrix: Mapping[str, str],
                        evidence: Mapping[str, Any], repo_root: Path | None,
                        frozen: Mapping[str, Any],
                        cpu: BackendScore, gpu: BackendScore,
                        fixture_mode: bool, hash_locked: bool,
-                       allowed_cases: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
+                       allowed_cases: Mapping[str, Mapping[str, Any]] | None = None,
+                       threshold: Mapping[str, Any] | None = None) -> dict[str, Any]:
     drops = silent_drops(uses, matrix)
     named = _named_node_checks(uses, matrix, evidence, repo_root, fixture_mode, allowed_cases)
     unlinked: list[str] = []
@@ -1060,10 +1153,8 @@ def evaluate_subchecks(uses: Mapping[str, set[str]], matrix: Mapping[str, str],
             "pass": bool(ratified and hash_locked),
             "ratified": ratified, "hash_locked": hash_locked,
         },
-        "b2_cpu_score": {"pass": cpu.score is not None and cpu.score >= SCORE_MIN,
-                         "score": cpu.score, "min": SCORE_MIN},
-        "b3_gpu_score": {"pass": gpu.score is not None and gpu.score >= SCORE_MIN,
-                         "score": gpu.score, "min": SCORE_MIN},
+        "b2_cpu_score": _score_subcheck(cpu.score, "CPU", threshold),
+        "b3_gpu_score": _score_subcheck(gpu.score, "GPU", threshold),
         "b4_zero_silent_drops": {"pass": len(drops) == 0, "drops": drops},
         "b5_named_node_checks": {"pass": all(c["pass"] for c in named.values()), "checks": named},
         "b6_nonzero_links_evidence": {"pass": len(unlinked) == 0, "unlinked": unlinked},
@@ -1535,8 +1626,9 @@ def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
     errors: list[str] = []
     verified: dict[str, Any] = {}
 
-    if frozen.get("schema") not in (INPUT_MANIFEST_SCHEMA, INPUT_MANIFEST_SCHEMA_V3, INPUT_MANIFEST_SCHEMA_V4):
-        return False, ["input manifest schema must be a supported v2, v3, or v4 manifest"], {}
+    if frozen.get("schema") not in (INPUT_MANIFEST_SCHEMA, INPUT_MANIFEST_SCHEMA_V3, INPUT_MANIFEST_SCHEMA_V4,
+                                    INPUT_MANIFEST_SCHEMA_V5):
+        return False, ["input manifest schema must be a supported v2, v3, v4 or v5 manifest"], {}
 
     input_file, input_reason = _repo_relative_path(
         repo_root, frozen.get("input_path", "docs/blender_parity/coverage_input_v2.json"), "frozen input")
@@ -1668,6 +1760,10 @@ def verify_frozen_input(frozen: Mapping[str, Any], repo_root: Path,
                                      if isinstance(case, Mapping) and isinstance(case.get("case_id"), str)}
     else:
         verified["allowed_cases"] = {}
+    if frozen.get("schema") == INPUT_MANIFEST_SCHEMA_V5:
+        audit, audit_errors = load_audit(frozen.get("evidence", {}).get("audit"), repo_root, expected)
+        errors.extend(audit_errors)
+        verified["audit"] = audit
     return (not errors), errors, verified
 
 
@@ -1701,6 +1797,461 @@ def load_production_evidence(sidecar_dir: Path, repo_root: Path) -> tuple[dict[s
         record.setdefault("variant", sidecar.get("variant") or sidecar.get("scene_id"))
         evidence.setdefault(identity, {}).setdefault(backend, []).append(record)
     return evidence, errors
+
+
+# --------------------------------------------------------------------------- #
+# pkg328 Phase 2: audited-matrix scoring (owner 2026-10-31)
+# --------------------------------------------------------------------------- #
+# Credit per identity = the static matrix class (SUPPORTED 1, APPROXIMATED 0.5, else 0): the matrix-only ceiling.
+# An audit sample of witnesses (the candidate_v2 subset of witness_candidates_v5.json plus one Metallic, Principled
+# and Sky witness) is rendered on CPU and GPU against Cycles at N independent seeds and judged ONLY by
+# ``mc_compare.welch_verdict`` (Welch-1b: 8 px tiles, Holm alpha 0.05, bias margin 1 % of the tile mean).  A FAILing
+# witness zeroes every identity it covers on that backend.  A witness whose control shows no effect credits nothing
+# either: FAIL when only Astroray's control is inert (Cycles' moved), NO-EFFECT when the oracle cannot confirm the node
+# matters; both zero the identities they cover.  An ERROR or missing backend leg zeroes them AND makes the report
+# unmeasured (never a pass).  The threshold is the measured ceiling minus a margin, signed by the owner (THRESHOLD_PATH).
+
+def matrix_credit(classification: str) -> float:
+    return {SUPPORTED: SCORE_SUPPORTED, APPROXIMATED: SCORE_APPROXIMATION}.get(classification, SCORE_UNPROVEN)
+
+
+def _pinned_json(ref: Any, repo_root: Path, label: str) -> tuple[Any, str, list[str]]:
+    path, why = _repo_relative_path(repo_root, ref.get("path") if isinstance(ref, Mapping) else None, label)
+    if path is None:
+        return None, "", [why]
+    if not path.is_file():
+        return None, "", [f"{label} file missing: {ref.get('path')}"]
+    digest = _sha256_file(path)
+    if digest != str(ref.get("sha256") or "").lower():
+        return None, digest, [f"{label} hash does not match the frozen input"]
+    try:
+        return json.loads(path.read_text(encoding="utf-8")), digest, []
+    except (OSError, json.JSONDecodeError):
+        return None, digest, [f"{label} is not JSON"]
+
+
+def load_audit(ref: Any, repo_root: Path, expected_scenes: Iterable[str]) -> tuple[dict[str, Any], list[str]]:
+    """Verify the frozen audit sample + results (hash-pinned, bound to each other and to the frozen population)."""
+    if not isinstance(ref, Mapping):
+        return {}, ["v5 input lacks evidence.audit"]
+    sample, sample_sha, errors = _pinned_json(ref.get("sample"), repo_root, "audit sample")
+    results, _results_sha, more = _pinned_json(ref.get("results"), repo_root, "audit results")
+    errors += more
+    if errors:
+        return {}, errors
+    if not isinstance(sample, Mapping) or sample.get("schema") != AUDIT_SAMPLE_SCHEMA or not isinstance(sample.get("witnesses"), list):
+        errors.append("audit sample has the wrong schema")
+    if not isinstance(results, Mapping) or results.get("schema") != AUDIT_RESULTS_SCHEMA or not isinstance(results.get("witnesses"), Mapping):
+        errors.append("audit results have the wrong schema")
+    if errors:
+        return {}, errors
+    if results.get("sample_sha256") != sample_sha:
+        errors.append("audit results are not bound to the frozen audit sample")
+    if results.get("welch") != AUDIT_WELCH:
+        errors.append("audit results were not judged with the frozen Welch-1b parameters")
+    expected = set(expected_scenes)
+    for w in sample["witnesses"]:
+        if w.get("scene_id") not in expected:
+            errors.append(f"audit witness {w.get('id')!r} is not in a frozen scene")
+        if w["id"] not in results["witnesses"]:
+            errors.append(f"audit witness {w.get('id')!r} has no result")
+    errors += _audit_results_consistency(sample, results)
+    return {"sample": sample, "results": results}, errors
+
+
+def _audit_results_consistency(sample: Mapping[str, Any], results: Mapping[str, Any]) -> list[str]:
+    """Cross-check every stored witness leg: known status, status = the rules applied to the stored effect + Welch
+    verdict, and one jackknife verdict per seed.  A missing leg is allowed here (it scores as ERROR, never a pass)."""
+    errors: list[str] = []
+    n_seeds = results.get("n_seeds")
+    if not (isinstance(n_seeds, int) and not isinstance(n_seeds, bool) and n_seeds > 0):
+        errors.append("audit results n_seeds is not a positive integer")
+        return errors
+    if isinstance(sample.get("seeds"), list) and len(sample["seeds"]) != n_seeds:
+        errors.append("audit results n_seeds does not match the frozen sample's seeds")
+    for wid, legs in results["witnesses"].items():
+        for backend in ("CPU", "GPU"):
+            leg = legs.get(backend) if isinstance(legs, Mapping) else None
+            if leg is None:
+                continue
+            tag = f"audit witness {wid!r} [{backend}]"
+            status = leg.get("status") if isinstance(leg, Mapping) else None
+            if status not in AUDIT_STATUSES:
+                errors.append(f"{tag} has unknown status {status!r}")
+                continue
+            if status == "ERROR":
+                continue
+            welch = leg.get("welch")
+            if not isinstance(welch, Mapping) or not isinstance(welch.get("pass"), bool) or not isinstance(leg.get("effect"), Mapping):
+                errors.append(f"{tag} lacks the effect / Welch verdict its status {status} rests on")
+                continue
+            expected = audit_leg_status(leg["effect"], welch["pass"])
+            if status != expected:
+                errors.append(f"{tag} status {status} contradicts its stored effect and Welch verdict ({expected})")
+            jackknife = leg.get("jackknife_pass")
+            if not isinstance(jackknife, list) or len(jackknife) != n_seeds or not all(isinstance(j, bool) for j in jackknife):
+                errors.append(f"{tag} jackknife_pass does not have {n_seeds} boolean entries")
+    return errors
+
+
+def audit_leg_status(effect: Mapping[str, Any], welch_pass: bool) -> str:
+    """One witness leg's status from its control effect in each engine and the Welch-1b verdict.
+
+    Both controls move the image: the verdict decides (PASS/FAIL).  Only Astroray's control is inert while Cycles'
+    moves: FAIL (Astroray ignores a node Cycles honours).  Cycles' control is inert: NO-EFFECT (no oracle; recorded)."""
+    def moved(engine: str) -> bool:
+        leg = effect.get(engine) if isinstance(effect, Mapping) else None
+        return isinstance(leg, Mapping) and leg.get("ok") is True
+    if moved("astroray") and moved("cycles"):
+        return "PASS" if welch_pass else "FAIL"
+    return "FAIL" if moved("cycles") else "NO-EFFECT"
+
+
+def _effects_moved(leg: Mapping[str, Any]) -> bool:
+    return all(isinstance(leg.get("effect", {}).get(e), Mapping) and leg["effect"][e].get("ok") is True
+               for e in ("astroray", "cycles"))
+
+
+def _witness_status(results: Mapping[str, Any], witness_id: str, backend: str, drop_seed: int | None = None) -> str:
+    leg = (results.get("witnesses", {}).get(witness_id) or {}).get(backend) or {}
+    status = str(leg.get("status") or "ERROR")
+    if status not in AUDIT_STATUSES:
+        status = "ERROR"
+    if drop_seed is not None and status in ("PASS", "FAIL") and _effects_moved(leg):  # only the Welch verdict varies by seed
+        jackknife = leg.get("jackknife_pass") or []
+        if drop_seed < len(jackknife):
+            status = "PASS" if jackknife[drop_seed] else "FAIL"
+    return status
+
+
+def audit_zeroed(audit: Mapping[str, Any], backend: str, drop_seed: int | None = None) -> dict[str, list[str]]:
+    """identity -> ids of the witnesses that cover it on ``backend`` and do not PASS (FAIL, NO-EFFECT, ERROR)."""
+    zeroed: dict[str, list[str]] = {}
+    for w in audit["sample"]["witnesses"]:
+        if _witness_status(audit["results"], w["id"], backend, drop_seed) != "PASS":
+            for identity in w["identities"]:
+                zeroed.setdefault(identity, []).append(w["id"])
+    return zeroed
+
+
+def score_audited(ledger: Iterable[Mapping[str, Any]], matrix: Mapping[str, str],
+                  zeroed: Mapping[str, Mapping[str, list[str]]] | None) -> dict[str, BackendScore]:
+    """Weighted S per backend from matrix credit, zeroed where an audit witness failed.  ``zeroed=None`` is the ceiling."""
+    zeroed = zeroed or {"CPU": {}, "GPU": {}}
+    use_scores: list[UseScore] = []
+    for row in ledger:
+        key = str(row["identity"])
+        scenes = sorted(row.get("scene_ids") or [])
+        weight = min(len(scenes), WEIGHT_CAP)
+        credit = matrix_credit(matrix.get(key, ""))
+        per = {}
+        for backend in ("CPU", "GPU"):
+            bad = zeroed[backend].get(key)
+            if bad and credit > 0:
+                per[backend] = (0.0, f"zeroed by non-passing audit witness {sorted(bad)}")
+            else:
+                per[backend] = (credit, "matrix credit" if credit > 0 else "dropped-silent or absent from the matrix")
+        use_scores.append(UseScore(key=key, scenes=scenes, weight=weight, cpu=per["CPU"][0], gpu=per["GPU"][0],
+                                   cpu_reason=per["CPU"][1], gpu_reason=per["GPU"][1]))
+    out = {}
+    for backend in ("CPU", "GPU"):
+        numerator = sum(u.weight * (u.cpu if backend == "CPU" else u.gpu) for u in use_scores)
+        denominator = float(sum(u.weight for u in use_scores))
+        out[backend] = BackendScore(backend=backend, score=(numerator / denominator) if denominator else None,
+                                    numerator=numerator, denominator=denominator, use_scores=use_scores)
+    return out
+
+
+def audit_incomplete(audit: Mapping[str, Any]) -> list[str]:
+    """Witness legs that ERRORed or are missing: the audit is incomplete, so the report cannot be green."""
+    return [f"{w['id']} [{b}]: {(audit['results'].get('witnesses', {}).get(w['id']) or {}).get(b, {}).get('reason') or 'ERROR or missing leg'}"
+            for w in audit["sample"]["witnesses"] for b in ("CPU", "GPU")
+            if _witness_status(audit["results"], w["id"], b) == "ERROR"]
+
+
+def audit_proposal(ledger: list[Mapping[str, Any]], matrix: Mapping[str, str], audit: Mapping[str, Any]) -> dict[str, Any]:
+    """Ceiling, measured S and the PROPOSED (unsigned) threshold per backend.
+
+    margin = seed-to-seed spread of S over the witness legs + one witness's weight, where
+    * spread = max - min over the measured S (all N seeds) and the S recomputed with each of the N seeds dropped in turn
+      (leave-one-seed-out Welch verdicts), so a witness that fails at N seeds but passes every (N-1)-subset still counts;
+    * one witness's weight = the largest share of the denominator any single witness would zero on its own.
+    """
+    ceiling = score_audited(ledger, matrix, None)
+    seeds = int(audit["results"].get("n_seeds") or 0)
+    out: dict[str, Any] = {"n_seeds": seeds}
+    credited = {str(r["identity"]): min(len(r.get("scene_ids") or []), WEIGHT_CAP) * matrix_credit(matrix.get(str(r["identity"]), ""))
+                for r in ledger}
+    denominator = ceiling["CPU"].denominator
+    for backend in ("CPU", "GPU"):
+        measured = score_audited(ledger, matrix, {b: audit_zeroed(audit, b) for b in ("CPU", "GPU")})[backend].score
+        loo = [score_audited(ledger, matrix, {b: audit_zeroed(audit, b, k) for b in ("CPU", "GPU")})[backend].score
+               for k in range(seeds)]
+        single = max((sum(credited.get(i, 0.0) for i in w["identities"]) for w in audit["sample"]["witnesses"]), default=0.0)
+        spread = max([measured, *loo]) - min([measured, *loo])
+        one_weight = single / denominator if denominator else 0.0
+        c = ceiling[backend].score
+        out[backend] = {"ceiling": c, "measured": measured, "loo_scores": loo, "seed_spread": spread,
+                        "one_witness_weight": one_weight, "margin": spread + one_weight,
+                        "proposed_threshold": None if c is None else max(0.0, c - spread - one_weight),
+                        "failing_witnesses": sorted(w["id"] for w in audit["sample"]["witnesses"]
+                                                    if _witness_status(audit["results"], w["id"], backend) == "FAIL")}
+    return out
+
+
+def audit_named_node_checks(uses: Mapping[str, set[str]], scores: Mapping[str, BackendScore],
+                            audit: Mapping[str, Any]) -> dict[str, Any]:
+    """b5 in audited mode: each named node is exercised, covered by >= 1 audit witness, and none of its identities scores 0."""
+    by_key = {u.key: u for u in scores["CPU"].use_scores}
+    checks: dict[str, Any] = {}
+    for label, bl_idname in NAMED_NODE_CHECKS.items():
+        keys = sorted(k for k in uses if k.split("|", 1)[0] == bl_idname)
+        if not keys:
+            checks[label] = {"bl_idname": bl_idname, "exercised": False, "pass": False,
+                             "reason": "no exercised use in the corpus"}
+            continue
+        witnesses = [w["id"] for w in audit["sample"]["witnesses"]
+                     if any(i.split("|", 1)[0] == bl_idname for i in w["identities"])]
+        failing = [f"{k} [{b}]" for k in keys for b, attr in (("CPU", "cpu"), ("GPU", "gpu"))
+                   if getattr(by_key[k], attr) <= 0.0]
+        checks[label] = {"bl_idname": bl_idname, "exercised": True, "witnesses": witnesses,
+                         "pass": bool(witnesses) and not failing, "failing": failing}
+    return checks
+
+
+def audit_links_evidence(ledger: Iterable[Mapping[str, Any]], scores: Mapping[str, BackendScore],
+                         audit: Mapping[str, Any]) -> dict[str, Any]:
+    """b6 in audited mode (pkg278: every nonzero classification links its per-backend, per-variant evidence artifact).
+
+    An (identity, scene, variant) use with nonzero credit on a backend is linked iff a PASSing audit witness on that backend
+    names that identity in that scene and variant digest AND the results carry the frozen seed-stack digests of that
+    scene's Astroray and Cycles legs.  A sampled audit covers only the witnesses' own variants, so every other nonzero use
+    is unlinked and b6 is False until the owner redefines b6 for the sampled model or a witness exists per use."""
+    results = audit["results"]
+    linked: dict[str, set[tuple[str, str, str]]] = {"CPU": set(), "GPU": set()}
+    for w in audit["sample"]["witnesses"]:
+        for backend in ("CPU", "GPU"):
+            digests = (results.get("stack_sha256") or {}).get(backend) or {}
+            if (_witness_status(results, w["id"], backend) == "PASS"
+                    and digests.get(f"{w.get('scene_id')}/{backend.lower()}") and digests.get(f"{w.get('scene_id')}/cycles")):
+                linked[backend].update((identity, str(w.get("scene_id")), str(w.get("variant_digest")))
+                                       for identity in [*w.get("identities", []), *w.get("also_covers", [])])
+    credit = {(b, u.key): (u.cpu if b == "CPU" else u.gpu) for b in ("CPU", "GPU") for u in scores[b].use_scores}
+    unlinked: dict[str, list[str]] = {"CPU": [], "GPU": []}
+    nonzero = {"CPU": 0, "GPU": 0}
+    for row in ledger:
+        key = str(row["identity"])
+        for backend in ("CPU", "GPU"):
+            if credit[(backend, key)] <= 0.0:
+                continue
+            for variant in row.get("variants") or []:
+                nonzero[backend] += 1
+                if (key, variant["scene_id"], variant["variant_digest"]) not in linked[backend]:
+                    unlinked[backend].append(f"{key} @ {variant['scene_id']}")
+    total = sum(len(v) for v in unlinked.values())
+    return {"pass": total == 0, "nonzero_uses": nonzero, "unlinked_count": {b: len(v) for b, v in unlinked.items()},
+            "reason": ("" if total == 0 else
+                       f"{total} nonzero (identity, scene, variant) use(s) have no PASSing audit witness with linked seed stacks "
+                       "on that backend; the sampled audit links only its own witnesses' variants"),
+            "unlinked_examples": {b: v[:10] for b, v in unlinked.items()}}
+
+
+def _build_report_audited(frozen: Mapping[str, Any], matrix: Mapping[str, str], uses: Mapping[str, set[str]],
+                          verified: Mapping[str, Any], pop: dict[str, Any], repo_root: Path,
+                          scanner_ok: bool, scanner_reason: str, integrity_errors: list[str],
+                          hash_locked: bool) -> dict[str, Any]:
+    """The v5 (audited-matrix) report.  Same integrity / #823 gating as the legacy report, then matrix credit
+    zeroed by failing audit witnesses, the proposal and the owner-signed threshold."""
+    ledger = list(verified.get("use_ledger", [])) if hash_locked else []
+    audit = verified.get("audit") or {}
+    if integrity_errors or not hash_locked or not audit:
+        stub = {k: {"pass": False} for k in ("b1_input_manifest_ratified", "b2_cpu_score", "b3_gpu_score",
+                                             "b4_zero_silent_drops", "b5_named_node_checks", "b6_nonzero_links_evidence")}
+        return _unmeasured_report(pop, uses, matrix, stub,
+                                  f"gate (b) not scored: frozen input integrity failed ({len(integrity_errors)} error(s))",
+                                  integrity_errors)
+    zeroed = {b: audit_zeroed(audit, b) for b in ("CPU", "GPU")}
+    scores = score_audited(ledger, matrix, zeroed)
+    proposal = audit_proposal(ledger, matrix, audit)
+    threshold = load_b_threshold(repo_root, {b: proposal[b]["ceiling"] for b in ("CPU", "GPU")})
+    drops = silent_drops(uses, matrix)
+    named = audit_named_node_checks(uses, scores, audit)
+    subchecks = {
+        "b1_input_manifest_ratified": {"pass": bool(pop["ratified"] and hash_locked), "ratified": pop["ratified"],
+                                       "hash_locked": hash_locked},
+        "b2_cpu_score": _score_subcheck(scores["CPU"].score, "CPU", threshold),
+        "b3_gpu_score": _score_subcheck(scores["GPU"].score, "GPU", threshold),
+        "b4_zero_silent_drops": {"pass": not drops, "drops": drops},
+        "b5_named_node_checks": {"pass": all(c["pass"] for c in named.values()), "checks": named},
+        "b6_nonzero_links_evidence": audit_links_evidence(ledger, scores, audit),
+    }
+    if not scanner_ok:
+        return _unmeasured_report(pop, uses, matrix, subchecks, f"gate (b) not scored: {scanner_reason}", [])
+    incomplete = audit_incomplete(audit)
+    green = all(v["pass"] for v in subchecks.values()) and pop["gate_eligible"] and not incomplete
+    status = ("unmeasured" if incomplete else "green" if green else
+              ("provisional" if not pop["gate_eligible"] else "red"))
+    results = audit["results"]
+    return {
+        "schema": REPORT_SCHEMA_V2, "scorer_version": SCORER_VERSION, "scoring_mode": "audited_matrix",
+        "status": status, "blocked": False,
+        "reason": (f"audit incomplete: {len(incomplete)} witness leg(s) errored or are missing" if incomplete else
+                   "" if green else "one or more subchecks failed or population not ratified"),
+        "audit_incomplete": incomplete,
+        "integrity_errors": integrity_errors,
+        "scanner_issue_823": {"required": REQUIRED_SCANNER_ISSUE, "integrated": True, "reason": ""},
+        "population": pop, "exercised_use_count": len(uses),
+        "silent_drop_count": len(drops), "silent_drops": drops,
+        "cpu": scores["CPU"].to_dict(), "gpu": scores["GPU"].to_dict(),
+        "audit": {"sample_sha256": results.get("sample_sha256"), "n_seeds": results.get("n_seeds"),
+                  "welch": results.get("welch"), "build": results.get("build"),
+                  "witnesses": {w["id"]: {"identities": len(w["identities"]),
+                                          "CPU": _witness_status(results, w["id"], "CPU"),
+                                          "GPU": _witness_status(results, w["id"], "GPU")}
+                                for w in audit["sample"]["witnesses"]}},
+        "threshold": {"signed": threshold["signed"], "reason": threshold["reason"], "min": threshold["min"], "proposed_by_this_report": {
+            b: proposal[b]["proposed_threshold"] for b in ("CPU", "GPU")}},
+        "proposal": proposal,
+        "subchecks": subchecks,
+    }
+
+
+def freeze_audit_sample(candidates: Mapping[str, Any], candidates_path: str, candidates_sha: str,
+                        supplement: Mapping[str, Any], supplement_sha: str) -> dict[str, Any]:
+    """Freeze the audit sample: every candidate_v2 witness of the pkg323 map plus, per supplement family, the eligible
+    node exercising the most sockets (ties: largest mask, then scene, object, node).  Nothing else is added."""
+    from benchmarks.blender_parity.harness import STUDY_SEEDS
+
+    chosen = [dict(w, origin="witness_candidates_v5") for w in candidates["witnesses"] if w["population"] == "candidate_v2"]
+    for family in sorted({w["family"] for w in supplement["witnesses"] if w["population"] == "candidate_v2"}):
+        pool = [w for w in supplement["witnesses"] if w["population"] == "candidate_v2" and w["family"] == family]
+        pool.sort(key=lambda w: (-len(w["identities"]), -w["mask_px"], w["scene_id"], w["object"], w["node"]))
+        chosen.append(dict(pool[0], origin="supplement"))
+    chosen.sort(key=lambda w: w["id"])
+    return {"schema": AUDIT_SAMPLE_SCHEMA, "population": "candidate_v2",
+            "selection": {"rules": list(candidates["selection_rule"]),
+                          "supplement_rule": ("one extra witness per b5 family (Metallic, Principled-advanced, Sky): the eligible "
+                                              "node (R1-R5; Sky: the scene world, mask = camera rays that miss all geometry) "
+                                              "exercising the most sockets, ties by largest mask, scene, object, node"),
+                          "candidates": {"path": candidates_path, "sha256": candidates_sha},
+                          "supplement": {"sha256": supplement_sha,
+                                         "families": sorted(v[0] for v in AUDIT_SUPPLEMENT_FAMILIES.values())}},
+            "seeds": list(STUDY_SEEDS), "welch": dict(AUDIT_WELCH), "witnesses": chosen}
+
+
+def freeze_coverage_input_v5(corpus_manifest: Mapping[str, Any], matrix_path: Path, snapshot: Mapping[str, Any], *,
+                             audit_sample: str, audit_results: str,
+                             scanner_integration: Mapping[str, Any] | None = None,
+                             input_path: str = "docs/blender_parity/coverage_input_v5_candidate_v2.json",
+                             sidecar_dir: str = "docs/blender_parity/evidence/gate_b/sidecars",
+                             manifest_path: str = _SCENES_MANIFEST,
+                             repo_root: Path | None = None) -> tuple[dict[str, Any], list[str]]:
+    """Freeze the audited-matrix input: v2's population/matrix/ledger/#823 proof plus the pinned audit sample + results."""
+    frozen, errors = freeze_coverage_input(corpus_manifest, matrix_path, snapshot,
+                                            scanner_integration=scanner_integration, input_path=input_path,
+                                            sidecar_dir=sidecar_dir, manifest_path=manifest_path)
+    frozen["schema"], frozen["version"], frozen["input_path"] = INPUT_MANIFEST_SCHEMA_V5, 5, input_path
+    root = Path(repo_root) if repo_root is not None else _REPO_ROOT
+    audit = {}
+    for key, rel in (("sample", audit_sample), ("results", audit_results)):
+        path, why = _repo_relative_path(root, rel, f"audit {key}")
+        if path is None or not path.is_file():
+            errors.append(why or f"audit {key} file missing: {rel}")
+            continue
+        audit[key] = {"path": rel, "sha256": _sha256_file(path)}
+    frozen["evidence"] = {"mode": "audited_matrix", "sidecar_dir": sidecar_dir, "audit": audit}
+    return frozen, errors
+
+
+def _audit_manifests(repo_root: Path, work: Path) -> dict[str, Path]:
+    return {"candidate_v2": write_population_manifest("candidate_v2", repo_root, work / "manifests")}
+
+
+def audit_render(sample: Mapping[str, Any], manifests: Mapping[str, Path], out_dir: Path, backend: str, *,
+                 pyd_dir: Path, cycles_from: Path | None = None) -> dict[str, str]:
+    """Render the control legs (seed 7, via ``study_render_legs``) and the N-seed baseline stacks of every witness.
+
+    Stacks land in ``<out>/stacks/<scene>/<leg>/s<seed>.npy`` (leg = cycles | cpu | gpu); the Cycles stacks are backend
+    independent and reused by the second backend run.  Resumable: a stack file on disk is not re-rendered."""
+    from benchmarks.reference_corpus import mc_tolerance as MT
+
+    failures = study_render_legs(sample, manifests, out_dir, backend, pyd_dir=pyd_dir, cycles_from=cycles_from)
+    os.environ["ASTRORAY_PYD_DIR"] = str(pyd_dir)
+    if backend == "CPU":
+        os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    manifest = _load_json(manifests["candidate_v2"])["scenes"]
+    for scene_id in sorted({w["scene_id"] for w in sample["witnesses"]}):
+        samples = int(manifest[scene_id]["settings"]["samples"])
+        for leg in ("cycles", backend.lower()):
+            for seed in sample["seeds"]:
+                stem = Path(out_dir) / "stacks" / scene_id / leg / f"s{seed}"
+                if stem.with_suffix(".npy").is_file():
+                    continue
+                try:
+                    MT.render(scene_id, leg, seed, samples, stem, manifest=manifests["candidate_v2"])
+                except Exception as exc:  # noqa: BLE001 - recorded, the scene's witnesses become ERROR
+                    failures[f"{scene_id}/{leg}/s{seed}"] = str(exc)[-400:]
+                    print(f"[pkg328] FAIL {scene_id} {leg} s{seed}: {str(exc)[-200:]}", flush=True)
+    return failures
+
+
+def _scalar(v: Any) -> Any:
+    return float(v) if hasattr(v, "item") or isinstance(v, float) else v
+
+
+def audit_judge(sample: Mapping[str, Any], out_dir: Path, backend: str) -> dict[str, Any]:
+    """Judge every witness on ``backend``: effect from the four seed-7 legs, parity ONLY by ``mc_compare.welch_verdict``
+    on the witness ROI of the Astroray-vs-Cycles N-seed stacks (plus the N leave-one-seed-out verdicts)."""
+    import numpy as np
+
+    from benchmarks.blender_parity import mc_compare as MCC
+
+    out: dict[str, Any] = {}
+    stacks: dict[tuple[str, str], Any] = {}
+
+    def stack(scene_id: str, leg: str):
+        if (scene_id, leg) not in stacks:
+            files = [Path(out_dir) / "stacks" / scene_id / leg / f"s{seed}.npy" for seed in sample["seeds"]]
+            stacks[(scene_id, leg)] = np.stack([np.load(f) for f in files]) if all(f.is_file() for f in files) else None
+        return stacks[(scene_id, leg)]
+
+    for w in sample["witnesses"]:
+        wdir = Path(out_dir) / backend / _study_slug(w["id"])
+        needed = ("astroray", "cycles", "astroray_control", "cycles_control")
+        astro, cyc = stack(w["scene_id"], backend.lower()), stack(w["scene_id"], "cycles")
+        if not all((wdir / f"{n}.npy").is_file() and (wdir / f"{n}_mask.npy").is_file() for n in needed) or astro is None or cyc is None:
+            out[w["id"]] = {"status": "ERROR", "reason": "legs or seed stacks missing or failed"}
+            continue
+        arr = {n: np.load(wdir / f"{n}.npy") for n in needed}
+        masks = {n: np.load(wdir / f"{n}_mask.npy") for n in needed}
+        metrics, reason = witness_metrics(arr["astroray"], arr["cycles"], arr["astroray_control"], arr["cycles_control"],
+                                          masks["astroray"], masks["cycles"], w["witness"])
+        if metrics is None:
+            out[w["id"]] = {"status": "ERROR", "reason": reason}
+            continue
+        effect = {k: {"signal": _scalar(v["signal"]), "value": _scalar(v.get("value")), "ok": bool(v["ok"])}
+                  for k, v in metrics["effects"].items()}
+        roi = _witness_roi(astro.shape[1:], w["witness"])
+        a, c = astro[:, roi[0], roi[1]], cyc[:, roi[0], roi[1]]
+        verdict = MCC.welch_verdict(a, c, **AUDIT_WELCH)
+        loo = [bool(MCC.welch_verdict(np.delete(a, k, 0), np.delete(c, k, 0), **AUDIT_WELCH)["pass"]) for k in range(len(a))]
+        status = audit_leg_status(effect, bool(verdict["pass"]))
+        out[w["id"]] = {"status": status, "effect": effect,
+                        "welch": {k: bool(verdict[k]) if k == "pass" else _scalar(verdict[k])
+                                  for k in ("pass", "n_tests", "n_reject_holm", "min_p", "max_rel_bias_rejected", "mean_rel_diff")},
+                        "jackknife_pass": loo,
+                        "roi_mean_ratio_rgb": (a.mean(axis=(0, 1, 2)) / np.maximum(c.mean(axis=(0, 1, 2)), 1e-9)).tolist()}
+    return out
+
+
+def audit_stack_digest(sample: Mapping[str, Any], out_dir: Path, backend: str) -> dict[str, str]:
+    """One sha256 per (scene, leg) over the ordered per-seed ``.npy`` hashes, so local frames can be re-verified."""
+    digests: dict[str, str] = {}
+    for scene_id in sorted({w["scene_id"] for w in sample["witnesses"]}):
+        for leg in ("cycles", backend.lower()):
+            files = [Path(out_dir) / "stacks" / scene_id / leg / f"s{seed}.npy" for seed in sample["seeds"]]
+            digests[f"{scene_id}/{leg}"] = _sha256_bytes("".join(_sha256_file(f) for f in files if f.is_file()).encode("ascii"))
+    return digests
 
 
 # --------------------------------------------------------------------------- #
@@ -1771,12 +2322,17 @@ def build_report(frozen: Mapping[str, Any], snapshot: Mapping[str, Any],
             integrity_errors.append("frozen input manifest is not committed at HEAD")
 
     scanner_ok, scanner_reason = scanner_823_integrated(frozen, repo_root, fixture_mode)
+    if not fixture_mode and frozen.get("schema") == INPUT_MANIFEST_SCHEMA_V5:
+        return _build_report_audited(frozen, matrix, uses, verified, pop, repo_root, scanner_ok, scanner_reason,
+                                     integrity_errors, hash_locked)
     ledger = None if fixture_mode else verified.get("use_ledger", [])
     allowed_cases = None if fixture_mode else verified.get("allowed_cases", {})
     computed = compute(uses, matrix, evidence, repo_root, fixture_mode, ledger, allowed_cases)
     subchecks = evaluate_subchecks(uses, matrix, evidence, repo_root, frozen,
                                    computed["cpu"], computed["gpu"],
-                                   fixture_mode, hash_locked, allowed_cases)
+                                   fixture_mode, hash_locked, allowed_cases,
+                                   threshold=None if fixture_mode else load_b_threshold(
+                                       repo_root, {b: s.score for b, s in score_audited(ledger or [], matrix, None).items()}))
 
     if integrity_errors:
         return _unmeasured_report(pop, uses, matrix, subchecks,
@@ -2032,6 +2588,12 @@ STUDY_FAMILIES: dict[str, tuple[str, str, dict[str, Any]]] = {
     "ShaderNodeBump": ("Bump", "bump_zero", {}),
     "ShaderNodeMapping": ("Mapping", "mapping_identity", {}),
 }
+# pkg328: the Metallic / Principled-advanced / Sky witnesses b5 names (the five study families have none of them).
+AUDIT_SUPPLEMENT_FAMILIES: dict[str, tuple[str, str, dict[str, Any]]] = {
+    "ShaderNodeBsdfMetallic": ("Metallic", "metallic_diffuse", {}),
+    "ShaderNodeBsdfPrincipled": ("Principled", "principled_diffuse", {}),
+    "ShaderNodeTexSky": ("Sky", "sky_const", {"const": 0.5}),
+}
 STUDY_MASK_INSET_PX = 4
 STUDY_MIN_MASK_PX = 300
 STUDY_ROI_PAD = 0.10
@@ -2048,7 +2610,7 @@ STUDY_SELECTION_RULE = [
 
 
 def _study_noop_reason(bnode: Any, kind: str) -> str:
-    if kind in ("noise_const", "wave_const"):
+    if kind in ("noise_const", "wave_const", "sky_const", "metallic_diffuse", "principled_diffuse"):
         return "" if any(out.is_linked for out in bnode.outputs) else "no linked output"
     if kind == "brick_const":
         c1, c2, mortar = (tuple(bnode.inputs[n].default_value) for n in ("Color1", "Color2", "Mortar"))
@@ -2065,8 +2627,13 @@ def _study_noop_reason(bnode: Any, kind: str) -> str:
     return "unknown kind"
 
 
-def enumerate_witness_candidates_in_blender(repo_root: Path, manifests: Mapping[str, Path]) -> dict[str, Any]:
-    """Inside Blender: apply the selection rule to every scene of ``manifests`` and return the candidate map."""
+def enumerate_witness_candidates_in_blender(repo_root: Path, manifests: Mapping[str, Path],
+                                            families: Mapping[str, tuple[str, str, dict[str, Any]]] | None = None
+                                            ) -> dict[str, Any]:
+    """Inside Blender: apply the selection rule to every scene of ``manifests`` and return the candidate map.
+
+    ``families`` defaults to ``STUDY_FAMILIES``.  A ``sky_const`` family node lives in a world tree: R1/R2/R3 are
+    replaced there by the camera-visible sky mask (rays that miss all geometry) over the whole frame."""
     import importlib.util
 
     import bpy
@@ -2097,13 +2664,35 @@ def enumerate_witness_candidates_in_blender(repo_root: Path, manifests: Mapping[
             eligible: dict[str, list[dict[str, Any]]] = {}
             for tree_id, node_name in sorted(reachable):
                 model = trees[tree_id]["nodes"][node_name]
-                family = STUDY_FAMILIES.get(model["bl_idname"])
+                family = (families or STUDY_FAMILIES).get(model["bl_idname"])
                 if family is None or model.get("mute"):
                     continue
                 sockets, fingerprint = exercised_sockets_for(model)
                 digest = variant_digest(fingerprint)
                 row = {"population": population, "scene_id": scene_id, "node": node_name, "family": family[0],
                        "variant_digest": digest, "tree": tree_id}
+                if family[1] == "sky_const" and tree_id.startswith("world:"):
+                    world = tree_id.split(":", 1)[1]
+                    if scene.world is None or scene.world.name != world:
+                        excluded.append({**row, "reason": "R1 world is not the scene world"})
+                        continue
+                    noop = _study_noop_reason(bpy.data.worlds[world].node_tree.nodes[node_name], family[1])
+                    if noop:
+                        excluded.append({**row, "reason": f"R4 {noop}"})
+                        continue
+                    sky_mask = {"kind": "sky_rays", "roi": [0.0, 0.0, 1.0, 1.0]}
+                    try:
+                        visible = leg._gate_c_mask(bpy, scene, {"mask": sky_mask}, (res_y, res_x))
+                    except ValueError as exc:
+                        excluded.append({**row, "reason": f"R3 {exc}"})
+                        continue
+                    ids = [canonical_identity(model["bl_idname"], s) for s in sockets]
+                    control = {"kind": family[1], "world": world, "node": node_name, **family[2], "mask": sky_mask}
+                    row.update({"id": f"{scene_id}/{world}/{node_name}", "object": "", "identity": ids[0],
+                                "identities": ids, "mask_px": int((visible > 0).sum()),
+                                "witness": {"roi": [0.0, 0.0, 1.0, 1.0], "control": control, "effect": dict(STUDY_EFFECT)}})
+                    eligible.setdefault(digest, []).append(row)
+                    continue
                 if not tree_id.startswith("material:"):
                     excluded.append({**row, "reason": f"R1 not a material tree ({tree_id.split(':')[0]})"})
                     continue
@@ -2480,9 +3069,75 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-render", action="store_true", help="pkg323: score legs already on disk")
     p.add_argument("--study-node-uses", action="append", default=[], metavar="POPULATION=PATH",
                    help="pkg323: fresh --collect snapshot per population for the provisional S")
+    p.add_argument("--freeze-v5", action="store_true",
+                   help="pkg328: freeze the audited-matrix input (pinned --audit-sample + --audit-results)")
+    p.add_argument("--audit-enumerate", action="store_true",
+                   help="pkg328 (inside Blender): enumerate Metallic / Principled / Sky witnesses of candidate_v2 into --study-out")
+    p.add_argument("--audit-freeze", action="store_true",
+                   help="pkg328: freeze the audit sample from --candidates + the --audit-enumerate output")
+    p.add_argument("--audit-render", action="store_true",
+                   help="pkg328: render control legs + N-seed stacks of the audit sample on --backend (GPU under gpu_locked_run)")
+    p.add_argument("--audit-judge", action="store_true",
+                   help="pkg328: judge the rendered sample on both backends with mc_compare.welch_verdict; write --audit-results")
+    p.add_argument("--audit-sample", type=Path, default=Path(AUDIT_SAMPLE_PATH))
+    p.add_argument("--audit-results", type=Path, default=Path(AUDIT_RESULTS_PATH))
     args = p.parse_args(argv)
 
     repo_root = Path(__file__).resolve().parents[2]
+
+    if args.audit_enumerate:
+        out = Path(args.study_out) if args.study_out else Path("study_out")
+        out.mkdir(parents=True, exist_ok=True)
+        payload = enumerate_witness_candidates_in_blender(repo_root, _audit_manifests(repo_root, out), AUDIT_SUPPLEMENT_FAMILIES)
+        target = out / "audit_supplement.json"
+        target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+        print(f"[pkg328] {len(payload['witnesses'])} supplement candidates, {len(payload['excluded'])} excluded -> {target}")
+        return 0
+
+    if args.audit_freeze:
+        supplement_path = Path(args.study_out) / "audit_supplement.json"
+        sample = freeze_audit_sample(_load_json(args.candidates), args.candidates.as_posix(), _sha256_file(args.candidates),
+                                     _load_json(supplement_path), _sha256_file(supplement_path))
+        args.audit_sample.parent.mkdir(parents=True, exist_ok=True)
+        args.audit_sample.write_text(json.dumps(sample, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+        print(f"[pkg328] froze {len(sample['witnesses'])} witnesses -> {args.audit_sample}")
+        return 0
+
+    if args.audit_render:
+        out = Path(args.study_out)
+        pyd = args.pyd_dir or (Path(os.environ["ASTRORAY_PYD_DIR"]) if os.environ.get("ASTRORAY_PYD_DIR") else None)
+        if pyd is None:
+            print("--audit-render needs --pyd-dir or ASTRORAY_PYD_DIR", file=sys.stderr)
+            return 2
+        failures = audit_render(_load_json(args.audit_sample), _audit_manifests(repo_root, out), out, args.backend,
+                                pyd_dir=pyd, cycles_from=args.cycles_from)
+        print(f"[pkg328] {args.backend} render failures: {len(failures)}")
+        for key, why in failures.items():
+            print(f"  {key}: {why[-160:]}")
+        return 1 if failures else 0
+
+    if args.audit_judge:
+        out = Path(args.study_out)
+        sample = _load_json(args.audit_sample)
+        result: dict[str, Any] = {"schema": AUDIT_RESULTS_SCHEMA, "sample_sha256": _sha256_file(args.audit_sample),
+                                  "welch": dict(AUDIT_WELCH), "n_seeds": len(sample["seeds"]), "seeds": sample["seeds"],
+                                  "build": {}, "stack_sha256": {}, "witnesses": {w["id"]: {} for w in sample["witnesses"]}}
+        for backend in ("CPU", "GPU"):
+            for wid, verdict in audit_judge(sample, out, backend).items():
+                result["witnesses"][wid][backend] = verdict
+            result["stack_sha256"][backend] = audit_stack_digest(sample, out, backend)
+            case = next((_load_json(f) for f in sorted((out / backend).glob("*/case.json"))), None)
+            if case:
+                result["build"][backend] = {k: case[k] for k in ("build_id", "module_sha256", "addon_sha256")}
+        args.audit_results.parent.mkdir(parents=True, exist_ok=True)
+        args.audit_results.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+        for backend in ("CPU", "GPU"):
+            tally: dict[str, int] = {}
+            for wid in result["witnesses"]:
+                st = result["witnesses"][wid][backend]["status"]
+                tally[st] = tally.get(st, 0) + 1
+            print(f"[pkg328] {backend}: {tally}")
+        return 0
 
     if args.population is not None:
         args.manifest = write_population_manifest(args.population, repo_root)
@@ -2543,12 +3198,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {out_path}")
         return 0
 
-    if args.freeze or args.freeze_v3 or args.freeze_v4:
+    if args.freeze or args.freeze_v3 or args.freeze_v4 or args.freeze_v5:
         if args.node_uses is None:
             print("--freeze needs --node-uses", file=sys.stderr)
             return 2
-        if args.scanner_integration is not None and not args.freeze_v4:
-            print("--scanner-integration is only valid with --freeze-v4", file=sys.stderr)
+        if args.scanner_integration is not None and not (args.freeze_v4 or args.freeze_v5):
+            print("--scanner-integration is only valid with --freeze-v4 or --freeze-v5", file=sys.stderr)
             return 2
         scanner_proof = None
         if args.scanner_integration is not None:
@@ -2557,7 +3212,8 @@ def main(argv: list[str] | None = None) -> int:
             if not scanner_ok:
                 print(f"--scanner-integration rejected: {scanner_reason}", file=sys.stderr)
                 return 2
-        default_input = ("docs/blender_parity/coverage_input_v4.json" if args.freeze_v4 else
+        default_input = ("docs/blender_parity/coverage_input_v5_candidate_v2.json" if args.freeze_v5 else
+                         "docs/blender_parity/coverage_input_v4.json" if args.freeze_v4 else
                          "docs/blender_parity/coverage_input_v3.json" if args.freeze_v3 else
                          "docs/blender_parity/coverage_input_v2.json")
         out_path = args.input_manifest or Path(default_input)
@@ -2576,7 +3232,14 @@ def main(argv: list[str] | None = None) -> int:
                 pass
         corpus_manifest = _load_json(args.manifest)
         snapshot = _load_json(args.node_uses)
-        if args.freeze_v4:
+        if args.freeze_v5:
+            frozen, errors = freeze_coverage_input_v5(corpus_manifest, args.matrix, snapshot,
+                                                       audit_sample=args.audit_sample.as_posix(),
+                                                       audit_results=args.audit_results.as_posix(),
+                                                       scanner_integration=scanner_proof,
+                                                       input_path=input_relative, sidecar_dir=sidecar_relative,
+                                                       manifest_path=manifest_relative, repo_root=repo_root)
+        elif args.freeze_v4:
             candidate = _load_json(args.candidate_build) if args.candidate_build else None
             frozen, errors = freeze_coverage_input_v4(corpus_manifest, args.matrix, snapshot,
                                                        candidate_build=candidate,

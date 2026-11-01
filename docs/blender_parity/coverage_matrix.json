@@ -2879,8 +2879,8 @@
     "feature": "OUTPUT_WORLD",
     "bl_idname": "ShaderNodeOutputWorld",
     "socket_or_prop": "input:Surface",
-    "classification": "SUPPORTED",
-    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6)",
+    "classification": "APPROXIMATED",
+    "notes": "root / scene-level node consumed by the render-engine traversal (pkg320) in setup_world; context-blind row: credited only where these methods consume it (#1101 finding 6); partial: only a Background linked directly to Surface is selected; an unlinked or Mix/Add/Emission Surface still uses every Background, and Environment / Sky textures are never filtered by the active output (setup_world) (#1101 finding 3)",
     "socket_id": "Surface"
   },
   {
@@ -2897,8 +2897,8 @@
     "feature": "OUTPUT_WORLD",
     "bl_idname": "ShaderNodeOutputWorld",
     "socket_or_prop": "prop:is_active_output",
-    "classification": "SUPPORTED",
-    "notes": ""
+    "classification": "APPROXIMATED",
+    "notes": "only Background nodes are filtered by the active output; Environment / Sky textures in an inactive output tree still render (setup_world)"
   },
   {
     "category": "shader_node",
@@ -3782,7 +3782,7 @@
     "bl_idname": "ShaderNodeTexEnvironment",
     "socket_or_prop": "input:Vector",
     "classification": "APPROXIMATED",
-    "notes": "pkg321 probe `env_vector` moves the CPU render (consumed)",
+    "notes": "pkg328 probe `env_vector`: the Rotation of a Mapping node in the world tree moves the CPU render and matches Cycles; the socket itself is never read, so a Vector linked to anything else (Vector Rotate / Math, Object coords) is dropped without a warning",
     "socket_id": "Vector"
   },
   {

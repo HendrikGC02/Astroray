@@ -152,7 +152,7 @@ not an engine gap. Fixing it does not inflate S, because reported drops still ea
 ## Progress
 
 - [ ] Phase 1: flag + probes for the 8 rows + matrix regen + b1 ratification + b4 re-score
-- [ ] Phase 2: audit witnesses under Welch-1b + audited-matrix score + proposed threshold + receipt
+- [x] Phase 2: audit witnesses under Welch-1b + audited-matrix score + proposed threshold + receipt (`stage0-gate-scoring-2026-11-01.md`: ceiling 0.768, S_CPU 0.477, S_GPU 0.464, proposed threshold 0.676 UNSIGNED)
 - [ ] Owner signs the threshold
 
 ---

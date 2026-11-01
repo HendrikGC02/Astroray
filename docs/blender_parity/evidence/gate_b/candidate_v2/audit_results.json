@@ -1,0 +1,1558 @@
+{
+  "build": {
+    "CPU": {
+      "addon_sha256": "6c52af8d4c765fd3bae7ab71a4b5ed51eda1d3950569649aef6a51c85e2969a5",
+      "build_id": "e302ca1+20261101T002422Z",
+      "module_sha256": "7993fecd5b37657d965c7e512a7a2198a531b67758543aebe3cb59538a1d49c9"
+    },
+    "GPU": {
+      "addon_sha256": "6c52af8d4c765fd3bae7ab71a4b5ed51eda1d3950569649aef6a51c85e2969a5",
+      "build_id": "e302ca1+20261101T002422Z",
+      "module_sha256": "7993fecd5b37657d965c7e512a7a2198a531b67758543aebe3cb59538a1d49c9"
+    }
+  },
+  "n_seeds": 8,
+  "sample_sha256": "b57887fe9b80219f58e4d99e290d59c1ff10a1bfb5106f95a695674d3b2a8880",
+  "schema": "pkg328.audit_results.v1",
+  "seeds": [
+    278,
+    1301,
+    2711,
+    4177,
+    6113,
+    7919,
+    9371,
+    11027
+  ],
+  "stack_sha256": {
+    "CPU": {
+      "prod_car_paint/cpu": "b0e8e495b3e3fd2065fb2d21271831dd5bf97068b743f6d97c22517d8c3559b6",
+      "prod_car_paint/cycles": "f93b8aa144a8c26e2a879475f9437b68f9aaa2649b588a528e7c9d08c0b4826f",
+      "prod_curves_geometry/cpu": "0fee1bad450893920e5ecd99dc8d8ec332a08c2394f2966260488544aeb3392d",
+      "prod_curves_geometry/cycles": "289d7bc39aa3ad5d8e1430ceae13f669ac79a9212b92813f75785e6659365b84",
+      "prod_marble/cpu": "0eaf7ebc7618fc77b1d4f99e0e9e6fd3d516fa0b5b5e3418236ed55020a98ea0",
+      "prod_marble/cycles": "1a00d0305b67b627109c0179c71bb92401b1ab1cc51dae4f125014a029aa271c",
+      "prod_shader_stack/cpu": "629b20f3c3c1198b98d4c849b160684906a436333c0d9a216e26be6ea187bdf5",
+      "prod_shader_stack/cycles": "017526374507816877120b8217314f2fd3a1ff9f44518f99eec5b744ef93b780",
+      "prod_wood/cpu": "4590aa4688c4dcb2b7db44aca54fbb7bf698431fcff47ea134d8c25802a44f83",
+      "prod_wood/cycles": "c2f75f9998dcf9bff97b0fead66832899bbc4def2a487a724aa9d86ad0e4a2c4",
+      "v2_sky_sun/cpu": "ce5e32d473b6f63c674b9fcc28813845772883a1b5fb261d8ca5d68a2e5dce2e",
+      "v2_sky_sun/cycles": "632b8e93a7a32c4d642ee66f78f5d8e80b19b8ec5faabbe6f72415368a7889cb",
+      "v2_textures_opvm/cpu": "410ea8e4754b91ba774175d545a4d14891ac4a5e4ddbc8259e0eaf29afeb2f43",
+      "v2_textures_opvm/cycles": "c513687a03d9b6e41ac76967277f1469bb61706a0d3d2491e124eac3b047ff79",
+      "v2_thin_film_metals/cpu": "dcb363cfd6aa694ba2bef8bbc3b6c74922be154982549f84e33682dd6be5b8d7",
+      "v2_thin_film_metals/cycles": "23945c6c03bc8428b6baaaa4d2ebccc522788c8cae1888b2de0717d8ee112c39",
+      "v2_viewport/cpu": "fe689093de38db7dbadc7799d8f5d3202bc421851685e97492d5f73f196642c4",
+      "v2_viewport/cycles": "3adb287218d17e59b2cbb02460c48f67b8b61e4259585a4015347fd2f9caaf09"
+    },
+    "GPU": {
+      "prod_car_paint/cycles": "f93b8aa144a8c26e2a879475f9437b68f9aaa2649b588a528e7c9d08c0b4826f",
+      "prod_car_paint/gpu": "e47f97024a8ec5610ee5c0da6e2f5a71e13ae462bf28923252b04c171c075818",
+      "prod_curves_geometry/cycles": "289d7bc39aa3ad5d8e1430ceae13f669ac79a9212b92813f75785e6659365b84",
+      "prod_curves_geometry/gpu": "762f19eff2793ab20709bf6b1441c1e9b018b9780aa3f6bd4f0f542c7eef38b8",
+      "prod_marble/cycles": "1a00d0305b67b627109c0179c71bb92401b1ab1cc51dae4f125014a029aa271c",
+      "prod_marble/gpu": "1ee5310a6f31d8bd16283349cbe970e70e0a3864bc7aca79e1af2b79427e2487",
+      "prod_shader_stack/cycles": "017526374507816877120b8217314f2fd3a1ff9f44518f99eec5b744ef93b780",
+      "prod_shader_stack/gpu": "010e3aa60887c205cc0eb86db080225674cfc3c42b923dba09f440867e12f733",
+      "prod_wood/cycles": "c2f75f9998dcf9bff97b0fead66832899bbc4def2a487a724aa9d86ad0e4a2c4",
+      "prod_wood/gpu": "2fc19f750f7e5da27e5d12b2c404f7efce541b8ebbcb73347e4326aac4cb02ee",
+      "v2_sky_sun/cycles": "632b8e93a7a32c4d642ee66f78f5d8e80b19b8ec5faabbe6f72415368a7889cb",
+      "v2_sky_sun/gpu": "182ffd5dfbc110d3f4d4167ba6ac57e3ddaaa9866b3ef6c173ee9bcda83ab579",
+      "v2_textures_opvm/cycles": "c513687a03d9b6e41ac76967277f1469bb61706a0d3d2491e124eac3b047ff79",
+      "v2_textures_opvm/gpu": "210ec3c0d6ef4c3988221cddcbc0838f2855488adc8795c2712762ff610a7bb3",
+      "v2_thin_film_metals/cycles": "23945c6c03bc8428b6baaaa4d2ebccc522788c8cae1888b2de0717d8ee112c39",
+      "v2_thin_film_metals/gpu": "960d0122ab853fe8a83191b11294ade07051cbb236d62c808474925b54615650",
+      "v2_viewport/cycles": "3adb287218d17e59b2cbb02460c48f67b8b61e4259585a4015347fd2f9caaf09",
+      "v2_viewport/gpu": "7245eb189bb720ce3695021e343cf7e0fb28e2921896c6ab29d74013a658e7f6"
+    }
+  },
+  "welch": {
+    "alpha": 0.05,
+    "delta_rel": 0.01,
+    "tile": 8
+  },
+  "witnesses": {
+    "prod_car_paint/Hero/Bump": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.32198745012283325,
+            "value": 0.09171494096517563
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.31715959310531616,
+            "value": 0.05589786544442177
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9785298705101013,
+          1.0001873970031738,
+          0.9858757853507996
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.1592831313610077,
+          "mean_rel_diff": -0.01753123663365841,
+          "min_p": 7.6312430661733e-12,
+          "n_reject_holm": 104,
+          "n_tests": 1587,
+          "pass": false
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.3262156844139099,
+            "value": 0.04677719995379448
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.31715959310531616,
+            "value": 0.05589786544442177
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          1.0005195140838623,
+          1.0108492374420166,
+          0.9841742515563965
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.13676542043685913,
+          "mean_rel_diff": -0.0032268876675516367,
+          "min_p": 9.799066785064906e-11,
+          "n_reject_holm": 77,
+          "n_tests": 1587,
+          "pass": false
+        }
+      }
+    },
+    "prod_curves_geometry/Bowl/Noise Texture": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.4330698251724243,
+            "value": 0.10638082027435303
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.43692746758461,
+            "value": 0.05161896347999573
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9887570142745972,
+          0.9956177473068237,
+          0.9931620955467224
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 1.9155255556106567,
+          "mean_rel_diff": -0.03168635815382004,
+          "min_p": 3.0985836903100513e-21,
+          "n_reject_holm": 44,
+          "n_tests": 1368,
+          "pass": false
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.435503214597702,
+            "value": 0.049597062170505524
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.43692746758461,
+            "value": 0.05161896347999573
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9946284294128418,
+          1.0015819072723389,
+          0.9971118569374084
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 1.923457384109497,
+          "mean_rel_diff": -0.027575504034757614,
+          "min_p": 1.1022674507202762e-22,
+          "n_reject_holm": 52,
+          "n_tests": 1368,
+          "pass": false
+        }
+      }
+    },
+    "prod_marble/Hero/Mapping": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.7643285989761353,
+            "value": 0.2164728045463562
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.7586311101913452,
+            "value": 0.15810376405715942
+          }
+        },
+        "jackknife_pass": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "roi_mean_ratio_rgb": [
+          1.0019885301589966,
+          1.0031324625015259,
+          1.0018210411071777
+        ],
+        "status": "PASS",
+        "welch": {
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": -0.001814242103137076,
+          "min_p": 0.001944205611983079,
+          "n_reject_holm": 0,
+          "n_tests": 1587,
+          "pass": true
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.7692176699638367,
+            "value": 0.1560625433921814
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.7586311101913452,
+            "value": 0.15810376405715942
+          }
+        },
+        "jackknife_pass": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "roi_mean_ratio_rgb": [
+          1.0071287155151367,
+          1.0068730115890503,
+          1.0051450729370117
+        ],
+        "status": "PASS",
+        "welch": {
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": 0.001672273501753807,
+          "min_p": 0.0065288500663777,
+          "n_reject_holm": 0,
+          "n_tests": 1587,
+          "pass": true
+        }
+      }
+    },
+    "prod_marble/Hero/Noise Texture": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.7643285989761353,
+            "value": 0.22557087242603302
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.7586311101913452,
+            "value": 0.15252329409122467
+          }
+        },
+        "jackknife_pass": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "roi_mean_ratio_rgb": [
+          1.0019885301589966,
+          1.0031324625015259,
+          1.0018210411071777
+        ],
+        "status": "PASS",
+        "welch": {
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": -0.001814242103137076,
+          "min_p": 0.001944205611983079,
+          "n_reject_holm": 0,
+          "n_tests": 1587,
+          "pass": true
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.7692176699638367,
+            "value": 0.16454996168613434
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.7586311101913452,
+            "value": 0.15252329409122467
+          }
+        },
+        "jackknife_pass": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "roi_mean_ratio_rgb": [
+          1.0071287155151367,
+          1.0068730115890503,
+          1.0051450729370117
+        ],
+        "status": "PASS",
+        "welch": {
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": 0.001672273501753807,
+          "min_p": 0.0065288500663777,
+          "n_reject_holm": 0,
+          "n_tests": 1587,
+          "pass": true
+        }
+      }
+    },
+    "prod_marble/Hero/Wave Texture": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.7643285989761353,
+            "value": 0.2163272500038147
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.7586311101913452,
+            "value": 0.13319993019104004
+          }
+        },
+        "jackknife_pass": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "roi_mean_ratio_rgb": [
+          1.0019885301589966,
+          1.0031324625015259,
+          1.0018210411071777
+        ],
+        "status": "PASS",
+        "welch": {
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": -0.001814242103137076,
+          "min_p": 0.001944205611983079,
+          "n_reject_holm": 0,
+          "n_tests": 1587,
+          "pass": true
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.7692176699638367,
+            "value": 0.13299186527729034
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.7586311101913452,
+            "value": 0.13319993019104004
+          }
+        },
+        "jackknife_pass": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "roi_mean_ratio_rgb": [
+          1.0071287155151367,
+          1.0068730115890503,
+          1.0051450729370117
+        ],
+        "status": "PASS",
+        "welch": {
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": 0.001672273501753807,
+          "min_p": 0.0065288500663777,
+          "n_reject_holm": 0,
+          "n_tests": 1587,
+          "pass": true
+        }
+      }
+    },
+    "prod_shader_stack/Hero/Noise Texture": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.6618638634681702,
+            "value": 0.1961778998374939
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.7252393364906311,
+            "value": 0.044176485389471054
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9165598750114441,
+          0.9431830048561096,
+          0.9790783524513245
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.2335253804922104,
+          "mean_rel_diff": -0.0465368777513504,
+          "min_p": 8.951361342057876e-23,
+          "n_reject_holm": 547,
+          "n_tests": 1587,
+          "pass": false
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.675101637840271,
+            "value": 0.18934974074363708
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.7252393364906311,
+            "value": 0.044176485389471054
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.913697361946106,
+          0.9411107301712036,
+          0.9761655926704407
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.2304701805114746,
+          "mean_rel_diff": -0.04880870133638382,
+          "min_p": 1.7301979158907173e-22,
+          "n_reject_holm": 533,
+          "n_tests": 1587,
+          "pass": false
+        }
+      }
+    },
+    "prod_shader_stack/Hero/Noise Texture.001": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.6618638634681702,
+            "value": 0.10339660942554474
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.7252393364906311,
+            "value": 0.0770639181137085
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9165598750114441,
+          0.9431830048561096,
+          0.9790783524513245
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.2335253804922104,
+          "mean_rel_diff": -0.0465368777513504,
+          "min_p": 8.951361342057876e-23,
+          "n_reject_holm": 547,
+          "n_tests": 1587,
+          "pass": false
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.675101637840271,
+            "value": 0.050108131021261215
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.7252393364906311,
+            "value": 0.0770639181137085
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.913697361946106,
+          0.9411107301712036,
+          0.9761655926704407
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.2304701805114746,
+          "mean_rel_diff": -0.04880870133638382,
+          "min_p": 1.7301979158907173e-22,
+          "n_reject_holm": 533,
+          "n_tests": 1587,
+          "pass": false
+        }
+      }
+    },
+    "prod_wood/Hero/Bump": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.2717083990573883,
+            "value": 0.05900101363658905
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.27606499195098877,
+            "value": 0.015247664414346218
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.985613226890564,
+          0.9944981336593628,
+          0.9761590361595154
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.10689062625169754,
+          "mean_rel_diff": -0.014325136318802834,
+          "min_p": 1.1129527355931223e-08,
+          "n_reject_holm": 44,
+          "n_tests": 1587,
+          "pass": false
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.2741401195526123,
+            "value": 0.0125551363453269
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.27606499195098877,
+            "value": 0.015247664414346218
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9949626326560974,
+          1.0023694038391113,
+          0.9801386594772339
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.09764479100704193,
+          "mean_rel_diff": -0.007288961671292782,
+          "min_p": 3.643178890321539e-07,
+          "n_reject_holm": 24,
+          "n_tests": 1587,
+          "pass": false
+        }
+      }
+    },
+    "prod_wood/Hero/Mapping": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.2717083990573883,
+            "value": 0.1040642112493515
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.27606499195098877,
+            "value": 0.08460491895675659
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.985613226890564,
+          0.9944981336593628,
+          0.9761590361595154
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.10689062625169754,
+          "mean_rel_diff": -0.014325136318802834,
+          "min_p": 1.1129527355931223e-08,
+          "n_reject_holm": 44,
+          "n_tests": 1587,
+          "pass": false
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.2741401195526123,
+            "value": 0.08383765071630478
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.27606499195098877,
+            "value": 0.08460491895675659
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9949626326560974,
+          1.0023694038391113,
+          0.9801386594772339
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.09764479100704193,
+          "mean_rel_diff": -0.007288961671292782,
+          "min_p": 3.643178890321539e-07,
+          "n_reject_holm": 24,
+          "n_tests": 1587,
+          "pass": false
+        }
+      }
+    },
+    "prod_wood/Hero/Noise Texture": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.2717083990573883,
+            "value": 0.062082961201667786
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.27606499195098877,
+            "value": 0.023713499307632446
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.985613226890564,
+          0.9944981336593628,
+          0.9761590361595154
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.10689062625169754,
+          "mean_rel_diff": -0.014325136318802834,
+          "min_p": 1.1129527355931223e-08,
+          "n_reject_holm": 44,
+          "n_tests": 1587,
+          "pass": false
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.2741401195526123,
+            "value": 0.022678298875689507
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.27606499195098877,
+            "value": 0.023713499307632446
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9949626326560974,
+          1.0023694038391113,
+          0.9801386594772339
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.09764479100704193,
+          "mean_rel_diff": -0.007288961671292782,
+          "min_p": 3.643178890321539e-07,
+          "n_reject_holm": 24,
+          "n_tests": 1587,
+          "pass": false
+        }
+      }
+    },
+    "prod_wood/Hero/Wave Texture": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.2717083990573883,
+            "value": 0.08467796444892883
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.27606499195098877,
+            "value": 0.06288646161556244
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.985613226890564,
+          0.9944981336593628,
+          0.9761590361595154
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.10689062625169754,
+          "mean_rel_diff": -0.014325136318802834,
+          "min_p": 1.1129527355931223e-08,
+          "n_reject_holm": 44,
+          "n_tests": 1587,
+          "pass": false
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.2741401195526123,
+            "value": 0.06169909983873367
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.27606499195098877,
+            "value": 0.06288646161556244
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9949626326560974,
+          1.0023694038391113,
+          0.9801386594772339
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.09764479100704193,
+          "mean_rel_diff": -0.007288961671292782,
+          "min_p": 3.643178890321539e-07,
+          "n_reject_holm": 24,
+          "n_tests": 1587,
+          "pass": false
+        }
+      }
+    },
+    "v2_sky_sun/World/Sky Texture": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 15.143762588500977,
+            "value": 0.6325833201408386
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 15.174837112426758,
+            "value": 15.089560508728027
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9991368651390076,
+          0.9987097382545471,
+          0.9960276484489441
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.05132926255464554,
+          "mean_rel_diff": -0.007610128726810217,
+          "min_p": 2.627996062246683e-15,
+          "n_reject_holm": 113,
+          "n_tests": 2640,
+          "pass": false
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 15.142858505249023,
+            "value": 0.6326114535331726
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 15.174837112426758,
+            "value": 15.089560508728027
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9991545677185059,
+          0.9987252950668335,
+          0.9960314631462097
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.050401702523231506,
+          "mean_rel_diff": -0.007825235836207867,
+          "min_p": 6.98082460156071e-16,
+          "n_reject_holm": 112,
+          "n_tests": 2640,
+          "pass": false
+        }
+      }
+    },
+    "v2_textures_opvm/CardMapAfterWarp/Mapping": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.47422224283218384,
+            "value": 0.2937500476837158
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.4744700491428375,
+            "value": 0.29362690448760986
+          }
+        },
+        "jackknife_pass": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "roi_mean_ratio_rgb": [
+          1.0003931522369385,
+          1.0003268718719482,
+          0.9989614486694336
+        ],
+        "status": "PASS",
+        "welch": {
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": -0.00012023578165099025,
+          "min_p": 0.3634831774349672,
+          "n_reject_holm": 0,
+          "n_tests": 243,
+          "pass": true
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.47478237748146057,
+            "value": 0.29521089792251587
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.4744700491428375,
+            "value": 0.29362690448760986
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          1.001258373260498,
+          1.0010735988616943,
+          0.9983566403388977
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.07262007892131805,
+          "mean_rel_diff": 0.0010277567198500037,
+          "min_p": 1.0960849460176177e-15,
+          "n_reject_holm": 65,
+          "n_tests": 243,
+          "pass": false
+        }
+      }
+    },
+    "v2_textures_opvm/CardMapAfterWarp/Noise Texture": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.47422224283218384,
+            "value": 0.2584773600101471
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.4744700491428375,
+            "value": 0.0960766151547432
+          }
+        },
+        "jackknife_pass": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "roi_mean_ratio_rgb": [
+          1.0003931522369385,
+          1.0003268718719482,
+          0.9989614486694336
+        ],
+        "status": "PASS",
+        "welch": {
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": -0.00012023578165099025,
+          "min_p": 0.3634831774349672,
+          "n_reject_holm": 0,
+          "n_tests": 243,
+          "pass": true
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.47478237748146057,
+            "value": 0.25932562351226807
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.4744700491428375,
+            "value": 0.0960766151547432
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          1.001258373260498,
+          1.0010735988616943,
+          0.9983566403388977
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.07262007892131805,
+          "mean_rel_diff": 0.0010277567198500037,
+          "min_p": 1.0960849460176177e-15,
+          "n_reject_holm": 65,
+          "n_tests": 243,
+          "pass": false
+        }
+      }
+    },
+    "v2_textures_opvm/CardNoise/Noise Texture": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.4998149275779724,
+            "value": 0.06943101435899734
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.4999350607395172,
+            "value": 0.06940744072198868
+          }
+        },
+        "jackknife_pass": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9999180436134338,
+          1.0001245737075806,
+          0.9994293451309204
+        ],
+        "status": "PASS",
+        "welch": {
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": -5.5809025070630014e-05,
+          "min_p": 0.9695141420161585,
+          "n_reject_holm": 0,
+          "n_tests": 243,
+          "pass": true
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.4998210668563843,
+            "value": 0.06878320872783661
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.4999350607395172,
+            "value": 0.06940744072198868
+          }
+        },
+        "jackknife_pass": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9999303817749023,
+          1.0001205205917358,
+          0.999458372592926
+        ],
+        "status": "PASS",
+        "welch": {
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": -9.86630857369164e-06,
+          "min_p": 0.6913138859646972,
+          "n_reject_holm": 0,
+          "n_tests": 243,
+          "pass": true
+        }
+      }
+    },
+    "v2_textures_opvm/CardWave/Wave Texture": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.4986272156238556,
+            "value": 0.274640828371048
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.4986405670642853,
+            "value": 0.27523696422576904
+          }
+        },
+        "jackknife_pass": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "roi_mean_ratio_rgb": [
+          1.000134825706482,
+          1.0002081394195557,
+          0.9997549057006836
+        ],
+        "status": "PASS",
+        "welch": {
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": 0.00031629661680199206,
+          "min_p": 0.5008782288401097,
+          "n_reject_holm": 0,
+          "n_tests": 243,
+          "pass": true
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.4984217584133148,
+            "value": 0.25683990120887756
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.4986405670642853,
+            "value": 0.27523696422576904
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          1.0008074045181274,
+          1.0008699893951416,
+          1.0004091262817383
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.05527191981673241,
+          "mean_rel_diff": 0.00621485710144043,
+          "min_p": 2.205524900271717e-12,
+          "n_reject_holm": 33,
+          "n_tests": 243,
+          "pass": false
+        }
+      }
+    },
+    "v2_textures_opvm/RoughnessProg/Noise Texture": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.4463907480239868,
+            "value": 0.10601156204938889
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.4535384774208069,
+            "value": 0.08175787329673767
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9834266901016235,
+          0.9966288208961487,
+          0.983729362487793
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.08459489047527313,
+          "mean_rel_diff": -0.013125412166118622,
+          "min_p": 1.02815250180397e-05,
+          "n_reject_holm": 1,
+          "n_tests": 192,
+          "pass": false
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.443970650434494,
+            "value": 0.0812903568148613
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.4535384774208069,
+            "value": 0.08175787329673767
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9851077795028687,
+          0.9984210133552551,
+          0.9851462841033936
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.07798507064580917,
+          "mean_rel_diff": -0.011960162781178951,
+          "min_p": 3.0618051550409195e-06,
+          "n_reject_holm": 2,
+          "n_tests": 192,
+          "pass": false
+        }
+      }
+    },
+    "v2_thin_film_metals/Gold/Metallic BSDF": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 1.121494174003601,
+            "value": 1.680822491645813
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 1.1231956481933594,
+            "value": 1.6746464967727661
+          }
+        },
+        "jackknife_pass": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9909486770629883,
+          0.995545506477356,
+          0.9880225658416748
+        ],
+        "status": "PASS",
+        "welch": {
+          "max_rel_bias_rejected": 0.0,
+          "mean_rel_diff": -0.010411364026367664,
+          "min_p": 0.0029738127043195768,
+          "n_reject_holm": 0,
+          "n_tests": 108,
+          "pass": true
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 1.129622459411621,
+            "value": 1.6840349435806274
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 1.1231956481933594,
+            "value": 1.6746464967727661
+          }
+        },
+        "jackknife_pass": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "roi_mean_ratio_rgb": [
+          0.9871606230735779,
+          0.9948092699050903,
+          0.9892544746398926
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.27824342250823975,
+          "mean_rel_diff": -0.00932073500007391,
+          "min_p": 0.00035003337448065187,
+          "n_reject_holm": 1,
+          "n_tests": 108,
+          "pass": false
+        }
+      }
+    },
+    "v2_viewport/Grid100k/Principled BSDF": {
+      "CPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.2898794412612915,
+            "value": 0.0221842210739851
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.28271546959877014,
+            "value": 0.019581448286771774
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          1.0251107215881348,
+          1.0212905406951904,
+          1.010616660118103
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.270292192697525,
+          "mean_rel_diff": 0.024939503520727158,
+          "min_p": 3.237759736560242e-19,
+          "n_reject_holm": 1749,
+          "n_tests": 6720,
+          "pass": false
+        }
+      },
+      "GPU": {
+        "effect": {
+          "astroray": {
+            "ok": true,
+            "signal": 0.28991472721099854,
+            "value": 0.02035721018910408
+          },
+          "cycles": {
+            "ok": true,
+            "signal": 0.28271546959877014,
+            "value": 0.019581448286771774
+          }
+        },
+        "jackknife_pass": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "roi_mean_ratio_rgb": [
+          1.0250256061553955,
+          1.02125883102417,
+          1.010565996170044
+        ],
+        "status": "FAIL",
+        "welch": {
+          "max_rel_bias_rejected": 0.27667492628097534,
+          "mean_rel_diff": 0.02492251619696617,
+          "min_p": 2.5969063281767817e-19,
+          "n_reject_holm": 1761,
+          "n_tests": 6720,
+          "pass": false
+        }
+      }
+    }
+  }
+}

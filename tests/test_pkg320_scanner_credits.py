@@ -600,8 +600,11 @@ def test_partial_handling_caps_still_describe_the_addon():
     assert "if getattr(disp_node, 'type', None) != 'DISPLACEMENT':" in src
     assert "volume_node.type in {'VOLUME_SCATTER', 'PRINCIPLED_VOLUME'}" in src
     assert "evaluated = self._get_socket_color(color_input)" in src
+    assert "surface_src" in src and "only_bg" in src          # pkg328: the active output only filters Backgrounds
     assert set(GEN.PARTIAL_HANDLING_CAPS) == {("OUTPUT_MATERIAL", "input:Displacement"),
-                                              ("OUTPUT_WORLD", "input:Volume"), ("BACKGROUND", "input:Color")}
+                                              ("OUTPUT_WORLD", "input:Volume"), ("BACKGROUND", "input:Color"),
+                                              ("OUTPUT_WORLD", "input:Surface"),
+                                              ("OUTPUT_WORLD", "prop:is_active_output")}
 
 
 # --- #1101 review finding 7: a stale scanner review cannot score a changed scanner ----------------------------

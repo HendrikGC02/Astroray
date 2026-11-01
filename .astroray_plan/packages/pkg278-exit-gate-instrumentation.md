@@ -145,7 +145,13 @@ existing metric rather than adding a comparison stack (pkg104 + pkg119b).
 - Row (b) GREEN is COMPUTED and requires EVERY subcheck below present and true;
   any missing, false, dangling or unlinked subcheck makes (b) RED:
   - b1 — input manifest hash-locked to a committed version and owner-ratified.
-  - b2 — CPU score `S_CPU ≥ 0.95`; b3 — GPU score `S_GPU ≥ 0.95`.
+  - b2 — CPU score `S_CPU ≥ T_CPU`; b3 — GPU score `S_GPU ≥ T_GPU`. Owner 2026-10-31 (pkg328 Phase 2): `s_{i,b}` is the static
+    matrix credit per identity (SUPPORTED 1, APPROXIMATED 0.5, else 0), AUDITED by a sampled witness set instead of a witness per
+    identity. Each witness is rendered on CPU and GPU against Cycles at 8 seeds and judged only by `mc_compare.welch_verdict`
+    (Welch-1b, as row (c)); a failing witness zeroes the identities it covers on that backend, a no-effect witness is recorded and
+    credits nothing. 0.95 is retired: `T_b` is the measured ceiling minus a margin (seed-to-seed spread of S plus one witness's
+    weight), recorded in `docs/blender_parity/evidence/gate_b/threshold_b.json` and signed by the owner in a PR; until it is signed
+    b2/b3 fail and row (b) stays red. Scored from `coverage_input_manifest.v5` (`pkg278.coverage_report.v2`).
   - b4 — zero silent drops in corpus scenes.
   - b5 — Principled-advanced, Metallic BSDF, Sky texture and Displacement checks pass.
   - b6 — every nonzero classification links its per-backend, per-variant evidence artifact.

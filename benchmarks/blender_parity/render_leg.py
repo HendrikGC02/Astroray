@@ -224,15 +224,25 @@ GATE_B_CONTROL_NODE_TYPES = {
     "noise_const": "ShaderNodeTexNoise", "brick_const": "ShaderNodeTexBrick",
     "wave_const": "ShaderNodeTexWave", "bump_zero": "ShaderNodeBump",
     "mapping_identity": "ShaderNodeMapping",
+    # pkg328 audit sample (Metallic / Principled-advanced / Sky): same counterfactual idea, on a BSDF or the world sky.
+    "metallic_diffuse": "ShaderNodeBsdfMetallic", "principled_diffuse": "ShaderNodeBsdfPrincipled",
+    "sky_const": "ShaderNodeTexSky",
 }
 
 
 def _gate_b_target_node(bpy, control, receipt):
-    """Bind the control's object/material/node, checking each is what the declaration says."""
+    """Bind the control's object/material/node (or, for ``sky_const``, world/node), checking each is as declared."""
+    kind = control["kind"]
+    if kind == "sky_const":
+        world = bpy.data.worlds.get(control.get("world"))
+        node = world and world.node_tree and world.node_tree.nodes.get(control.get("node"))
+        if world is None or bpy.context.scene.world != world or node is None or node.bl_idname != GATE_B_CONTROL_NODE_TYPES[kind]:
+            raise ValueError("gate-b sky_const world/node binding is absent, inactive or wrong type")
+        receipt.update({"world": world.name, "node": node.name})
+        return world, node
     obj = bpy.data.objects.get(control.get("object"))
     mat = bpy.data.materials.get(control.get("material"))
     node = mat and mat.node_tree and mat.node_tree.nodes.get(control.get("node"))
-    kind = control["kind"]
     if obj is None or obj.type != "MESH" or mat is None or mat.name not in obj.data.materials:
         raise ValueError(f"gate-b {kind} object/material binding is absent or wrong")
     if node is None or node.bl_idname != GATE_B_CONTROL_NODE_TYPES[kind]:
@@ -267,11 +277,33 @@ def _replace_outputs_with_constant(mat, node, value):
     return replaced
 
 
+def _replace_outputs_with_diffuse(mat, node):
+    """Feed every consumer of the BSDF node's linked outputs from a grey Diffuse BSDF instead (pkg328 audit control)."""
+    tree, replaced = mat.node_tree, []
+    for out in node.outputs:
+        links = list(out.links)
+        if not links:
+            continue
+        diffuse = tree.nodes.new("ShaderNodeBsdfDiffuse")
+        diffuse.inputs["Color"].default_value = (0.5, 0.5, 0.5, 1.0)
+        diffuse.name = f"{node.name}_Diffuse_{out.name}"
+        for link in links:
+            target = link.to_socket
+            tree.links.remove(link)
+            tree.links.new(diffuse.outputs[0], target)
+            replaced.append({"output": out.name, "to_node": target.node.name, "to_socket": target.name})
+    if not replaced:
+        raise ValueError("gate-b control target has no linked output to neutralise")
+    return replaced
+
+
 def _gate_b_control(bpy, control, receipt):
     """Apply one of the pkg323 control kinds; returns after filling ``receipt``."""
     kind = control["kind"]
     mat, node = _gate_b_target_node(bpy, control, receipt)
-    if kind in ("noise_const", "wave_const"):
+    if kind in ("metallic_diffuse", "principled_diffuse"):
+        receipt["replaced"] = _replace_outputs_with_diffuse(mat, node)
+    elif kind in ("noise_const", "wave_const", "sky_const"):
         value = float(control.get("const", 0.5))
         receipt["replaced"] = _replace_outputs_with_constant(mat, node, value)
         receipt["const"] = value

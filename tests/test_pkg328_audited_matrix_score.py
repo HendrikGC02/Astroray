@@ -296,14 +296,73 @@ def test_committed_threshold_file_is_unsigned_until_the_owner_signs():
         assert data["signed"]["owner"] and isinstance(data["signed"]["cpu"], float)
 
 
-def test_gate_manifest_row_b_bound_follows_the_threshold_file():
+def _gate_manifest_on(monkeypatch, root: Path):
     import gate_manifest as G
 
-    t = C.load_b_threshold(REPO)
-    expected = {b: (t["min"][b] if t["signed"] else (t["proposed"][b] if t["proposed"][b] is not None else 1.0))
-                for b in ("CPU", "GPU")}
-    assert G.ROW_SPEC["b"]["threshold"] == {"cpu_score": {"min": expected["CPU"]}, "gpu_score": {"min": expected["GPU"]}}
-    assert G.ROW_SPEC["b"]["threshold"]["cpu_score"]["min"] != 0.95  # 0.95 is retired
+    monkeypatch.setattr(G, "REPO_ROOT", root)
+    monkeypatch.setattr(G, "_coverage_reducer", lambda: C)
+    return G
+
+
+def test_gate_manifest_row_b_bound_follows_the_threshold_file(tmp_path, monkeypatch):
+    signed = {"cpu": 0.61, "gpu": 0.62, "owner": "owner", "pr": 7, "date": "2026-11-02"}
+    for name, body, expected in (
+            ("signed", {"proposed": {"cpu": 0.55, "gpu": 0.57}, "signed": signed}, (0.61, 0.62)),
+            ("unsigned", {"proposed": {"cpu": 0.55, "gpu": 0.57}, "signed": None}, (0.55, 0.57)),
+            ("no_proposal", {"signed": None}, (1.0, 1.0))):
+        root = tmp_path / name
+        root.mkdir()
+        path = root / C.THRESHOLD_PATH
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"schema": C.THRESHOLD_SCHEMA, **body}))
+        _git(root, "init", "-q")
+        _git(root, "add", "-A")
+        _git(root, "commit", "-qm", "x")
+        G = _gate_manifest_on(monkeypatch, root)
+        assert G._row_b_threshold() == {"cpu_score": {"min": expected[0]}, "gpu_score": {"min": expected[1]}}
+    assert G._row_b_threshold()["cpu_score"]["min"] != 0.95      # 0.95 is retired
+
+
+def test_committed_row_b_bound_is_not_the_retired_0_95():
+    import gate_manifest as G
+
+    assert G.ROW_SPEC["b"]["threshold"]["cpu_score"]["min"] != 0.95
+
+
+def test_unsigned_audited_report_is_not_green_and_row_b_is_red(tmp_path, monkeypatch):
+    """End to end: an audited report (all witnesses PASS, good scores) with an unsigned threshold is not green."""
+    (tmp_path / "repo").mkdir()
+    root = _threshold_repo(tmp_path / "repo", None)
+    uses = {A: {"s1"}, B: {"s1"}, D: {"s1"}, F: {"s1"}}
+    ledger = [r for r in LEDGER if r["identity"] != E]
+    audit = _audit({"w_noise": {"CPU": "PASS", "GPU": "PASS"}, "w_diffuse": {"CPU": "PASS", "GPU": "PASS"}})
+    verified = {"use_ledger": ledger, "audit": audit}
+    pop = {"ratified": True, "gate_eligible": True}
+    report = C._build_report_audited({}, MATRIX, uses, verified, pop, root, True, "", [], True)
+    assert report["status"] != "green" and report["status"] == "red"
+    assert report["subchecks"]["b2_cpu_score"]["pass"] is False and report["subchecks"]["b3_gpu_score"]["pass"] is False
+    assert report["subchecks"]["b2_cpu_score"]["signed"] is False and report["threshold"]["signed"] is False
+    assert report["subchecks"]["b2_cpu_score"]["score"] >= 0.5 and report["subchecks"]["b2_cpu_score"]["min"] is None  # a good score, no bound
+    report["audit"]["build"] = {"CPU": {"build_id": "candidate"}}
+    # row (b): the manifest reducer re-derives that report and the row stays red
+    G = _gate_manifest_on(monkeypatch, tmp_path)
+    frozen = {"schema": "pkg278.coverage_input_manifest.v5", "input_path": "input.json", "matrix": {"path": "matrix.json"},
+              "corpus": {"scenes": {"fixture": {"sha256": "1" * 64}}}, "scanner_issue_823": {}}
+    for name, payload in (("input.json", frozen), ("snapshot.json", {"scenes": {}}), ("matrix.json", []),
+                          ("report.json", report)):
+        (tmp_path / name).write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(C, "build_report", lambda *a, **k: report)
+    ref = lambda name: {"path": name, "sha256": G.sha256_file(tmp_path / name)}
+    record = {"kind": "coverage_reduction", "input": ref("input.json"), "snapshot": ref("snapshot.json"),
+              "matrix": ref("matrix.json"), "report": ref("report.json")}
+    errors, value, subchecks = G._validate_b([record], tmp_path)
+    assert any("not 'green'" in e for e in errors) and subchecks["b2_cpu_score"]["pass"] is False
+    adapter = G.adapt_b_instrument(tmp_path / "report.json", tmp_path / "input.json", tmp_path / "snapshot.json",
+                                   tmp_path / "matrix.json")
+    (tmp_path / "b_instrument.json").write_text(json.dumps(adapter), encoding="utf-8")
+    loaded = G.load_instruments(None, {"b": tmp_path / "b_instrument.json"})["b"]
+    row, reasons = G.compute_row("b", loaded, G.ROW_SPEC["b"], tmp_path)
+    assert row["status"] != "green" and reasons
 
 
 # ---------------------------------------------------------------- Welch-1b judge uses mc_compare.welch_verdict
@@ -365,7 +424,7 @@ def test_judge_status_comes_from_welch_verdict(tmp_path, monkeypatch):
 def test_judge_fails_a_real_two_percent_bias(tmp_path):
     seeds = (11, 12, 13, 14, 15, 16, 17, 18)
     sample = _sample(seeds)
-    _write_legs(tmp_path, sample["witnesses"][0], seeds, np.random.default_rng(6), bias=0.05, effect=True)
+    _write_legs(tmp_path, sample["witnesses"][0], seeds, np.random.default_rng(6), bias=0.02, effect=True)
     out = C.audit_judge(sample, tmp_path, "CPU")["scn/Obj/Node"]
     assert out["status"] == "FAIL" and out["welch"]["n_reject_holm"] > 0
 

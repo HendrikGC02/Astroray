@@ -220,7 +220,7 @@ def test_addon_reports_gpu_bump_only_when_the_engine_cannot_difference_it(monkey
 ], ids=["plain", "film", "dispersion", "tree", "cpu", "follows", "no_coat"])
 def test_addon_reports_gpu_coat_on_the_bumped_normal(monkeypatch, extra, tree, on_gpu, reported):
     """#1153 review: thin film / dispersion / closure-tree Principled keep the coat on the bumped
-    normal on the GPU (gpu_coatOnSdN excludes them); the addon says so, as scene_upload does."""
+    normal on the GPU (gpu_npPerLobe excludes them); the addon says so, as scene_upload does."""
     addon = P._load_blender_addon(monkeypatch)
     engine = addon.CustomRaytracerRenderEngine()
     seen = []

@@ -462,6 +462,10 @@ struct HitRecord {
         // fallback. uvBitangentSign stays +1 so the fallback frame is right-handed.
         uvTangent = tangent;
         uvBitangentSign = 1.0f;
+        // #1214: the fallback frame has unit world-per-UV scale (a sphere's image bump, GPU twin
+        // stage_advance_device.cuh); BVH traversal reuses rec, so a farther textured triangle's
+        // scale must not leak into a closer primitive's hit.
+        uvScaleU = uvScaleV = 1.0f;
     }
 };
 

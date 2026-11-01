@@ -1023,6 +1023,12 @@ HD inline GImageLinearTaps gpu_imageLinearTaps(int w, int h, float u, float v) {
     return t;
 }
 
+// #1004 - image Bump finite-difference step, in texels of a Linear-read height. Cycles steps
+// Filter Width (default 0.1, scene/shader_nodes.cpp:7225, Cycles @ Blender v5.2.0 fbe62287) of
+// the pixel footprint; Astroray has no ray differentials, so the footprint unit is one texel.
+// #1156: shared by the CPU (normal_mapped.cpp) and the GPU bump block (stage_advance_device.cuh).
+constexpr float kBumpLinearStepTexels = 0.1f;
+
 // #1004 - bilinear twin of gpu_sampleImageTexture (CPU ImageTexture::valueLinear).
 HD inline GVec3 gpu_sampleImageTextureLinear(const GImageTexture& tex,
                                              const GVec3* texels,

@@ -1925,16 +1925,18 @@ __device__ inline void gpu_pr_glassEnergy(const GPrincipledClosure& c, const GPr
 }
 // #1153: CoatN = the coat and sheen shade on their own normals (Cycles svm/closure.h:127-129,
 // 152-161; CPU twin principled.cpp assembleLobes coatOwnN): their view-angle terms use nvCoat /
-// nvSheen. Only the out-of-line HasNormalPerturb helpers (stage_advance_device.cuh gpu_coatN_*)
-// instantiate it; every other caller gets the CoatN=false body unchanged.
+// nvSheen. #1220: the glossy closures' view-angle terms (specular Fresnel / layering albedo, thin
+// glass, glass energy) use nvGloss, the lifted normal's cosine (principled.cpp nvG). Only the
+// out-of-line HasNormalPerturb helpers (stage_advance_device.cuh gpu_coatN_*) instantiate it;
+// every other caller gets the CoatN=false body unchanged.
 template<bool CoatN = false>
 __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GHitRecord& rec,
                                            const GVec3& wo, GPrincipledLobe lobes[kMaxPrincipledLobes],
                                            const GSampledWavelengths* wl = nullptr,
-                                           float nvCoat = 0.f, float nvSheen = 0.f) {
+                                           float nvCoat = 0.f, float nvSheen = 0.f, float nvGloss = 0.f) {
     float nv = fminf(fmaxf(rec.normal.dot(wo), 1e-4f), 1.f);
-    float nvS = nv, nvC = nv;
-    if constexpr (CoatN) { nvS = nvSheen; nvC = nvCoat; }
+    float nvS = nv, nvC = nv, nvG = nv;
+    if constexpr (CoatN) { nvS = nvSheen; nvC = nvCoat; nvG = nvGloss; }
     GVec3 weight(1.f, 1.f, 1.f);  // W₀ = 1
     GVec3 baseColor = c.color;
     int n = 0;
@@ -2011,9 +2013,9 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
     if (c.transmission > 1e-4f && luminance(weight) > 1e-4f) {
         if (gpu_pr_thinWall(c)) {
             GVec3 Rp, Tp;
-            gpu_pr_thinGlassFresnelRGB(c, nv, Rp, Tp);  // per-channel R', T' at the view angle
+            gpu_pr_thinGlassFresnelRGB(c, nvG, Rp, Tp);  // per-channel R', T' at the view angle
             GSampledSpectrum RpS, TpS;  // pkg194 Item 2: per-λ native R'/T'
-            if (wl) gpu_pr_thinGlassFresnelSpectral(c, nv, *wl, RpS, TpS);
+            if (wl) gpu_pr_thinGlassFresnelSpectral(c, nvG, *wl, RpS, TpS);
             GVec3 baseW = weight * c.transmission;
             if (luminance(Rp) > 1e-6f) {
                 GPrincipledLobe& L = lobes[n++];
@@ -2049,7 +2051,7 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
                 // average(darkening)` (Blender 5.2 bsdf_microfacet.h:483, BSD-3-Clause);
                 // twin of principled.cpp. Selection only; transient locals.
                 GVec3 dk; float es;
-                gpu_pr_glassEnergy(c, L, rec.frontFace ? c.ior : (1.f / c.ior), nv, dk, es);
+                gpu_pr_glassEnergy(c, L, rec.frontFace ? c.ior : (1.f / c.ior), nvG, dk, es);
                 L.sel = fmaxf(luminance(L.weight) * ((dk.x + dk.y + dk.z) * (1.f / 3.f)), 1e-4f);
             }
             if (wl) L.weightSpec = weightSp * c.transmission;
@@ -2069,7 +2071,7 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
             if (c.ior < 1.f) specEta = 1.f / specEta;
         }
         GVec3 specF0 = GVec3(f0s) * c.specularTint;
-        float sView = gpu_pr_generalizedSchlickS(nv, specEta);
+        float sView = gpu_pr_generalizedSchlickS(nvG, specEta);
         GVec3 Fview = specF0 + (GVec3(1.f) - specF0) * sView;
         GPrincipledLobe& L = lobes[n++];
         L.kind = GPR_SPECULAR; L.weight = weight; L.color = specF0;
@@ -2077,7 +2079,7 @@ __device__ inline int gpu_pr_assembleLobes(const GPrincipledClosure& c, const GH
         L.anisotropic = c.anisotropic; L.anisoRotation = c.anisotropicRotation;  // PR-4b
         L.sel = fmaxf(luminance(weight * Fview), 1e-4f);
         if (wl) L.weightSpec = weightSp;  // specF0 upsampled separately in the eval
-        GVec3 specAlb = gpu_ggxLayeringAlbedo(specF0, c.roughness, nv, specEta);  // pkg261
+        GVec3 specAlb = gpu_ggxLayeringAlbedo(specF0, c.roughness, nvG, specEta);  // pkg261
         float layT = gpu_pr_layeringScale(weight, specAlb);
         weight = weight * layT;
         if (wl) weightSp = weightSp * layT;

@@ -37,7 +37,8 @@ namespace bumpcorr {
 enum Mode : int {
     kGlossy = 1,   // glossy / glass / mixed material: N lifted (correction), shadowing test only
     kDiffuse = 2,  // diffuse material: shadowing test + GGX terminator softening (correction)
-    kPerLobe = 3,  // Principled: the CPU applies both per closure; the GPU treats it as kGlossy
+    kPerLobe = 3,  // Principled: both applied per closure (GPU gpu_npPerLobe, #1220); the GPU's
+                   // one-normal fallback (thin film, dispersion, closure trees) treats it as kGlossy
     kClassMask = 3,
     kCorrectionBit = 4,
     // An Output Displacement (Bump method) bump: Cycles bump_from_displacement sets sd->N to the

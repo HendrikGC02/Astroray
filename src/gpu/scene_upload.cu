@@ -1710,9 +1710,18 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         // the shade path's HasNormalPerturb kernel fetches it via matNormalTexId.
         // Uses the SAME device texel data as the CPU TextureManager texture, so
         // CPU/GPU parity holds regardless of the image's colour management.
+        // #1156: the device reads both images at the hit's UV (CPU: valueLinear in UV mode only),
+        // so an image in another coordinate mode is not uploaded and the GPU renders unperturbed.
+        auto nonUvImage = [&](const char* what) {
+            if (!replayBail)
+                fprintf(stderr, "[#1156] DEGRADED: %s image in a non-UV coordinate mode is not "
+                                "applied on GPU (CPU applies it)\n", what);
+        };
         int normalTexId = -1;
         if (auto nimg = std::dynamic_pointer_cast<ImageTexture>(nmTex)) {
-            if (!nimg->getData().empty()) {
+            if (nimg->getCoordMode() != Texture::CoordMode::UV) {
+                nonUvImage("Normal Map");
+            } else if (!nimg->getData().empty()) {
                 normalTexId = uploadImageTexId(nimg.get(), nimg.get());
                 r.hasNormalPerturb = true;
             }
@@ -1723,7 +1732,9 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         // deduped via the same texIdx map (mirrors the normal-map block above).
         int bumpTexId = -1;
         if (auto bimg = std::dynamic_pointer_cast<ImageTexture>(bmTex)) {
-            if (!bimg->getData().empty()) {
+            if (bimg->getCoordMode() != Texture::CoordMode::UV) {
+                nonUvImage("Bump Height");
+            } else if (!bimg->getData().empty()) {
                 bumpTexId = uploadImageTexId(bimg.get(), bimg.get());
                 r.hasNormalPerturb = true;  // Bump shares the HasNormalPerturb axis
             }
@@ -1775,7 +1786,7 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         r.materialBumpStrength.push_back(bmStrength);
         r.materialBumpDistance.push_back(bmDistance);
         r.materialBumpCorrect.push_back(bumpCorrect);
-        if (r.materials[id].isDispersive)  // #1153 (gpu_coatOnSdN excludes these)
+        if (r.materials[id].isDispersive)  // #1153 (gpu_npPerLobe excludes these)
             reportCoatOnBump(id, "a dispersive material");
         else if (r.materials[id].principled.thinFilmThickness > astroray::thinfilm::kThinFilmThicknessCutoff)
             reportCoatOnBump(id, "a thin-film material");

@@ -1694,11 +1694,21 @@ __device__ __noinline__ inline GBSDFSample gpu_tree_sample_spectral(
     return s;
 }
 
+// #1214 - the CPU Sphere::hit UV (shapes.h): n the outward unit normal, theta = acos(-n.y),
+// phi = atan2(-n.z, n.x) + pi, uv = (phi / 2pi, theta / pi). Same as gpu_emissionTexel.
+__device__ __forceinline__ void gpu_sphereUV(const GVec3& p, const GSphere& sp, float& u, float& v)
+{
+    const GVec3 n = (p - sp.center) * (1.0f / sp.radius);
+    u = (atan2f(-n.z, n.x) + M_PI_F) / (2.0f * M_PI_F);
+    v = acosf(fminf(1.0f, fmaxf(-1.0f, -n.y))) / M_PI_F;
+}
+
 // #1154 - Cycles bump_shadowing_term (Cycles @ Blender v5.2.0 kernel/closure/bsdf.h:86-146) for
 // the HasNormalPerturb kernel; CPU twin NormalMappedPlugin::bumpShadowing. The material class
 // rides c_wfTexBinding.matBumpCorrect; sd->N is the parked pre-bump normal, re-read here so the
-// shade kernel keeps no new live state. A Principled (kPerLobe) has one closure-graph normal on
-// the GPU (#1153), so it takes the glossy rule: the hemisphere test, no diffuse softening.
+// shade kernel keeps no new live state. A Principled (kPerLobe) on this one-normal path (thin
+// film, dispersion, closure trees; otherwise gpu_npPerLobe, #1220) takes the glossy rule: the
+// hemisphere test, no diffuse softening.
 __device__ ASTRORAY_SHADE_NOINLINE inline float gpu_bumpShadowing(
     const GPUWavefrontHitBuffers& hitBufs, int idx, int materialId, const GVec3& N, const GVec3& wi)
 {
@@ -1765,55 +1775,89 @@ static __device__ ASTRORAY_SHADE_NOINLINE inline GVec3 gpu_bumpProceduralNormal(
 // coat_weight)). CPU twin: principled.cpp assembleLobes (Lobe::ownN) and bumpShadowing. sd->N is
 // the parked pre-bump normal (hit_normal, as gpu_bumpShadowing reads it). The decorator sets
 // kCoatOnSdNBit unless the coat follows the bump (Output Displacement / a shared Coat Normal).
+// #1220: the same per-closure path serves Bump Map Correction (CPU assembleLobes glossOwnN,
+// Cycles svm/closure.h:154,295,495): glossy closures and the subsurface entry shade on
+// maybe_ensure_valid_specular_reflection(N), diffuse / sheen / translucent on N, and the bump
+// shadowing term is per closure with the diffuse softening (bsdf.h:86-146). The one-normal path
+// lifted the diffuse lobe and skipped its softening (car_paint GPU/CPU +1.5-2 %).
 // Not taken (the shared one-normal path stays): thin film, dispersion, closure trees.
 // Gate (#1153 perf): the cheap material tests first, then sd->N against the shading normal, as
 // the CPU does ((svmNormal - normal).length2() > 0): a hit the Bump / Normal Map left unbumped
-// (a sphere, a UV-less triangle, a flat stretch of the height) takes the plain path exactly.
-__device__ __forceinline__ bool gpu_coatOnSdN(const ::GMaterial& mat, const GPUWavefrontHitBuffers& hitBufs,
+// (a UV-less triangle, a flat stretch of the height) takes the plain path exactly.
+__device__ __forceinline__ bool gpu_npPerLobe(const ::GMaterial& mat, const GPUWavefrontHitBuffers& hitBufs,
                                               int idx, const GHitRecord& rec)
 {
+    namespace bc = astroray::bumpcorr;
     const int bm = c_wfTexBinding.matBumpCorrect ? c_wfTexBinding.matBumpCorrect[rec.materialId] : 0;
-    if (!((bm & astroray::bumpcorr::kCoatOnSdNBit) && mat.type == GMAT_CLOSURE_GRAPH &&
-          gpu_closure_graph_is_principled(mat) && mat.principled.coatWeight > 1e-4f &&
-          mat.closureTree == 0 && !mat.isDispersive && !gpu_pr_filmActive(mat.principled)))
+    if (!(bm & (bc::kCoatOnSdNBit | bc::kCorrectionBit)) || mat.type != GMAT_CLOSURE_GRAPH ||
+        !gpu_closure_graph_is_principled(mat) || mat.closureTree != 0 || mat.isDispersive ||
+        gpu_pr_filmActive(mat.principled))
         return false;
+    const bool coatSdN = (bm & bc::kCoatOnSdNBit) && mat.principled.coatWeight > 1e-4f;
+    const bool perLobe = (bm & bc::kCorrectionBit) && (bm & bc::kClassMask) == bc::kPerLobe;
+    if (!coatSdN && !perLobe) return false;
     return hitBufs.hit_normal_x[idx] != rec.normal.x || hitBufs.hit_normal_y[idx] != rec.normal.y ||
            hitBufs.hit_normal_z[idx] != rec.normal.z;
 }
 
-// The coat (rc, on sd->N) and sheen (rs) frames and their view cosines (principled.cpp lobeFrame).
-// rs only when the material has a sheen lobe.
+// Per-closure frames and view cosines (principled.cpp assembleLobes / lobeFrame): rg the glossy
+// frame (lifted N under the correction, else N), rc the coat on sd->N (coatSdN only), rs the
+// sheen on mix(N, sd->N, coat) (coatSdN with a sheen lobe only). rec keeps the unlifted bumped N.
 struct GCoatNFrames {
-    GHitRecord rc, rs;
-    float nvC, nvS;
+    GHitRecord rc, rs, rg;
+    GVec3 Ns;  // sd->N, the parked pre-bump normal
+    float nvC, nvS, nvG;
+    bool coatSdN;
 };
 __device__ __forceinline__ void gpu_coatN_frames(
     const GPrincipledClosure& c, const GPUWavefrontHitBuffers& hitBufs, int idx,
     const GHitRecord& rec, const GVec3& wo, GCoatNFrames& f)
 {
-    f.rc = rec;
-    f.rc.normal = GVec3(hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx], hitBufs.hit_normal_z[idx]);
-    gpu_buildONB(f.rc.normal, f.rc.tangent, f.rc.bitangent);
-    f.nvC = fminf(fmaxf(f.rc.normal.dot(wo), 1e-4f), 1.0f);
-    f.nvS = f.nvC;
-    if (c.sheenWeight > 1e-4f) {
-        f.rs = rec;
-        f.rs.normal = (rec.normal * (1.0f - c.coatWeight) + f.rc.normal * c.coatWeight).normalized();
-        gpu_buildONB(f.rs.normal, f.rs.tangent, f.rs.bitangent);
-        f.nvS = fminf(fmaxf(f.rs.normal.dot(wo), 1e-4f), 1.0f);
+    namespace bc = astroray::bumpcorr;
+    const int bm = c_wfTexBinding.matBumpCorrect[rec.materialId];
+    f.Ns = GVec3(hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx], hitBufs.hit_normal_z[idx]);
+    const float nv = fminf(fmaxf(rec.normal.dot(wo), 1e-4f), 1.0f);
+    f.rg = rec;
+    f.nvG = nv;
+    if ((bm & bc::kCorrectionBit) && (bm & bc::kClassMask) == bc::kPerLobe) {
+        f.rg.normal = bc::ensureValidSpecularReflection(f.Ns, wo, rec.normal);
+        gpu_buildONB(f.rg.normal, f.rg.tangent, f.rg.bitangent);
+        f.nvG = fminf(fmaxf(f.rg.normal.dot(wo), 1e-4f), 1.0f);
     }
+    f.coatSdN = (bm & bc::kCoatOnSdNBit) && c.coatWeight > 1e-4f;
+    f.nvC = f.nvG;
+    f.nvS = nv;
+    if (f.coatSdN) {
+        f.rc = rec;
+        f.rc.normal = f.Ns;
+        gpu_buildONB(f.rc.normal, f.rc.tangent, f.rc.bitangent);
+        f.nvC = fminf(fmaxf(f.Ns.dot(wo), 1e-4f), 1.0f);
+        if (c.sheenWeight > 1e-4f) {
+            f.rs = rec;
+            f.rs.normal = (rec.normal * (1.0f - c.coatWeight) + f.Ns * c.coatWeight).normalized();
+            gpu_buildONB(f.rs.normal, f.rs.tangent, f.rs.bitangent);
+            f.nvS = fminf(fmaxf(f.rs.normal.dot(wo), 1e-4f), 1.0f);
+        }
+    }
+}
+
+__device__ __forceinline__ bool gpu_coatN_diffuseKind(int kind)
+{
+    return kind == GPR_DIFFUSE || kind == GPR_SHEEN || kind == GPR_TRANSLUCENT || kind == GPR_SUBSURFACE;
 }
 
 __device__ __forceinline__ const GHitRecord& gpu_coatN_lobeFrame(
     const GPrincipledLobe& L, const GCoatNFrames& f, const GHitRecord& rec)
 {
-    return L.kind == GPR_COAT ? f.rc : (L.kind == GPR_SHEEN ? f.rs : rec);
+    if (L.kind == GPR_COAT) return f.coatSdN ? f.rc : f.rg;
+    if (L.kind == GPR_SHEEN) return f.coatSdN ? f.rs : rec;
+    if (L.kind == GPR_DIFFUSE || L.kind == GPR_TRANSLUCENT || L.kind == GPR_TRANSPARENT) return rec;
+    return f.rg;  // metallic, specular, transmission, thin glass, subsurface entry
 }
 
 // Mixture eval (bump shadowing per closure, CPU principled.cpp bumpShadowing) and pdf at wi from
-// lobes assembled once (with the spectral weights). The coat on sd->N gets term 1, the sheen (a
-// diffuse closure) the term on its own normal, every other lobe the GPU whole-closure term on
-// rec.normal (gpu_bumpShadowing's rule, #1154), computed here so no further call nests.
+// lobes assembled once (with the spectral weights): each closure's term on its own normal, the
+// diffuse-class ones softened under the correction; the coat on sd->N gets 1.
 struct GCoatNEvalPdf {
     GSampledSpectrum f;
     float pdf;  // < 0: not computed (gpu_np_eval_lazyPdf, plain path)
@@ -1826,8 +1870,6 @@ __device__ __forceinline__ GCoatNEvalPdf gpu_coatN_mix(
     namespace bc = astroray::bumpcorr;
     const int bm = c_wfTexBinding.matBumpCorrect[rec.materialId];
     const bool corr = (bm & bc::kCorrectionBit) != 0, setsSdN = (bm & bc::kSetsSdNBit) != 0;
-    const float tBase = setsSdN ? 1.0f
-        : bc::bumpShadowingTerm(f.rc.normal, rec.normal, wi, true, (bm & bc::kClassMask) == bc::kDiffuse, corr);
     GCoatNEvalPdf r;
     r.f = GSampledSpectrum(0.f);
     r.pdf = 0.f;
@@ -1836,9 +1878,8 @@ __device__ __forceinline__ GCoatNEvalPdf gpu_coatN_mix(
         if (L.isDelta) continue;
         const GHitRecord& fr = gpu_coatN_lobeFrame(L, f, rec);
         if (W > 0.f) r.pdf += (L.sel / W) * gpu_pr_pdfLobe(c, L, fr, wo, wi);
-        const float t = L.kind == GPR_COAT ? 1.0f
-                      : L.kind != GPR_SHEEN ? tBase
-                      : setsSdN ? 1.0f : bc::bumpShadowingTerm(f.rc.normal, f.rs.normal, wi, true, true, corr);
+        const float t = setsSdN ? 1.0f
+                      : bc::bumpShadowingTerm(f.Ns, fr.normal, wi, true, gpu_coatN_diffuseKind(L.kind), corr);
         if (t > 0.0f) r.f += gpu_pr_evalLobeSpectral(c, L, fr, wo, wi, wl) * t;
     }
     return r;
@@ -1855,7 +1896,7 @@ __device__ ASTRORAY_SHADE_NOINLINE inline GCoatNEvalPdf gpu_coatN_eval_pdf(
     GCoatNFrames f;
     gpu_coatN_frames(c, hitBufs, idx, rec, wo, f);
     GPrincipledLobe lobes[kMaxPrincipledLobes];
-    const int n = gpu_pr_assembleLobes<true>(c, rec, wo, lobes, &wl, f.nvC, f.nvS);
+    const int n = gpu_pr_assembleLobes<true>(c, rec, wo, lobes, &wl, f.nvC, f.nvS, f.nvG);
     float W = 0.f;
     for (int i = 0; i < n; ++i) W += lobes[i].sel;
     return gpu_coatN_mix(c, lobes, n, W, f, rec, wo, wi, wl);
@@ -1892,7 +1933,7 @@ __device__ ASTRORAY_SHADE_NOINLINE inline GBSDFSample gpu_coatN_sample_spectral(
     GCoatNFrames f;
     gpu_coatN_frames(c, hitBufs, idx, rec, wo, f);
     GPrincipledLobe lobes[kMaxPrincipledLobes];
-    const int n = gpu_pr_assembleLobes<true>(c, rec, wo, lobes, &wl, f.nvC, f.nvS);
+    const int n = gpu_pr_assembleLobes<true>(c, rec, wo, lobes, &wl, f.nvC, f.nvS, f.nvG);
     float W = 0.f;
     for (int i = 0; i < n; ++i) W += lobes[i].sel;
     if (W <= 0.f) return s;
@@ -1978,9 +2019,10 @@ __device__ __forceinline__ GBSDFSample gpu_shade_sample_spectral(
     return gpu_material_sample_spectral<HasPrincipled>(mat, rec, wo, wl, rng);
 }
 
-// #1153 - HasNormalPerturb entry points: a coat-on-sd->N Principled (gpu_coatOnSdN) runs the
-// out-of-line coat / sheen frames with per-closure bump shadowing; every other material takes
-// the shared entry point times the #1154 whole-closure term (gpu_bumpShadowing), as before.
+// #1153 - HasNormalPerturb entry points: a per-closure Principled (gpu_npPerLobe: coat on sd->N
+// or Bump Map Correction, #1220) runs the out-of-line per-closure frames and bump shadowing; every
+// other material takes the shared entry point times the #1154 whole-closure term
+// (gpu_bumpShadowing), as before.
 // NEE: gpu_np_eval_lazyPdf returns f and, on the coat path, the pdf of the same single call
 // (pdf < 0 on the plain path: the caller evaluates it only when it needs it).
 template<bool HasPrincipled, bool HasAdd>
@@ -1989,7 +2031,7 @@ __device__ __forceinline__ GCoatNEvalPdf gpu_np_eval_lazyPdf(
     const GVec3& wo, const GVec3& wi, const GSampledWavelengths& wl)
 {
     if constexpr (HasPrincipled) {
-        if (gpu_coatOnSdN(mat, hitBufs, idx, rec))
+        if (gpu_npPerLobe(mat, hitBufs, idx, rec))
             return gpu_coatN_eval_pdf(mat, hitBufs, idx, rec, wo, wi, wl);
     }
     GCoatNEvalPdf r;
@@ -2005,7 +2047,7 @@ __device__ __forceinline__ GBSDFSample gpu_np_sample_spectral(
     const GVec3& wo, GSampledWavelengths& wl, WavefrontRNG* rng)
 {
     if constexpr (HasPrincipled) {
-        if (gpu_coatOnSdN(mat, hitBufs, idx, rec))
+        if (gpu_npPerLobe(mat, hitBufs, idx, rec))
             return gpu_coatN_sample_spectral(mat, hitBufs, idx, rec, wo, wl, rng);
     }
     GBSDFSample s = gpu_shade_sample_spectral<HasPrincipled, HasAdd>(mat, idx, rec, wo, wl, rng);
@@ -2059,7 +2101,7 @@ __device__ __forceinline__ bool gpu_env_nee_generate_impl(
     if constexpr (NP) {
         // #1153: the coat path returns f and pdf from one call; the plain path keeps pdf first.
         bool coatN = false;
-        if constexpr (HasPrincipled) coatN = gpu_coatOnSdN(mat, *hitBufs, idx, rec);
+        if constexpr (HasPrincipled) coatN = gpu_npPerLobe(mat, *hitBufs, idx, rec);
         if (coatN) {
             const GCoatNEvalPdf e = gpu_coatN_eval_pdf(mat, *hitBufs, idx, rec, wo, wi, lambdas);
             bsdfPdf = e.pdf;
@@ -2283,12 +2325,17 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // ONB so the BSDF sample/eval below shade against the perturbed frame.
     if constexpr (HasNormalPerturb) {
         const int nmTexId = c_wfTexBinding.matNormalTexId[rec.materialId];
-        if (nmTexId >= 0 && rec.primId >= 0 &&
-            prims[rec.primId].type == GPRIM_TRIANGLE) {
-            const GTriangle& ntri = tris[prims[rec.primId].index];
-            if (ntri.uvAuthored) {  // pkg242: keep arbitrary frame for UV-less normal-map (CPU parity)
-                GVec3 nT; float nSign;
-                if (gpu_pr_uvAlignedTangent(ntri.v0, ntri.v1, ntri.v2,
+        if (nmTexId >= 0 && rec.primId >= 0) {
+            // UV and frame at the hit: an authored-UV triangle's UV-aligned frame, or the CPU
+            // Sphere::hit frame (#1214: spherical UV, the arbitrary ONB tangent, sign +1).
+            float uu = 0.0f, vv = 0.0f, nSign = 1.0f;
+            GVec3 nT = rec.uvTangent;
+            bool ok = false;
+            if (prims[rec.primId].type == GPRIM_TRIANGLE) {
+                const GTriangle& ntri = tris[prims[rec.primId].index];
+                // pkg242: keep arbitrary frame for UV-less normal-map (CPU parity)
+                if (ntri.uvAuthored &&
+                    gpu_pr_uvAlignedTangent(ntri.v0, ntri.v1, ntri.v2,
                                             ntri.uv0, ntri.uv1, ntri.uv2,
                                             rec.normal, nT, nSign)) {
                     // Barycentric UV at the hit (same recompute as the texture
@@ -2302,45 +2349,58 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                         float b1 = (d11 * d20 - d01 * d21) / denom;
                         float b2 = (d00 * d21 - d01 * d20) / denom;
                         float b0 = 1.0f - b1 - b2;
-                        float uu = b0*ntri.uv0.x + b1*ntri.uv1.x + b2*ntri.uv2.x;
-                        float vv = b0*ntri.uv0.y + b1*ntri.uv1.y + b2*ntri.uv2.y;
-                        const GImageTexture& ndesc = c_wfTexBinding.textures[nmTexId];
-                        if (ndesc.hasMapping) {
-                            const float* m = ndesc.mapping;
-                            float mu = m[0]*uu + m[1]*vv + m[3];
-                            float mv = m[4]*uu + m[5]*vv + m[7];
-                            uu = mu; vv = mv;
-                        }
-                        // #1004 - Linear read (CPU twin: normal_mapped.cpp valueLinear).
-                        GVec3 rgb = gpu_sampleImageTextureLinear(
-                            ndesc, c_wfTexBinding.texelBuf, uu, vv);
-                        GVec3 nTS = rgb * 2.0f - GVec3(1.0f);
-                        GVec3 B = rec.normal.cross(nT) * nSign;
-                        GVec3 mapped = (nT * nTS.x + B * nTS.y +
-                                        rec.normal * nTS.z).normalized();
-                        float t = fminf(fmaxf(
-                            c_wfTexBinding.matNormalStrength[rec.materialId], 0.0f), 1.0f);
-                        rec.normal = (rec.normal * (1.0f - t) +
-                                      mapped * t).normalized();
-                        gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
+                        uu = b0*ntri.uv0.x + b1*ntri.uv1.x + b2*ntri.uv2.x;
+                        vv = b0*ntri.uv0.y + b1*ntri.uv1.y + b2*ntri.uv2.y;
+                        ok = true;
                     }
                 }
+            } else if (prims[rec.primId].type == GPRIM_SPHERE) {
+                gpu_sphereUV(rec.point, spheres[prims[rec.primId].index], uu, vv);
+                ok = true;
+            }
+            if (ok) {
+                const GImageTexture& ndesc = c_wfTexBinding.textures[nmTexId];
+                if (ndesc.hasMapping) {
+                    const float* m = ndesc.mapping;
+                    float mu = m[0]*uu + m[1]*vv + m[3];
+                    float mv = m[4]*uu + m[5]*vv + m[7];
+                    uu = mu; vv = mv;
+                }
+                // #1004 - Linear read (CPU twin: normal_mapped.cpp valueLinear).
+                GVec3 rgb = gpu_sampleImageTextureLinear(
+                    ndesc, c_wfTexBinding.texelBuf, uu, vv);
+                GVec3 nTS = rgb * 2.0f - GVec3(1.0f);
+                GVec3 B = rec.normal.cross(nT) * nSign;
+                GVec3 mapped = (nT * nTS.x + B * nTS.y +
+                                rec.normal * nTS.z).normalized();
+                float t = fminf(fmaxf(
+                    c_wfTexBinding.matNormalStrength[rec.materialId], 0.0f), 1.0f);
+                rec.normal = (rec.normal * (1.0f - t) +
+                              mapped * t).normalized();
+                gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
             }
         }
         // pkg223b — Bump node (device twin of NormalMappedPlugin's corrected bump
-        // branch). Mutually exclusive with a normal map per material; try it when a
-        // height texture is set. Cycles svm_node_set_bump surface-gradient formula
-        // (Mikkelsen 2010) sourcing dP.dx/dP.dy from the UV-aligned tangent frame.
+        // branch). Cycles svm_node_set_bump surface-gradient formula (Mikkelsen 2010)
+        // sourcing dP.dx/dP.dy from the UV-aligned tangent frame. #1156: a Normal Map
+        // chained into the Bump (prod_pbr_group) perturbs N, but dP.dx/dP.dy stay surface
+        // differentials: the frame T, Bt = Nf x T and its scales are taken against the
+        // pre-map normal Nf (CPU twin: rec.uvTangent / rec.uvScaleU from Triangle::hit).
         const int bmTexId = c_wfTexBinding.matBumpTexId[rec.materialId];
-        if (bmTexId >= 0 && rec.primId >= 0 &&
-            prims[rec.primId].type == GPRIM_TRIANGLE) {
-            const GTriangle& btri = tris[prims[rec.primId].index];
-            if (btri.uvAuthored) {  // pkg242: keep arbitrary frame for UV-less bump (CPU parity)
-                GVec3 bT; float bSign;
-                float bScaleU = 1.0f, bScaleV = 1.0f;  // #753 world-per-UV-unit scale
-                if (gpu_pr_uvAlignedTangent(btri.v0, btri.v1, btri.v2,
+        if (bmTexId >= 0 && rec.primId >= 0) {
+            const GVec3 Nf(hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx],
+                           hitBufs.hit_normal_z[idx]);
+            float uu = 0.0f, vv = 0.0f, bSign = 1.0f;
+            float bScaleU = 1.0f, bScaleV = 1.0f;  // #753 world-per-UV-unit scale
+            GVec3 bT = rec.uvTangent;
+            bool ok = false;
+            if (prims[rec.primId].type == GPRIM_TRIANGLE) {
+                const GTriangle& btri = tris[prims[rec.primId].index];
+                // pkg242: keep arbitrary frame for UV-less bump (CPU parity)
+                if (btri.uvAuthored &&
+                    gpu_pr_uvAlignedTangent(btri.v0, btri.v1, btri.v2,
                                             btri.uv0, btri.uv1, btri.uv2,
-                                            rec.normal, bT, bSign,
+                                            Nf, bT, bSign,
                                             &bScaleU, &bScaleV)) {
                     GVec3 e1 = btri.v1 - btri.v0, e2 = btri.v2 - btri.v0;
                     GVec3 ep = rec.point - btri.v0;
@@ -2351,57 +2411,66 @@ __device__ __forceinline__ bool shadePathSlotImpl(
                         float b1 = (d11 * d20 - d01 * d21) / denom;
                         float b2 = (d00 * d21 - d01 * d20) / denom;
                         float b0 = 1.0f - b1 - b2;
-                        float uu = b0*btri.uv0.x + b1*btri.uv1.x + b2*btri.uv2.x;
-                        float vv = b0*btri.uv0.y + b1*btri.uv1.y + b2*btri.uv2.y;
-                        const GImageTexture& bdesc = c_wfTexBinding.textures[bmTexId];
-                        // #1004 - CPU twin: normal_mapped.cpp UV-image bump branch. The
-                        // step (kBumpLinearStepTexels = 0.1 texel in texture space) is
-                        // taken on the INPUT UV before the Mapping (Cycles
-                        // svm_node_tex_coord_derivative), so dPdx/dPdy below and the taps
-                        // describe the same surface step; the height is the bilinear
-                        // (Cycles interp_linear) image, differenced. Input offset (du, 0)
-                        // maps to texture offset (m0, m4)*du (affine Mapping).
-                        float du = 0.1f / (float)(bdesc.width > 1 ? bdesc.width : 1);
-                        float dv = 0.1f / (float)(bdesc.height > 1 ? bdesc.height : 1);
-                        float axu = du, axv = 0.0f, ayu = 0.0f, ayv = dv;
-                        if (bdesc.hasMapping) {
-                            const float* m = bdesc.mapping;
-                            float mu = m[0]*uu + m[1]*vv + m[3];
-                            float mv = m[4]*uu + m[5]*vv + m[7];
-                            uu = mu; vv = mv;
-                            du /= fmaxf(sqrtf(m[0]*m[0] + m[4]*m[4]), 1e-8f);
-                            dv /= fmaxf(sqrtf(m[1]*m[1] + m[5]*m[5]), 1e-8f);
-                            axu = m[0]*du; axv = m[4]*du;
-                            ayu = m[1]*dv; ayv = m[5]*dv;
-                        }
-                        GVec3 hc = gpu_sampleImageTextureLinear(bdesc, c_wfTexBinding.texelBuf, uu, vv);
-                        GVec3 hx = gpu_sampleImageTextureLinear(bdesc, c_wfTexBinding.texelBuf, uu + axu, vv + axv);
-                        GVec3 hy = gpu_sampleImageTextureLinear(bdesc, c_wfTexBinding.texelBuf, uu + ayu, vv + ayv);
-                        float h_c = 0.2126f*hc.x + 0.7152f*hc.y + 0.0722f*hc.z;
-                        float h_x = 0.2126f*hx.x + 0.7152f*hx.y + 0.0722f*hx.z;
-                        float h_y = 0.2126f*hy.x + 0.7152f*hy.y + 0.0722f*hy.z;
-                        GVec3 N = rec.normal;
-                        GVec3 Bt = N.cross(bT) * bSign;
-                        // #753 — dPdx/dPdy must be WORLD-space position
-                        // differentials (Cycles svm_node_set_bump dP.dx/dP.dy),
-                        // not UV-space ones; bT/Bt are unit vectors, so scale
-                        // the input-UV steps du/dv by the world-per-UV-unit
-                        // factor (mirrors normal_mapped.cpp's CPU fix exactly).
-                        GVec3 dPdx = bT * (du * bScaleU), dPdy = Bt * (dv * bScaleV);
-                        GVec3 Rx = dPdy.cross(N), Ry = N.cross(dPdx);
-                        float det = dPdx.dot(Rx);
-                        GVec3 surfgrad = Rx * (h_x - h_c) + Ry * (h_y - h_c);
-                        float dist = c_wfTexBinding.matBumpDistance[rec.materialId];
-                        float sgn = (det < 0.0f) ? -1.0f : 1.0f;
-                        GVec3 perturbed = N * fabsf(det) - surfgrad * (dist * sgn);
-                        float len = perturbed.length();
-                        perturbed = (len > 1e-8f) ? perturbed * (1.0f / len) : N;
-                        float s = fminf(fmaxf(
-                            c_wfTexBinding.matBumpStrength[rec.materialId], 0.0f), 1.0f);
-                        rec.normal = (perturbed * s + N * (1.0f - s)).normalized();
-                        gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
+                        uu = b0*btri.uv0.x + b1*btri.uv1.x + b2*btri.uv2.x;
+                        vv = b0*btri.uv0.y + b1*btri.uv1.y + b2*btri.uv2.y;
+                        ok = true;
                     }
                 }
+            } else if (prims[rec.primId].type == GPRIM_SPHERE) {
+                // #1214: the CPU Sphere::hit frame (spherical UV, the arbitrary ONB tangent of
+                // the face normal = rec.uvTangent here, sign +1, unit world-per-UV scale).
+                gpu_sphereUV(rec.point, spheres[prims[rec.primId].index], uu, vv);
+                ok = true;
+            }
+            if (ok) {
+                const GImageTexture& bdesc = c_wfTexBinding.textures[bmTexId];
+                // #1004 - CPU twin: normal_mapped.cpp UV-image bump branch. The
+                // step (kBumpLinearStepTexels in texture space) is
+                // taken on the INPUT UV before the Mapping (Cycles
+                // svm_node_tex_coord_derivative), so dPdx/dPdy below and the taps
+                // describe the same surface step; the height is the bilinear
+                // (Cycles interp_linear) image, differenced. Input offset (du, 0)
+                // maps to texture offset (m0, m4)*du (affine Mapping). A zero-scale axis
+                // clamps the divisor (CPU the same, #1156): its taps coincide, zero slope.
+                float du = kBumpLinearStepTexels / (float)(bdesc.width > 1 ? bdesc.width : 1);
+                float dv = kBumpLinearStepTexels / (float)(bdesc.height > 1 ? bdesc.height : 1);
+                float axu = du, axv = 0.0f, ayu = 0.0f, ayv = dv;
+                if (bdesc.hasMapping) {
+                    const float* m = bdesc.mapping;
+                    float mu = m[0]*uu + m[1]*vv + m[3];
+                    float mv = m[4]*uu + m[5]*vv + m[7];
+                    uu = mu; vv = mv;
+                    du /= fmaxf(sqrtf(m[0]*m[0] + m[4]*m[4]), 1e-8f);
+                    dv /= fmaxf(sqrtf(m[1]*m[1] + m[5]*m[5]), 1e-8f);
+                    axu = m[0]*du; axv = m[4]*du;
+                    ayu = m[1]*dv; ayv = m[5]*dv;
+                }
+                GVec3 hc = gpu_sampleImageTextureLinear(bdesc, c_wfTexBinding.texelBuf, uu, vv);
+                GVec3 hx = gpu_sampleImageTextureLinear(bdesc, c_wfTexBinding.texelBuf, uu + axu, vv + axv);
+                GVec3 hy = gpu_sampleImageTextureLinear(bdesc, c_wfTexBinding.texelBuf, uu + ayu, vv + ayv);
+                float h_c = 0.2126f*hc.x + 0.7152f*hc.y + 0.0722f*hc.z;
+                float h_x = 0.2126f*hx.x + 0.7152f*hx.y + 0.0722f*hx.z;
+                float h_y = 0.2126f*hy.x + 0.7152f*hy.y + 0.0722f*hy.z;
+                GVec3 N = rec.normal;
+                GVec3 Bt = Nf.cross(bT) * bSign;
+                // #753 — dPdx/dPdy must be WORLD-space position
+                // differentials (Cycles svm_node_set_bump dP.dx/dP.dy),
+                // not UV-space ones; bT/Bt are unit vectors, so scale
+                // the input-UV steps du/dv by the world-per-UV-unit
+                // factor (mirrors normal_mapped.cpp's CPU fix exactly).
+                GVec3 dPdx = bT * (du * bScaleU), dPdy = Bt * (dv * bScaleV);
+                GVec3 Rx = dPdy.cross(N), Ry = N.cross(dPdx);
+                float det = dPdx.dot(Rx);
+                GVec3 surfgrad = Rx * (h_x - h_c) + Ry * (h_y - h_c);
+                float dist = c_wfTexBinding.matBumpDistance[rec.materialId];
+                float sgn = (det < 0.0f) ? -1.0f : 1.0f;
+                GVec3 perturbed = N * fabsf(det) - surfgrad * (dist * sgn);
+                float len = perturbed.length();
+                perturbed = (len > 1e-8f) ? perturbed * (1.0f / len) : N;
+                float s = fminf(fmaxf(
+                    c_wfTexBinding.matBumpStrength[rec.materialId], 0.0f), 1.0f);
+                rec.normal = (perturbed * s + N * (1.0f - s)).normalized();
+                gpu_buildONB(rec.normal, rec.tangent, rec.bitangent);
             }
         }
         // #1153 - a procedural / op-VM Height (scene_upload.cu materialBumpProc), out of line.
@@ -2725,12 +2794,15 @@ __device__ __forceinline__ bool shadePathSlotImpl(
     // kernel/closure/bsdf_util.h:397-409; include/astroray/bump_correction.h): a glossy
     // material's bumped normal is lifted toward sd->N (the parked pre-bump normal) until the
     // mirror reflection of wo clears the surface. CPU twin: NormalMappedPlugin::perturbNormal;
-    // the CPU Principled lifts only its glossy lobes, the GPU closure graph has one normal
-    // (#1153). ALU on rec.normal + three reloads; no new state lives past this block.
+    // a per-closure Principled (gpu_npPerLobe, #1220) lifts only its glossy lobes, in
+    // gpu_coatN_frames; the one-normal Principled (thin film, dispersion, closure trees) lifts
+    // here. ALU on rec.normal + three reloads; no new state lives past this block.
     if constexpr (HasNormalPerturb) {
         const int bm = c_wfTexBinding.matBumpCorrect ? c_wfTexBinding.matBumpCorrect[rec.materialId] : 0;
-        if ((bm & astroray::bumpcorr::kCorrectionBit) &&
-            (bm & astroray::bumpcorr::kClassMask) != astroray::bumpcorr::kDiffuse) {
+        bool lift = (bm & astroray::bumpcorr::kCorrectionBit) &&
+                    (bm & astroray::bumpcorr::kClassMask) != astroray::bumpcorr::kDiffuse;
+        if constexpr (HasPrincipled) lift = lift && !gpu_npPerLobe(mat, hitBufs, idx, rec);
+        if (lift) {
             const GVec3 Ns(hitBufs.hit_normal_x[idx], hitBufs.hit_normal_y[idx],
                            hitBufs.hit_normal_z[idx]);
             const GVec3 nV = astroray::bumpcorr::ensureValidSpecularReflection(Ns, wo, rec.normal);

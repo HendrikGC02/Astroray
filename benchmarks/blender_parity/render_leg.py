@@ -583,6 +583,8 @@ def _gate_b_graph(repo_root: Path, case: dict):
 #   principled_inputs {material, inputs: {socket: value | null}}  set Principled inputs (null: unlink only), e.g.
 #                                       Coat Weight 0 or Normal null for a coat-off / bump-off GPU/CPU bisect (#1220)
 #   bump_correction_off {material}      Material Settings > Bump Map Correction off (#1220 bisect)
+#   light_path_const {material, value}  every Light Path output link of the material -> a constant on its target
+#                                       socket (#1236 bisect: which Light Path use carries a GPU/CPU gap)
 # Not evidence-only: the production corpus applies this one to the Cycles reference leg (#995, owner 2026-10-31):
 #   emission_backface_scale {material}  Cycles only: Emission Strength x 1/n^2 on back-facing hits (emission inside the glass
 #                                       shell), n read from the material's Glass BSDF. Astroray keeps the radiance 1/eta^2
@@ -676,6 +678,17 @@ def _attrib_control(bpy, spec, engine=None):
         if not changed:
             raise ValueError(f"pkg327 {kind} on {spec['material']!r} would be a no-op")
         receipt["principled_nodes"] = [n.name for _, n in nodes]
+    elif kind == "light_path_const":
+        mat = bpy.data.materials.get(spec.get("material"))
+        tree = mat.node_tree if mat is not None else None
+        links = [l for l in tree.links if l.from_node.bl_idname == "ShaderNodeLightPath"] if tree else []
+        if not links:
+            raise ValueError(f"light_path_const on {spec.get('material')!r} would be a no-op")
+        receipt["unlinked"] = [f"{l.from_socket.name}->{l.to_node.name}.{l.to_socket.name}" for l in links]
+        for l in links:
+            sock = l.to_socket
+            tree.links.remove(l)
+            sock.default_value = float(spec["value"])
     elif kind == "bump_correction_off":
         mat = bpy.data.materials.get(spec.get("material"))
         if mat is None or not mat.cycles.use_bump_map_correction:
@@ -785,7 +798,7 @@ def main():
                         "(bounce-cap A/B renders); default: as authored")
     p.add_argument("--attrib-spec", default="",
                    help="pkg327: JSON list of attribution controls (albedo_grey / albedo_const / lambertian / "
-                        "principled_inputs / bump_correction_off / world_hdri / world_flat_white), applied before the render and receipted on a PKG327_ATTRIB line")
+                        "principled_inputs / bump_correction_off / light_path_const / world_hdri / world_flat_white), applied before the render and receipted on a PKG327_ATTRIB line")
     p.add_argument("--print-build", action="store_true",
                    help="pkg323: print the loaded Astroray build id and module/addon hashes, then exit")
     p.add_argument("--report-only", action="store_true",

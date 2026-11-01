@@ -45,8 +45,8 @@ reason = "#1156: pbr_group right ROI. 12/16 at seed 278 (bump-twin build): only 
 scene = "prod_light_path"
 backend = "gpu"
 kind = "parity"
-issue = "#1199"
-reason = "#991 fixed as on CPU; glass_ball_centre in band (#1038 delta-glass tint). pkg327 Phase B pinned floor_near r (spectral, Mitsuba-confirmed; GPU 0.988, already in band on GPU). 17/20 at seed 278, build e302ca1: only floor_far g 1.027 / b 1.021 / L 1.025 remain (GPU/CPU 1.007 without Light Path), a GPU-only gap, #1199"
+issue = "#1236"
+reason = "Seed-278 draw, not a GPU twin gap (#1236, build 000cd943). floor_far is the only red ROI (g 1.027 / b 1.021 / L 1.025 at seed 278). Over 8 decorrelated seeds (278 1301 2711 4177 6113 10278 20278 30278) GPU/CPU is L 1.003 +- 0.003 (r 1.005, g 1.003, b 1.001), and 1.0045 +- 0.003 with every Light Path output replaced by a constant, so no Light Path output carries a GPU-only bias. Against Cycles both backends sit high on their 8-seed means (CPU L 1.010, GPU L 1.014, per-seed sd 0.006-0.007); seed 278 reads GPU +1.2 % above its own mean (1.6 sd) and lands just past the 0.025 band. Clears when the gate band is multi-seed (#986) or the shared ~1 % floor_far offset is attributed."
 
 # ---- Cycles reference variants (#995, owner 2026-10-31) -------------------------------------------------------
 # `mc_tolerance.py` passes the control to the Cycles legs ONLY (reference EXR and band sigma) as render_leg `--attrib-spec`;

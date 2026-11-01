@@ -585,6 +585,7 @@ def _gate_b_graph(repo_root: Path, case: dict):
 #   bump_correction_off {material}      Material Settings > Bump Map Correction off (#1220 bisect)
 #   light_path_const {material, value}  every Light Path output link of the material -> a constant on its target
 #                                       socket (#1236 bisect: which Light Path use carries a GPU/CPU gap)
+#   filter_glossy    {value}            scene.cycles.blur_glossy -> value (#1231 bisect: Filter Glossy on/off)
 # Not evidence-only: the production corpus applies this one to the Cycles reference leg (#995, owner 2026-10-31):
 #   emission_backface_scale {material}  Cycles only: Emission Strength x 1/n^2 on back-facing hits (emission inside the glass
 #                                       shell), n read from the material's Glass BSDF. Astroray keeps the radiance 1/eta^2
@@ -736,6 +737,13 @@ def _attrib_control(bpy, spec, engine=None):
         bg.inputs["Strength"].default_value = float(spec["level"]) if "level" in spec else old * mean_lum
         receipt.update({"env_node_removed": True, "hdri_mean_luminance": mean_lum, "strength_before": old,
                         "strength_after": float(bg.inputs["Strength"].default_value)})
+    elif kind == "filter_glossy":
+        cyc = bpy.context.scene.cycles
+        before = float(cyc.blur_glossy)
+        if before == float(spec["value"]):
+            raise ValueError("filter_glossy would be a no-op")
+        cyc.blur_glossy = float(spec["value"])
+        receipt["before"] = before
     else:
         raise ValueError(f"pkg327: unknown attribution control {kind!r}")
     receipt["ok"] = True

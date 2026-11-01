@@ -1,4 +1,10 @@
 {
+  "ratification": {
+    "owner": "HendrikGC02",
+    "path": "docs/blender_parity/evidence/gate_b/candidate_v2/b1_ratification.md",
+    "sha256": "64c44138705cf2db5eb1f1034a3a93b18ba4d376e60de957a080044598ac2101"
+  },
+  "ratified": true,
   "scenes": {
     "prod_attributes": {
       "assets": [

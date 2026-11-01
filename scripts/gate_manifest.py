@@ -823,12 +823,12 @@ PRODUCTION_MATERIALS = 8  # pkg310 corpus size ("N/8")
 
 def _production_leg_mismatches(report: Mapping[str, Any], info: Mapping[str, Any], sid: str,
                                backend: str, sha: str, scene_gates: Mapping[str, Any],
-                               build_id: Any) -> list[str]:
+                               build_id: Any, seed: int) -> list[str]:
     """Fields the leg's own sentinel report must carry (what actually rendered) that differ from the pins."""
     want = {"corpus_scene": sid, "blend_sha256": sha, "requested_device": backend.lower(),
             "effective_device": backend.lower(), "engine": "CUSTOM_RAYTRACER",
             "res_x": scene_gates["res"][0], "res_y": scene_gates["res"][1],
-            "samples": scene_gates["spp_gate"], "resolved_seed": scene_gates["seed"],
+            "samples": scene_gates["spp_gate"], "resolved_seed": seed,
             "animated_seed": False, "build_id": build_id}
     bad = [k for k, v in want.items() if report.get(k) != v]
     if not isinstance(report.get("blender_version"), str) or not report["blender_version"].startswith("5.2"):
@@ -843,10 +843,10 @@ def _production_leg_mismatches(report: Mapping[str, Any], info: Mapping[str, Any
 def _validate_g(payload: Mapping[str, Any], base: Path) -> tuple[list[str], dict[str, Any], dict[str, Any]]:
     """Recompute row (g) from raw per-leg renders + logs and the hash-pinned pkg310 inputs.
 
-    Per (material, backend): ROI-channel bands via ``mc_tolerance.score_material`` on the stored
-    linear render, silent drops via ``silent_drop_audit.audit_scene`` on its render log -- the same
-    reducers tests/test_production_corpus.py uses.  PASS = in band and no silent pair (pkg310
-    "Scoring").  No pass/fail field in the evidence is read."""
+    Per (material, backend): ROI-channel bands via ``mc_tolerance.score_material_mean`` on the mean of the stored
+    linear renders of every ``meta.gate_seeds`` seed (owner 2026-11-02, #986; one record per material, backend and
+    seed, all required), silent drops via ``silent_drop_audit.audit_scene`` on the render logs (union over the seeds).
+    PASS = the seed mean in band and no silent pair (pkg310 "Scoring").  No pass/fail field in the evidence is read."""
     import numpy as np
     import tomllib
 
@@ -870,12 +870,20 @@ def _validate_g(payload: Mapping[str, Any], base: Path) -> tuple[list[str], dict
     if errors:
         return errors, {}, {}
     try:
-        gates = tomllib.loads(paths["gates"].read_text(encoding="utf-8"))["scenes"]
+        gates_doc = tomllib.loads(paths["gates"].read_text(encoding="utf-8"))
+        gates, gate_seeds = gates_doc["scenes"], gates_doc["meta"]["gate_seeds"]
         manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))["scenes"]
         uses = json.loads(paths["node_uses"].read_text(encoding="utf-8"))["scenes"]
         matrix = AUDIT.load_matrix(paths["matrix"])
     except (OSError, ValueError, KeyError, TypeError) as exc:
         return [f"row g pinned inputs cannot be read: {exc}"], {}, {}
+    if (not isinstance(gate_seeds, list) or not gate_seeds or len(set(gate_seeds)) != len(gate_seeds)
+            or any(not isinstance(s, int) or s <= 0 for s in gate_seeds)
+            or any(g.get("n_gate") != len(gate_seeds) for g in gates.values())):
+        return ["row g gates must pin distinct positive meta.gate_seeds and a matching n_gate per scene"], {}, {}
+    settings = payload.get("settings")
+    if not isinstance(settings, Mapping) or settings.get("seeds") != gate_seeds or settings.get("n_seeds") != len(gate_seeds):
+        return [f"row g settings must record the pinned gate seeds {gate_seeds} and n_seeds {len(gate_seeds)}"], {}, {}
     materials = sorted(gates)
     if len(materials) != PRODUCTION_MATERIALS or set(manifest) != set(materials) or set(uses) != set(materials):
         return [f"row g inputs must pin the same {PRODUCTION_MATERIALS} production materials"], {}, {}
@@ -887,24 +895,28 @@ def _validate_g(payload: Mapping[str, Any], base: Path) -> tuple[list[str], dict
             errors.append(f"row g node_uses snapshot for {sid} is stale or errored")
     if not isinstance(records, list):
         return errors + ["row g requires typed production_leg records"], {}, {}
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, int]] = set()
     identity_errors: list[str] = []
     score_errors: list[str] = []
     in_band: dict[tuple[str, str], bool] = {}
     silent: dict[tuple[str, str], set[str]] = {}
+    renders: dict[tuple[str, str], dict[int, Any]] = {}
     modules: set[str] = set()
     for i, rec in enumerate(records):
         sid, backend = (rec.get("material"), rec.get("backend")) if isinstance(rec, Mapping) else (None, None)
+        seed = rec.get("seed") if isinstance(rec, Mapping) else None
         if (not isinstance(rec, Mapping) or rec.get("kind") != "production_leg" or sid not in gates
-                or backend not in ("CPU", "GPU") or rec.get("scene_sha256") != hashes.get(sid)):
-            errors.append(f"row g record {i} has invalid kind/material/backend/scene hash")
+                or backend not in ("CPU", "GPU") or rec.get("scene_sha256") != hashes.get(sid)
+                or isinstance(seed, bool) or seed not in gate_seeds):
+            errors.append(f"row g record {i} has invalid kind/material/backend/seed/scene hash")
             continue
-        if (sid, backend) in seen:
-            errors.append(f"row g record {i} duplicates leg {sid}/{backend}")
+        if (sid, backend, seed) in seen:
+            errors.append(f"row g record {i} duplicates leg {sid}/{backend}/seed {seed}")
             continue
-        seen.add((sid, backend))
-        npy, why_npy = _artifact(rec.get("linear_npy"), base, f"row g {sid}/{backend} render")
-        log, why_log = _artifact(rec.get("log"), base, f"row g {sid}/{backend} log")
+        seen.add((sid, backend, seed))
+        tag = f"{sid}/{backend}/s{seed}"
+        npy, why_npy = _artifact(rec.get("linear_npy"), base, f"row g {tag} render")
+        log, why_log = _artifact(rec.get("log"), base, f"row g {tag} log")
         score_errors.extend(why_npy + why_log)
         if npy is None or log is None:
             continue
@@ -912,11 +924,11 @@ def _validate_g(payload: Mapping[str, Any], base: Path) -> tuple[list[str], dict
             img = np.load(npy)
             text = log.read_text(encoding="utf-8", errors="replace")
         except (OSError, ValueError) as exc:
-            score_errors.append(f"row g {sid}/{backend} artifact unreadable: {exc}")
+            score_errors.append(f"row g {tag} artifact unreadable: {exc}")
             continue
         res_x, res_y = gates[sid]["res"]
         if img.shape != (res_y, res_x, 3) or not np.isfinite(img).all() or float(np.abs(img).max()) <= 1e-9:
-            score_errors.append(f"row g {sid}/{backend} render is not a finite non-empty {res_x}x{res_y} RGB image")
+            score_errors.append(f"row g {tag} render is not a finite non-empty {res_x}x{res_y} RGB image")
             continue
         report, parse_error = _parse_gate_leg_report(text)
         info_line = next((ln for ln in text.splitlines() if ln.startswith("PKG307_INFO ")), "")
@@ -925,20 +937,27 @@ def _validate_g(payload: Mapping[str, Any], base: Path) -> tuple[list[str], dict
         except json.JSONDecodeError:
             info = {}
         if parse_error or f"{SENTINEL} PASS" not in text or f"{SENTINEL} FAIL" in text:
-            identity_errors.append(f"row g {sid}/{backend} log lacks one successful sentinel report")
+            identity_errors.append(f"row g {tag} log lacks one successful sentinel report")
             continue
         bad = _production_leg_mismatches(report, info, sid, backend, hashes[sid], gates[sid],
-                                         payload.get("build_id"))
+                                         payload.get("build_id"), seed)
         if bad:
-            identity_errors.append(f"row g {sid}/{backend} observed identity/settings differ from the pins: {bad}")
+            identity_errors.append(f"row g {tag} observed identity/settings differ from the pins: {bad}")
         modules.add(str(report.get("module_sha256")))
-        rows = MC.score_material(gates[sid], img, backend.lower())
-        in_band[(sid, backend)] = all(r["ok"] for r in rows)
+        renders.setdefault((sid, backend), {})[seed] = img
         res = AUDIT.audit_scene(uses[sid]["pairs"], matrix, text)
-        silent[(sid, backend)] = {f"{sid}|{p['bl_idname']}|{p['socket']}" for p in res["silent"]}
-    complete = seen == {(sid, b) for sid in materials for b in ("CPU", "GPU")}
+        silent.setdefault((sid, backend), set()).update(f"{sid}|{p['bl_idname']}|{p['socket']}" for p in res["silent"])
+    complete = seen == {(sid, b, s) for sid in materials for b in ("CPU", "GPU") for s in gate_seeds}
     if not complete:
-        errors.append("row g records do not cover every material on both backends exactly once")
+        errors.append("row g records do not cover every material on both backends for every gate seed exactly once")
+    for (sid, backend), by_seed in renders.items():  # the gate statistic: the mean of the gate seeds' renders
+        if sorted(by_seed) == sorted(gate_seeds):
+            try:
+                rows = MC.score_material_mean(gates[sid], [by_seed[s] for s in gate_seeds], backend.lower())
+            except (ValueError, KeyError) as exc:
+                score_errors.append(f"row g {sid}/{backend} seed-mean bands unusable: {exc}")
+                continue
+            in_band[(sid, backend)] = all(r["ok"] for r in rows)
     if len(modules) > 1:
         identity_errors.append("row g legs ran against different engine modules")
     errors += identity_errors + score_errors
@@ -1427,11 +1446,11 @@ def adapt_b_instrument(report_path: Path, input_path: Path, snapshot_path: Path,
 
 
 def adapt_g_instrument(work_dir: Path, out_path: Path) -> dict[str, Any]:
-    """Wrap a pkg310 production work dir (``<material>_<cpu|gpu>_s<seed>.npy/.log``, as written by
-    tests/test_production_corpus.py via ``PKG310_WORK``) into a row-(g) payload.
+    """Wrap a pkg310 production work dir (``<material>_<cpu|gpu>_s<seed>.npy/.log`` for every ``meta.gate_seeds`` seed,
+    as written by ``mc_tolerance.py --suite production --legs cpu gpu --seeds <gate seeds>``) into a row-(g) payload.
 
-    Renders and logs are copied beside ``out_path`` and hash-pinned; the payload is accepted only if
-    the canonical reducer finds no evidence-integrity error.  It carries no score of its own."""
+    Renders and logs are copied beside ``out_path`` and hash-pinned; a missing seed render fails closed; the payload is
+    accepted only if the canonical reducer finds no evidence-integrity error.  It carries no score of its own."""
     import shutil
 
     import tomllib
@@ -1441,7 +1460,8 @@ def adapt_g_instrument(work_dir: Path, out_path: Path) -> dict[str, Any]:
     from benchmarks.reference_corpus import silent_drop_audit as AUDIT
     inputs = {"gates": MC.CORPUS / "gates_production.toml", "manifest": MC.PROD / "manifest.json",
               "node_uses": MC.PROD / "node_uses.json", "matrix": AUDIT.MATRIX}
-    gates = tomllib.loads(inputs["gates"].read_text(encoding="utf-8"))["scenes"]
+    gates_doc = tomllib.loads(inputs["gates"].read_text(encoding="utf-8"))
+    gates, gate_seeds = gates_doc["scenes"], list(gates_doc["meta"]["gate_seeds"])
     manifest = json.loads(inputs["manifest"].read_text(encoding="utf-8"))["scenes"]
     work_dir, out_path = Path(work_dir), Path(out_path)
     out_dir = out_path.parent
@@ -1450,18 +1470,19 @@ def adapt_g_instrument(work_dir: Path, out_path: Path) -> dict[str, Any]:
     build_ids: set[str] = set()
     for sid in sorted(gates):
         for backend in ("CPU", "GPU"):
-            stem = f"{sid}_{backend.lower()}_s{gates[sid]['seed']}"
-            ref: dict[str, dict[str, str]] = {}
-            for key, suffix in (("linear_npy", ".npy"), ("log", ".log")):
-                src = work_dir / f"{stem}{suffix}"
-                if not src.is_file():
-                    raise ValueError(f"missing production render artifact: {src}")
-                shutil.copyfile(src, out_dir / "renders" / src.name)
-                ref[key] = {"path": f"renders/{src.name}", "sha256": sha256_file(out_dir / "renders" / src.name)}
-            report, _err = _parse_gate_leg_report((out_dir / ref["log"]["path"]).read_text(encoding="utf-8", errors="replace"))
-            build_ids.add(str(report.get("build_id") or ""))
-            records.append({"kind": "production_leg", "material": sid, "backend": backend,
-                            "scene_sha256": manifest[sid]["sha256"], **ref})
+            for seed in gate_seeds:
+                stem = f"{sid}_{backend.lower()}_s{seed}"
+                ref: dict[str, dict[str, str]] = {}
+                for key, suffix in (("linear_npy", ".npy"), ("log", ".log")):
+                    src = work_dir / f"{stem}{suffix}"
+                    if not src.is_file():
+                        raise ValueError(f"missing production render artifact: {src}")
+                    shutil.copyfile(src, out_dir / "renders" / src.name)
+                    ref[key] = {"path": f"renders/{src.name}", "sha256": sha256_file(out_dir / "renders" / src.name)}
+                report, _err = _parse_gate_leg_report((out_dir / ref["log"]["path"]).read_text(encoding="utf-8", errors="replace"))
+                build_ids.add(str(report.get("build_id") or ""))
+                records.append({"kind": "production_leg", "material": sid, "backend": backend, "seed": seed,
+                                "scene_sha256": manifest[sid]["sha256"], **ref})
     if len(build_ids) != 1 or not next(iter(build_ids)):
         raise ValueError(f"production legs must report one non-empty build id, got {sorted(build_ids)}")
     threshold: dict[str, Any] = {k: rule.get("max", rule.get("min")) for k, rule in ROW_SPEC["g"]["threshold"].items()}
@@ -1469,9 +1490,10 @@ def adapt_g_instrument(work_dir: Path, out_path: Path) -> dict[str, Any]:
         "schema": PAYLOAD_SCHEMA, "row": "g", "instrument": "production_node_score",
         "scene_sha256": sorted(e["sha256"] for e in manifest.values()), "build_id": build_ids.pop(),
         "backend": ["CPU", "GPU"],
-        "settings": {"source": "tests/test_production_corpus.py work dir", "adaptive": False, "denoise": False,
-                     "seeds": sorted({g["seed"] for g in gates.values()})},
-        "metric": {"source": "mc_tolerance.score_material + silent_drop_audit.audit_scene"},
+        "settings": {"source": "mc_tolerance.py --suite production work dir", "adaptive": False, "denoise": False,
+                     "seeds": gate_seeds, "n_seeds": len(gate_seeds),
+                     "statistic": "mean over seeds of the per-render ROI mean"},
+        "metric": {"source": "mc_tolerance.score_material_mean + silent_drop_audit.audit_scene"},
         "value": {}, "threshold": threshold,
         "inputs": {key: _repo_ref(path) for key, path in inputs.items()}, "records": records}
     errors, value, _subchecks = _validate_g(payload, out_dir)

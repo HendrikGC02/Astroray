@@ -40,6 +40,12 @@ python benchmarks/reference_corpus/silent_drop_audit.py audit --work-dir <dir>
 python benchmarks/reference_corpus/report_tools.py production --work-dir <dir> --out-dir test_results/_runs/textures-nodes/production-corpus
 ```
 
+Row (g) scores the MEAN of the eight gate seeds (`meta.gate_seeds` of `../gates_production.toml`; owner 2026-11-02, #986),
+not one seed-278 render. The gate renders are `mc_tolerance.py --suite production --legs cpu gpu --seeds 278 1301 2711 4177
+6113 7919 9371 11027 --work-dir <dir> --gates <scratch.toml>` (the scratch toml keeps the committed bands untouched), then
+`report_tools.py production --work-dir <dir>` (N/8, fails closed on a missing seed render) and
+`gate_manifest.py --adapt-g <dir> --out <ev>/instrument.json`. See `../README.md`.
+
 Both Astroray legs need an addon build that loads inside Blender (`ASTRORAY_PYD_DIR`).
 
 **Rebuilds are structurally identical, not byte-identical.** Blender 5.2 writes zstd-compressed `.blend` files whose

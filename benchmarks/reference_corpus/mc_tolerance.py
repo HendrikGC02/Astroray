@@ -30,6 +30,11 @@ OpenMP-OFF staged addon build: ``ASTRORAY_PYD_DIR=<dist/astroray>``. GPU legs on
 scenes: manifest ``production/manifest.json``, references ``production/refs/``, bands written to
 ``gates_production.toml``, provisional rows in ``provisional_production.toml`` (see SUITES).
 
+The production row (g) gate scores the MEAN of ``SUITES["production"]["gate_seeds"]`` renders (owner 2026-11-02, #986), not
+one seed-278 render: ``score_material_mean`` against the ``*_mean_tol`` / ``*_mean_pin_tol`` / ``gpu_cpu_mean_tol`` keys
+(``mean_bands``). ``--add-mean-bands`` writes those keys from the sigmas already in ``gates_production.toml``; a full
+``--suite production`` regeneration emits them too. The single-render keys stay (tests/test_production_corpus.py).
+
 Variant scenes ``<scene>@<variant>`` (VARIANTS below) reuse a scene's .blend with another
 camera; today only ``v2_camera_geometry@ortho`` (the named ortho camera, #845).
 """
@@ -37,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import itertools
 import json
 import math
 import os
@@ -63,7 +69,10 @@ SUITES = {"production": {"manifest": PROD / "manifest.json", "refs": PROD / "ref
                          "gates": CORPUS / "gates_production.toml",
                          "known": CORPUS / "provisional_production.toml", "label": "pkg310 production corpus", "bless": "pkg310",
                          # decorrelated (#986: adjacent CPU seeds share seed+tile streams); 278 stays the gate seed
-                         "seeds": [278, 1301, 2711, 4177, 6113]}}
+                         "seeds": [278, 1301, 2711, 4177, 6113],
+                         # Row (g) gate seeds (owner 2026-11-02, #986): the gate scores the MEAN of these renders. The pkg328
+                         # Welch audit set; the 5 band seeds above are its first five. Gaps >= 1023 > 300 tiles (320x240 / 16 px)
+                         "gate_seeds": [278, 1301, 2711, 4177, 6113, 7919, 9371, 11027]}}
 ARB = CORPUS / "arbitration"
 # pkg307 Phase 2: the three spectral arbitration scenes. Their reference is a Mitsuba 3 spectral render (Cycles is RGB).
 SUITES["arbitration"] = {"manifest": ARB / "manifest.json", "refs": ARB / "refs", "gates": ARB / "gates_arbitration.toml",
@@ -73,6 +82,8 @@ MITSUBA_PY = Path(os.environ.get("ASTRORAY_MITSUBA_PY", r"C:\Users\hgcom\tools\v
 REF_LEG = "cycles"  # which engine renders the scene reference (the arbitration suite uses Mitsuba)
 LABEL, BLESS = "pkg284 corpus v2", "pkg284 Phase 2"
 BAND_FLOOR, BAND_CEIL, GPU_CPU_FLOOR, DARK = 0.02, 0.15, 0.05, 0.01
+CPU_TILE_PX = 16  # include/raytracer.h tileSize; the CPU tile loop seeds mt19937(seed + tileIndex)
+GATE_SEEDS: list = []  # set by use_suite when the suite gates on a seed mean (production)
 GATE_C = ("v2_light_tree", "v2_textures_opvm", "v2_camera_geometry")  # owner 2026-09-29
 LUM = np.array([0.2126, 0.7152, 0.0722])
 CH = ("r", "g", "b", "L")
@@ -144,9 +155,10 @@ def reference_controls(sid: str) -> list[dict]:
 
 def use_suite(name: str) -> None:
     """Point the module-level manifest/reference/gates/provisional paths at a SUITES entry (CLI only)."""
-    global MANIFEST, REFS, GATES, KNOWN, GATE_C, LABEL, BLESS, REF_LEG
+    global MANIFEST, REFS, GATES, KNOWN, GATE_C, LABEL, BLESS, REF_LEG, GATE_SEEDS
     s = SUITES[name]
     REF_LEG = s.get("ref_leg", "cycles")
+    GATE_SEEDS = list(s.get("gate_seeds", []))
     MANIFEST, REFS, GATES, KNOWN = s["manifest"], s["refs"], s["gates"], s["known"]
     LABEL, BLESS = s["label"], s["bless"]
     GATE_C = ()
@@ -221,16 +233,35 @@ def roi_means(img: np.ndarray, rect) -> np.ndarray:
     return np.append(m, m @ LUM)
 
 
-def roi_reference(roi: dict, leg: str) -> tuple[list, list, list]:
+def roi_reference(roi: dict, leg: str, mean: bool = False) -> tuple[list, list, list]:
     """(denominator, tol, pinned) per channel of one ROI. Rows with ``expected_divergence`` pin Astroray against
     its own N-seed mean: every channel, or only ``pin_channels`` on the ``pin_legs`` (default both) -- pkg327; those
-    rows also carry ``arbitration``."""
+    rows also carry ``arbitration``. ``mean=True`` returns the bands of the seed-mean gate (``*_mean_tol``,
+    ``*_mean_pin_tol``; same denominators) instead of the single-render ones."""
     div = "expected_divergence" in roi and leg in roi.get("pin_legs", (leg,))
     pins = roi.get("pin_channels")
     pinned = [div and (pins is None or ch in pins) for ch in CH]
+    sfx = "_mean" if mean else ""
     den = [roi[f"{leg}_mean"][c] if pinned[c] else roi["cycles_mean"][c] for c in range(len(CH))]
-    tol = [roi[f"{leg}_pin_tol"][c] if pinned[c] else roi[f"{leg}_tol"][c] for c in range(len(CH))]
+    tol = [roi[f"{leg}{sfx}_pin_tol"][c] if pinned[c] else roi[f"{leg}{sfx}_tol"][c] for c in range(len(CH))]
     return den, tol, pinned
+
+
+def _score_means(scene_gates: dict, means: dict, leg: str, mean: bool, sigma_obs: dict | None = None) -> list[dict]:
+    rows = []
+    for roi in scene_gates["roi"]:
+        m = means[roi["name"]]
+        den, tol, pinned = roi_reference(roi, leg, mean)
+        for c, ch in enumerate(CH):
+            if roi["excluded"][c]:
+                continue
+            ratio = float(m[c] / den[c])
+            row = {"roi": roi["name"], "channel": ch, "ratio": ratio, "tol": float(tol[c]),
+                   "ok": abs(ratio - 1.0) <= tol[c], "pinned": pinned[c]}
+            if sigma_obs is not None:
+                row["sigma_obs"] = float(sigma_obs[roi["name"]][c])
+            rows.append(row)
+    return rows
 
 
 def score_material(scene_gates: dict, img: np.ndarray, leg: str) -> list[dict]:
@@ -240,17 +271,107 @@ def score_material(scene_gates: dict, img: np.ndarray, leg: str) -> list[dict]:
     declared documented divergences (``expected_divergence``) pin Astroray against its own N-seed mean, the
     same rule as tests/test_corpus_v2_parity.py; ``pin_channels`` limits the pin to those channels and the rest
     of the ROI stays on Cycles. Returns dicts with roi, channel, ratio, tol, ok."""
-    rows = []
-    for roi in scene_gates["roi"]:
-        m = roi_means(img, roi["rect"])
-        den, tol, pinned = roi_reference(roi, leg)
-        for c, ch in enumerate(CH):
-            if roi["excluded"][c]:
-                continue
-            ratio = float(m[c] / den[c])
-            rows.append({"roi": roi["name"], "channel": ch, "ratio": ratio, "tol": float(tol[c]),
-                         "ok": abs(ratio - 1.0) <= tol[c], "pinned": pinned[c]})
-    return rows
+    return _score_means(scene_gates, {r["name"]: roi_means(img, r["rect"]) for r in scene_gates["roi"]}, leg, False)
+
+
+def score_material_mean(scene_gates: dict, imgs, leg: str) -> list[dict]:
+    """Row (g) gate (owner 2026-11-02, #986): ``score_material`` for the MEAN of ``n_gate`` decorrelated renders.
+
+    The statistic of every (ROI, channel) is the mean over the renders of the per-render ROI mean, divided by the
+    same denominator as the single-render gate, and judged against the ``*_mean_tol`` / ``*_mean_pin_tol`` bands.
+    Fails closed: the scene must carry ``n_gate`` and the mean bands, and exactly ``n_gate`` renders must be given
+    (a band derived for N seeds is too tight for fewer). Rows also carry ``sigma_obs``, the observed per-render
+    relative scatter of the ROI mean across the given renders (a check on the band's ``sigma_a``, not a gate)."""
+    n = scene_gates.get("n_gate")
+    if not n:
+        raise ValueError("scene has no n_gate / mean bands: regenerate gates with mc_tolerance.py --add-mean-bands")
+    imgs = list(imgs)
+    if len(imgs) != n:
+        raise ValueError(f"seed-mean gate needs exactly {n} renders, got {len(imgs)}")
+    per = {r["name"]: np.stack([roi_means(im, r["rect"]) for im in imgs]) for r in scene_gates["roi"]}
+    return _score_means(scene_gates, {k: v.mean(axis=0) for k, v in per.items()}, leg, True,
+                        {k: sigma_rel(v) for k, v in per.items()})
+
+
+# --------------------------------------------------------------------------------------------------
+# Seed-mean gate bands (owner 2026-11-02; #986). Statistic = mean of N per-render ROI means.
+#   cycles tol  : max(0.02, 3*sqrt(sigma_den^2 + sigma_a^2/N)),  sigma_den = sigma_cycles*sqrt(spp_gate/spp_reference)
+#                 (the denominator is ONE spp_reference Cycles render, not a spp_gate render; its relative standard
+#                 error is the spp_gate per-render Cycles sigma scaled by 1/sqrt(spp) -- plain Monte Carlo, an upper
+#                 bound for Cycles' stratified sampler)
+#   pin tol     : max(0.02, 3*sigma_a*sqrt(1/N + 1/n_pin))     (N-seed gate mean vs the n_pin-seed pin mean)
+#   GPU/CPU tol : max(0.05, 3*sqrt((sigma_cpu^2 + sigma_gpu^2)/N))
+# Independence is assumed (see seed_streams_disjoint); the pin formula is conservative when the pin seeds are a
+# subset of the gate seeds (the two means are positively correlated).
+# --------------------------------------------------------------------------------------------------
+def seed_streams_disjoint(seeds, width: int, height: int) -> bool:
+    """True when no two seeds share a CPU ``mt19937(seed + tileIndex)`` stream at this resolution (#986)."""
+    tiles = -(-width // CPU_TILE_PX) * -(-height // CPU_TILE_PX)
+    s = sorted(seeds)
+    return len(set(s)) == len(s) and all(b - a >= tiles for a, b in itertools.pairwise(s))
+
+
+def mean_bands(roi: dict, n_gate: int, spp_gate: int, spp_ref: int, n_pin: int) -> dict:
+    """Seed-mean band vectors [r, g, b, L] for one ROI dict carrying ``excluded``, ``cycles_sigma`` and the legs'
+    ``cpu_sigma`` / ``gpu_sigma`` (relative sigma of one spp_gate render's ROI mean)."""
+    out = {}
+    sc = roi.get("cycles_sigma")
+    for leg in ("cpu", "gpu"):
+        sa = roi.get(f"{leg}_sigma")
+        if sa is None:
+            continue
+        if sc is not None:
+            out[f"{leg}_mean_tol"] = [0.0 if roi["excluded"][c] else
+                                      max(BAND_FLOOR, 3.0 * math.sqrt((sc[c] * math.sqrt(spp_gate / spp_ref)) ** 2 + sa[c] ** 2 / n_gate))
+                                      for c in range(4)]
+        out[f"{leg}_mean_pin_tol"] = [max(BAND_FLOOR, 3.0 * sa[c] * math.sqrt(1.0 / n_gate + 1.0 / n_pin)) for c in range(4)]
+    if "cpu_sigma" in roi and "gpu_sigma" in roi:
+        out["gpu_cpu_mean_tol"] = [max(GPU_CPU_FLOOR, 3.0 * math.sqrt((roi["cpu_sigma"][c] ** 2 + roi["gpu_sigma"][c] ** 2) / n_gate))
+                                   for c in range(4)]
+    return out
+
+
+MEAN_KEYS = ("cpu_mean_tol", "cpu_mean_pin_tol", "gpu_mean_tol", "gpu_mean_pin_tol", "gpu_cpu_mean_tol")
+MEAN_NOTE = ("# Mean-of-N gate (owner 2026-11-02, #986): row (g) scores the mean of the n_gate decorrelated renders of meta.gate_seeds;",
+             "# *_mean_tol = max(0.02, 3*sqrt((sigma_cycles^2*spp_gate/spp_reference) + sigma_astroray^2/N)); *_mean_pin_tol = max(0.02,",
+             "# 3*sigma_astroray*sqrt(1/N + 1/n_pin)); gpu_cpu_mean_tol = max(0.05, 3*sqrt((sigma_cpu^2+sigma_gpu^2)/N)).")
+
+
+def mean_band_lines(roi: dict, n_gate: int, spp_gate: int, spp_ref: int, n_pin: int) -> list[str]:
+    b = mean_bands(roi, n_gate, spp_gate, spp_ref, n_pin)
+    return [f"{k} = {_arr(b[k], '{:.4f}')}" for k in MEAN_KEYS if k in b]
+
+
+def add_mean_bands(path: Path, gate_seeds) -> None:
+    """--add-mean-bands: (re)write the mean-band keys of a generated gates file from the sigmas it already holds.
+
+    No rendering and no existing key changes: ``n_pin`` = the file's ``mc_seeds`` count (the seeds behind its
+    ``*_mean`` pins), ``n_gate`` = ``len(gate_seeds)``. Idempotent (earlier mean-band lines are dropped first)."""
+    text = path.read_text(encoding="utf-8")
+    data = tomllib.loads(text)
+    n_pin, n_gate = len(data["meta"]["mc_seeds"]), len(gate_seeds)
+    drop = tuple(f"{k} =" for k in MEAN_KEYS) + ("n_gate =", "gate_seeds =")
+    lines = [ln for ln in text.splitlines() if not ln.startswith(drop) and ln not in MEAN_NOTE]
+    out, sid, ri = [], None, -1
+    for i, ln in enumerate(lines):
+        out.append(ln)
+        if ln.startswith("# seed-to-seed scatter"):
+            out += list(MEAN_NOTE)
+        elif ln.startswith("mc_seeds ="):
+            out.append(f"gate_seeds = {list(gate_seeds)}")
+        elif ln.startswith("[scenes."):
+            sid, ri = ln[len("[scenes.\""):-2], -1
+        elif ln.startswith("[[scenes."):
+            ri += 1
+        elif ln.startswith("spp_reference ="):
+            out.append(f"n_gate = {n_gate}")
+        nxt = lines[i + 1] if i + 1 < len(lines) else ""
+        if sid and ri >= 0 and ln and (not nxt or nxt.startswith("[")):  # last line of a ROI block
+            sc = data["scenes"][sid]
+            out += mean_band_lines(sc["roi"][ri], n_gate, sc["spp_gate"], sc["spp_reference"], n_pin)
+    new = "\n".join(out) + "\n"
+    tomllib.loads(new)  # must parse
+    path.write_text(new, encoding="utf-8", newline="\n")
 
 
 def write_exr(path: Path, img: np.ndarray) -> None:
@@ -349,6 +470,9 @@ def build_rois(entry: dict, res: dict) -> list[dict]:
             r["gpu_cpu_tol"] = [max(GPU_CPU_FLOOR, 3.0 * math.hypot(legs["cpu"]["sigma"][c], legs["gpu"]["sigma"][c]))
                                 for c in range(4)]
         r["note"] = "; ".join(notes)
+        if GATE_SEEDS:  # seed-mean gate bands (row g); n_pin = seeds behind the *_mean pins of this run
+            r.update(mean_bands(r, len(GATE_SEEDS), entry["v2"]["spp_gate"], entry["v2"]["spp_reference"],
+                                len(res["seeds"])))
         if name in div:
             r["expected_divergence"] = div[name]
             r.update(entry["v2"].get("divergence_pin", {}).get(name, {}))
@@ -361,8 +485,10 @@ def write_toml(results: dict, manifest: dict, seeds, blender_version: str, base:
          "# Gate: per-ROI per-channel + luminance linear mean ratio Astroray/Cycles; fixed seed, adaptive OFF, denoise OFF.",
          "# tol = max(0.02, 3*sqrt(sigma_cycles^2 + sigma_astroray^2)); GPU/CPU tol floor 0.05; sigmas from the",
          "# seed-to-seed scatter at spp_gate. Channels/luminance with Cycles mean < 0.01 are excluded (tol = 0).",
+         *(MEAN_NOTE if GATE_SEEDS else ()),
          f"# Vectors are [r, g, b, luminance]. Provisional rows live in {KNOWN.name}. Re-bless rule: README.md.", "",
          "[meta]", f'blender = "{blender_version}"', f"seed = {seeds[0]}", f"mc_seeds = {seeds}",
+         *([f"gate_seeds = {GATE_SEEDS}"] if GATE_SEEDS else []),
          "adaptive_sampling = false", "denoise = false", f"band_floor = {BAND_FLOOR}",
          f'blessed_on = "Cycles references: Blender {blender_version}; bands: {len(seeds)} seeds, Cycles + Astroray CPU spread, base commit {base}, {BLESS}"', ""]
     for sid in sorted(results):
@@ -370,6 +496,7 @@ def write_toml(results: dict, manifest: dict, seeds, blender_version: str, base:
         v2 = e["v2"]
         L += [f'[scenes."{sid}"]', f'blend = "{e["blend_path"]}"', f"seed = {v2['seed']}",
               f"spp_gate = {v2['spp_gate']}", f"spp_reference = {v2['spp_reference']}",
+              *([f"n_gate = {len(GATE_SEEDS)}"] if GATE_SEEDS else []),
               f"res = [{e['settings']['res_x']}, {e['settings']['res_y']}]",
               f"render_gate = {str(v2['render_gate']).lower()}",
               f"gate_c = {str(sid in GATE_C).lower()}"]
@@ -399,6 +526,7 @@ def write_toml(results: dict, manifest: dict, seeds, blender_version: str, base:
                       f'arbitration = "{r["arbitration"]}"']
                 if "legs" in r:
                     L.append(f"pin_legs = [{', '.join(chr(34) + x + chr(34) for x in r['legs'])}]")
+            L += [f"{k} = {_arr(r[k], '{:.4f}')}" for k in MEAN_KEYS if k in r]
             L.append("")
     text = "\n".join(L)
     tomllib.loads(text)  # must parse
@@ -874,7 +1002,8 @@ def main():
                     help="legs to (re)measure this run; earlier legs stay in results.json")
     ap.add_argument("--reference", action="store_true",
                     help="re-render the 1024 spp Cycles reference EXR (default: reuse refs_v2/)")
-    ap.add_argument("--work-dir", required=True, help="scratch dir for .npy/.png renders + results.json")
+    ap.add_argument("--work-dir", default=None, help="scratch dir for .npy/.png renders + results.json (required except "
+                                                      "with --add-mean-bands)")
     ap.add_argument("--suite", choices=sorted(SUITES), default=None,
                     help="scene population (default: the pkg284 v2 corpus)")
     ap.add_argument("--noise-bench", action="store_true",
@@ -897,12 +1026,23 @@ def main():
                     help="--tail-report: work dir of a baseline Astroray run (same legs/seeds); adds per-ROI z vs it")
     ap.add_argument("--table-only", action="store_true",
                     help="rewrite gates_v2.toml from <work>/results.json without rendering")
+    ap.add_argument("--add-mean-bands", action="store_true",
+                    help="--suite production: (re)write the seed-mean gate band keys of the gates file from the sigmas it "
+                         "holds (no rendering, no other key changes)")
     a = ap.parse_args()
+    if not a.work_dir and not a.add_mean_bands:
+        ap.error("--work-dir is required")
     if a.suite:
         use_suite(a.suite)
     if a.gates:
         global GATES
         GATES = a.gates.resolve()
+    if a.add_mean_bands:
+        if not GATE_SEEDS:
+            sys.exit("--add-mean-bands needs a suite with gate_seeds (--suite production)")
+        add_mean_bands(GATES, GATE_SEEDS)
+        print(f"[mc_tolerance] wrote mean bands for gate seeds {GATE_SEEDS} into {GATES}")
+        return
     a.seeds = a.seeds or (SUITES[a.suite]["seeds"] if a.suite else [278, 279, 280, 281, 282])
     if any(s <= 0 for s in a.seeds):
         sys.exit("seeds must be non-zero (0 is the random sentinel)")

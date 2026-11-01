@@ -172,11 +172,15 @@ def build_family_report(family: str, manifest_path: Path, out_dir: Path,
     return written
 
 
-def build_production_report(work: Path, out_dir: Path, seed: int = 278) -> dict:
-    """pkg310: per-material Cycles | Astroray CPU | Astroray GPU contact sheets (ROIs drawn), a
-    band-utilisation chart and ``production_summary.json`` (N/8 per backend) from the seed-``seed``
-    renders that ``mc_tolerance.render`` / tests/test_production_corpus.py keep in ``work``.
-    Band utilisation = worst |ratio - 1| / tol over the material's ROI channels (<= 1 is in band)."""
+def build_production_report(work: Path, out_dir: Path, seeds=None) -> dict:
+    """pkg310 / row (g): per-material Cycles | Astroray CPU | Astroray GPU contact sheets (ROIs drawn, first seed), a
+    band-utilisation chart and ``production_summary.json`` (N/8 per backend) from the renders that
+    ``mc_tolerance.render`` / tests/test_production_corpus.py keep in ``work`` (``<sid>_<leg>_s<seed>.npy``).
+
+    The gate statistic is the MEAN over ``seeds`` (default: the production suite's ``gate_seeds``, owner 2026-11-02,
+    #986) of each ROI's per-render mean, scored with ``mc_tolerance.score_material_mean``. Fails closed: every
+    (material, leg, seed) render must exist. Band utilisation = worst |ratio - 1| / tol_mean over the material's ROI
+    channels (<= 1 is in band). The summary records the seed list, N and the statistic."""
     import numpy as np
     import tomllib
     sys.path.insert(0, str(REPO_ROOT / "tests"))
@@ -185,12 +189,22 @@ def build_production_report(work: Path, out_dir: Path, seed: int = 278) -> dict:
     from benchmarks.reference_corpus import mc_tolerance as MC
 
     gates = tomllib.loads((REPO_ROOT / "benchmarks" / "reference_corpus" / "gates_production.toml")
-                          .read_text(encoding="utf-8"))["scenes"]
+                          .read_text(encoding="utf-8"))
+    pinned = gates["meta"]["gate_seeds"]
+    seeds = list(seeds if seeds is not None else pinned)
+    if seeds != pinned:
+        raise ValueError(f"row (g) scores the pinned gate seeds {pinned}, got {seeds}")
+    gates = gates["scenes"]
     manifest = json.loads((MC.SUITES["production"]["manifest"]).read_text(encoding="utf-8"))["scenes"]
-    out_dir.mkdir(parents=True, exist_ok=True)
-    summary = {"materials": {}, "seed": seed}
-    util = {"cpu": [], "gpu": []}
     names = sorted(gates)
+    missing = [str(work / f"{sid}_{leg}_s{s}.npy") for sid in names for leg in ("cpu", "gpu") for s in seeds
+               if not (work / f"{sid}_{leg}_s{s}.npy").is_file()]
+    if missing:  # fail closed: a missing render must not read as "0 deviation" or a smaller mean
+        raise FileNotFoundError(f"missing {len(missing)} gate render(s), e.g. {missing[0]} (run the legs first)")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    summary = {"materials": {}, "seeds": seeds, "n_seeds": len(seeds), "seed": seeds[0],
+               "statistic": "mean over seeds of the per-render ROI mean (mc_tolerance.score_material_mean)"}
+    util = {"cpu": [], "gpu": []}
     for sid in names:
         g = gates[sid]
         h, w = g["res"][1], g["res"][0]
@@ -198,19 +212,17 @@ def build_production_report(work: Path, out_dir: Path, seed: int = 278) -> dict:
         tiles = [(f"Cycles {g['spp_reference']} spp", ref)]
         entry = summary["materials"][sid] = {}
         for leg, label in (("cpu", "Astroray CPU"), ("gpu", "Astroray GPU")):
-            f = work / f"{sid}_{leg}_s{seed}.npy"
-            if not f.is_file():  # fail closed: a missing leg must not read as "0 deviation"
-                raise FileNotFoundError(f"missing {leg} render for {sid}: {f} (run the leg first)")
-            img = np.load(f)
-            tiles.append((f"{label} {g['spp_gate']} spp", img))
-            rows = MC.score_material(g, img, leg)
+            imgs = [np.load(work / f"{sid}_{leg}_s{s}.npy") for s in seeds]
+            tiles.append((f"{label} {g['spp_gate']} spp", imgs[0]))
+            rows = MC.score_material_mean(g, imgs, leg)
             worst = max(abs(r["ratio"] - 1.0) / r["tol"] for r in rows)
             util[leg].append(round(worst, 3))
             entry[leg] = {"pass": all(r["ok"] for r in rows), "channels": len(rows),
                           "out_of_band": [r for r in rows if not r["ok"]], "worst_band_utilisation": round(worst, 3)}
         tiles = [(t, np.clip(px, 0.0, None) ** (1.0 / 2.2)) for t, px in tiles]
         rois = {r["name"]: (r["rect"][0] * w, r["rect"][1] * h, r["rect"][2] * w, r["rect"][3] * h) for r in g["roi"]}
-        save_comparison_sheet(out_dir / f"{sid}_sheet.png", tiles, f"{sid} (display gamma 2.2, seed {seed})", rois)
+        save_comparison_sheet(out_dir / f"{sid}_sheet.png", tiles,
+                              f"{sid} (display gamma 2.2, seed {seeds[0]} of {len(seeds)}; the gate scores the mean)", rois)
         _ = manifest[sid]
     for leg in ("cpu", "gpu"):
         summary[leg] = {"pass": sum(1 for m in summary["materials"].values() if m.get(leg, {}).get("pass")),
@@ -218,12 +230,21 @@ def build_production_report(work: Path, out_dir: Path, seed: int = 278) -> dict:
     save_stat_chart(out_dir / "band_utilisation_chart.png",
                     [{"label": "Astroray CPU", "x": names, "y": util["cpu"], "role": "cpu"},
                      {"label": "Astroray GPU", "x": names, "y": util["gpu"], "role": "gpu"}],
-                    title="Production corpus: worst ROI-channel deviation / MC band",
-                    xlabel="material", ylabel="|ratio - 1| / tol (<= 1 in band)", ref=(1.0, "band edge"),
-                    meta={"suite": "production", "seed": seed, "summary": summary})
+                    title=f"Production corpus: worst ROI-channel deviation of the {len(seeds)}-seed mean / mean band",
+                    xlabel="material", ylabel="|ratio - 1| / tol_mean (<= 1 in band)", ref=(1.0, "band edge"),
+                    meta={"suite": "production", "seeds": seeds, "summary": summary})
     (out_dir / "production_summary.json").write_text(json.dumps(summary, indent=1) + "\n",
                                                      encoding="utf-8", newline="\n")
     return summary
+
+
+def production_xfail_clearance(summary: dict) -> list[str]:
+    """Provisional parity rows (scene, backend) that the seed-mean gate would clear: the leg passes in ``summary``."""
+    import tomllib
+    rows = tomllib.loads((REPO_ROOT / "benchmarks" / "reference_corpus" / "provisional_production.toml")
+                         .read_text(encoding="utf-8")).get("row", [])
+    return [f"{r['issue']} {r['scene']} {r['backend']}: " + ("CLEARED" if summary["materials"][r["scene"]][r["backend"]]["pass"] else "still out of band")
+            for r in rows if r["kind"] == "parity"]
 
 
 # --------------------------------------------------------------------------------------------------
@@ -508,7 +529,15 @@ def main(argv=None):
         pp.add_argument("--out-dir", required=True)
         pa = pp.parse_args(argv[1:])
         s = build_production_report(Path(pa.work_dir), Path(pa.out_dir))
-        print(f"[pkg310] CPU {s['cpu']['pass']}/{s['cpu']['of']}  GPU {s['gpu']['pass']}/{s['gpu']['of']}")
+        print(f"[pkg310] {s['n_seeds']}-seed mean {s['seeds']}: CPU {s['cpu']['pass']}/{s['cpu']['of']}  "
+              f"GPU {s['gpu']['pass']}/{s['gpu']['of']}")
+        for sid, leg_rows in sorted(s["materials"].items()):
+            for leg in ("cpu", "gpu"):
+                for r in leg_rows[leg]["out_of_band"]:
+                    print(f"  OUT {sid} {leg} {r['roi']}.{r['channel']} mean ratio {r['ratio']:.4f} tol_mean {r['tol']:.4f} "
+                          f"{'(pinned) ' if r['pinned'] else ''}per-render sd {r['sigma_obs']:.4f}")
+        for line in production_xfail_clearance(s):
+            print("  xfail " + line)
         return
     if argv[:1] == ["noise-bench"]:
         pp = argparse.ArgumentParser(prog="report_tools.py noise-bench")

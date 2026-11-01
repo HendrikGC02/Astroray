@@ -13,6 +13,9 @@ Failing materials are ``xfail(strict=True)`` tied to a GitHub issue in ``provisi
 (memory ``xfail-gated-features-must-unxfail``): the fixing PR deletes the row and the test must then pass.
 Rows the owner declared documented divergences are pinned against Astroray's own mean instead of Cycles.
 
+NOT the row (g) gate: this is the fast seed-278 regression tripwire on the single-render bands. The gate scores the mean
+of the 8 gate seeds (``gate_manifest.py --adapt-g``, ``report_tools.py production``; owner 2026-11-02, #986).
+
 Needs headless Blender 5.2 and an OpenMP-ON/OFF staged addon (``ASTRORAY_PYD_DIR``); skipped otherwise.
 GPU legs run under the GPU lock: ``python scripts/build/gpu_locked_run.py <lane> -- pytest ...``.
 """

@@ -459,6 +459,7 @@ class ImageTexture : public Texture {
     int width = 0, height = 0;
     Vec3 mean_{1, 0, 1};  // #776 — cached pixel mean for average()
     int extension_ = 0;   // #1004 - GImgExt::G_IMG_EXTEND
+    int interpolation_ = 0;  // pkg234 - GImgInterp::G_IMG_CLOSEST
     // Spectral cache: one RGBAlbedoSpectrum per texel, built eagerly in setData().
     std::vector<astroray::RGBAlbedoSpectrum> spectral_cache_;
 public:
@@ -485,7 +486,21 @@ public:
     // addon tags REPEAT / CLIP / MIRROR from the node.
     void setExtension(int ext) { extension_ = ext; }
     int getExtension() const { return extension_; }
+    // pkg234 - Image Texture interpolation (GImgInterp, shared with the GPU sampler). Default
+    // Closest keeps every untagged texture byte-identical; the addon tags every Image Texture
+    // node (Smart arrives as G_IMG_CUBIC, as in Cycles).
+    void setInterpolation(int mode) { interpolation_ = mode; }
+    int getInterpolation() const { return interpolation_; }
+    // Honours the texture's Interpolation (Closest / Linear / Cubic). GPU twin: gpu_sampleImageTexture.
     Vec3 value(const Vec2& uv, const Vec3&) const override {
+        if (data.empty()) return Vec3(1, 0, 1);
+        if (interpolation_ == G_IMG_LINEAR) return valueLinear(uv);
+        if (interpolation_ == G_IMG_CUBIC) return valueCubic(uv);
+        return valueClosest(uv);
+    }
+    // Nearest-neighbour fetch (the pre-pkg234 value()). Every filtered tap goes through this,
+    // never through value(), so a tap is never filtered twice.
+    Vec3 valueClosest(const Vec2& uv) const {
         if (data.empty()) return Vec3(1, 0, 1);
         if (extension_ != G_IMG_EXTEND) {
             int wi, wj;
@@ -501,19 +516,35 @@ public:
     }
     // #1004 - bilinear sample (Cycles INTERPOLATION_LINEAR, interp_linear in
     // kernel/device/cpu/image.h:170-178, Cycles @ Blender v5.2.0 fbe62287, Apache-2.0): the 2x2 texel footprint around
-    // (u*w - 0.5, v*h - 0.5), each texel read through value() so the extension (REPEAT /
-    // EXTEND / MIRROR / CLIP) wraps exactly like nearest sampling. Used by the bump height
-    // taps only (general Linear sampling is pkg234); GPU twin gpu_sampleImageTextureLinear.
+    // (u*w - 0.5, v*h - 0.5), each texel read through valueClosest() so the extension (REPEAT /
+    // EXTEND / MIRROR / CLIP) wraps exactly like nearest sampling. Bump height taps call this
+    // explicitly; pkg234: also value() for a Linear texture. GPU twin gpu_sampleImageTextureLinear.
     Vec3 valueLinear(const Vec2& uv) const {
         if (data.empty()) return Vec3(1, 0, 1);
         GImageLinearTaps t = gpu_imageLinearTaps(width, height, uv.u, uv.v);
-        return (value(Vec2(t.u0, t.v0), Vec3(0)) * (1.0f - t.fx) + value(Vec2(t.u1, t.v0), Vec3(0)) * t.fx) * (1.0f - t.fy) +
-               (value(Vec2(t.u0, t.v1), Vec3(0)) * (1.0f - t.fx) + value(Vec2(t.u1, t.v1), Vec3(0)) * t.fx) * t.fy;
+        return (valueClosest(Vec2(t.u0, t.v0)) * (1.0f - t.fx) + valueClosest(Vec2(t.u1, t.v0)) * t.fx) * (1.0f - t.fy) +
+               (valueClosest(Vec2(t.u0, t.v1)) * (1.0f - t.fx) + valueClosest(Vec2(t.u1, t.v1)) * t.fx) * t.fy;
+    }
+    // pkg234 - Cycles INTERPOLATION_CUBIC / SMART (uniform cubic B-spline, 4x4 footprint); the
+    // taps and weights are gpu_imageCubicTaps, each tap read through valueClosest(). GPU twin
+    // gpu_sampleImageTextureCubic.
+    Vec3 valueCubic(const Vec2& uv) const {
+        if (data.empty()) return Vec3(1, 0, 1);
+        const GImageCubicTaps t = gpu_imageCubicTaps(width, height, uv.u, uv.v);
+        Vec3 sum(0, 0, 0);
+        for (int j = 0; j < 4; ++j) {
+            Vec3 row(0, 0, 0);
+            for (int i = 0; i < 4; ++i) row += valueClosest(Vec2(t.u[i], t.v[j])) * t.wx[i];
+            sum += row * t.wy[j];
+        }
+        return sum;
     }
     astroray::SampledSpectrum sampleSpectral(
             const Vec2& uv, const Vec3&,
             const astroray::SampledWavelengths& lambdas) const override {
-        if (spectral_cache_.empty()) {
+        // pkg234: a filtered texture upsamples the filtered RGB per lambda (the GPU does the same;
+        // blending four cached texel spectra would be metameric, not a twin).
+        if (spectral_cache_.empty() || interpolation_ != G_IMG_CLOSEST) {
             Vec3 rgb = value(uv, Vec3(0));
             return astroray::RGBAlbedoSpectrum({rgb.x, rgb.y, rgb.z}).sample(lambdas);
         }

@@ -748,6 +748,11 @@ struct GImageTexture {
     // the uploaded slice cannot serve (non-triangle / instanced prim). 1 for the
     // Attribute node's Alpha output, else 0.
     float attrMissing = 0.f;
+    // pkg234 - Image Texture interpolation, a GImgInterp value. 0 = Closest (every
+    // untagged texture and every baked procedural; byte-identical to pre-pkg234).
+    // Appended LAST so it changes no existing offset; read only inside texture
+    // branches (gpu_sampleImageTexture), so no kernel signature or GMaterial change.
+    int   interpolation = 0;
 };
 
 // pkg186 — wavefront image-texture binding. Published ONCE per frame into a
@@ -983,12 +988,20 @@ HD inline bool gpu_imageWrapTexel(int ext, int w, int h, float u, float v,
     return true;
 }
 
+// pkg234 - Blender Image Texture interpolation. Closest is the historical behaviour
+// and the default of every texture the addon does not tag. Blender's Smart is Cycles'
+// bicubic as well (kernel/svm/image.h / device/cpu/image.h interp(): every non-Closest,
+// non-Linear mode takes interp_cubic), so the binding maps Smart to G_IMG_CUBIC.
+enum GImgInterp { G_IMG_CLOSEST = 0, G_IMG_LINEAR = 1, G_IMG_CUBIC = 2 };
+
 // Nearest-neighbour image fetch — mirrors CPU ImageTexture::value EXACTLY
 // (EXTEND: clamp u,v to [0,1]; v flip; floor to texel; clamp index to bounds;
-// #1004: REPEAT / MIRROR / CLIP via gpu_imageWrapTexel).
-HD inline GVec3 gpu_sampleImageTexture(const GImageTexture& tex,
-                                       const GVec3* texels,
-                                       float u, float v) {
+// #1004: REPEAT / MIRROR / CLIP via gpu_imageWrapTexel). pkg234: this is the raw tap
+// fetch (was gpu_sampleImageTexture); the filtered taps below call it, never the
+// dispatcher, so a tap is never filtered twice.
+HD inline GVec3 gpu_sampleImageTextureClosest(const GImageTexture& tex,
+                                              const GVec3* texels,
+                                              float u, float v) {
     if (tex.extension != G_IMG_EXTEND) {
         int wi, wj;
         if (!gpu_imageWrapTexel(tex.extension, tex.width, tex.height, u, v, &wi, &wj))
@@ -1029,15 +1042,71 @@ HD inline GImageLinearTaps gpu_imageLinearTaps(int w, int h, float u, float v) {
 // #1156: shared by the CPU (normal_mapped.cpp) and the GPU bump block (stage_advance_device.cuh).
 constexpr float kBumpLinearStepTexels = 0.1f;
 
-// #1004 - bilinear twin of gpu_sampleImageTexture (CPU ImageTexture::valueLinear).
+// #1004 - bilinear twin of gpu_sampleImageTextureClosest (CPU ImageTexture::valueLinear).
+// pkg234: also the base-colour Linear path (gpu_sampleImageTexture).
 HD inline GVec3 gpu_sampleImageTextureLinear(const GImageTexture& tex,
                                              const GVec3* texels,
                                              float u, float v) {
     const GImageLinearTaps t = gpu_imageLinearTaps(tex.width, tex.height, u, v);
-    return (gpu_sampleImageTexture(tex, texels, t.u0, t.v0) * (1.0f - t.fx) +
-            gpu_sampleImageTexture(tex, texels, t.u1, t.v0) * t.fx) * (1.0f - t.fy) +
-           (gpu_sampleImageTexture(tex, texels, t.u0, t.v1) * (1.0f - t.fx) +
-            gpu_sampleImageTexture(tex, texels, t.u1, t.v1) * t.fx) * t.fy;
+    return (gpu_sampleImageTextureClosest(tex, texels, t.u0, t.v0) * (1.0f - t.fx) +
+            gpu_sampleImageTextureClosest(tex, texels, t.u1, t.v0) * t.fx) * (1.0f - t.fy) +
+           (gpu_sampleImageTextureClosest(tex, texels, t.u0, t.v1) * (1.0f - t.fx) +
+            gpu_sampleImageTextureClosest(tex, texels, t.u1, t.v1) * t.fx) * t.fy;
+}
+
+// pkg234 (Phase 1b) - Cycles INTERPOLATION_CUBIC / SMART: the uniform cubic B-spline over a
+// 4x4 texel footprint at (u*w - 0.5, v*h - 0.5). Weights are SET_CUBIC_SPLINE_WEIGHTS and the
+// footprint is interp_cubic (intern/cycles/kernel/device/cpu/image.h:21-27, 224-311, Cycles @
+// Blender v5.2.0, Apache-2.0); the GPU path there evaluates the same basis with four hardware
+// bilinear fetches, equal in exact arithmetic. This is the 16-tap CPU form so the extension
+// handling is shared: each tap centre goes through the raw Closest fetch (the #1004 scheme).
+// One helper for CPU ImageTexture::valueCubic and the GPU sampler (identical math).
+struct GImageCubicTaps { float u[4], v[4], wx[4], wy[4]; };
+HD inline GImageCubicTaps gpu_imageCubicTaps(int w, int h, float u, float v) {
+    GImageCubicTaps t;
+    const float x = u * (float)w - 0.5f, y = v * (float)h - 0.5f;
+    const float x0 = floorf(x), y0 = floorf(y);
+    const float fx = x - x0, fy = y - y0;
+    for (int i = 0; i < 4; ++i) {
+        t.u[i] = (x0 + (float)(i - 1) + 0.5f) / (float)w;
+        t.v[i] = (y0 + (float)(i - 1) + 0.5f) / (float)h;
+    }
+    t.wx[0] = (((-1.0f / 6.0f) * fx + 0.5f) * fx - 0.5f) * fx + (1.0f / 6.0f);
+    t.wx[1] = ((0.5f * fx - 1.0f) * fx) * fx + (2.0f / 3.0f);
+    t.wx[2] = ((-0.5f * fx + 0.5f) * fx + 0.5f) * fx + (1.0f / 6.0f);
+    t.wx[3] = (1.0f / 6.0f) * fx * fx * fx;
+    t.wy[0] = (((-1.0f / 6.0f) * fy + 0.5f) * fy - 0.5f) * fy + (1.0f / 6.0f);
+    t.wy[1] = ((0.5f * fy - 1.0f) * fy) * fy + (2.0f / 3.0f);
+    t.wy[2] = ((-0.5f * fy + 0.5f) * fy + 0.5f) * fy + (1.0f / 6.0f);
+    t.wy[3] = (1.0f / 6.0f) * fy * fy * fy;
+    return t;
+}
+
+HD inline GVec3 gpu_sampleImageTextureCubic(const GImageTexture& tex,
+                                            const GVec3* texels,
+                                            float u, float v) {
+    const GImageCubicTaps t = gpu_imageCubicTaps(tex.width, tex.height, u, v);
+    GVec3 sum(0.f, 0.f, 0.f);
+    for (int j = 0; j < 4; ++j) {
+        GVec3 row(0.f, 0.f, 0.f);
+        for (int i = 0; i < 4; ++i)
+            row += gpu_sampleImageTextureClosest(tex, texels, t.u[i], t.v[j]) * t.wx[i];
+        sum += row * t.wy[j];
+    }
+    return sum;
+}
+
+// pkg234 - the base-colour image sampler: honours the texture's Interpolation. Host builds
+// and CPU-side twins call this; the wavefront shade sites branch Closest-inline /
+// wf_sampleImageFiltered (stage_advance_device.cuh) instead, to keep the filtered body
+// out of the register-saturated shade kernels. Bump/normal reads call the Linear
+// sampler explicitly and are unchanged.
+HD inline GVec3 gpu_sampleImageTexture(const GImageTexture& tex,
+                                       const GVec3* texels,
+                                       float u, float v) {
+    if (tex.interpolation == G_IMG_LINEAR) return gpu_sampleImageTextureLinear(tex, texels, u, v);
+    if (tex.interpolation == G_IMG_CUBIC)  return gpu_sampleImageTextureCubic(tex, texels, u, v);
+    return gpu_sampleImageTextureClosest(tex, texels, u, v);
 }
 
 // pkg190 — nearest-neighbour 3D voxel fetch for a baked Generated-coord

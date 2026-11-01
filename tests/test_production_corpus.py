@@ -160,6 +160,14 @@ def test_shader_stack_reference_is_the_recorded_1_over_n2_variant(monkeypatch):
     assert rec["ok"] and rec["ior"] == 1.45 and abs(rec["scale"] - 1 / 1.45 ** 2) < 1e-12
 
 
+def test_reference_control_found_without_selecting_the_production_suite():
+    """#1226: the pkg328 audit renders production scenes under the default (v2) suite state; the Cycles stacks must still
+    get the 1/n^2 reference variant, or the Noise Texture witnesses on prod_shader_stack fail on the reference itself."""
+    assert MC.KNOWN == CORPUS / "provisional_v2.toml"
+    assert [c["kind"] for c in MC.reference_controls("prod_shader_stack")] == ["emission_backface_scale"]
+    assert not MC.reference_controls("v2_viewport")
+
+
 def test_provisional_rows_reference_real_cases_and_issues():
     ids = {p.id for kind in ("parity", "silent") for p in _cases(kind)}
     for row in PROVISIONAL:

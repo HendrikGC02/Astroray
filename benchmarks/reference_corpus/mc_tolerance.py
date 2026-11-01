@@ -148,9 +148,13 @@ def scene_entry(manifest: dict, sid: str) -> dict:
 def reference_controls(sid: str) -> list[dict]:
     """#995: ``[[reference_control]]`` rows of the suite's hand-maintained file for scene ``sid`` -- render_leg controls
     applied to the Cycles legs ONLY (reference and band sigma), so the Astroray legs render the scene as authored."""
-    if not KNOWN.is_file():
-        return []
-    return [r for r in tomllib.loads(KNOWN.read_text(encoding="utf-8")).get("reference_control", []) if r["scene"] == sid]
+    # #1226: scene ids are unique across populations and the pkg328 audit mixes suites (v2 + production) under one
+    # manifest, so a row in any suite's known-file applies, not only the active suite's.
+    out = []
+    for known in dict.fromkeys([KNOWN, *(s["known"] for s in SUITES.values())]):
+        if known.is_file():
+            out += [r for r in tomllib.loads(known.read_text(encoding="utf-8")).get("reference_control", []) if r["scene"] == sid]
+    return out
 
 
 def use_suite(name: str) -> None:

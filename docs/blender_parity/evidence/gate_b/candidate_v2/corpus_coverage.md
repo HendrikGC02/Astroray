@@ -10,9 +10,9 @@
 - nine-scene: `undefined` (ratified=False)
 - original ~50 scenes: `undefined` (never frozen)
 
-## CPU - S_CPU = 0.4767932489451477
+## CPU - S_CPU = 0.4778481012658228
 
-## GPU - S_GPU = 0.4641350210970464
+## GPU - S_GPU = 0.4651898734177215
 
 ## Subchecks
 

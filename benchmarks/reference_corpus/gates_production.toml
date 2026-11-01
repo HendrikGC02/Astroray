@@ -2,6 +2,9 @@
 # Gate: per-ROI per-channel + luminance linear mean ratio Astroray/Cycles; fixed seed, adaptive OFF, denoise OFF.
 # tol = max(0.02, 3*sqrt(sigma_cycles^2 + sigma_astroray^2)); GPU/CPU tol floor 0.05; sigmas from the
 # seed-to-seed scatter at spp_gate. Channels/luminance with Cycles mean < 0.01 are excluded (tol = 0).
+# Mean-of-N gate (owner 2026-11-02, #986): row (g) scores the mean of the n_gate decorrelated renders of meta.gate_seeds;
+# *_mean_tol = max(0.02, 3*sqrt((sigma_cycles^2*spp_gate/spp_reference) + sigma_astroray^2/N)); *_mean_pin_tol = max(0.02,
+# 3*sigma_astroray*sqrt(1/N + 1/n_pin)); gpu_cpu_mean_tol = max(0.05, 3*sqrt((sigma_cpu^2+sigma_gpu^2)/N)).
 # Vectors are [r, g, b, luminance]. Provisional rows live in provisional_production.toml. Re-bless rule: README.md.
 # ROIs with expected_divergence + pin_channels (pkg327 Phase B) pin only those channels (and pin_legs, default both) to
 # cpu_mean/gpu_mean +- *_pin_tol; every other channel stays on cycles_mean +- *_tol. Rules: README.md.
@@ -10,6 +13,7 @@
 blender = "5.2.0 LTS"
 seed = 278
 mc_seeds = [278, 1301, 2711, 4177, 6113]
+gate_seeds = [278, 1301, 2711, 4177, 6113, 7919, 9371, 11027]
 adaptive_sampling = false
 denoise = false
 band_floor = 0.02
@@ -20,6 +24,7 @@ blend = "benchmarks/reference_corpus/production/prod_attributes.blend"
 seed = 278
 spp_gate = 64
 spp_reference = 1024
+n_gate = 8
 res = [320, 240]
 render_gate = true
 gate_c = false
@@ -40,6 +45,11 @@ gpu_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 cpu_mean = [0.663208, 0.407251, 0.522141, 0.469962]
 gpu_mean = [0.668949, 0.411449, 0.522625, 0.474221]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_attributes".roi]]
 name = "instance1"
@@ -56,6 +66,11 @@ gpu_pin_tol = [0.0307, 0.0329, 0.0200, 0.0297]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 cpu_mean = [0.517507, 0.390664, 0.510641, 0.426293]
 gpu_mean = [0.515189, 0.389464, 0.510565, 0.424937]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_attributes".roi]]
 name = "instance2"
@@ -72,6 +87,11 @@ gpu_pin_tol = [0.0514, 0.0358, 0.0262, 0.0390]
 gpu_cpu_tol = [0.0568, 0.0500, 0.0500, 0.0500]
 cpu_mean = [0.576896, 0.478372, 0.253965, 0.483116]
 gpu_mean = [0.574621, 0.473501, 0.252423, 0.479037]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0267, 0.0200, 0.0200, 0.0204]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_attributes".roi]]
 name = "instance1_lower"
@@ -88,12 +108,18 @@ gpu_pin_tol = [0.0567, 0.0587, 0.0664, 0.0583]
 gpu_cpu_tol = [0.0637, 0.0662, 0.0670, 0.0652]
 cpu_mean = [0.43859, 0.645257, 0.327285, 0.578362]
 gpu_mean = [0.445451, 0.654812, 0.331688, 0.586972]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0212, 0.0221, 0.0200, 0.0215]
+gpu_mean_tol = [0.0200, 0.0200, 0.0217, 0.0200]
+gpu_mean_pin_tol = [0.0296, 0.0306, 0.0345, 0.0304]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [scenes."prod_car_paint"]
 blend = "benchmarks/reference_corpus/production/prod_car_paint.blend"
 seed = 278
 spp_gate = 64
 spp_reference = 1024
+n_gate = 8
 res = [320, 240]
 render_gate = true
 gate_c = false
@@ -117,6 +143,11 @@ gpu_mean = [0.621634, 0.0786724, 0.0518115, 0.192167]
 expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 0.995, proxy arb_chroma_hero_car lit_front b Ms/Mr 0.912 A/C 0.912 (5-seed CPU 0.927, GPU 0.936). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
 pin_channels = ["b"]
 arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+cpu_mean_tol = [0.0200, 0.0207, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0238, 0.0322, 0.0200, 0.0200]
+gpu_mean_tol = [0.0219, 0.0200, 0.0200, 0.0201]
+gpu_mean_pin_tol = [0.0344, 0.0289, 0.0224, 0.0315]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_car_paint".roi]]
 name = "limb_grazing"
@@ -133,6 +164,11 @@ gpu_pin_tol = [0.0200, 0.0200, 0.0296, 0.0200]
 gpu_cpu_tol = [0.0516, 0.0666, 0.0816, 0.0575]
 cpu_mean = [1.04403, 0.269802, 0.105734, 0.422557]
 gpu_mean = [1.04427, 0.270404, 0.105456, 0.423019]
+cpu_mean_tol = [0.0200, 0.0249, 0.0300, 0.0213]
+cpu_mean_pin_tol = [0.0287, 0.0366, 0.0440, 0.0322]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_car_paint".roi]]
 name = "lower_shadowed"
@@ -149,6 +185,11 @@ gpu_pin_tol = [0.0216, 0.0455, 0.0246, 0.0275]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 cpu_mean = [0.525964, 0.144049, 0.0521553, 0.218609]
 gpu_mean = [0.530092, 0.144287, 0.052248, 0.219664]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0202, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0236, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_car_paint".roi]]
 name = "upper_flake"
@@ -169,12 +210,18 @@ expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo 
 pin_channels = ["b"]
 arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
 pin_legs = ["cpu"]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [scenes."prod_curves_geometry"]
 blend = "benchmarks/reference_corpus/production/prod_curves_geometry.blend"
 seed = 278
 spp_gate = 64
 spp_reference = 1024
+n_gate = 8
 res = [320, 240]
 render_gate = true
 gate_c = false
@@ -195,6 +242,11 @@ gpu_pin_tol = [0.0558, 0.0567, 0.0523, 0.0549]
 gpu_cpu_tol = [0.0591, 0.0536, 0.0585, 0.0528]
 cpu_mean = [0.25441, 0.314275, 0.22263, 0.294931]
 gpu_mean = [0.256289, 0.316179, 0.223697, 0.296769]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0291, 0.0296, 0.0272, 0.0286]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_curves_geometry".roi]]
 name = "outer_upper_rim"
@@ -211,6 +263,11 @@ gpu_pin_tol = [0.0306, 0.0275, 0.0218, 0.0272]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 cpu_mean = [0.129651, 0.174058, 0.160658, 0.163649]
 gpu_mean = [0.129528, 0.173573, 0.160235, 0.163246]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_curves_geometry".roi]]
 name = "inner_backface"
@@ -230,6 +287,11 @@ gpu_mean = [0.026335, 0.245267, 0.299865, 0.202664]
 expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). r: a saturated cyan albedo (r 0.05) loses red after >=2 spectral bounces, the #1141 mechanism. Grey albedo reads 1.002. Smooth-HDRI proxy arb_chroma_bowl_stage inner_backface r: Ms/Mr 0.747, A/C 0.755; the production ROI is diluted to 0.58 of the proxy deficit. 5-seed mean CPU 0.856, GPU 0.852. Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
 pin_channels = ["r"]
 arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+cpu_mean_tol = [0.0295, 0.0210, 0.0200, 0.0222]
+cpu_mean_pin_tol = [0.0472, 0.0325, 0.0286, 0.0345]
+gpu_mean_tol = [0.0233, 0.0223, 0.0200, 0.0214]
+gpu_mean_pin_tol = [0.0371, 0.0345, 0.0200, 0.0332]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_curves_geometry".roi]]
 name = "outer_left"
@@ -246,12 +308,18 @@ gpu_pin_tol = [0.0899, 0.1085, 0.1003, 0.1046]
 gpu_cpu_tol = [0.0900, 0.1085, 0.0973, 0.1040]
 cpu_mean = [0.0831322, 0.108952, 0.106675, 0.103299]
 gpu_mean = [0.0838811, 0.109269, 0.106862, 0.103698]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0210, 0.0253, 0.0200, 0.0236]
+gpu_mean_tol = [0.0296, 0.0353, 0.0325, 0.0341]
+gpu_mean_pin_tol = [0.0469, 0.0564, 0.0522, 0.0544]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [scenes."prod_light_path"]
 blend = "benchmarks/reference_corpus/production/prod_light_path.blend"
 seed = 278
 spp_gate = 64
 spp_reference = 1024
+n_gate = 8
 res = [320, 240]
 render_gate = true
 gate_c = false
@@ -272,6 +340,11 @@ gpu_pin_tol = [0.0458, 0.0303, 0.0247, 0.0313]
 gpu_cpu_tol = [0.0726, 0.0516, 0.0500, 0.0537]
 cpu_mean = [0.188161, 0.1699, 0.231567, 0.178235]
 gpu_mean = [0.19004, 0.171671, 0.232905, 0.179998]
+cpu_mean_tol = [0.0216, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0339, 0.0248, 0.0200, 0.0258]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0238, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_light_path".roi]]
 name = "glass_sun_shadow_floor"
@@ -289,6 +362,11 @@ gpu_cpu_tol = [1.2902, 1.3844, 2.0405, 1.4080]
 cpu_mean = [0.313463, 0.282517, 0.381762, 0.296261]
 gpu_mean = [0.213852, 0.153346, 0.28393, 0.175638]
 note = "cpu r: raw 3*sigma = 0.733 > 0.15, kept unclipped (high-variance ROI); cpu g: raw 3*sigma = 1.105 > 0.15, kept unclipped (high-variance ROI); cpu b: raw 3*sigma = 1.216 > 0.15, kept unclipped (high-variance ROI); cpu L: raw 3*sigma = 0.997 > 0.15, kept unclipped (high-variance ROI); gpu r: raw 3*sigma = 1.211 > 0.15, kept unclipped (high-variance ROI); gpu g: raw 3*sigma = 1.116 > 0.15, kept unclipped (high-variance ROI); gpu b: raw 3*sigma = 1.853 > 0.15, kept unclipped (high-variance ROI); gpu L: raw 3*sigma = 1.221 > 0.15, kept unclipped (high-variance ROI)"
+cpu_mean_tol = [0.2379, 0.3681, 0.4019, 0.3293]
+cpu_mean_pin_tol = [0.3458, 0.5546, 0.5993, 0.4910]
+gpu_mean_tol = [0.4156, 0.3720, 0.6370, 0.4133]
+gpu_mean_pin_tol = [0.6492, 0.5615, 0.9971, 0.6350]
+gpu_cpu_mean_tol = [0.4562, 0.4895, 0.7215, 0.4978]
 
 [[scenes."prod_light_path".roi]]
 name = "emitter_hidden_region"
@@ -305,6 +383,11 @@ gpu_pin_tol = [0.0203, 0.0200, 0.0269, 0.0200]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 cpu_mean = [2.58272, 2.18077, 1.54837, 2.22056]
 gpu_mean = [2.55608, 2.16062, 1.53564, 2.19957]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_light_path".roi]]
 name = "floor_near"
@@ -324,6 +407,11 @@ gpu_mean = [0.729395, 0.44421, 0.554924, 0.512834]
 expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). r: grey albedo 0.997, proxy arb_chroma_patches light_path_floor r Ms/Mr 0.987 A/C 0.986 confirms 1.4 of the 1.8-point 8-seed shift (remainder 0.4, 1.6 sigma). The 5-seed mean (CPU 0.981, GPU 0.988) sits at 95 % of the 0.020 Cycles band, so about two seed draws in five fall outside it (CPU seed 278 reads 0.975). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
 pin_channels = ["r"]
 arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_light_path".roi]]
 name = "floor_far"
@@ -340,12 +428,18 @@ gpu_pin_tol = [0.0320, 0.0283, 0.0200, 0.0271]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 cpu_mean = [0.136909, 0.231245, 0.446736, 0.226748]
 gpu_mean = [0.137341, 0.231765, 0.447879, 0.227294]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [scenes."prod_marble"]
 blend = "benchmarks/reference_corpus/production/prod_marble.blend"
 seed = 278
 spp_gate = 64
 spp_reference = 1024
+n_gate = 8
 res = [320, 240]
 render_gate = true
 gate_c = false
@@ -366,6 +460,11 @@ gpu_pin_tol = [0.0392, 0.0415, 0.0238, 0.0394]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 cpu_mean = [0.993712, 0.909611, 0.703614, 0.912618]
 gpu_mean = [1.01958, 0.939102, 0.729222, 0.941059]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0204, 0.0215, 0.0200, 0.0205]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_marble".roi]]
 name = "left"
@@ -383,6 +482,11 @@ gpu_cpu_tol = [0.1621, 0.1041, 0.0500, 0.1118]
 cpu_mean = [0.443647, 0.426765, 0.380577, 0.42702]
 gpu_mean = [0.446128, 0.431146, 0.389157, 0.4313]
 note = "cpu r: raw 3*sigma = 0.160 > 0.15, kept unclipped (high-variance ROI)"
+cpu_mean_tol = [0.0564, 0.0347, 0.0200, 0.0378]
+cpu_mean_pin_tol = [0.0908, 0.0558, 0.0200, 0.0607]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0204, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0573, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_marble".roi]]
 name = "right"
@@ -400,6 +504,11 @@ gpu_cpu_tol = [0.1598, 0.1438, 0.0905, 0.1435]
 cpu_mean = [2.34286, 2.11213, 1.45776, 2.11394]
 gpu_mean = [2.50018, 2.19045, 1.50222, 2.20661]
 note = "cpu r: raw 3*sigma = 0.163 > 0.15, kept unclipped (high-variance ROI); cpu g: raw 3*sigma = 0.166 > 0.15, kept unclipped (high-variance ROI); cpu L: raw 3*sigma = 0.164 > 0.15, kept unclipped (high-variance ROI); gpu r: raw 3*sigma = 0.216 > 0.15, kept unclipped (high-variance ROI); gpu g: raw 3*sigma = 0.199 > 0.15, kept unclipped (high-variance ROI); gpu b: raw 3*sigma = 0.155 > 0.15, kept unclipped (high-variance ROI); gpu L: raw 3*sigma = 0.200 > 0.15, kept unclipped (high-variance ROI)"
+cpu_mean_tol = [0.0426, 0.0446, 0.0401, 0.0437]
+cpu_mean_pin_tol = [0.0294, 0.0375, 0.0328, 0.0349]
+gpu_mean_tol = [0.0659, 0.0591, 0.0425, 0.0596]
+gpu_mean_pin_tol = [0.0862, 0.0729, 0.0398, 0.0741]
+gpu_cpu_mean_tol = [0.0565, 0.0508, 0.0500, 0.0508]
 
 [[scenes."prod_marble".roi]]
 name = "lower"
@@ -416,12 +525,18 @@ gpu_pin_tol = [0.0415, 0.0385, 0.0227, 0.0367]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 cpu_mean = [0.633801, 0.574071, 0.422011, 0.575791]
 gpu_mean = [0.666917, 0.606335, 0.445983, 0.607638]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0215, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [scenes."prod_pbr_group"]
 blend = "benchmarks/reference_corpus/production/prod_pbr_group.blend"
 seed = 278
 spp_gate = 64
 spp_reference = 1024
+n_gate = 8
 res = [320, 240]
 render_gate = true
 gate_c = false
@@ -442,6 +557,11 @@ gpu_pin_tol = [0.0448, 0.0456, 0.0236, 0.0413]
 gpu_cpu_tol = [0.0650, 0.0509, 0.0500, 0.0550]
 cpu_mean = [0.367892, 0.091904, 0.0343384, 0.146423]
 gpu_mean = [0.367335, 0.0914805, 0.0343005, 0.145999]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0289, 0.0200, 0.0200, 0.0227]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0233, 0.0238, 0.0200, 0.0215]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_pbr_group".roi]]
 name = "left"
@@ -458,6 +578,11 @@ gpu_pin_tol = [0.0284, 0.0200, 0.0200, 0.0200]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 cpu_mean = [0.548416, 0.510317, 0.412215, 0.511334]
 gpu_mean = [0.545696, 0.507848, 0.409421, 0.508788]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_pbr_group".roi]]
 name = "right"
@@ -474,6 +599,11 @@ gpu_pin_tol = [0.0254, 0.0200, 0.0200, 0.0200]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 cpu_mean = [0.683503, 0.190564, 0.0630441, 0.286156]
 gpu_mean = [0.696931, 0.193897, 0.0636586, 0.291439]
+cpu_mean_tol = [0.0200, 0.0200, 0.0206, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0224, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_pbr_group".roi]]
 name = "lower"
@@ -493,12 +623,18 @@ gpu_mean = [0.224487, 0.059107, 0.0221792, 0.0916005]
 expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 0.997, proxy arb_chroma_hero_pbr lower b Ms/Mr 0.912 A/C 0.912 (5-seed CPU 0.925, GPU 0.940). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
 pin_channels = ["b"]
 arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0215, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [scenes."prod_shader_stack"]
 blend = "benchmarks/reference_corpus/production/prod_shader_stack.blend"
 seed = 278
 spp_gate = 64
 spp_reference = 1024
+n_gate = 8
 res = [320, 240]
 render_gate = true
 gate_c = false
@@ -520,6 +656,11 @@ gpu_pin_tol = [0.0200, 0.0283, 0.0338, 0.0242]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 cpu_mean = [1.00685, 0.579919, 0.403447, 0.657944]
 gpu_mean = [1.00755, 0.582931, 0.408227, 0.660592]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_shader_stack".roi]]
 name = "right"
@@ -536,6 +677,11 @@ gpu_pin_tol = [0.0239, 0.0294, 0.0289, 0.0263]
 gpu_cpu_tol = [0.0500, 0.0500, 0.1047, 0.0500]
 cpu_mean = [1.07656, 0.645422, 0.446562, 0.722724]
 gpu_mean = [1.07321, 0.641611, 0.441994, 0.718957]
+cpu_mean_tol = [0.0200, 0.0200, 0.0359, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0210, 0.0578, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_shader_stack".roi]]
 name = "lower"
@@ -552,6 +698,11 @@ gpu_pin_tol = [0.0247, 0.0200, 0.0200, 0.0200]
 gpu_cpu_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 cpu_mean = [0.887445, 0.410356, 0.220565, 0.498082]
 gpu_mean = [0.881727, 0.410145, 0.220604, 0.496718]
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0207, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_shader_stack".roi]]
 name = "upper_left"
@@ -569,12 +720,18 @@ gpu_cpu_tol = [0.0500, 0.0500, 0.3317, 0.0500]
 cpu_mean = [1.43972, 0.810222, 0.477494, 0.920031]
 gpu_mean = [1.43588, 0.807088, 0.451583, 0.915102]
 note = "cpu b: raw 3*sigma = 0.330 > 0.15, kept unclipped (high-variance ROI)"
+cpu_mean_tol = [0.0200, 0.0200, 0.1166, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.1880, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0207, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.1173, 0.0500]
 
 [scenes."prod_wood"]
 blend = "benchmarks/reference_corpus/production/prod_wood.blend"
 seed = 278
 spp_gate = 64
 spp_reference = 1024
+n_gate = 8
 res = [320, 240]
 render_gate = true
 gate_c = false
@@ -598,6 +755,11 @@ gpu_mean = [0.479549, 0.242644, 0.0772688, 0.28107]
 expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 1.000, proxy arb_chroma_hero_wood grain_center b Ms/Mr 0.924 A/C 0.925 (5-seed CPU 0.940, GPU 0.949). r: proxy Ms/Mr 0.983 A/C 0.984 confirms 1.7 of the 2.8-point 8-seed CPU shift (5-seed CPU 0.973, GPU 0.985); the 1.2-point remainder is 2.4 sigma and unexplained, so the r pin is the seed mean, not a claim that the whole shift is spectral. Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
 pin_channels = ["r", "b"]
 arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_wood".roi]]
 name = "grain_left"
@@ -617,6 +779,11 @@ gpu_mean = [0.321031, 0.17895, 0.073765, 0.201562]
 expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 0.998, proxy arb_chroma_hero_wood grain_left b Ms/Mr 0.969 A/C 0.969 (8-seed CPU 0.979). Not pinned in the first Phase B pass because it passed on Cycles; the pkg327 GPU bump-twin fixes (#1156, #1214, #1220) moved the GPU onto the CPU shift and the GPU failed at seed 278 (b 0.974). Pinned to the Astroray 5-seed mean on the build with those fixes; the other channels of the ROI stay on Cycles."
 pin_channels = ["b"]
 arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0234, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_wood".roi]]
 name = "grain_right"
@@ -636,6 +803,11 @@ gpu_mean = [0.675133, 0.351167, 0.107671, 0.402462]
 expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 0.993, proxy arb_chroma_hero_wood grain_right b Ms/Mr 0.902 A/C 0.901 (5-seed CPU 0.937, GPU 0.939). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
 pin_channels = ["b"]
 arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+cpu_mean_tol = [0.0279, 0.0229, 0.0200, 0.0245]
+cpu_mean_pin_tol = [0.0448, 0.0368, 0.0251, 0.0393]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0221, 0.0200, 0.0233, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 
 [[scenes."prod_wood".roi]]
 name = "lower"
@@ -655,4 +827,9 @@ gpu_mean = [0.269481, 0.137243, 0.0434642, 0.158586]
 expected_divergence = "pkg327 Phase B, spectral transport of a saturated albedo under coloured light, Mitsuba-reproduced (.astroray_plan/docs/pkg327-chroma-residual-attribution.md, Per-channel verdicts). b: grey albedo 0.994, proxy arb_chroma_hero_wood lower b Ms/Mr 0.917 A/C 0.915 (5-seed CPU 0.947, GPU 0.954). Pinned to the Astroray 5-seed mean; the other channels of the ROI stay on Cycles."
 pin_channels = ["b"]
 arbitration = ".astroray_plan/docs/pkg327-attribution/proxy_smooth_hdri.json"
+cpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+cpu_mean_pin_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_tol = [0.0200, 0.0200, 0.0200, 0.0200]
+gpu_mean_pin_tol = [0.0200, 0.0200, 0.0292, 0.0200]
+gpu_cpu_mean_tol = [0.0500, 0.0500, 0.0500, 0.0500]
 

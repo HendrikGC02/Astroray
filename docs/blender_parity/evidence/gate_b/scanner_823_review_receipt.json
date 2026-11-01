@@ -1,15 +1,15 @@
 {
-  "basis": "Independent review of the scanner delta fdb8774b..b4e7cbf0 (#1168 fail-closed scanner, pkg325, pkg328 Phase 1) by a Claude Opus 5.5 reviewer given only the diff and the repo. Round 1 verdict CHANGES, six non-blocking findings: (1) TexEnvironment Vector credited APPROXIMATED though setup_world never reads the socket (any world Mapping rotation is used); (2) OutputWorld Surface / is_active_output credited SUPPORTED though only Background nodes linked straight to Surface are filtered; (3) Material Output target falls back to an EEVEE-only output; (4) TexImage interpolation report misses two load paths (b4 only); (5) report-sink coverage in the scanner is narrower than its docstring; (6) Material Output Thickness is credited because Cycles ignores it too (probe on both engines). Findings 1 and 2 could inflate the score, so the scanner was changed (commit d7769bf8: both World rows capped at APPROXIMATED via PARTIAL_HANDLING_CAPS, env Vector note corrected; matrix regenerated under Blender 5.2) and re-reviewed: round 2 FINAL ACCEPT, change fails closed and touches only those three rows; findings 3-6 stay as filed non-blocking follow-ups. All 28 reported_at_runtime flags were verified against warning text in blender_addon; no scope creep in classifications. An opencode flash critic (deepseek-v4.1-flash-free) returned CHANGES with seven claims (Thickness credit, report-sink holes in _is_consumed, Env Vector, scan_object_image_evidence stores, branch-local served names, flag scope); they overlap the reviewer's findings 1, 5 and 6, none can credit an unconsumed row beyond the bounded cases above, and none blocks.",
-  "commit": "d7769bf8816230d139c711624bb7d597ff60a7fc",
-  "follow_up_issue": "to be filed by the lead (findings 3-6 and flash claims)",
+  "basis": "Independent review of the scanner delta d7769bf8..1f190827 (#1241: pkg234 moves ShaderNodeTexImage prop:interpolation from PKG321_REPORTED_DROPS to PKG321_PROBE_CREDITS as APPROXIMATED, probe img_interp) by a blind Claude Opus 5.5 reviewer given only the diff and the repo. Verdict ACCEPT: the credit is backed end to end (addon _image_interpolation_mode -> renderer.set_texture_interpolation -> CPU/GPU samplers; probe d_ab 0.0437 vs Cycles 0.0443, noise floor 0.0021), APPROXIMATED is the right ceiling (8-bit sRGB decode-before-filter order; height images always Linear), the probe audit matches one exact key on still-DROPPED-SILENT rows and widens nothing, and the scanner stays fail-closed. Three non-blocking findings, none able to raise the gate score: (1) the image_property row ShaderNodeTexImage|interpolation is credited SUPPORTED by the unchanged found_attrs rule (report count only; the frozen population keys the shader_node row); (2) the shader_node row's APPROXIMATED ceiling is not in PARTIAL_HANDLING_CAPS, so a future scanner credit could promote it silently; (3) a comment overstates per-texture honouring. Filed on #1233. Full review: %LOCALAPPDATA%/astroray-evidence/2026-11-02/scanner-review/review_d7769bf8_1f190827.md (signature = its sha256).",
+  "commit": "1f1908279f85c01fc1a4acd60bcd8c2808472ce7",
+  "follow_up_issue": "#1233 (findings 1-3 of this review, plus the d7769bf8 review's findings 3-6)",
   "issue": 823,
   "reviewer": {
-    "id": "blind Claude Opus 5.5 reviewer, 2026-11-01: round 1 CHANGES (non-blocking findings), follow-up fix, round 2 ACCEPT; opencode flash critic CHANGES (claims checked, none blocking)",
-    "signature": "e4ab118cd1951f4c7688798799fd651a778f56ad186709b89b494be590589e82",
-    "signed_at": "2026-11-01T00:00:00+00:00"
+    "id": "blind Claude Opus 5.5 reviewer, 2026-11-02: single round, ACCEPT with 3 non-blocking findings",
+    "signature": "210d2fbc918f7cbfffa9151418a662da6df8fa283df474c700c79484a82a122d",
+    "signed_at": "2026-11-02T00:00:00+00:00"
   },
   "schema": "pkg278.scanner_review_receipt.v1",
   "source_path": "scripts/generate_blender_parity_matrix.py",
-  "source_sha256": "78e65e59c24ba98fad33866ff5cdc1c4b62848d0a604bd932ebf4335b8c8c791",
+  "source_sha256": "f642b8e73519377d0107c5e81ede0b3b358c265d82c268f8377093d5b594e5af",
   "verdict": "ACCEPT"
 }

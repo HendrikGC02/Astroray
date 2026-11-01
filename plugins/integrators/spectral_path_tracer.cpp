@@ -341,7 +341,6 @@ public:
                 xyz.X += causticXYZ.x;
                 xyz.Y += causticXYZ.y;
                 xyz.Z += causticXYZ.z;
-                I1237_LOG("  PHOTON xyz=(%.5g %.5g %.5g)\n", causticXYZ.x, causticXYZ.y, causticXYZ.z);  // I1237_DIAG
                 // pkg198: keep Σpasses == beauty when photon caustics are on — the
                 // gather lands on a receiver → diffuse-indirect pass.
                 r.passes[PASS_DIFFUSE_INDIRECT] += causticXYZ;

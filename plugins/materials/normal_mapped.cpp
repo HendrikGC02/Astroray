@@ -1,7 +1,6 @@
 ﻿#include "astroray/register.h"
 #include "advanced_features.h"
 #include "astroray/bump_correction.h"
-#include "astroray/i1237_trace.h"  // I1237_DIAG temporary, delete once merged
 
 // kBumpLinearStepTexels (#1004 image bump step) lives in astroray/gpu_types.h, shared with the GPU (#1156).
 
@@ -69,9 +68,6 @@ class NormalMappedPlugin : public Material {
             Vec3 mapped = (T * nTS.x + B * nTS.y + rec.normal * nTS.z).normalized();
             float t = std::clamp(normalStrength_, 0.0f, 1.0f);
             n = (rec.normal * (1.0f - t) + mapped * t).normalized();
-            I1237_LOG("    NMAP uv=(%.6f %.6f) rgb=(%.4f %.4f %.4f) T=(%.4f %.4f %.4f) sgn=%.0f N0=(%.4f %.4f %.4f) n=(%.4f %.4f %.4f)\n",  // I1237_DIAG
-                      rec.uv.u, rec.uv.v, rgb.x, rgb.y, rgb.z, T.x, T.y, T.z, rec.uvBitangentSign,
-                      rec.normal.x, rec.normal.y, rec.normal.z, n.x, n.y, n.z);
         }
 
         if (bumpTexture_) {
@@ -166,10 +162,7 @@ class NormalMappedPlugin : public Material {
             float len = perturbed.length();
             perturbed = (len > 1e-8f) ? (perturbed / len) : n;
             float s = std::clamp(bumpStrength_, 0.0f, 1.0f);
-            I1237_LOG("    BUMP h=(%.6f %.6f %.6f) scl=(%.5f %.5f) det=%.4g nIn=(%.4f %.4f %.4f)",  // I1237_DIAG
-                      h_c, h_x, h_y, rec.uvScaleU, rec.uvScaleV, det, n.x, n.y, n.z);
             n = (perturbed * s + n * (1.0f - s)).normalized();
-            I1237_LOG(" n=(%.4f %.4f %.4f)\n", n.x, n.y, n.z);  // I1237_DIAG
         }
 
         // #1154 - Cycles maybe_ensure_valid_specular_reflection (Cycles @ Blender v5.2.0

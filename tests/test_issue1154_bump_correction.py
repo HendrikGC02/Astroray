@@ -154,7 +154,8 @@ def _expected_lambert(sun_elev, soft):
     return v
 
 
-def _sunlit_diffuse(kind, correction, sun_elev, use_gpu, spp=32):
+def _sunlit_diffuse(kind, correction, sun_elev, use_gpu, spp=32, view_elev=None):
+    """``view_elev`` (deg, camera on the -x side): a grazing view; None looks straight down."""
     r = _renderer(use_gpu)
     r.set_background_color([0.0, 0.0, 0.0])
     _tilted_normal_map(r)
@@ -164,11 +165,16 @@ def _sunlit_diffuse(kind, correction, sun_elev, use_gpu, spp=32):
         mat = r.create_material("principled", [ALBEDO] * 3, p)
     else:
         mat = r.create_material("lambertian", [ALBEDO] * 3, p)
-    _quad(r, mat, 1.0)
+    _quad(r, mat, 1.0 if view_elev is None else 20.0)
     e = np.radians(sun_elev)
     r.add_sun_light_dedicated([-np.cos(e), 0.0, -np.sin(e)], 0.02,
                               {"mode": "rgb", "color": [1.0, 1.0, 1.0]}, SUN_E)
-    setup_camera(r, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=30, width=32, height=32)
+    if view_elev is None:
+        setup_camera(r, look_from=[0, 0, 3], look_at=[0, 0, 0], vup=[0, 1, 0], vfov=30, width=32, height=32)
+    else:
+        v = np.radians(view_elev)
+        setup_camera(r, look_from=[-3 * np.cos(v), 0, 3 * np.sin(v)], look_at=[0, 0, 0], vup=[0, 0, 1],
+                     vfov=30, width=32, height=32)
     im = np.asarray(render_image(r, samples=spp, max_depth=1, apply_gamma=False), np.float32)
     return float(im[10:22, 10:22].mean())
 
@@ -200,6 +206,19 @@ def test_principled_diffuse_lobe_is_softened_like_cycles(use_gpu):
 def test_principled_diffuse_lobe_unsoftened_when_correction_off():
     got = _sunlit_diffuse("principled", False, 20.0, False)
     assert abs(got / CYCLES_DIFFUSE_OFF - 1.0) < 0.01, (got, CYCLES_DIFFUSE_OFF)
+
+
+@pytest.mark.parametrize("use_gpu", [False, True], ids=["cpu", "gpu"])
+@pytest.mark.parametrize("kind", ["lambertian", "principled"])
+def test_diffuse_shades_when_the_bumped_normal_faces_away_from_the_view(kind, use_gpu):
+    """#1190: camera 20 deg above the plane on the -x side, normal tilted 30 deg toward +x, so
+    dot(N, view) = -0.17. Cycles bsdf_diffuse_eval tests only the light side (v5.2.0
+    kernel/closure/bsdf_diffuse.h:38-48): the sun at 60 deg (dot(N, L) = 1) lights it with the
+    same view-independent Lambert + G1 value as from above. The Principled diffuse lobe used to
+    return 0 (prod_car_paint's lit limb read 11-17 % dark under the flake bump)."""
+    exp = _expected_lambert(60.0, True)
+    got = _sunlit_diffuse(kind, True, 60.0, use_gpu, view_elev=20.0)
+    assert abs(got / exp - 1.0) < 0.01, (got, exp)
 
 
 # ---------------------------------------------------------------------------

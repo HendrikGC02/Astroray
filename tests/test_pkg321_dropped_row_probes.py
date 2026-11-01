@@ -101,6 +101,10 @@ PROBE_VERDICT = {
     # a data colour space has no association, so its link is inert (tests/test_i1238_image_alpha_association.py).
     "img_alpha": ("moves", ""), "img_alpha_premul": ("moves", ""), "img_alpha_exr": ("moves", ""),
     "img_alpha_float": ("moves", ""), "img_alpha_genfloat": ("moves", ""), "img_alpha_data": ("inert", ""),
+    # #1242: the Image Texture Alpha output is delivered (tests/test_i1242_image_alpha_output.py); an opaque image into
+    # Principled Alpha is the unlinked material, alpha mode None a one-texel program at the noise floor.
+    "img_alpha_mixfac": ("moves", ""), "img_alpha_cutout": ("moves", ""),
+    "img_alpha_opaque": ("inert", ""), "img_alpha_none": ("faint", ""),
 }
 
 

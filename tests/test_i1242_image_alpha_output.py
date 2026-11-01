@@ -266,8 +266,8 @@ def test_image_without_alpha_changes_nothing(legs, probe, leg):
     a, c = legs[leg][0][probe], legs["cycles"][0][probe]
     assert "error" not in a and "error" not in c, (a, c)
     assert c["d_ab"] < 1e-6 or c["d_ab"] < 0.5 * c["d_aa"]
-    if probe == "img_alpha_opaque":
-        assert a["d_ab"] == 0.0, (probe, leg, a["d_ab"])
+    if probe == "img_alpha_opaque":   # the GPU differs run to run by float rounding (2e-8 vs d_aa 4e-3)
+        assert a["d_ab"] == 0.0 if leg == "cpu" else a["d_ab"] <= 1e-6, (probe, leg, a["d_ab"])
     else:
         assert a["d_ab"] <= 2.0 * a["d_aa"] + 1e-6, (probe, leg, a["d_ab"], a["d_aa"])
     for v in ("A", "B"):

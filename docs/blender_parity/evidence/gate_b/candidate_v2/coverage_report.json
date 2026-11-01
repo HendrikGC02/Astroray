@@ -46,13 +46,13 @@
         "identities": 10
       },
       "prod_shader_stack/Hero/Noise Texture": {
-        "CPU": "FAIL",
-        "GPU": "FAIL",
+        "CPU": "PASS",
+        "GPU": "PASS",
         "identities": 10
       },
       "prod_shader_stack/Hero/Noise Texture.001": {
-        "CPU": "FAIL",
-        "GPU": "FAIL",
+        "CPU": "PASS",
+        "GPU": "PASS",
         "identities": 10
       },
       "prod_wood/Hero/Bump": {
@@ -122,8 +122,8 @@
   "cpu": {
     "backend": "CPU",
     "denominator": 474.0,
-    "numerator": 226.0,
-    "score": 0.4767932489451477,
+    "numerator": 226.5,
+    "score": 0.4778481012658228,
     "use_count": 233,
     "uses": [
       {
@@ -2808,10 +2808,10 @@
         "weight": 2
       },
       {
-        "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
-        "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "cpu": 0.5,
+        "cpu_reason": "matrix credit",
+        "gpu": 0.5,
+        "gpu_reason": "matrix credit",
         "identity": "ShaderNodeTexImage|prop:interpolation",
         "scenes": [
           "v2_textures_opvm"
@@ -2820,9 +2820,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Detail",
         "scenes": [
           "prod_curves_geometry",
@@ -2835,9 +2835,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Distortion",
         "scenes": [
           "prod_curves_geometry",
@@ -2850,9 +2850,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Lacunarity",
         "scenes": [
           "prod_curves_geometry",
@@ -2865,9 +2865,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Roughness",
         "scenes": [
           "prod_curves_geometry",
@@ -2880,9 +2880,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Scale",
         "scenes": [
           "prod_curves_geometry",
@@ -2895,9 +2895,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Vector",
         "scenes": [
           "prod_curves_geometry",
@@ -2923,9 +2923,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|output:Fac",
         "scenes": [
           "prod_curves_geometry",
@@ -2937,9 +2937,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|prop:noise_dimensions",
         "scenes": [
           "prod_curves_geometry",
@@ -2952,9 +2952,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|prop:noise_type",
         "scenes": [
           "prod_curves_geometry",
@@ -2967,9 +2967,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|prop:normalize",
         "scenes": [
           "prod_curves_geometry",
@@ -3607,8 +3607,8 @@
   "gpu": {
     "backend": "GPU",
     "denominator": 474.0,
-    "numerator": 220.0,
-    "score": 0.4641350210970464,
+    "numerator": 220.5,
+    "score": 0.4651898734177215,
     "use_count": 233,
     "uses": [
       {
@@ -6293,10 +6293,10 @@
         "weight": 2
       },
       {
-        "cpu": 0.0,
-        "cpu_reason": "dropped-silent or absent from the matrix",
-        "gpu": 0.0,
-        "gpu_reason": "dropped-silent or absent from the matrix",
+        "cpu": 0.5,
+        "cpu_reason": "matrix credit",
+        "gpu": 0.5,
+        "gpu_reason": "matrix credit",
         "identity": "ShaderNodeTexImage|prop:interpolation",
         "scenes": [
           "v2_textures_opvm"
@@ -6305,9 +6305,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Detail",
         "scenes": [
           "prod_curves_geometry",
@@ -6320,9 +6320,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Distortion",
         "scenes": [
           "prod_curves_geometry",
@@ -6335,9 +6335,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Lacunarity",
         "scenes": [
           "prod_curves_geometry",
@@ -6350,9 +6350,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Roughness",
         "scenes": [
           "prod_curves_geometry",
@@ -6365,9 +6365,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Scale",
         "scenes": [
           "prod_curves_geometry",
@@ -6380,9 +6380,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|input:Vector",
         "scenes": [
           "prod_curves_geometry",
@@ -6408,9 +6408,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|output:Fac",
         "scenes": [
           "prod_curves_geometry",
@@ -6422,9 +6422,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|prop:noise_dimensions",
         "scenes": [
           "prod_curves_geometry",
@@ -6437,9 +6437,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|prop:noise_type",
         "scenes": [
           "prod_curves_geometry",
@@ -6452,9 +6452,9 @@
       },
       {
         "cpu": 0.0,
-        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "cpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "gpu": 0.0,
-        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_shader_stack/Hero/Noise Texture', 'prod_shader_stack/Hero/Noise Texture.001', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
+        "gpu_reason": "zeroed by non-passing audit witness ['prod_curves_geometry/Bowl/Noise Texture', 'prod_wood/Hero/Noise Texture', 'v2_textures_opvm/CardMapAfterWarp/Noise Texture', 'v2_textures_opvm/RoughnessProg/Noise Texture']",
         "identity": "ShaderNodeTexNoise|prop:normalize",
         "scenes": [
           "prod_curves_geometry",
@@ -7120,12 +7120,10 @@
   },
   "proposal": {
     "CPU": {
-      "ceiling": 0.7679324894514767,
+      "ceiling": 0.7689873417721519,
       "failing_witnesses": [
         "prod_car_paint/Hero/Bump",
         "prod_curves_geometry/Bowl/Noise Texture",
-        "prod_shader_stack/Hero/Noise Texture",
-        "prod_shader_stack/Hero/Noise Texture.001",
         "prod_wood/Hero/Bump",
         "prod_wood/Hero/Mapping",
         "prod_wood/Hero/Noise Texture",
@@ -7135,28 +7133,26 @@
         "v2_viewport/Grid100k/Principled BSDF"
       ],
       "loo_scores": [
-        0.4767932489451477,
-        0.4767932489451477,
-        0.4767932489451477,
-        0.4767932489451477,
-        0.4767932489451477,
-        0.4767932489451477,
-        0.4767932489451477,
-        0.4767932489451477
+        0.4778481012658228,
+        0.4778481012658228,
+        0.4778481012658228,
+        0.4778481012658228,
+        0.4778481012658228,
+        0.4778481012658228,
+        0.4778481012658228,
+        0.4778481012658228
       ],
       "margin": 0.09177215189873418,
-      "measured": 0.4767932489451477,
+      "measured": 0.4778481012658228,
       "one_witness_weight": 0.09177215189873418,
-      "proposed_threshold": 0.6761603375527425,
+      "proposed_threshold": 0.6772151898734177,
       "seed_spread": 0.0
     },
     "GPU": {
-      "ceiling": 0.7679324894514767,
+      "ceiling": 0.7689873417721519,
       "failing_witnesses": [
         "prod_car_paint/Hero/Bump",
         "prod_curves_geometry/Bowl/Noise Texture",
-        "prod_shader_stack/Hero/Noise Texture",
-        "prod_shader_stack/Hero/Noise Texture.001",
         "prod_wood/Hero/Bump",
         "prod_wood/Hero/Mapping",
         "prod_wood/Hero/Noise Texture",
@@ -7170,20 +7166,20 @@
         "v2_viewport/Grid100k/Principled BSDF"
       ],
       "loo_scores": [
-        0.47468354430379744,
-        0.47468354430379744,
-        0.47468354430379744,
-        0.47468354430379744,
-        0.47468354430379744,
-        0.47468354430379744,
-        0.47468354430379744,
-        0.47468354430379744
+        0.4757383966244726,
+        0.4757383966244726,
+        0.4757383966244726,
+        0.4757383966244726,
+        0.4757383966244726,
+        0.4757383966244726,
+        0.4757383966244726,
+        0.4757383966244726
       ],
-      "margin": 0.10232067510548522,
-      "measured": 0.4641350210970464,
+      "margin": 0.10232067510548527,
+      "measured": 0.4651898734177215,
       "one_witness_weight": 0.09177215189873418,
-      "proposed_threshold": 0.6656118143459915,
-      "seed_spread": 0.010548523206751037
+      "proposed_threshold": 0.6666666666666665,
+      "seed_spread": 0.010548523206751093
     },
     "n_seeds": 8
   },
@@ -7206,20 +7202,20 @@
       "ratified": false
     },
     "b2_cpu_score": {
-      "min": null,
+      "min": 0.676,
       "pass": false,
       "proposed": 0.676,
-      "reason": "threshold not signed by the owner",
-      "score": 0.4767932489451477,
-      "signed": false
+      "reason": "",
+      "score": 0.4778481012658228,
+      "signed": true
     },
     "b3_gpu_score": {
-      "min": null,
+      "min": 0.665,
       "pass": false,
       "proposed": 0.665,
-      "reason": "threshold not signed by the owner",
-      "score": 0.4641350210970464,
-      "signed": false
+      "reason": "",
+      "score": 0.4651898734177215,
+      "signed": true
     },
     "b4_zero_silent_drops": {
       "drops": [],
@@ -7366,14 +7362,14 @@
     },
     "b6_nonzero_links_evidence": {
       "nonzero_uses": {
-        "CPU": 603,
-        "GPU": 562
+        "CPU": 604,
+        "GPU": 563
       },
       "pass": false,
-      "reason": "1150 nonzero (identity, scene, variant) use(s) have no PASSing audit witness with linked seed stacks on that backend; the sampled audit links only its own witnesses' variants",
+      "reason": "1152 nonzero (identity, scene, variant) use(s) have no PASSing audit witness with linked seed stacks on that backend; the sampled audit links only its own witnesses' variants",
       "unlinked_count": {
-        "CPU": 590,
-        "GPU": 560
+        "CPU": 591,
+        "GPU": 561
       },
       "unlinked_examples": {
         "CPU": [
@@ -7405,14 +7401,14 @@
   },
   "threshold": {
     "min": {
-      "CPU": null,
-      "GPU": null
+      "CPU": 0.676,
+      "GPU": 0.665
     },
     "proposed_by_this_report": {
-      "CPU": 0.6761603375527425,
-      "GPU": 0.6656118143459915
+      "CPU": 0.6772151898734177,
+      "GPU": 0.6666666666666665
     },
-    "reason": "threshold not signed by the owner",
-    "signed": false
+    "reason": "",
+    "signed": true
   }
 }

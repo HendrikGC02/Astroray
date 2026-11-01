@@ -539,7 +539,7 @@ public:
     // pkg234 - Image Texture interpolation (GImgInterp, shared with the GPU sampler). Default
     // Closest keeps every untagged texture byte-identical; the addon tags every Image Texture
     // node (Smart arrives as G_IMG_CUBIC, as in Cycles).
-    void setInterpolation(int mode) { interpolation_ = mode; }
+    void setInterpolation(int mode) { interpolation_ = mode; touch(); }   // #1239: value() changes, so bakes reading it must miss
     int getInterpolation() const { return interpolation_; }
     // Honours the texture's Interpolation (Closest / Linear / Cubic). GPU twin: gpu_sampleImageTexture.
     Vec3 value(const Vec2& uv, const Vec3&) const override {

@@ -29,17 +29,10 @@ reason = "#1222: pkg327 Phase B pinned grain_center r and b, grain_right b and l
 
 [[row]]
 scene = "prod_pbr_group"
-backend = "cpu"
-kind = "parity"
-issue = "#1237"
-reason = "#1237: pbr_group right ROI, 12/16 at seed 278 (build 000cd943): r 1.182 g 1.280 b 1.286 L 1.234 from ONE camera sample, luminance 1397 at pixel (194,145) (+0.243 of the ROI mean; without it L 0.992). Traced, a legitimate rare path: first hit on a normal-map tile edge (roughness 0.25), environment NEE into the HDRI sun, power-heuristic weight 0.950 (light pdf 43.1, BSDF pdf 9.85; Cycles light_sample_mis_weight_nee, the reference has no clamp). The 1024 spp Cycles reference has same-class events at (196,145) and (198,146) at a matching rate, about 1 per 20 renders at 64 spp in this ROI. 12-seed CPU right L median 0.983. The rows above the glint line read 0.966 of Cycles on CPU and GPU alike, about 1.2 points of it the nearest-sampled base / metal / roughness images (Cycles Closest A/B; pkg234). pkg327 Phase B pinned lower b (spectral, Mitsuba-confirmed; CPU 0.925)"
-
-[[row]]
-scene = "prod_pbr_group"
 backend = "gpu"
 kind = "parity"
 issue = "#1237"
-reason = "#1237: pbr_group right ROI, 12/16 at seed 278 (build 000cd943): r 0.939 g 0.938 b 0.874 L 0.937, the lowest of 12 seeds (12-seed GPU right L mean 0.980 sd 0.021; CPU median 0.983), a seed draw rather than a twin gap: 8 seeds x 256 spp GPU/CPU right L 1.021 (heavy tail, about 2 % noise), sun only 1.000, area only 1.001, world only 1.013, and the e302ca1 per-pixel glint-line ratios (0.90-1.44) do not reproduce. The ROI sits low on both backends: the rows above the glint line read 0.968 (GPU) / 0.966 (CPU) of Cycles, about 1.2 points of it the nearest-sampled base / metal / roughness images (Cycles Closest A/B; pkg234). pkg327 Phase B pinned lower b (spectral, Mitsuba-confirmed; GPU 0.931)"
+reason = "#1237: pbr_group right ROI. With pkg234 Linear image filtering: 14/16 at seed 278, right r 0.954 b 0.914 fail (L 0.963). The CPU leg passes 16/16 with pkg234 (its row is deleted; its seed-278 failure was one legitimate env-NEE firefly at a normal-map tile edge, traced in #1237). Before pkg234 (build 000cd943): 12/16, r 0.939 g 0.938 b 0.874 L 0.937, the lowest of 12 seeds (12-seed GPU right L mean 0.980 sd 0.021; CPU median 0.983), a seed draw rather than a twin gap: 8 seeds x 256 spp GPU/CPU right L 1.021 (heavy tail, about 2 % noise), sun only 1.000, area only 1.001, world only 1.013, and the e302ca1 per-pixel glint-line ratios (0.90-1.44) do not reproduce. The ROI sits low on both backends: the rows above the glint line read 0.968 (GPU) / 0.966 (CPU) of Cycles, about 1.2 points of it the nearest-sampled base / metal / roughness images (Cycles Closest A/B; pkg234). pkg327 Phase B pinned lower b (spectral, Mitsuba-confirmed; GPU 0.931)"
 
 [[row]]
 scene = "prod_light_path"

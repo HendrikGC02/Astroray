@@ -28,6 +28,7 @@
 #include "astroray/cryptomatte.h"
 #include "astroray/ies_eval.h"                   // pkg276 Cycles IES lookup (CPU+GPU)
 #include "astroray/light_path.h"                 // #991 Light Path context (CPU+GPU)
+#include "astroray/i1237_trace.h"  // I1237_DIAG temporary, delete once merged
 #include "astroray/attribute_layers.h"           // #990 per-corner attribute layers
 #include "astroray/sampling/adaptive_sampling.h"  // pkg131 zero-knob adaptive core
 #include "astroray/guiding/sdtree.h"               // pkg136 SD-tree path guiding
@@ -4107,6 +4108,10 @@ public:
         // Stage-1 Beer-Lambert absorption path (byte-identical, same RNG stream).
         const bool mediumScatters = hasWorldVolume && worldVolumeDensity > 0.0f &&
                                     worldVolumeScatter > 0.0f;
+        I1237_LOG("  lambdas %.1f %.1f %.1f %.1f pdf %.4g %.4g %.4g %.4g dir %.4f %.4f %.4f\n",  // I1237_DIAG
+                  lambdas.lambda(0), lambdas.lambda(1), lambdas.lambda(2), lambdas.lambda(3),
+                  lambdas.pdf(0), lambdas.pdf(1), lambdas.pdf(2), lambdas.pdf(3),
+                  r.direction.x, r.direction.y, r.direction.z);
 
         // #1165: `bounce` = scatters so far; vertex maxDepth+1 is the emission-only one.
         for (int bounce = 0; bounce <= maxDepth + 1; ++bounce) {
@@ -4208,6 +4213,8 @@ public:
                     }
                     astroray::SampledSpectrum c =
                         clampContribSpectral(throughput * lampEmission * wB, lambdas, bounce - 1);
+                    I1237_LOG("  b%d LAMPHIT t=%.4g wasSpec=%d bsdfPdfPrev=%.5g wB=%.5g Le=[%.5g %.5g %.5g %.5g] thr=[%.5g %.5g %.5g %.5g] c=[%.5g %.5g %.5g %.5g]\n",  // I1237_DIAG
+                              bounce, lh.t, (int)wasSpecular, bsdfPdfPrev, wB, I1237_S4(lampEmission), I1237_S4(throughput), I1237_S4(c));
                     color += c; addPass(lampPass, c);
                 }
             }
@@ -4489,6 +4496,8 @@ public:
                     int envPass = (firstCat < 0) ? PASS_ENVIRONMENT : (firstCat * 3 + 1);
                     astroray::SampledSpectrum c =
                         clampContribSpectral(throughput * weighted, lambdas, bounce - 1);
+                    I1237_LOG("  b%d ENVMISS envNeePrev=%d bsdfPdfPrev=%.5g env=[%.5g %.5g %.5g %.5g] w=[%.5g %.5g %.5g %.5g] c=[%.5g %.5g %.5g %.5g]\n",  // I1237_DIAG
+                              bounce, (int)envNeeSampledPrev, bsdfPdfPrev, I1237_S4(envSpec), I1237_S4(weighted), I1237_S4(c));
                     color += c; addPass(envPass, c);
                 }
                 break;
@@ -4576,6 +4585,12 @@ public:
                 rec.causticGate = astroray::lightpath::caustic_gate(
                     (lpc.flags & astroray::lightpath::LPF_DIFFUSE) != 0u,
                     useReflectiveCaustics, useRefractiveCaustics);
+            I1237_LOG("  b%d HIT obj=%s mat=%s t=%.4g p=(%.4f %.4f %.4f) n=(%.4f %.4f %.4f) svmN%d=(%.4f %.4f %.4f) front=%d d.n=%.4f thr=[%.5g %.5g %.5g %.5g]\n",  // I1237_DIAG
+                      bounce, rec.hitObject ? rec.hitObject->getName().c_str() : "?",
+                      rec.material->getName().c_str(), rec.t, rec.point.x, rec.point.y, rec.point.z,
+                      rec.normal.x, rec.normal.y, rec.normal.z, (int)rec.hasSvmNormal,
+                      rec.svmNormal.x, rec.svmNormal.y, rec.svmNormal.z, (int)rec.frontFace,
+                      ray.direction.normalized().dot(rec.normal), I1237_S4(throughput));
 
             // Emission (gated on camera ray or post-specular bounce).
             astroray::SampledSpectrum Le_spec =
@@ -4590,6 +4605,7 @@ public:
                     // direction, so the whole emission is taken (w_B = 1).
                     astroray::SampledSpectrum c =
                         clampContribSpectral(throughput * Le_spec, lambdas, bounce - 1);
+                    I1237_LOG("  b%d EMIT unweighted c=[%.5g %.5g %.5g %.5g]\n", bounce, I1237_S4(c));  // I1237_DIAG
                     color += c; addPass(emitPass, c);
                 } else {
                     // pkg120: two-sided MIS. A BSDF-sampled continuation ray hit
@@ -4617,6 +4633,7 @@ public:
                     float wB = (bp * bp) / (bp * bp + lp * lp + 1e-8f);
                     astroray::SampledSpectrum c =
                         clampContribSpectral(throughput * Le_spec * wB, lambdas, bounce - 1);
+                    I1237_LOG("  b%d EMIT bp=%.5g lp=%.5g wB=%.5g c=[%.5g %.5g %.5g %.5g]\n", bounce, bp, lp, wB, I1237_S4(c));  // I1237_DIAG
                     color += c; addPass(emitPass, c);
                 }
                 // #995: a pure emitter ends the path; emission + BSDF continues (Cycles
@@ -4734,6 +4751,9 @@ public:
                             : firstCat * 3 + 1;
                         astroray::SampledSpectrum c =
                             clampContribSpectral(neeContrib, lambdas, bounce);
+                        I1237_LOG("  b%d NEE light=%p delta=%d lsPdf=%.5g bsdfPdf=%.5g wt=%.5g dist=%.4g wi=(%.4f %.4f %.4f) wi.n=%.4f shTr=%.3g f=[%.5g %.5g %.5g %.5g] L=[%.5g %.5g %.5g %.5g] c=[%.5g %.5g %.5g %.5g]\n",  // I1237_DIAG
+                                  bounce, (const void*)ls.dedicated, (int)ls.isDelta, ls.pdf, bsdfPdf, wt, ls.distance,
+                                  wi.x, wi.y, wi.z, wi.dot(rec.normal), shadowTr, I1237_S4(f_spec), I1237_S4(L_spec), I1237_S4(c));
                         color += c; addPass(neePass, c);
                     }
                 }
@@ -4798,6 +4818,8 @@ public:
                             : firstCat * 3 + 1;
                         astroray::SampledSpectrum c =
                             clampContribSpectral(envNee, lambdas, bounce);
+                        I1237_LOG("  b%d ENVNEE esPdf=%.5g bsdfPdf=%.5g wt=%.5g f=[%.5g %.5g %.5g %.5g] c=[%.5g %.5g %.5g %.5g]\n",  // I1237_DIAG
+                                  bounce, es.pdf, bsdfPdf, wt, I1237_S4(f_spec), I1237_S4(c));
                         color += c; addPass(envNeePass, c);
                     }
                     }  // bsdfPdf > 0 (delta guard, pkg258)
@@ -4823,6 +4845,7 @@ public:
                         : firstCat * 3 + 1;
                     astroray::SampledSpectrum c =
                         clampContribSpectral(throughput * smsContribution, lambdas, bounce);
+                    I1237_LOG("  b%d SMS c=[%.5g %.5g %.5g %.5g]\n", bounce, I1237_S4(c));  // I1237_DIAG
                     color += c; addPass(smsPass, c);
                 }
             }
@@ -4975,6 +4998,9 @@ public:
             // universal 2π·ε=0.628%/bounce energy loss. See
             // .astroray_plan/docs/pkg172a-guarded-pdf.md.
             throughput *= bss.f_spectral * (bss.pdf > 1e-8f ? 1.0f / bss.pdf : 0.0f);
+            I1237_LOG("  b%d BSDF wi=(%.4f %.4f %.4f) wi.n=%.4f wo.n=%.4f pdf=%.5g delta=%d label=%d lobeCat=%d pass=%d f=[%.5g %.5g %.5g %.5g] thr'=[%.5g %.5g %.5g %.5g]\n",  // I1237_DIAG
+                      bounce, bss.wi.x, bss.wi.y, bss.wi.z, bss.wi.dot(rec.normal), wo.dot(rec.normal), bss.pdf,
+                      (int)bss.isDelta, (int)bss.label, lobeCat, (int)transparentPass, I1237_S4(bss.f_spectral), I1237_S4(throughput));
 
             // pkg201 Stage 3 (Finding A) / #1165 — per-type bounce limit (Cycles
             // max_<type>_bounce = limit + 1, path_state.h:177-208): the scatter that
@@ -5008,6 +5034,7 @@ public:
             weightSum += throughput.maxValue();
             float maxC = throughput.maxValue();
             if (maxC > 10.0f) throughput = throughput * (10.0f / maxC);
+            if (maxC > 10.0f) I1237_LOG("  b%d THRCLAMP maxC=%.5g\n", bounce, maxC);  // I1237_DIAG
 
             // pkg136 — record this vertex for SD-tree training. Snapshot the image
             // luminance and the throughput LEAVING this vertex (after the f/pdf
@@ -6011,7 +6038,19 @@ inline void Renderer::render(Camera& cam, int maxSamples, int maxDepth,
                                 firstRayCaptured = true;
                             }
                             if (integrator_) {
+                                const auto& i1237T = astroray::i1237::target();  // I1237_DIAG
+                                auto& i1237L = astroray::i1237::tls();  // I1237_DIAG
+                                i1237L.on = i1237T.active && x == i1237T.x && y == i1237T.y;  // I1237_DIAG
+                                i1237L.buf.clear();  // I1237_DIAG
                                 SampleResult ir = integrator_->sampleFull(primaryRay, gen);
+                                if (i1237L.on) {  // I1237_DIAG
+                                    i1237L.on = false;
+                                    const float yv = ir.color.y;
+                                    std::fprintf(stderr, "I1237 px %d %d s %d col %.5g %.5g %.5g%s\n", x, y, s,
+                                                 ir.color.x, ir.color.y, ir.color.z, yv > i1237T.thr ? " FIREFLY" : "");
+                                    if (yv > i1237T.thr) std::fprintf(stderr, "%s", i1237L.buf.c_str());
+                                    std::fflush(stderr);
+                                }
                                 sCol = ir.color;
                                 sAlb = ir.albedo;
                                 sNorm = ir.normal;

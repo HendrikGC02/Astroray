@@ -44,15 +44,17 @@ constexpr int GRAPH_MAX_TABLE_SIZE = 4096;
 constexpr int GRAPH_MAX_TEX        = 32;
 
 // Per-material program slots: the four scalar BSDF inputs (svm::ScalarSlot order),
-// the base colour and (#995) up to four Mix Shader Fac programs of a closure tree
-// (gpu_types.h GClosureTree::nodes[].facSlot). The GPU output buffer holds 4 scalars
-// + RGB + 4 Facs per hit.
+// the base colour, (#995) up to four Mix Shader Fac programs of a closure tree
+// (gpu_types.h GClosureTree::nodes[].facSlot) and (#1242) the Principled Alpha. The GPU
+// output buffer holds 4 scalars + RGB + 4 Facs + the alpha per hit.
 constexpr int GRAPH_SLOT_BASE_COLOR = 4;
 constexpr int GRAPH_SLOT_FAC0 = 5;
 constexpr int GRAPH_FAC_SLOTS = 4;
-constexpr int GRAPH_MAT_SLOTS = GRAPH_SLOT_FAC0 + GRAPH_FAC_SLOTS;
+constexpr int GRAPH_SLOT_ALPHA = GRAPH_SLOT_FAC0 + GRAPH_FAC_SLOTS;
+constexpr int GRAPH_MAT_SLOTS = GRAPH_SLOT_ALPHA + 1;
 constexpr int GRAPH_OUT_FAC0 = 7;
-constexpr int GRAPH_OUT_FLOATS = GRAPH_OUT_FAC0 + GRAPH_FAC_SLOTS;   // [0..3] scalars, [4..6] base colour, [7..10] Facs
+constexpr int GRAPH_OUT_ALPHA = GRAPH_OUT_FAC0 + GRAPH_FAC_SLOTS;
+constexpr int GRAPH_OUT_FLOATS = GRAPH_OUT_ALPHA + 1;   // [0..3] scalars, [4..6] base colour, [7..10] Facs, [11] alpha
 
 enum GraphOp : unsigned char {
     // 0..17: astroray::svm::OpCode (OP_LOAD_TEX is not emitted; OP_RAMP reads a table)

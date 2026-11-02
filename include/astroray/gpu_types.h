@@ -796,6 +796,11 @@ struct GWavefrontTextureBinding {
     // texId (-1 = none), input 1 texId or -1} (SceneUploadResult::materialBumpProc); null when
     // no material has one. Read ONLY inside HasNormalPerturb=true; appended last (see above).
     const int*           matBumpProc;
+    // #1242 - per-material id into `textures` of a Principled Alpha that is a bare Image Texture
+    // Alpha link (a grey texture), -1 otherwise; null when no material has one. Read ONLY by
+    // gpu_shadowAlphaTexel in the transparent-shadow walk (gpu_shadow_transmittance, the
+    // stageShadowKernel<*, true> and ReSTIR alpha paths); appended last (see above).
+    const int*           matShadowAlphaTexId;
 };
 
 // pkg197 — wavefront first-hit denoise-guide AOV binding. Published ONCE per

@@ -758,7 +758,7 @@ def test_committed_matrix_has_no_review_1101_false_credits():
     m = CR.matrix_by_identity(json.loads(MATRIX.read_text(encoding="utf-8")))
     dropped = (  # finding 1: the handler computes the default output whichever output is linked
         "ShaderNodeValToRGB|output:Alpha", "ShaderNodeTexVoronoi|output:Position", "ShaderNodeTexVoronoi|output:W",
-        "ShaderNodeTexVoronoi|output:Radius", "ShaderNodeTexImage|output:Alpha",
+        "ShaderNodeTexVoronoi|output:Radius",
     )
     for key in dropped:
         assert m[key] == "DROPPED-SILENT", key
@@ -767,6 +767,9 @@ def test_committed_matrix_has_no_review_1101_false_credits():
         "ShaderNodeLightPath|output:Diffuse Depth", "ShaderNodeLightPath|output:Glossy Depth",
         "ShaderNodeOutputMaterial|input:Displacement", "ShaderNodeOutputWorld|input:Volume",
         "ShaderNodeBackground|input:Color",
+        # #1242: the Image Texture Alpha output is its own 'alpha' input variant (was finding 1: the handler
+        # computed Color whichever output was linked), approximated like the Color output.
+        "ShaderNodeTexImage|output:Alpha",
     )
     for key in approximated:
         assert m[key] == "APPROXIMATED", key

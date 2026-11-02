@@ -4085,7 +4085,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
                                        '(%s); using available coordinate defaults' % error)
 
     def load_blender_image(self, bpy_image, renderer, vector_input=None, extension='REPEAT',
-                           interpolation='Linear', alpha_linked=None):
+                           interpolation='Linear', alpha_linked=None, alpha_output=False):
         """Load a Blender image datablock into the renderer's texture manager.
         Returns the texture name (string) on success, None on failure.
 
@@ -4105,7 +4105,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
         resolved = self._resolve_affine_coordinates(vector_input, warn=self._warn_shader_fallback)
         return self._load_blender_image_resolved(bpy_image, renderer, resolved,
                                                  extension=extension, interpolation=interpolation,
-                                                 alpha_linked=alpha_linked)
+                                                 alpha_linked=alpha_linked, alpha_output=alpha_output)
 
     @staticmethod
     def _node_cache_id(node, depth=0):
@@ -4188,9 +4188,23 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 buf = np.empty(len(bpy_image.pixels), dtype=np.float32)
                 bpy_image.pixels.foreach_get(buf)
                 cache[bpy_image.name] = bool((buf[3::4] != 1.0).any())
+                self._image_alpha_means()[bpy_image.name] = float(buf[3::4].mean())
             except Exception:
                 cache[bpy_image.name] = False
         return cache[bpy_image.name]
+
+    def _image_alpha_means(self):
+        means = getattr(self, '_image_alpha_mean_cache', None)
+        if means is None:
+            means = self._image_alpha_mean_cache = {}
+        return means
+
+    def _image_alpha_is_flat(self, bpy_image):
+        """#1242: the Image Texture Alpha output is 1 everywhere: an alpha mode of None (Cycles
+        ALPHA_IGNORE sets alpha to one, util/image_metadata.cpp conform_pixels_to_metadata_type) or an
+        image with no translucent texel (no alpha plane, or all ones)."""
+        return (getattr(bpy_image, 'alpha_mode', None) == 'NONE'
+                or not self._image_has_translucent_pixels(bpy_image))
 
     def _image_alpha_variant(self, bpy_image, alpha_linked):
         """#1238: how Cycles' Image Texture Color output relates the stored RGB to alpha.
@@ -4230,12 +4244,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
         return variant if self._image_has_translucent_pixels(bpy_image) else ''
 
     def _load_blender_image_resolved(self, bpy_image, renderer, resolved, child_signature=None,
-                                     extension='REPEAT', interpolation='Linear', alpha_linked=None):
+                                     extension='REPEAT', interpolation='Linear', alpha_linked=None,
+                                     alpha_output=False):
         """Upload one resolved image; only program children receive isolation salt.
         ``extension`` is the Image Texture node's extension (#1004; Cycles default REPEAT).
         ``interpolation`` is its Interpolation (pkg234; Cycles default Linear).
         ``alpha_linked`` is whether the node's Alpha output is linked (#1238); the
-        alpha association of the uploaded RGB follows _image_alpha_variant."""
+        alpha association of the uploaded RGB follows _image_alpha_variant.
+        ``alpha_output`` (#1242) uploads the image's straight alpha plane as a grey texture, the
+        Image Texture node's Alpha output; an everywhere-opaque image uploads one white texel."""
         coord_mode, uv_layer_name = resolved['coord_mode'], resolved['uv_layer']
         uv_scale, offset, rotation = (1.0, 1.0), (0.0, 0.0), 0.0
         mapping_matrix = self._affine_matrix_values(resolved)
@@ -4248,9 +4265,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
         if interpolation != 'Linear':
             cache_key += "::interp=%s" % interpolation
         # #1238: one Image datablock behind Alpha-linked and Alpha-unlinked nodes needs two uploads.
-        alpha_variant = self._image_alpha_variant(bpy_image, alpha_linked)
+        alpha_variant = '' if alpha_output else self._image_alpha_variant(bpy_image, alpha_linked)
         if alpha_variant:
             cache_key += "::alpha=%s" % alpha_variant
+        if alpha_output:
+            cache_key += "::out=alpha"
 
         # Deduplicate: a single (image, transform) pair is uploaded at most
         # once per conversion pass.
@@ -4297,12 +4316,18 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return None
 
             # pixels are a flat RGBA float array, row-major, bottom-to-top
-            pixels = np.asarray(bpy_image.pixels[:], dtype=np.float32)
-            pixels = pixels.reshape(height, width, 4)
+            if alpha_output and self._image_alpha_is_flat(bpy_image):
+                width = height = 1   # #1242: alpha 1 everywhere
+                pixels = np.ones((1, 1, 4), np.float32)
+            else:
+                pixels = np.asarray(bpy_image.pixels[:], dtype=np.float32)
+                pixels = pixels.reshape(height, width, 4)
             # Flip vertically (Blender stores row 0 = bottom)
             pixels = np.ascontiguousarray(pixels[::-1, :, :])
-            # Drop alpha; renderer takes RGB float
-            rgb_arr = pixels[:, :, :3]
+            # Drop alpha; renderer takes RGB float. #1242: the Alpha output is the alpha plane (straight,
+            # as delivered when Alpha is linked: kernel/svm/image.h saves r.w before un-associating)
+            # broadcast to grey; it is data, never colour-decoded.
+            rgb_arr = np.repeat(pixels[:, :, 3:4], 3, axis=2) if alpha_output else pixels[:, :, :3]
             # #1238: Cycles' Color-output alpha association, applied to the stored values
             # BEFORE the sRGB decode below (Cycles premultiplies the encoded bytes, then
             # decodes in the kernel).
@@ -4323,7 +4348,7 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # linear / data spaces pass through; any other OCIO space is not evaluable
             # from bpy here -> raw + a visible DEGRADED entry.
             cs_name = getattr(getattr(bpy_image, 'colorspace_settings', None), 'name', '')
-            if not getattr(bpy_image, 'is_float', False):
+            if not alpha_output and not getattr(bpy_image, 'is_float', False):
                 if cs_name == 'sRGB':
                     rgb_arr = self._srgb_to_linear(rgb_arr)
                 elif cs_name not in ('Linear Rec.709', 'scene_linear', 'Linear',
@@ -4737,6 +4762,15 @@ class CustomRaytracerRenderEngine(RenderEngine):
         cache[cache_key] = name
         return name
 
+    @staticmethod
+    def _links_image_alpha(socket):
+        """#1242: the socket is fed by an Image Texture's Alpha output."""
+        try:
+            link = socket.links[0]
+            return link.from_node.type == 'TEX_IMAGE' and link.from_socket.name == 'Alpha'
+        except (IndexError, AttributeError):
+            return False
+
     def get_base_color_texture(self, node, input_name, renderer):
         """Returns (fallback_color, tex_name_or_None) for a color input,
         handling both Image Texture and procedural texture nodes."""
@@ -4758,7 +4792,8 @@ class CustomRaytracerRenderEngine(RenderEngine):
             tex_name = self.load_blender_image(linked_node.image, renderer, vector_input=vector_inp,
                                                extension=getattr(linked_node, 'extension', 'REPEAT'),
                                                interpolation=self._image_interpolation_mode(linked_node),
-                                               alpha_linked=self._image_alpha_linked(linked_node))
+                                               alpha_linked=self._image_alpha_linked(linked_node),
+                                               alpha_output=self._links_image_alpha(inp))  # #1242
             fallback = list(inp.default_value[:3]) if hasattr(inp.default_value, '__iter__') else [0.8, 0.8, 0.8]
             return fallback, tex_name
         # Procedural texture
@@ -4981,12 +5016,13 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # must never apply that mapping a second time. (scene_upload.cu keys a
             # child's GPU descriptor on (image, parent Mapping) since #825.)
             identity = {'matrix': np.identity(4), 'coord_mode': 'UV', 'uv_layer': ''}
-            for in_node in inputs:
+            for in_node, variant in zip(inputs, tex_variants):
                 cn = self._load_blender_image_resolved(
                     in_node.image, renderer, identity, child_signature=signatures[0],
                     extension=getattr(in_node, 'extension', 'REPEAT'),
                     interpolation=self._image_interpolation_mode(in_node),
-                    alpha_linked=self._image_alpha_linked(in_node))
+                    alpha_linked=self._image_alpha_linked(in_node),
+                    alpha_output=(variant == 'alpha'))  # #1242
                 if cn is None:
                     return None
                 child_names.append(cn)
@@ -5135,10 +5171,12 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 return self._load_blender_image_resolved(
                     image, renderer, identity, child_signature='graph-coord',
                     extension=extension, interpolation=interpolation,
-                    alpha_linked=self._image_alpha_linked(in_node))
+                    alpha_linked=self._image_alpha_linked(in_node),
+                    alpha_output=(variant == 'alpha'))  # #1242
             name = self.load_blender_image(image, renderer, vector_input=vinp,
                                            extension=extension, interpolation=interpolation,
-                                           alpha_linked=self._image_alpha_linked(in_node))
+                                           alpha_linked=self._image_alpha_linked(in_node),
+                                           alpha_output=(variant == 'alpha'))  # #1242
             mode = self._resolve_affine_coordinates(vinp, warn=lambda *a: None)['coord_mode']
             if name is not None and mode != 'UV':
                 self._degradation_report().degraded(
@@ -5242,6 +5280,11 @@ class CustomRaytracerRenderEngine(RenderEngine):
             # either material on CPU and GPU.
             sources = {}
             scalar_programs = self._scalar_program_params(node, renderer, sources)
+            alpha_program = self._principled_alpha_program(node, renderer)
+            if alpha_program is not None:
+                if alpha_program[0] is not None:
+                    scalar_programs['alpha_program'] = alpha_program[0]
+                spec['native_params']['alpha'] = alpha_program[1]
             if scalar_programs:
                 spec['scalar_programs'] = scalar_programs
                 # pkg293: the source sockets, so a Mix Shader around this node
@@ -5350,6 +5393,62 @@ class CustomRaytracerRenderEngine(RenderEngine):
                 if sources is not None:
                     sources[key[:-len('_program')]] = sock
         return out
+
+    def _principled_alpha_program(self, node, renderer):
+        """#1242: a linked Principled Alpha becomes a per-hit graph program driving the native
+        transparent lobe (CPU PrincipledPlugin::substituted / shadowAlpha; GPU graph-eval slot
+        GRAPH_SLOT_ALPHA). Returns None (Alpha unlinked) or (program name or None, constant alpha).
+        The constant is what the GPU's per-material paths read (the alpha-pass gates; NEE shadow
+        transmittance too, except behind a bare Image Alpha link, whose shadow rays read the texture
+        per occluder hit) and the whole value when there is no program: the image's mean coverage
+        for a bare Image Alpha (1.0 when the image is opaque everywhere: the unlinked material,
+        bit for bit), 0.5 for any other chain, the folded value or the socket default when the
+        chain cannot be a program (put_float would read 0.0 there: an invisible surface).
+        Cycles: a Principled alpha is a Transparent closure weighted 1 - alpha
+        (kernel/svm/closure.h svm_node_closure_bsdf)."""
+        sock = node.inputs.get('Alpha')
+        if sock is None or not getattr(sock, 'is_linked', False):
+            return None
+        try:
+            link = sock.links[0]
+            src, out_name = link.from_node, link.from_socket.name
+        except (IndexError, AttributeError):
+            return None
+        direct = src.type == 'TEX_IMAGE' and out_name == 'Alpha' and getattr(src, 'image', None) is not None
+        if direct and self._image_alpha_is_flat(src.image):
+            return None, 1.0   # alpha 1 everywhere
+        prog = None
+        if hasattr(renderer, 'create_graph_program_texture'):
+            prog = self._build_graph_program(sock, node, 'Alpha', renderer, allow_leaf=True)
+        else:
+            self._warn_shader_fallback('BSDF_PRINCIPLED', "Alpha is linked but the engine has no graph "
+                                       "programs; the constant Alpha is used")
+        if prog is None:
+            try:
+                folded = self._eval_float_socket_node(src, out_name)
+            except (AttributeError, KeyError, TypeError, ValueError):
+                folded = None
+            return None, float(folded if folded is not None else sock.default_value)
+        hint = self._image_alpha_means().get(src.image.name, 1.0) if direct else 0.5
+        # A bare Image Alpha link is read per occluder hit by the GPU's shadow rays too (the engine
+        # recognises the one-texture program; scene_upload.cu isBareImageProgram): nothing degrades.
+        if not (direct and self._image_coordinates_are_native(src)):
+            self._warn_shader_fallback(
+                'BSDF_PRINCIPLED', "per-texel Alpha is exact for camera and indirect rays; the GPU's "
+                "shadow rays through it use the constant %.3g (CPU shadows are per hit)" % hint)
+        return prog, float(min(max(hint, 0.0), 1.0))
+
+    @staticmethod
+    def _image_coordinates_are_native(image_node):
+        """#1242: the Image Texture samples at its own (affine) coordinates, so a graph program over it
+        is the one bare texture op (shader_graph_ir.IRBuilder.push_tex emits a computed-uv sample for
+        a warped Vector link instead)."""
+        try:
+            from . import shader_vm_compiler as svm
+        except Exception:
+            import shader_vm_compiler as svm
+        vec = svm._get_input(image_node, 'Vector')
+        return vec is None or not getattr(vec, 'is_linked', False) or svm._coord_chain_affine(vec)
 
     def _warn_scalar_programs_dropped(self, spec):
         """#846: the textured-base-colour lambertian route has no scalar slots."""
@@ -6015,6 +6114,10 @@ class CustomRaytracerRenderEngine(RenderEngine):
             if mixed is not None:
                 return mixed
             out = blend_shader_specs(fac, a, b)
+            if any(s is not None and 'alpha_program' in (s.get('scalar_programs') or {}) for s in (a, b)):
+                self._warn_shader_fallback(   # #1242
+                    'MIX_SHADER', "a per-texel Principled Alpha inside a parameter-lerped Mix Shader "
+                    "is blended as its constant coverage")
             for note in (out.pop('mix_notes', ()) if isinstance(out, dict) else ()):
                 self._warn_shader_fallback('MIX_SHADER', note)   # #1084 review M1
             if (a is not None and b is not None

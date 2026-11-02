@@ -2,14 +2,14 @@
   "audit": {
     "build": {
       "CPU": {
-        "addon_sha256": "f2bdd5263efcdb3c429fc3b6399a0c74fcc47c72af0ab9eda8a6f7b78d81c1e0",
-        "build_id": "ef27d80+20261101T165703Z",
-        "module_sha256": "b3c58c06e06f24ab2321ed268d83ad478ec0e0ef7133e7eca2c7dc1af708e6f7"
+        "addon_sha256": "02d8b8cf28c0beb918db72bcd31c66df14905a9d802584ff133e9b45d7e5f296",
+        "build_id": "8785091+20261101T213823Z",
+        "module_sha256": "4f2e57e7fc99d740aec20aec55a64ac9d69ef15038e3efe72478198d35071c2c"
       },
       "GPU": {
-        "addon_sha256": "f2bdd5263efcdb3c429fc3b6399a0c74fcc47c72af0ab9eda8a6f7b78d81c1e0",
-        "build_id": "ef27d80+20261101T165703Z",
-        "module_sha256": "b3c58c06e06f24ab2321ed268d83ad478ec0e0ef7133e7eca2c7dc1af708e6f7"
+        "addon_sha256": "02d8b8cf28c0beb918db72bcd31c66df14905a9d802584ff133e9b45d7e5f296",
+        "build_id": "8785091+20261101T213823Z",
+        "module_sha256": "4f2e57e7fc99d740aec20aec55a64ac9d69ef15038e3efe72478198d35071c2c"
       }
     },
     "n_seeds": 8,

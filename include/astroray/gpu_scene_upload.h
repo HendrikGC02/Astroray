@@ -193,6 +193,10 @@ struct SceneUploadResult {
     std::vector<int>                                graphTexRefs;
     std::vector<astroray::sgraph::GraphProgramDesc> graphPrograms;
     std::vector<int>                                materialGraphProg;
+    // #1242 - parallel to `materials`: the `textures` id of a Principled Alpha that is a bare
+    // Image Texture Alpha link (the transparent-shadow walk samples it at the occluder's UV;
+    // c_wfTexBinding.matShadowAlphaTexId), -1 otherwise.
+    std::vector<int>                                materialShadowAlphaTexId;
     bool                                            hasGraph = false;
     int                                             graphMaxSlots = 0;
 

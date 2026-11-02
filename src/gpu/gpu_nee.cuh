@@ -850,6 +850,13 @@ __device__ inline float gpu_shadowAlpha(const GMaterial& m) {
     return 1.0f;
 }
 
+// #1242 - per-hit alpha of a bare Image Texture Alpha link at an occluder (shading_inputs_eval.cu,
+// -rdc linked): the alpha texture read at the hit's UV, or -1 to keep gpu_shadowAlpha's constant.
+namespace astroray::wavefront {
+__device__ float gpu_shadowAlphaTexel(int matId, GVec3 point, int primId,
+                                      const GPrimitive* prims, const GTriangle* tris);
+}
+
 // pkg253 — GPU shadow-ray transmittance for Principled `alpha` (Cycles
 // Transparent Shadows). Device twin of CPU shadowTransmittance (raytracer.h),
 // which attenuates the NEE shadow ray for EVERY light type. Walks the closest-hit
@@ -916,7 +923,13 @@ __device__ inline float gpu_shadow_transmittance(
             return Tr;  // reached the emissive sphere light
         }
         const int shMat = lpSwitch ? lpSwitch[sh.materialId].shadowId : sh.materialId;
-        Tr *= (1.0f - gpu_shadowAlpha(materials[shMat]));
+        float shAlpha = gpu_shadowAlpha(materials[shMat]);
+        if (shAlpha < 1.0f) {  // #1242: a bare Image Alpha link is read per occluder hit
+            const float texel = astroray::wavefront::gpu_shadowAlphaTexel(
+                shMat, sh.point, sh.primId, prims, tris);
+            if (texel >= 0.0f) shAlpha = texel;
+        }
+        Tr *= (1.0f - shAlpha);
         if (Tr < 1e-3f) return 0.0f;  // opaque enough to fully block
         if (++transparentHits > maxHits) return 0.0f;  // #1073: past the budget blocks
         float advance = sh.t + 1e-3f;

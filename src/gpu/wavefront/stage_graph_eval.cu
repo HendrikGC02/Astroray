@@ -143,6 +143,8 @@ __global__ void stageGraphEvalKernel(
                 const bool ok = graph_eval(g.programs[progs[s]], ar, regs, g.batch, svc, r);
                 if (s < GRAPH_SLOT_BASE_COLOR) {
                     g.out[s * g.outStride + idx] = ok ? r.x : CUDART_NAN_F;
+                } else if (s == GRAPH_SLOT_ALPHA) {   // #1242 Principled Alpha
+                    g.out[GRAPH_OUT_ALPHA * g.outStride + idx] = ok ? r.x : CUDART_NAN_F;
                 } else if (s >= GRAPH_SLOT_FAC0) {   // #995 closure-tree Mix Fac
                     g.out[(GRAPH_OUT_FAC0 + s - GRAPH_SLOT_FAC0) * g.outStride + idx] =
                         ok ? r.x : CUDART_NAN_F;

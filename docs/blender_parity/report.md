@@ -13,8 +13,8 @@
 ## Summary
 
 - **SUPPORTED**: 330 features
-- **APPROXIMATED**: 105 features
-- **DROPPED-SILENT**: 302 features ⚠️
+- **APPROXIMATED**: 106 features
+- **DROPPED-SILENT**: 301 features ⚠️
 - **UNKNOWN**: 0 features
 - **Total**: 737 features
 
@@ -24,23 +24,23 @@ These socket names appear in UNGUARDED addon reads but do NOT exist on the live 
 The addon's `node.inputs.get('...')` returns None at runtime, default silently wins.
 **Each entry is a real latent bug.**
 
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 5965)
-- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 5965)
-- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4415, line 4556)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Abbe Number` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Transmission Dispersion Scale` (addon __init__.py line 6064)
+- **TEX_BRICK**: socket `Offset` (addon __init__.py line 4440, line 4581)
 
 ## Dormant Cross-Version Fallbacks (Intentional, Informational)
 
 These socket names appear in FALLBACK position of cross-version reads (second arg in `_float_with_fallback(node, 'New', 'Old')`) but do NOT exist in Blender 5.1. They are dormant — only activate if the primary name also doesn't exist. Informational, not bugs.
 
-- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 5965)
-- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 5965)
-- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 5965)
-- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 5965)
-- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 5965)
-- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 5965)
-- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 5965)
-- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 5965)
-- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 5965)
+- **BSDF_PRINCIPLED**: socket `Clearcoat` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Clearcoat Roughness` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Dispersion` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Dispersion Abbe Number` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Dispersion Scale` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Sheen` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Specular` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Subsurface` (addon __init__.py line 6064)
+- **BSDF_PRINCIPLED**: socket `Transmission` (addon __init__.py line 6064)
 
 ## DROPPED-SILENT Features (Failure Mode)
 
@@ -353,7 +353,6 @@ These features are silently ignored by the addon with no warning:
 - **TEX_GABOR**: `output:Value` — no handler in addon translation layer
 - **TEX_GABOR**: `output:Phase` — no handler in addon translation layer
 - **TEX_GABOR**: `output:Intensity` — no handler in addon translation layer
-- **TEX_IMAGE**: `output:Alpha` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
 - **TEX_VORONOI**: `output:Position` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
 - **TEX_VORONOI**: `output:W` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
 - **TEX_VORONOI**: `output:Radius` — no code distinguishes this output: the handler computes the default output whichever output is linked (#1101)
@@ -1108,7 +1107,7 @@ These features are silently ignored by the addon with no warning:
 | TEX_GRADIENT | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
 | TEX_IES | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
 | TEX_IMAGE | output:Color | APPROXIMATED | output consumed by the node handler (pkg320) |
-| TEX_IMAGE | output:Alpha | DROPPED-SILENT | no code distinguishes this output: the handler computes the default output whichever output is linked (#1101) |
+| TEX_IMAGE | output:Alpha | APPROXIMATED | output consumed by the node handler (pkg320) |
 | TEX_MAGIC | output:Color | SUPPORTED | output consumed by the node handler (pkg320) |
 | TEX_MAGIC | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |
 | TEX_NOISE | output:Factor | SUPPORTED | output consumed by the node handler (pkg320) |

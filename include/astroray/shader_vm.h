@@ -48,7 +48,10 @@ enum ScalarSlot : int { SCALAR_ROUGHNESS = 0, SCALAR_METALLIC = 1,
                         // GPU uploads it on the base-colour texture slots (matTexId /
                         // matProgId / matProgInTexId, multi-input capable) and overrides
                         // the Principled base colour per hit (stage_advance_device.cuh).
-                        SCALAR_BASE_COLOR = 4 };
+                        SCALAR_BASE_COLOR = 4,
+                        // #1242 - Principled Alpha. Also outside the VM_SCALAR_SLOTS table: only a
+                        // graph program (sgraph::GRAPH_SLOT_ALPHA) drives it on the GPU.
+                        SCALAR_ALPHA = 5 };
 
 enum OpCode : unsigned char {
     OP_END        = 0,

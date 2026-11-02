@@ -1152,6 +1152,7 @@ struct WfContext {
     WfDeviceBuf materialBumpTexId, materialBumpStrength, materialBumpDistance;  // pkg223b bump
     WfDeviceBuf materialBumpCorrect;          // #1154 bump-map correction mode
     WfDeviceBuf materialBumpProc;             // #1153 procedural / op-VM Bump Height
+    WfDeviceBuf materialShadowAlphaTexId;     // #1242 bare Image Alpha texture ids
     WfDeviceBuf programs, materialProgramId;   // pkg219b op-VM programs
     WfDeviceBuf materialProgInputTexId;        // #826 op-VM input texIds [mat*VM_MAX_TEX+t]
     WfDeviceBuf materialScalarProgId, materialScalarTexId;  // pkg219d scalar-param programs
@@ -2033,11 +2034,18 @@ std::vector<float> cuda_wavefront_render(
     bool anyBumpProc = false;
     for (size_t k = 1; k < res.materialBumpProc.size(); k += 3) anyBumpProc |= res.materialBumpProc[k] >= 0;
     if (!anyBumpProc) d_matBumpProc = nullptr;
-    if (res.hasTexture || res.hasNormalPerturb)
+    // #1242: per-material bare Image Alpha texture ids for the transparent-shadow walk. Null unless
+    // some material has one (the walk's per-hit test is then a constant-memory compare). An alpha
+    // scene always republishes the binding, so a stale table from an earlier render never survives.
+    int* d_matShadowAlphaTex = wfSync(matReuse, C.materialShadowAlphaTexId, res.materialShadowAlphaTexId);
+    bool anyShadowAlphaTex = false;
+    for (const int t : res.materialShadowAlphaTexId) anyShadowAlphaTex |= t >= 0;
+    if (!anyShadowAlphaTex) d_matShadowAlphaTex = nullptr;
+    if (res.hasTexture || res.hasNormalPerturb || res.hasAlphaShadow)
         setWavefrontTextureBinding(GWavefrontTextureBinding{
             d_textures, d_texelBuf, d_matTexId, d_matNormalTexId, d_matNormalStrength,
             d_matBumpTexId, d_matBumpStrength, d_matBumpDistance, d_triGen, d_triObj,
-            d_matBumpCorrect, d_matBumpProc});
+            d_matBumpCorrect, d_matBumpProc, d_matShadowAlphaTex});
     // pkg219b — op-VM program device arrays (all null when no material carries a
     // program; res.hasProgram=false then selects the <…,false> shade kernel).
     astroray::svm::ShaderVMProgram* d_programs =

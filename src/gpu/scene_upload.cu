@@ -382,6 +382,18 @@ static void appendAttrCorners(const Triangle& tri, size_t triIndex, size_t first
     }
 }
 
+// #1242 - a Principled Alpha program that is one bare Image Texture Alpha link: a single
+// GOP_TEX_NATIVE over input 0 whose result is the output. Its grey texture is what the
+// transparent-shadow walk samples at each occluder hit (gpu_shadowAlphaTexel); any other Alpha
+// chain keeps the constant coverage hint there.
+static bool isBareImageProgram(const GraphProgramTexture& g) {
+    const astroray::sgraph::GraphProgramData& p = g.getProgram();
+    return g.numInputs() == 1 && !g.inputIsCoord(0) &&
+           std::dynamic_pointer_cast<ImageTexture>(g.getInput(0)) != nullptr &&
+           p.instrs.size() == 1 && p.instrs[0].op == astroray::sgraph::GOP_TEX_NATIVE &&
+           p.instrs[0].res == 0 && (uint32_t)p.instrs[0].dst == p.desc.outSlot;
+}
+
 // pkg315 (#1067): the per-MATERIAL half of the per-triangle UV-upload gate that
 // appendOnePrim applies (the aniso case also needs the triangle's own
 // hasUVLayers). Factored out so the material-only replay (buildMaterialDomain)
@@ -443,7 +455,9 @@ static UvGate classifyUvGate(const std::shared_ptr<Material>& mtl) {
          scalarMtl->scalarProgram(astroray::svm::SCALAR_TRANSMISSION) ||
          scalarMtl->scalarProgram(astroray::svm::SCALAR_IOR) ||
          // #988 — textured Principled Base Color (image / 2D bake input).
-         scalarMtl->scalarProgram(astroray::svm::SCALAR_BASE_COLOR));
+         scalarMtl->scalarProgram(astroray::svm::SCALAR_BASE_COLOR) ||
+         // #1242 — per-texel Principled Alpha (a graph program reading the hit UV).
+         scalarMtl->scalarProgram(astroray::svm::SCALAR_ALPHA));
     // pkg242 Phase 0 -- UV-less fallback contract. The CPU Triangle ALWAYS
     // defines (uv0,uv1,uv2): authored layer 0 when present, else the
     // implicit default domain uv0=(0,0),uv1=(1,0),uv2=(0,1)
@@ -1815,6 +1829,7 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
         // pkg314 — graph programs per slot (svm::ScalarSlot order, 4 = base colour).
         int graphSlots[astroray::sgraph::GRAPH_MAT_SLOTS];
         for (int s = 0; s < astroray::sgraph::GRAPH_MAT_SLOTS; ++s) graphSlots[s] = -1;
+        int shadowAlphaTex = -1;   // #1242
         // #826 — texIds of the program's inputs, OP_LOAD_TEX order (-1 = none).
         int progInTex[astroray::svm::VM_MAX_TEX];
         for (int t = 0; t < astroray::svm::VM_MAX_TEX; ++t) progInTex[t] = -1;
@@ -2101,6 +2116,21 @@ static bool buildSceneArraysImpl(const Renderer& cpu, const Camera* cam, SceneUp
             r.materialScalarProgId.push_back(sProgId);
             r.materialScalarTexId.push_back(sTexId);
         }
+        // #1242 — Principled Alpha: a graph program only (no op-VM scalar slot). The graph kernel
+        // writes it to GRAPH_OUT_ALPHA; the shade override reads it (stage_advance_device.cuh).
+        if (auto gpt = std::dynamic_pointer_cast<GraphProgramTexture>(
+                m->scalarProgram(astroray::svm::SCALAR_ALPHA))) {
+            graphSlots[astroray::sgraph::GRAPH_SLOT_ALPHA] = uploadGraphProgram(gpt.get());
+            if (graphSlots[astroray::sgraph::GRAPH_SLOT_ALPHA] >= 0) {
+                r.hasProgram = true;
+                // A bare image Alpha also feeds the transparent-shadow walk its grey texture id
+                // (the program's input 0: graphTexRefs[texOffset]).
+                if (isBareImageProgram(*gpt))
+                    shadowAlphaTex = r.graphTexRefs[r.graphPrograms[
+                        graphSlots[astroray::sgraph::GRAPH_SLOT_ALPHA]].texOffset];
+            }
+        }
+        r.materialShadowAlphaTexId.push_back(shadowAlphaTex);
         // #995 -- the closure tree's per-texel Mix Facs: graph programs on this
         // material's fac slots (the graph kernel writes graphOut rows GRAPH_OUT_FAC0+k).
         std::vector<char> treeFacOk;
@@ -2908,6 +2938,7 @@ void adoptMaterialDomain(SceneUploadResult& dst, SceneUploadResult&& src) {
     dst.graphTexRefs = std::move(src.graphTexRefs);
     dst.graphPrograms = std::move(src.graphPrograms);
     dst.materialGraphProg = std::move(src.materialGraphProg);
+    dst.materialShadowAlphaTexId = std::move(src.materialShadowAlphaTexId);   // #1242
     dst.hasGraph = src.hasGraph;
     dst.graphMaxSlots = src.graphMaxSlots;
     dst.lightPathSwitch = std::move(src.lightPathSwitch);

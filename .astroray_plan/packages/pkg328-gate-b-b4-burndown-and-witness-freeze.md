@@ -134,7 +134,7 @@ not an engine gap. Fixing it does not inflate S, because reported drops still ea
 
 - [ ] b4 on candidate_v2 lists only unreported drops; the target is 0. Each of the 8 non-pkg321 rows has a probe verdict in
       the PR body.
-- [ ] b1 passes from the hashed ratification file.
+- [x] b1 passes from the hashed ratification file.
 - [ ] Both new tests and the existing coverage tests pass. `coverage_report.py --score` exits 0 on both populations.
 - [ ] Phase 2: audit witnesses frozen under Welch-1b. S_CPU, S_GPU, the ceiling and the proposed threshold recorded in
       `stage0-gate-scoring-*.md`. Receipt independent; owner sign-off on the threshold recorded in the PR.

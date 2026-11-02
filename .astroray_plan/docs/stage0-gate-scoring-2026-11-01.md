@@ -136,3 +136,14 @@ python benchmarks/reference_corpus/coverage_report.py --score --input-manifest d
 Gotchas found: score in a clone made with `core.autocrlf=false` (CRLF checkout changes the pinned hashes); `harness._find_blender` takes Blender 5.1 from PATH unless `BLENDER_EXE` is set; the matrix generator and the legs need
 `ASTRORAY_PYD_DIR`. The earlier `coverage_input_v4_candidate_v2.json` is superseded by the v5 input and no longer scores (its matrix
 hash is stale); it is left in place as history.
+
+## 2026-11-02 note: witness re-audit and b1
+
+- All audit witnesses' Astroray legs were re-rendered on build ef27d80 (main's engine content). S_CPU = 0.5696, S_GPU = 0.5591
+  (CPU 0.5696 / GPU 0.5591 from the committed v5 input, re-frozen after the new `audit_results.json`).
+- Witnesses that flipped to passing: Grid100k Principled (CPU and GPU); `v2_textures_opvm` CardMapAfterWarp Mapping and Noise, and
+  CardWave (GPU).
+- b1 now passes: the owner's 2026-10-06 population decision, confirmed 2026-10-31 (decision 4), is recorded in
+  `docs/blender_parity/evidence/gate_b/candidate_v2/b1_ratification.md`. Its sha256 is pinned in
+  `POPULATION_RATIFICATIONS` (`coverage_report.py`), written into the derived `populations/candidate_v2.json`, and carried into the
+  freeze. `nine_scene` stays unratified. `b1_input_manifest_ratified.pass == true`; S is unchanged by b1.

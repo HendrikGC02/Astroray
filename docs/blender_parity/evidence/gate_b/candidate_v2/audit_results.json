@@ -1,14 +1,14 @@
 {
   "build": {
     "CPU": {
-      "addon_sha256": "f2bdd5263efcdb3c429fc3b6399a0c74fcc47c72af0ab9eda8a6f7b78d81c1e0",
-      "build_id": "ef27d80+20261101T165703Z",
-      "module_sha256": "b3c58c06e06f24ab2321ed268d83ad478ec0e0ef7133e7eca2c7dc1af708e6f7"
+      "addon_sha256": "02d8b8cf28c0beb918db72bcd31c66df14905a9d802584ff133e9b45d7e5f296",
+      "build_id": "8785091+20261101T213823Z",
+      "module_sha256": "4f2e57e7fc99d740aec20aec55a64ac9d69ef15038e3efe72478198d35071c2c"
     },
     "GPU": {
-      "addon_sha256": "f2bdd5263efcdb3c429fc3b6399a0c74fcc47c72af0ab9eda8a6f7b78d81c1e0",
-      "build_id": "ef27d80+20261101T165703Z",
-      "module_sha256": "b3c58c06e06f24ab2321ed268d83ad478ec0e0ef7133e7eca2c7dc1af708e6f7"
+      "addon_sha256": "02d8b8cf28c0beb918db72bcd31c66df14905a9d802584ff133e9b45d7e5f296",
+      "build_id": "8785091+20261101T213823Z",
+      "module_sha256": "4f2e57e7fc99d740aec20aec55a64ac9d69ef15038e3efe72478198d35071c2c"
     }
   },
   "n_seeds": 8,
@@ -26,7 +26,7 @@
   ],
   "stack_sha256": {
     "CPU": {
-      "prod_car_paint/cpu": "881fe3f9c1ef87a16a3fb75905d793b89f72bc6435c4f14b970b773cb4e3bc4f",
+      "prod_car_paint/cpu": "63c1edb572adbda2b3875f8dcdfc52d6462f018b4ea7b5deb0cf307794d4f82b",
       "prod_car_paint/cycles": "f93b8aa144a8c26e2a879475f9437b68f9aaa2649b588a528e7c9d08c0b4826f",
       "prod_curves_geometry/cpu": "91e6df14c2eb7d33c29ca466085b4393af10a6a9b1e86ef08c802910303d8d14",
       "prod_curves_geometry/cycles": "289d7bc39aa3ad5d8e1430ceae13f669ac79a9212b92813f75785e6659365b84",
@@ -34,7 +34,7 @@
       "prod_marble/cycles": "1a00d0305b67b627109c0179c71bb92401b1ab1cc51dae4f125014a029aa271c",
       "prod_shader_stack/cpu": "2d5be14942c4617d2932604c0626c05c2453429efeb5c5ba3ac8a82b5123aaf7",
       "prod_shader_stack/cycles": "2dc5a0dad228256086c5bfcf272f3d50fdc17114caa1eeb11d33967a412e708f",
-      "prod_wood/cpu": "48d8f2aa5ed61ab4d63c2514b069b738642d5e38ef59f3f37d902db981fd32e4",
+      "prod_wood/cpu": "06446a472e41eb3c27042d9d6b019f10c72392a502bd7cd433a2711eb15390de",
       "prod_wood/cycles": "c2f75f9998dcf9bff97b0fead66832899bbc4def2a487a724aa9d86ad0e4a2c4",
       "v2_sky_sun/cpu": "c14073180a5e4563a5dcb9584b5d0ddb4cc47aa52d10fd8b3dba5500bbc7ab38",
       "v2_sky_sun/cycles": "632b8e93a7a32c4d642ee66f78f5d8e80b19b8ec5faabbe6f72415368a7889cb",
@@ -47,23 +47,23 @@
     },
     "GPU": {
       "prod_car_paint/cycles": "f93b8aa144a8c26e2a879475f9437b68f9aaa2649b588a528e7c9d08c0b4826f",
-      "prod_car_paint/gpu": "a3a9597d7a3a00d2b85f77f177f07348fccb265fa850621a18477e52f381f61c",
+      "prod_car_paint/gpu": "f6203aec627bc15f22b572a671cab8e446324372b0f8c50840f442d74b37150a",
       "prod_curves_geometry/cycles": "289d7bc39aa3ad5d8e1430ceae13f669ac79a9212b92813f75785e6659365b84",
-      "prod_curves_geometry/gpu": "5e144118b6f37dfc29933f65718dc279bf76deb1dcb39b7f0ea4efcb99b52720",
+      "prod_curves_geometry/gpu": "abac060b2c07949da50ebf81f02458bf89048587ed11d696b3c1feb726240099",
       "prod_marble/cycles": "1a00d0305b67b627109c0179c71bb92401b1ab1cc51dae4f125014a029aa271c",
-      "prod_marble/gpu": "b540443f7b88a290b57886df17f2991adf066920aabafe46252d3b06f862f3af",
+      "prod_marble/gpu": "38b852989afbdc5bd1f59d68a4c65620d1ae51a6548d64379b7fe4ba81e92fb3",
       "prod_shader_stack/cycles": "2dc5a0dad228256086c5bfcf272f3d50fdc17114caa1eeb11d33967a412e708f",
-      "prod_shader_stack/gpu": "d962f71f732ffce4c1025355bde4ccd5b488755ee809353148b96247bc429771",
+      "prod_shader_stack/gpu": "c7e747ea3a05adc3e91aa55224115da733b87b0a99734c3093e7b6d9ab618ace",
       "prod_wood/cycles": "c2f75f9998dcf9bff97b0fead66832899bbc4def2a487a724aa9d86ad0e4a2c4",
-      "prod_wood/gpu": "53cde9af378c6d1f6a2060cb9d75639fd50fe28e7acda0e5e0c1663b846a9bd1",
+      "prod_wood/gpu": "31a55ff27781a9eb047ac07f560f7ce7c51b4b7751c0c28c97ec16797832958b",
       "v2_sky_sun/cycles": "632b8e93a7a32c4d642ee66f78f5d8e80b19b8ec5faabbe6f72415368a7889cb",
-      "v2_sky_sun/gpu": "69cd6378ac13019189a8806f608cc35fd065f17a830cc1d326c3d97e2a7f59f8",
+      "v2_sky_sun/gpu": "188fc2d8085d1f911d8bf1f6602027eb9c32b7c6bd5bac1077e7a4c5ed9087c3",
       "v2_textures_opvm/cycles": "c513687a03d9b6e41ac76967277f1469bb61706a0d3d2491e124eac3b047ff79",
-      "v2_textures_opvm/gpu": "460fa4499b039a247e677023cfdcb130c20bbecad772ac27fcdd5220d5d17428",
+      "v2_textures_opvm/gpu": "b7a5053df38ddcc30f3faf5750ebfddf322d857ea2f1eeaa67e28ac9abf02a96",
       "v2_thin_film_metals/cycles": "23945c6c03bc8428b6baaaa4d2ebccc522788c8cae1888b2de0717d8ee112c39",
-      "v2_thin_film_metals/gpu": "b832353dc64fdf797971caa29da279c706bd34f2df99d11b624d979124b9bd7d",
+      "v2_thin_film_metals/gpu": "e594f479f6922ca3f7a3f78385a9d3899d9469ff36515f9ddcb454091ad362e0",
       "v2_viewport/cycles": "3adb287218d17e59b2cbb02460c48f67b8b61e4259585a4015347fd2f9caaf09",
-      "v2_viewport/gpu": "c80ce780b5e84213365b8694a7fd92938ad3ba8c25909d40cf23d6c9eda69ddb"
+      "v2_viewport/gpu": "08292763afc5c9adb19db2884e171b345fb542589bea4a5c918ab80317512868"
     }
   },
   "welch": {
@@ -77,8 +77,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.32198745012283325,
-            "value": 0.09171494096517563
+            "signal": 0.32185617089271545,
+            "value": 0.09130232781171799
           },
           "cycles": {
             "ok": true,
@@ -97,16 +97,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.9785298705101013,
-          1.0001872777938843,
-          0.9858759045600891
+          0.9812186360359192,
+          1.0016826391220093,
+          0.9838786721229553
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.15928320586681366,
-          "mean_rel_diff": -0.01753123663365841,
-          "min_p": 7.631178625350332e-12,
-          "n_reject_holm": 104,
+          "max_rel_bias_rejected": 0.14041537046432495,
+          "mean_rel_diff": -0.017757393419742584,
+          "min_p": 1.4735025433614021e-10,
+          "n_reject_holm": 69,
           "n_tests": 1587,
           "pass": false
         }
@@ -115,8 +115,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.32125574350357056,
-            "value": 0.04679625853896141
+            "signal": 0.32150891423225403,
+            "value": 0.04655060917139053
           },
           "cycles": {
             "ok": true,
@@ -135,16 +135,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.9829405546188354,
-          0.9978854656219482,
-          0.9796566367149353
+          0.9859940409660339,
+          1.0010029077529907,
+          0.9797748923301697
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.1681647002696991,
-          "mean_rel_diff": -0.01624855026602745,
-          "min_p": 1.7578890059608623e-11,
-          "n_reject_holm": 91,
+          "max_rel_bias_rejected": 0.12535275518894196,
+          "mean_rel_diff": -0.014970073476433754,
+          "min_p": 9.898307847355489e-10,
+          "n_reject_holm": 56,
           "n_tests": 1587,
           "pass": false
         }
@@ -219,9 +219,9 @@
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 1.9234570264816284,
+          "max_rel_bias_rejected": 1.923457384109497,
           "mean_rel_diff": -0.027575504034757614,
-          "min_p": 1.102256031108971e-22,
+          "min_p": 1.1022674507202762e-22,
           "n_reject_holm": 52,
           "n_tests": 1368,
           "pass": false
@@ -291,7 +291,7 @@
           true
         ],
         "roi_mean_ratio_rgb": [
-          1.0071285963058472,
+          1.0071287155151367,
           1.0068730115890503,
           1.0051450729370117
         ],
@@ -369,7 +369,7 @@
           true
         ],
         "roi_mean_ratio_rgb": [
-          1.0071285963058472,
+          1.0071287155151367,
           1.0068730115890503,
           1.0051450729370117
         ],
@@ -428,7 +428,7 @@
           "astroray": {
             "ok": true,
             "signal": 0.7692176699638367,
-            "value": 0.13299186527729034
+            "value": 0.13299185037612915
           },
           "cycles": {
             "ok": true,
@@ -447,7 +447,7 @@
           true
         ],
         "roi_mean_ratio_rgb": [
-          1.0071285963058472,
+          1.0071287155151367,
           1.0068730115890503,
           1.0051450729370117
         ],
@@ -532,7 +532,7 @@
         "status": "PASS",
         "welch": {
           "max_rel_bias_rejected": 0.0,
-          "mean_rel_diff": 0.005711073987185955,
+          "mean_rel_diff": 0.005711075384169817,
           "min_p": 0.0035673554869306737,
           "n_reject_holm": 0,
           "n_tests": 1587,
@@ -610,7 +610,7 @@
         "status": "PASS",
         "welch": {
           "max_rel_bias_rejected": 0.0,
-          "mean_rel_diff": 0.005711073987185955,
+          "mean_rel_diff": 0.005711075384169817,
           "min_p": 0.0035673554869306737,
           "n_reject_holm": 0,
           "n_tests": 1587,
@@ -623,8 +623,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.2717083990573883,
-            "value": 0.05900101363658905
+            "signal": 0.27180206775665283,
+            "value": 0.05913836508989334
           },
           "cycles": {
             "ok": true,
@@ -643,16 +643,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.985613226890564,
-          0.9944981336593628,
-          0.9761590361595154
+          0.9868746399879456,
+          0.9955497980117798,
+          0.976629912853241
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.10689053684473038,
-          "mean_rel_diff": -0.014325135387480259,
-          "min_p": 1.112971860068644e-08,
-          "n_reject_holm": 44,
+          "max_rel_bias_rejected": 0.08556723594665527,
+          "mean_rel_diff": -0.01310711819678545,
+          "min_p": 7.693810199583695e-09,
+          "n_reject_holm": 37,
           "n_tests": 1587,
           "pass": false
         }
@@ -661,8 +661,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.2735845446586609,
-            "value": 0.012463863007724285
+            "signal": 0.2735881805419922,
+            "value": 0.012462832033634186
           },
           "cycles": {
             "ok": true,
@@ -681,16 +681,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.9918915033340454,
-          0.999923050403595,
-          0.9788975715637207
+          0.9928476214408875,
+          1.0006424188613892,
+          0.9791742563247681
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.09798068553209305,
-          "mean_rel_diff": -0.010225903242826462,
+          "max_rel_bias_rejected": 0.09798002243041992,
+          "mean_rel_diff": -0.009363444522023201,
           "min_p": 3.2607901167505485e-07,
-          "n_reject_holm": 32,
+          "n_reject_holm": 31,
           "n_tests": 1587,
           "pass": false
         }
@@ -701,8 +701,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.2717083990573883,
-            "value": 0.1040642112493515
+            "signal": 0.27180206775665283,
+            "value": 0.10381565988063812
           },
           "cycles": {
             "ok": true,
@@ -721,16 +721,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.985613226890564,
-          0.9944981336593628,
-          0.9761590361595154
+          0.9868746399879456,
+          0.9955497980117798,
+          0.976629912853241
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.10689053684473038,
-          "mean_rel_diff": -0.014325135387480259,
-          "min_p": 1.112971860068644e-08,
-          "n_reject_holm": 44,
+          "max_rel_bias_rejected": 0.08556723594665527,
+          "mean_rel_diff": -0.01310711819678545,
+          "min_p": 7.693810199583695e-09,
+          "n_reject_holm": 37,
           "n_tests": 1587,
           "pass": false
         }
@@ -739,8 +739,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.2735845446586609,
-            "value": 0.08364897221326828
+            "signal": 0.2735881805419922,
+            "value": 0.08364932239055634
           },
           "cycles": {
             "ok": true,
@@ -759,16 +759,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.9918915033340454,
-          0.999923050403595,
-          0.9788975715637207
+          0.9928476214408875,
+          1.0006424188613892,
+          0.9791742563247681
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.09798068553209305,
-          "mean_rel_diff": -0.010225903242826462,
+          "max_rel_bias_rejected": 0.09798002243041992,
+          "mean_rel_diff": -0.009363444522023201,
           "min_p": 3.2607901167505485e-07,
-          "n_reject_holm": 32,
+          "n_reject_holm": 31,
           "n_tests": 1587,
           "pass": false
         }
@@ -779,8 +779,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.2717083990573883,
-            "value": 0.062082961201667786
+            "signal": 0.27180206775665283,
+            "value": 0.062231820076704025
           },
           "cycles": {
             "ok": true,
@@ -799,16 +799,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.985613226890564,
-          0.9944981336593628,
-          0.9761590361595154
+          0.9868746399879456,
+          0.9955497980117798,
+          0.976629912853241
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.10689053684473038,
-          "mean_rel_diff": -0.014325135387480259,
-          "min_p": 1.112971860068644e-08,
-          "n_reject_holm": 44,
+          "max_rel_bias_rejected": 0.08556723594665527,
+          "mean_rel_diff": -0.01310711819678545,
+          "min_p": 7.693810199583695e-09,
+          "n_reject_holm": 37,
           "n_tests": 1587,
           "pass": false
         }
@@ -817,8 +817,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.2735845446586609,
-            "value": 0.022619610652327538
+            "signal": 0.2735881805419922,
+            "value": 0.022619741037487984
           },
           "cycles": {
             "ok": true,
@@ -837,16 +837,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.9918915033340454,
-          0.999923050403595,
-          0.9788975715637207
+          0.9928476214408875,
+          1.0006424188613892,
+          0.9791742563247681
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.09798068553209305,
-          "mean_rel_diff": -0.010225903242826462,
+          "max_rel_bias_rejected": 0.09798002243041992,
+          "mean_rel_diff": -0.009363444522023201,
           "min_p": 3.2607901167505485e-07,
-          "n_reject_holm": 32,
+          "n_reject_holm": 31,
           "n_tests": 1587,
           "pass": false
         }
@@ -857,8 +857,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.2717083990573883,
-            "value": 0.08467796444892883
+            "signal": 0.27180206775665283,
+            "value": 0.08437103778123856
           },
           "cycles": {
             "ok": true,
@@ -877,16 +877,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.985613226890564,
-          0.9944981336593628,
-          0.9761590361595154
+          0.9868746399879456,
+          0.9955497980117798,
+          0.976629912853241
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.10689053684473038,
-          "mean_rel_diff": -0.014325135387480259,
-          "min_p": 1.112971860068644e-08,
-          "n_reject_holm": 44,
+          "max_rel_bias_rejected": 0.08556723594665527,
+          "mean_rel_diff": -0.01310711819678545,
+          "min_p": 7.693810199583695e-09,
+          "n_reject_holm": 37,
           "n_tests": 1587,
           "pass": false
         }
@@ -895,8 +895,8 @@
         "effect": {
           "astroray": {
             "ok": true,
-            "signal": 0.2735845446586609,
-            "value": 0.061565253883600235
+            "signal": 0.2735881805419922,
+            "value": 0.06156506389379501
           },
           "cycles": {
             "ok": true,
@@ -915,16 +915,16 @@
           false
         ],
         "roi_mean_ratio_rgb": [
-          0.9918915033340454,
-          0.999923050403595,
-          0.9788975715637207
+          0.9928476214408875,
+          1.0006424188613892,
+          0.9791742563247681
         ],
         "status": "FAIL",
         "welch": {
-          "max_rel_bias_rejected": 0.09798068553209305,
-          "mean_rel_diff": -0.010225903242826462,
+          "max_rel_bias_rejected": 0.09798002243041992,
+          "mean_rel_diff": -0.009363444522023201,
           "min_p": 3.2607901167505485e-07,
-          "n_reject_holm": 32,
+          "n_reject_holm": 31,
           "n_tests": 1587,
           "pass": false
         }
@@ -1390,7 +1390,7 @@
         "status": "FAIL",
         "welch": {
           "max_rel_bias_rejected": 0.08812157809734344,
-          "mean_rel_diff": -0.012944083660840988,
+          "mean_rel_diff": -0.012944082729518414,
           "min_p": 1.7289228083497276e-05,
           "n_reject_holm": 2,
           "n_tests": 192,

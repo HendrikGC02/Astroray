@@ -11757,12 +11757,12 @@
       }
     }
   },
-  "created": "2026-11-01T20:51:08+00:00",
+  "created": "2026-11-02T00:07:05+00:00",
   "evidence": {
     "audit": {
       "results": {
         "path": "docs/blender_parity/evidence/gate_b/candidate_v2/audit_results.json",
-        "sha256": "f9c143242da3d08dd08dc50c05a7c556a8ab3cccebacf70a6788cb4e35dc5974"
+        "sha256": "6d2d15286aa3e7d100eef7582584a467c178ec86cd47773dffed06a869d56e71"
       },
       "sample": {
         "path": "benchmarks/reference_corpus/audit_sample_candidate_v2.json",
@@ -11775,7 +11775,7 @@
   "input_path": "docs/blender_parity/coverage_input_v5_candidate_v2.json",
   "matrix": {
     "path": "docs\\blender_parity\\coverage_matrix.json",
-    "sha256": "98432fbb36db41602dbb403def946f974d17324de698bafa70c95d3b213d3076"
+    "sha256": "95d2eca3e5e08b259ad6b05536e342a00942f379689e7bb8429abe6ab653739b"
   },
   "population": {
     "expected_scene_ids": [

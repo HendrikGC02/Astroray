@@ -1,6 +1,38 @@
 # Astroray Status
 
-## 2026-11-02 CURRENT — two batches merged, (g) moves to an 8-seed mean, (b) threshold signed, Filter Glossy found (Opus 5.5 lead)
+## 2026-11-02 (handover) CURRENT — batch 11-02b, row (b) channel pins decided, PC handed to another project (Opus 5.5 lead)
+
+**Merged:**
+- #1246 (glass film tint, image alpha association, pkg329 Filter Glossy).
+- #1247: row (b) re-audit on main, S 0.570 / 0.559; b1 ratified.
+
+**Batch 11-02b (this PR):**
+- #1242: image Alpha output, cutouts, per-pixel GPU shadow alpha. GPU cutout error 7.0 % → 1.9 %.
+- #1227: Principled diffuse ignores the view side, as Cycles does. This removes the dark limb ring on bumped surfaces. The #1190 lane found the same bug; its render-level test is included.
+- Row (b) re-audit on this build, re-frozen and scored.
+- Run report: `.astroray_plan/docs/reports/2026-11-02-stage0-exit-push.html`.
+- Sweep: 6316 passed, 6 failed (all #1213). Perf B/A 0.999–1.011.
+
+**Gates on this build:**
+- (g) 8-seed mean: **CPU 5/8** (wood now passes), GPU 4/8.
+  - Failing: attributes and curves on both legs; car_paint on both; pbr_group on GPU (#1237).
+- (b) S: **0.570 / 0.559**; the signed threshold is 0.676 / 0.665.
+  - Verdicts are unchanged, but wood ×4 and car_paint Bump now reject in **blue only**. Wood CPU went from 1/0/43 to 0/0/37 r/g/b rejects; car_paint CPU from 15/13/76 to 0/0/69.
+  - curves Noise rejects in red only.
+- (e): #1242 (high) closes with this PR; #1244 and #1245 are low.
+
+**Owner decision 11-02: row (b) per-ROI channel pins** (#1248). A witness drops one channel when Mitsuba reproduces that channel's shift on its ROI, at the row (g) bar.
+- Blue pins on wood and car_paint free Wave, Mapping and Bump: 57 weight units, against 51 (CPU) and 50 (GPU) still needed.
+- Next lane: judge pin support plus per-ROI Mitsuba Ms/Mr from the p327 proxy frames, then a re-judge with no re-render.
+
+**Still open:**
+- b5 (no Displacement scene; Metallic/Principled sockets) and b6 (wording versus the sampled audit) need owner wording.
+- #1228 curves Noise, #1232 RoughnessProg Noise, v2_sky_sun Sky, Gold Metallic GPU.
+- #1213; #1244.
+
+**Owner to close:** #1229, #1239 and #1231. The tool permissions block me from closing issues.
+
+## 2026-11-02 — two batches merged, (g) moves to an 8-seed mean, (b) threshold signed, Filter Glossy found (Opus 5.5 lead)
 
 **Merged since 11-01 midday:**
 - #1221: EXR world maps load (#1216).
